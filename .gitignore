@@ -1,0 +1,23 @@
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+.vscode/
+.idea/
+# Node / Frontend
+node_modules/
+dist/
+.build/
+.cache/
+*.local
+# PHP / Backend
+vendor/
+storage/
+bootstrap/cache/
+.env
+.env.*
+.phpunit.result.cache
+# Misc
+coverage/
+.envrc
