@@ -15,7 +15,7 @@ return new class extends Migration
         Schema::create('clients', function (Blueprint $table) {
             $table->bigIncrements('client_id');
 
-            $table->unsignedBigInteger('staff_id')->nullable();
+            $table->unsignedBigInteger('staff_id');
 
             $table->string('name', 150);
             $table->string('type', 12);
@@ -29,7 +29,7 @@ return new class extends Migration
             $table->foreign('staff_id', 'fk_clients_staffs')
                 ->references('staff_id')->on('staffs')
                 ->cascadeOnUpdate()
-                ->nullOnDelete();
+                ->restrictOnDelete();
         });
 
         DB::statement("ALTER TABLE clients ADD CONSTRAINT chk_clients_type CHECK (type IN ('individual', 'institution'));");
