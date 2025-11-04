@@ -65,7 +65,7 @@ return new class extends Migration
     {
         DB::statement(
             "ALTER TABLE reports 
-            DROP CONSTRAINT IF EXISTS chk_reports_locked"
+            DROP CONSTRAINT IF EXISTS chk_reports_locked;"
         );
 
         Schema::table('reports', function (Blueprint $table) {

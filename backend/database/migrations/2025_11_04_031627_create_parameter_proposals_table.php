@@ -75,7 +75,7 @@ return new class extends Migration
         // DROP CHECK Constraint
         DB::statement(
             "ALTER TABLE parameter_proposals
-            DROP CONSTRAINT IF EXISTS chk_prop_status
+            DROP CONSTRAINT IF EXISTS chk_prop_status;
         "
         );
 
