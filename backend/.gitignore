@@ -1,0 +1,8 @@
+/vendor/
+/node_modules/
+/storage/
+/bootstrap/cache/
+/.env
+.phpunit.result.cache
+/.php-cs-fixer.cache
+/.phpactor.json
