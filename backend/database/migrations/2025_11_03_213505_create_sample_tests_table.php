@@ -12,7 +12,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('samples_test', function (Blueprint $table) {
+        Schema::create('sample_tests', function (Blueprint $table) {
             // PK
             $table->bigIncrements('sample_test_id');
 
@@ -33,8 +33,8 @@ return new class extends Migration
             $table->boolean('qc_done')->default(false);
             $table->boolean('om_verified')->default(false);
             $table->timestampTz('om_verified_at')->nullable();
-            $table->boolean('lh_verified')->default(false);
-            $table->timestampTz('lh_verified_at')->nullable();
+            $table->boolean('lh_validated')->default(false);
+            $table->timestampTz('lh_validated_at')->nullable();
 
             // Timestamps
             $table->timestampTz('created_at')->useCurrent();
@@ -61,7 +61,7 @@ return new class extends Migration
                 ->restrictOnDelete();
 
             // FK Constraints to staffs.staff_id
-            $table->foreign('staff_id', 'fk_sampletests_staffs_assignee')
+            $table->foreign('assigned_to', 'fk_sampletests_staffs_assignee')
                 ->references('staff_id')->on('staffs')
                 ->cascadeOnUpdate()
                 ->nullOnDelete();
@@ -88,7 +88,7 @@ return new class extends Migration
             "ALTER TABLE sample_tests DROP CONSTRAINT IF EXISTS chk_sampletests_flag;"
         );
 
-        Schema::table('samples_tests', function (Blueprint $table) {
+        Schema::table('sample_tests', function (Blueprint $table) {
             // Drop foreign key constraints
             $table->dropForeign('fk_sampletests_samples');
             $table->dropForeign('fk_sampletests_parameters');
@@ -103,6 +103,6 @@ return new class extends Migration
             $table->dropUnique('uq_sampletests_sample_param');
         });
 
-        Schema::dropIfExists('samples_test');
+        Schema::dropIfExists('sample_tests');
     }
 };
