@@ -74,7 +74,7 @@ return new class extends Migration
                 (qc_done IN (false,true)) AND 
                 (om_verified IN (false,true)) AND 
                 (lh_validated IN (false,true))
-            )"
+            );"
         );
     }
 

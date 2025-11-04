@@ -54,7 +54,7 @@ return new class extends Migration
     public function down(): void
     {
         // DROP CHECK CONSTRAINT
-        DB::statement("ALTER TABLE samples DROP CONSTRAINT IF EXISTS chk_samples_status");
+        DB::statement("ALTER TABLE samples DROP CONSTRAINT IF EXISTS chk_samples_status;");
 
         // DROP TABLE
         Schema::table('samples', function (Blueprint $table) {
