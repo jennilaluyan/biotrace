@@ -9,30 +9,29 @@ use Illuminate\Support\Facades\Hash;
 
 class UserSeeder extends Seeder
 {
-    /**
-     * Seed 6 baseline accounts and (if present) populate staffs.role_id.
-     * Keeps schema-awareness (staffs/users; full_name/name; password_hash/password).
-     */
     public function run(): void
     {
-        // Detect table names
         $table = Schema::hasTable('staffs') ? 'staffs' : 'users';
 
-        // Detect available columns
         $hasFullName = Schema::hasColumn($table, 'full_name');
         $hasName     = Schema::hasColumn($table, 'name');
         $hasEmail    = Schema::hasColumn($table, 'email');
         $hasPwdHash  = Schema::hasColumn($table, 'password_hash');
         $hasPassword = Schema::hasColumn($table, 'password');
         $hasActive   = Schema::hasColumn($table, 'is_active');
-        $hasRoleId   = Schema::hasColumn($table, 'role_id'); // <-- important for single-role schema
+        $hasRoleId   = Schema::hasColumn($table, 'role_id');
 
-        // Resolve role IDs from master roles (seeded by RoleSeeder)
-        // Pluck returns ['ADMIN' => 1, 'LAB_HEAD' => 2, ...]
-        $roleIdByCode = DB::table('roles')->pluck('role_id', 'code')->toArray();
+        // Map role_id by role name from roles table
+        // ['Client' => 1, 'Administrator' => 2, ...] sesuai RoleSeeder
+        $roleIdByName = DB::table('roles')
+            ->pluck('role_id', 'name')
+            ->toArray();
 
-        // Helper to build a row that matches the schema, including role_id if present
-        $makeRow = function (string $displayName, string $email, ?string $roleCode) use (
+        $makeRow = function (
+            string $displayName,
+            string $email,
+            ?string $roleName
+        ) use (
             $hasFullName,
             $hasName,
             $hasEmail,
@@ -40,26 +39,26 @@ class UserSeeder extends Seeder
             $hasPassword,
             $hasActive,
             $hasRoleId,
-            $roleIdByCode
+            $roleIdByName
         ) {
             $row = [
                 'created_at' => now(),
                 'updated_at' => now(),
             ];
 
-            // Name column
+            // Name
             if ($hasFullName) {
                 $row['full_name'] = $displayName;
             } elseif ($hasName) {
                 $row['name'] = $displayName;
             }
 
-            // Email column
+            // Email
             if ($hasEmail) {
                 $row['email'] = $email;
             }
 
-            // Password column
+            // Password
             $hashed = Hash::make('P@ssw0rd!');
             if ($hasPwdHash) {
                 $row['password_hash'] = $hashed;
@@ -67,39 +66,39 @@ class UserSeeder extends Seeder
                 $row['password'] = $hashed;
             }
 
-            // Activation flag
+            // Active flag
             if ($hasActive) {
                 $row['is_active'] = true;
             }
 
-            // Single-role schema support (staffs.role_id NOT NULL in your DB)
-            if ($hasRoleId && $roleCode !== null) {
-                $row['role_id'] = $roleIdByCode[$roleCode] ?? null;
+            // Single-role via role_id
+            if ($hasRoleId && $roleName !== null) {
+                $row['role_id'] = $roleIdByName[$roleName] ?? null;
             }
 
             return $row;
         };
 
-        // Define 6 users (+ intended role codes). Password for all = 'P@ssw0rd!'
+        // Sesuaikan nama ROLE dengan 'name' di RoleSeeder
         $rows = [
-            $makeRow('Client',               'client@lims.local',              'CLIENT'),
-            $makeRow('Admin',                'admin@lims.local',               'ADMIN'),
-            $makeRow('Sample Collector',     'samplecollector@lims.local',     'SAMPLE_COLLECTOR'),
-            $makeRow('Analyst',              'analyst@lims.local',             'ANALYST'),
-            $makeRow('Operational Manager',  'operationalmanager@lims.local',  'OPERATIONAL_MANAGER'),
-            $makeRow('Laboratory Head',      'labhead@lims.local',             'LAB_HEAD'),
+            $makeRow('Client Demo',              'client@lims.local',             'Client'),
+            $makeRow('Administrator Demo',       'admin@lims.local',              'Administrator'),
+            $makeRow('Sample Collector Demo',    'samplecollector@lims.local',    'Sample Collector'),
+            $makeRow('Analyst Demo',             'analyst@lims.local',            'Analyst'),
+            $makeRow('Operational Manager Demo', 'operationalmanager@lims.local', 'Operational Manager'),
+            $makeRow('Laboratory Head Demo',     'labhead@lims.local',            'Laboratory Head'),
         ];
 
-        // Safety check: if role_id is required by schema, ensure it's not null
         if ($hasRoleId) {
             foreach ($rows as $r) {
                 if (!array_key_exists('role_id', $r) || $r['role_id'] === null) {
-                    throw new \RuntimeException('Missing role_id while seeding users. Ensure RoleSeeder ran and roles.code exist.');
+                    throw new \RuntimeException(
+                        'Missing role_id while seeding users. Check RoleSeeder role names.'
+                    );
                 }
             }
         }
 
-        // Upsert by email (requires staffs.email UNIQUE in migration)
         if ($hasEmail) {
             $updateColumns = array_keys($rows[0]);
             $updateColumns = array_values(array_filter($updateColumns, fn($c) => $c !== 'created_at'));
