@@ -16,29 +16,35 @@ class AuthController extends Controller
             'password' => ['required', 'string'],
         ]);
 
+        // Find staff by email
         $user = Staff::where('email', $data['email'])->first();
 
-        // Uniform error to avoid user enumeration
-        if (!$user || !Hash::check($data['password'], $user->getAuthPassword())) {
+        // Uniform error response
+        if (! $user || ! Hash::check($data['password'], $user->getAuthPassword())) {
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
-        if (!$user->is_active) {
+        if (! $user->is_active) {
             return response()->json(['message' => 'Account inactive'], 403);
         }
 
-        // Include role code/name for client UI
-        $role = $user->role()->select('code', 'name')->first();
+        // Load role by role_id (no `code` column anymore)
+        $role = $user->role()->select('role_id', 'name')->first();
 
         // Issue Sanctum token
         $token = $user->createToken('api-token')->plainTextToken;
 
         return response()->json([
-            'user'  => [
+            'user' => [
                 'id'    => $user->getKey(),
                 'name'  => $user->name ?? $user->full_name ?? null,
                 'email' => $user->email,
-                'role'  => $role ? ['code' => $role->code, 'name' => $role->name] : null,
+                'role'  => $role
+                    ? [
+                        'id'   => $role->role_id,
+                        'name' => $role->name,
+                    ]
+                    : null,
             ],
             'token' => $token,
         ], 200);
@@ -47,15 +53,20 @@ class AuthController extends Controller
     // GET /api/v1/auth/me
     public function me(Request $request)
     {
-        $user = $request->user(); // Sanctum resolves Staff model
-        $role = $user->role()->select('code', 'name')->first();
+        $user = $request->user();
+        $role = $user->role()->select('role_id', 'name')->first();
 
         return response()->json([
             'user' => [
                 'id'    => $user->getKey(),
                 'name'  => $user->name ?? $user->full_name ?? null,
                 'email' => $user->email,
-                'role'  => $role ? ['code' => $role->code, 'name' => $role->name] : null,
+                'role'  => $role
+                    ? [
+                        'id'   => $role->role_id,
+                        'name' => $role->name,
+                    ]
+                    : null,
             ],
         ], 200);
     }

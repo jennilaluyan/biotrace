@@ -13,10 +13,9 @@ class Role extends Model
     protected $primaryKey = 'role_id';
     public $timestamps = true;
 
-    // (optional) kalau mau mass-assign
-    protected $fillable = ['code', 'name', 'description'];
+    // Sudah tidak ada kolom "code", hapus dari fillable
+    protected $fillable = ['name', 'description'];
 
-    // Relasi balik ke staff (one-to-many)
     public function staffs()
     {
         return $this->hasMany(Staff::class, 'role_id', 'role_id');
