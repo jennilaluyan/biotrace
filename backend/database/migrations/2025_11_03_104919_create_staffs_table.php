@@ -18,7 +18,7 @@ return new class extends Migration
 
             // Main collumns
             $table->string('name', 100);
-            $table->string('email', 255);
+            $table->string('email', 255)->unique();
             $table->text('password_hash');
 
             // FK to roles.role_id

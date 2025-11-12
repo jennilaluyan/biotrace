@@ -1,8 +1,16 @@
+import { useEffect } from "react";
+import { apiGet } from "./lib/api";
+
 export default function App() {
+  useEffect(() => {
+    apiGet("/health-check").catch((err) => {
+      console.error(err);
+    });
+  }, []);
+
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
-      <h1>BioTrace — React SPA is alive ⚡</h1>
-      <p>Lint & Prettier ready. Happy hacking!</p>
+    <div className="flex h-screen items-center justify-center bg-slate-900 text-slate-100 text-2xl">
+      BioTrace Frontend Connected (env ready) ✅
     </div>
   );
 }

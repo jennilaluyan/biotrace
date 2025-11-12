@@ -15,6 +15,10 @@ return new class extends Migration
             $table->bigIncrements('role_id');
             $table->string('name', 50)->unique();
             $table->string('description', 200)->nullable();
+
+            // Timestamps
+            $table->timestampTz('created_at')->useCurrent();
+            $table->timestampTz('updated_at')->nullable();
         });
     }
 
