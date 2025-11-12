@@ -1,0 +1,4 @@
+https://localhost:8000 {
+    tls backend/ssl/localhost.pem backend/ssl/localhost-key.pem
+    reverse_proxy 127.0.0.1:8001
+}
