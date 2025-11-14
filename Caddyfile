@@ -1,4 +1,8 @@
-https://localhost:8000 {
-    tls backend/ssl/localhost.pem backend/ssl/localhost-key.pem
-    reverse_proxy 127.0.0.1:8001
+lims.localhost {
+    tls internal
+    encode gzip
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    }
+    reverse_proxy 127.0.0.1:8000
 }

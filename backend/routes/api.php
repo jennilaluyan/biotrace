@@ -3,10 +3,12 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 
-Route::prefix('v1/auth')->group(function () {
-    Route::post('/login',  [AuthController::class, 'login']);     // public
+Route::prefix('v1')->group(function () {
+
+    Route::post('/auth/login', [AuthController::class, 'login']);
+
     Route::middleware('auth:sanctum')->group(function () {
-        Route::get('/me',     [AuthController::class, 'me']);     // protected
-        Route::post('/logout', [AuthController::class, 'logout']); // protected
+        Route::get('/auth/me', [AuthController::class, 'me']);
+        Route::post('/auth/logout', [AuthController::class, 'logout']);
     });
 });
