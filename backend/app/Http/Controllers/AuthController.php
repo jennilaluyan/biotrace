@@ -6,7 +6,7 @@ use App\Models\Staff;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Laravel\Sanctum\PersonalAccessToken;
+use App\Support\AuditLogger;
 
 class AuthController extends Controller
 {
@@ -14,41 +14,91 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $data = $request->validate([
-            'email'    => ['required', 'email'],
-            'password' => ['required', 'string'],
-            'device_name' => ['nullable', 'string'], // optional: kalau mau token untuk Postman
+            'email'       => ['required', 'email'],
+            'password'    => ['required', 'string'],
+            'device_name' => ['nullable', 'string'], // optional: token untuk Postman
         ]);
 
-        // Cari staff by email
         $user = Staff::where('email', $data['email'])->first();
 
+        // =====================
+        // GAGAL: kredensial salah
+        // =====================
         if (! $user || ! Hash::check($data['password'], $user->getAuthPassword())) {
+            AuditLogger::write(
+                'LOGIN_FAILURE',
+                null,              // staff_id belum tahu
+                'staffs',          // entity_name
+                null,              // entity_id
+                null,              // old_values
+                [
+                    'email'  => $data['email'],
+                    'reason' => 'INVALID_CREDENTIALS',
+                ]
+            );
+
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
+        // =====================
+        // GAGAL: akun non-aktif
+        // =====================
         if (! $user->is_active) {
+            AuditLogger::write(
+                'LOGIN_FAILURE',
+                $user->getKey(),   // staff_id actor
+                'staffs',
+                $user->getKey(),
+                null,
+                [
+                    'email'  => $data['email'],
+                    'reason' => 'ACCOUNT_INACTIVE',
+                ]
+            );
+
             return response()->json(['message' => 'Account inactive'], 403);
         }
 
-        // 🔹 1) Login-kan user ke SESSION (cookie flow / Sanctum SPA)
-        Auth::login($user);
-        $request->session()->regenerate();
-
-        // Ambil role (optional)
-        $role = $user->role()->select('role_id', 'name')->first();
-
-        // 🔹 2) Kalau minta token (Postman), buatkan token
-        $token = null;
-        if (! empty($data['device_name'])) {
-            // kebijakan: 1 user = 1 token? kalau mau, hapus semua dulu
-            $user->tokens()->delete();
-
-            $token = $user->createToken($data['device_name'])->plainTextToken;
+        // =====================
+        // LOGIN via SESSION (browser SPA)
+        // =====================
+        if ($request->hasSession()) {
+            Auth::login($user);
+            $request->session()->regenerate();
         }
 
-        // 🔹 3) Response:
-        // - untuk browser SPA, yang penting cookie laravel_session sudah ter-set
-        // - untuk Postman, dia dapat token di body
+        // role user
+        $role = $user->role()->select('role_id', 'name')->first();
+
+        // =====================
+        // LOGIN via API TOKEN (Postman)
+        // =====================
+        $token = null;
+
+        if (! empty($data['device_name'])) {
+            // kebijakan: 1 user = 1 active token
+            $user->tokens()->delete();
+
+            $tokenInstance = $user->createToken($data['device_name']);
+            $token = $tokenInstance->plainTextToken;
+        }
+
+        // =====================
+        // LOGIN_SUCCESS → catat audit
+        // =====================
+        AuditLogger::write(
+            'LOGIN_SUCCESS',
+            $user->getKey(),      // staff_id
+            'staffs',
+            $user->getKey(),      // entity_id
+            null,
+            [
+                'email'       => $user->email,
+                'via'         => empty($data['device_name']) ? 'browser_session' : 'api_token',
+                'device_name' => $data['device_name'] ?? null,
+            ]
+        );
+
         return response()->json([
             'user' => [
                 'id'    => $user->getKey(),
@@ -61,14 +111,15 @@ class AuthController extends Controller
                     ]
                     : null,
             ],
-            'token' => $token, // bisa null kalau login dari browser biasa
+            // null untuk browser (cookie), string token untuk Postman
+            'token' => $token,
         ], 200);
     }
 
     // GET /api/v1/auth/me
     public function me(Request $request)
     {
-        $user = $request->user(); // dari Sanctum (token atau session)
+        $user = $request->user(); // bisa dari session atau token Sanctum
 
         if (! $user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
@@ -94,26 +145,39 @@ class AuthController extends Controller
     // POST /api/v1/auth/logout
     public function logout(Request $request)
     {
-        $user = $request->user(); // bisa via token atau via session
+        $user = $request->user();
+        $tokenId = null;
 
-        // 1) Revoke API token HANYA jika ini benar-benar PersonalAccessToken
+        // kalau logout pakai Bearer token (Postman)
         if ($user && method_exists($user, 'currentAccessToken')) {
             $token = $user->currentAccessToken();
 
-            // Untuk SPA (cookie) -> TransientToken, JANGAN di-delete
-            // Untuk Bearer token (Postman) -> PersonalAccessToken, BOLEH di-delete
             if ($token && ! $token instanceof \Laravel\Sanctum\TransientToken) {
+                $tokenId = $token->id;
                 $token->delete();
             }
         }
 
-        // 2) Putuskan SESSION (cookie flow)
+        // AUDIT: LOGOUT sebelum session dihancurkan
+        AuditLogger::write(
+            'LOGOUT',
+            $user?->getKey(),
+            'staffs',
+            $user?->getKey(),
+            null,
+            [
+                'email'    => $user?->email,
+                'token_id' => $tokenId,
+                'via'      => $tokenId ? 'api_token' : 'browser_session',
+            ]
+        );
+
+        // logout session (cookie flow)
         if ($request->hasSession()) {
             $request->session()->invalidate();
             $request->session()->regenerateToken();
         }
 
-        // 3) Tetap balas 204 No Content
         return response()->noContent();
     }
 }

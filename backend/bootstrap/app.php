@@ -27,20 +27,17 @@ return Application::configure(basePath: dirname(__DIR__))
             'auth' => \App\Http\Middleware\Authenticate::class,
         ]);
 
-        // GANTI DENGAN BLOK INI
         $middleware->redirectGuestsTo(function ($request) {
             if ($request->expectsJson()) {
                 return null;
             }
-            // Jika Anda juga punya rute login web, Anda bisa menambahkannya di sini
-            // return route('login');
         });
     })
     ->withExceptions(function (Exceptions $exceptions) {
         $exceptions->renderable(function (AuthenticationException $e, $request) {
-            if ($request->expectsJson()) {
-                return response()->json(['message' => 'Unauthenticated.'], 401);
-            }
+            return response()->json([
+                'message' => 'Unauthenticated.',
+            ], 401);
         });
     })
     ->create();

@@ -4,7 +4,8 @@ namespace App\Exceptions;
 
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
-use Throwable;
+use App\Support\AuditLogger;
+use Illuminate\Support\Facades\Request as RequestFacade;
 
 class Handler extends ExceptionHandler
 {
@@ -35,8 +36,20 @@ class Handler extends ExceptionHandler
      */
     protected function unauthenticated($request, AuthenticationException $exception)
     {
-        return response()->json([
-            'message' => 'Unauthenticated.',
-        ], 401);
+        $user = $request->user();
+
+        AuditLogger::write(
+            'AUTH_401_UNAUTHENTICATED',
+            $user?->staff_id,
+            'auth',
+            null,
+            null,
+            [
+                'url'    => $request->fullUrl(),
+                'guards' => $exception->guards(),
+            ]
+        );
+
+        return response()->json(['message' => 'Unauthenticated.'], 401);
     }
 }
