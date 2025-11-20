@@ -11,6 +11,7 @@ use App\Support\AuditLogger;
 class AuthController extends Controller
 {
     // POST /api/v1/auth/login
+    // POST /api/v1/auth/login
     public function login(Request $request)
     {
         $data = $request->validate([
@@ -62,10 +63,10 @@ class AuthController extends Controller
         // =====================
         // LOGIN via SESSION (browser SPA)
         // =====================
-        if ($request->hasSession()) {
-            Auth::login($user);
-            $request->session()->regenerate();
-        }
+        // 👉 JANGAN pakai if ($request->hasSession())
+        // Langsung login ke guard web dan regenerate session.
+        Auth::guard('web')->login($user);
+        $request->session()->regenerate();
 
         // role user
         $role = $user->role()->select('role_id', 'name')->first();
@@ -115,6 +116,7 @@ class AuthController extends Controller
             'token' => $token,
         ], 200);
     }
+
 
     // GET /api/v1/auth/me
     public function me(Request $request)
