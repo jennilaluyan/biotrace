@@ -6,22 +6,16 @@ use App\Models\Client;
 use Illuminate\Http\Request;
 use App\Http\Requests\StoreClientRequest;
 use App\Http\Requests\UpdateClientRequest;
-
+use App\Support\ApiResponse; // ⬅️ tambahkan ini
 
 class ClientController extends Controller
 {
-    /**
-     * GET /api/v1/clients
-     *
-     * List semua client (sementara tanpa pagination dulu).
-     * Bisa kamu tambahkan filter/search nanti.
-     */
     public function index(Request $request)
     {
-        $query = Client::query()
-            ->orderByDesc('client_id');
+        $this->authorize('viewAny', Client::class);
 
-        // Optional simple search: ?search=...
+        $query = Client::query()->orderByDesc('client_id');
+
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'ilike', '%' . $search . '%')
@@ -33,62 +27,75 @@ class ClientController extends Controller
 
         $clients = $query->get();
 
-        return response()->json($clients);
+        return ApiResponse::success(
+            data: $clients,
+            message: 'Clients fetched successfully.',
+            status: 200,
+            extra: [
+                'resource' => 'clients',
+                'meta' => [
+                    'total'  => $clients->count(),
+                    'search' => $search,
+                ],
+            ],
+        );
     }
 
-    /**
-     * GET /api/v1/clients/{client}
-     *
-     * Detail satu client.
-     *
-     * NOTE:
-     * Pastikan di model Client sudah:
-     *   protected $primaryKey = 'client_id';
-     */
     public function show(Client $client)
     {
-        return response()->json($client);
+        $this->authorize('view', $client);
+
+        return ApiResponse::success(
+            data: $client,
+            message: 'Client fetched successfully.',
+            status: 200,
+            extra: ['resource' => 'clients'],
+        );
     }
 
-    /**
-     * POST /api/v1/clients
-     *
-     * Buat client baru (individual atau institution).
-     *
-     * Validasi disesuaikan dengan migration clients table.
-     */
     public function store(StoreClientRequest $request)
     {
+        $this->authorize('create', Client::class);
+
         $data = $request->validated();
         $data['staff_id'] = $request->user()->staff_id;
 
         $client = Client::create($data);
 
-        return response()->json([
-            'data'    => $client,
-            'message' => 'Client created successfully.',
-        ], 201);
+        return ApiResponse::success(
+            data: $client,
+            message: 'Client created successfully.',
+            status: 201,
+            extra: ['resource' => 'clients'],
+        );
     }
 
     public function update(UpdateClientRequest $request, Client $client)
     {
-        $data = $request->validated();
+        $this->authorize('update', $client);
 
+        $data = $request->validated();
         $client->update($data);
 
-        return response()->json([
-            'data'    => $client,
-            'message' => 'Client updated successfully.',
-        ], 200);
+        return ApiResponse::success(
+            data: $client,
+            message: 'Client updated successfully.',
+            status: 200,
+            extra: ['resource' => 'clients'],
+        );
     }
 
     public function destroy(Client $client)
     {
-        // Soft delete (isi deleted_at), bukan hard delete
-        $client->delete();
+        $this->authorize('delete', $client);
 
-        return response()->json([
-            'message' => 'Client deleted (soft) successfully.',
-        ], 200);
+        $client->delete(); // soft delete sudah diatur di model + migration
+
+        return ApiResponse::success(
+            data: null,
+            message: 'Client deleted (soft) successfully.',
+            status: 200,
+            extra: ['resource' => 'clients'],
+        );
     }
 }
