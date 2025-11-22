@@ -65,8 +65,10 @@ class AuthController extends Controller
         // =====================
         // 👉 JANGAN pakai if ($request->hasSession())
         // Langsung login ke guard web dan regenerate session.
-        Auth::guard('web')->login($user);
-        $request->session()->regenerate();
+        if ($request->hasSession()) {
+            Auth::guard('web')->login($user);
+            $request->session()->regenerate();
+        }
 
         // role user
         $role = $user->role()->select('role_id', 'name')->first();

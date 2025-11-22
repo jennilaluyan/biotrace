@@ -26,6 +26,12 @@ class AuditLogger
         ?array $newValues = null
     ): void {
 
+        // ❗ Kalau ERD mewajibkan staff_id & entity_id TIDAK BOLEH NULL
+        // maka SKIP log jika masih null
+        if (is_null($staffId) || is_null($entityId)) {
+            return; // jangan insert apa-apa
+        }
+
         $req = RequestFacade::instance();
 
         DB::table('audit_logs')->insert([

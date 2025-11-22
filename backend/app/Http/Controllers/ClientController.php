@@ -59,34 +59,36 @@ class ClientController extends Controller
      */
     public function store(StoreClientRequest $request)
     {
-        $data = $request->validated([
-            'staff_id' => ['required', 'integer', 'exists:staffs,staff_id'],
-
-            'type' => ['required', 'in:individual,institution'],
-
-            'name'  => ['required', 'string', 'max:150'],
-            'phone' => ['nullable', 'string', 'max:30'],
-            'email' => ['nullable', 'string', 'max:150'],
-
-            // Individual fields
-            'national_id'       => ['nullable', 'string', 'max:50'],
-            'date_of_birth'     => ['nullable', 'date'],
-            'gender'            => ['nullable', 'string', 'max:10'],
-            'address_ktp'       => ['nullable', 'string', 'max:255'],
-            'address_domicile'  => ['nullable', 'string', 'max:255'],
-
-            // Institutional fields
-            'institution_name'      => ['nullable', 'string', 'max:200'],
-            'institution_address'   => ['nullable', 'string', 'max:255'],
-            'contact_person_name'   => ['nullable', 'string', 'max:150'],
-            'contact_person_phone'  => ['nullable', 'string', 'max:30'],
-            'contact_person_email'  => ['nullable', 'string', 'max:150'],
-        ]);
-
+        $data = $request->validated();
         $data['staff_id'] = $request->user()->staff_id;
 
         $client = Client::create($data);
 
-        return response()->json($client, 201);
+        return response()->json([
+            'data'    => $client,
+            'message' => 'Client created successfully.',
+        ], 201);
+    }
+
+    public function update(UpdateClientRequest $request, Client $client)
+    {
+        $data = $request->validated();
+
+        $client->update($data);
+
+        return response()->json([
+            'data'    => $client,
+            'message' => 'Client updated successfully.',
+        ], 200);
+    }
+
+    public function destroy(Client $client)
+    {
+        // Soft delete (isi deleted_at), bukan hard delete
+        $client->delete();
+
+        return response()->json([
+            'message' => 'Client deleted (soft) successfully.',
+        ], 200);
     }
 }

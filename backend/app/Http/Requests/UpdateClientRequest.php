@@ -14,7 +14,6 @@ class UpdateClientRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // Untuk update, field biasanya opsional (pakai 'sometimes')
             'type' => ['sometimes', 'in:individual,institution'],
 
             'name'  => ['sometimes', 'string', 'max:150'],
