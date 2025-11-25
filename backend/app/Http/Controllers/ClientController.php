@@ -93,7 +93,7 @@ class ClientController extends Controller
 
         return ApiResponse::success(
             data: null,
-            message: 'Client deleted (soft) successfully.',
+            message: 'Client deactivated successfully.',
             status: 200,
             extra: ['resource' => 'clients'],
         );

@@ -1,0 +1,75 @@
+// src/lib/clients.ts
+import { apiGet, apiPost } from "./api";
+
+// Sesuai migration clients table
+export interface Client {
+    client_id: number;
+    staff_id: number;
+    type: "individual" | "institution";
+
+    // Common fields
+    name: string;
+    phone: string | null;
+    email: string | null;
+
+    // Individual only
+    national_id: string | null;
+    date_of_birth: string | null; // ISO string dari backend: "2025-01-20"
+    gender: string | null;
+    address_ktp: string | null;
+    address_domicile: string | null;
+
+    // Institutional only
+    institution_name: string | null;
+    institution_address: string | null;
+    contact_person_name: string | null;
+    contact_person_phone: string | null;
+    contact_person_email: string | null;
+
+    // Timestamps
+    created_at: string;   // Laravel timestampTz → string
+    updated_at: string | null;
+}
+
+// Payload untuk membuat client baru
+export interface CreateClientPayload {
+    staff_id: number;
+    type: "individual" | "institution";
+
+    // Common fields
+    name: string;
+    phone?: string | null;
+    email?: string | null;
+
+    // Individual fields
+    national_id?: string | null;
+    date_of_birth?: string | null;
+    gender?: string | null;
+    address_ktp?: string | null;
+    address_domicile?: string | null;
+
+    // Institutional fields
+    institution_name?: string | null;
+    institution_address?: string | null;
+    contact_person_name?: string | null;
+    contact_person_phone?: string | null;
+    contact_person_email?: string | null;
+}
+
+// Kumpulan fungsi untuk operasi Clients
+export const clientService = {
+    // GET /v1/clients
+    getAll(): Promise<Client[]> {
+        return apiGet<Client[]>("/v1/clients");
+    },
+
+    // GET /v1/clients/:id
+    getById(id: number): Promise<Client> {
+        return apiGet<Client>(`/v1/clients/${id}`);
+    },
+
+    // POST /v1/clients
+    create(payload: CreateClientPayload): Promise<Client> {
+        return apiPost<Client>("/v1/clients", payload);
+    }
+};

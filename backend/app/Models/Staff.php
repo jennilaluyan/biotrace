@@ -14,6 +14,14 @@ class Staff extends Authenticatable
     protected $table = 'staffs';
     protected $primaryKey = 'staff_id';
 
+    protected $fillable = [
+        'name',
+        'email',
+        'password_hash',
+        'role_id',
+        'is_active',
+    ];
+
     // Use email for auth identifier
     public function getAuthIdentifierName()
     {

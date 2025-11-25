@@ -15,39 +15,59 @@ class ClientPolicy
         return strtolower($user->role->name ?? '');
     }
 
-    /**
-     * LH + Admin + OM boleh view list dan detail client.
-     */
-    protected function canViewAll(Staff $user): bool
+    protected function isAdmin(Staff $user): bool
+    {
+        return $this->role($user) === 'administrator';
+    }
+
+    protected function isOM(Staff $user): bool
+    {
+        return $this->role($user) === 'operational manager';
+    }
+
+    protected function isLabHead(Staff $user): bool
+    {
+        return $this->role($user) === 'laboratory head';
+    }
+
+    protected function isOperator(Staff $user): bool
     {
         return in_array($this->role($user), [
-            'administrator',
-            'laboratory head',
-            'operational manager',
+            'analyst',
+            'sample collector',
         ]);
     }
 
     /**
-     * LH + Admin boleh create/update/delete client.
+     * Semua staff internal perlu READ data client
+     * (operasional, QA monitoring, sample workflow).
+     */
+    protected function canRead(Staff $user): bool
+    {
+        return
+            $this->isAdmin($user) ||
+            $this->isOM($user) ||
+            $this->isLabHead($user);
+    }
+
+    /**
+     * Hanya Administrator boleh CREATE/UPDATE/DELETE (soft delete).
      */
     protected function canManage(Staff $user): bool
     {
-        return in_array($this->role($user), [
-            'administrator',
-            'laboratory head',
-        ]);
+        return $this->isAdmin($user);
     }
 
     // GET /clients
     public function viewAny(Staff $user): bool
     {
-        return $this->canViewAll($user);
+        return $this->canRead($user);
     }
 
     // GET /clients/{client}
     public function view(Staff $user, Client $client): bool
     {
-        return $this->canViewAll($user);
+        return $this->canRead($user);
     }
 
     // POST /clients
@@ -62,7 +82,7 @@ class ClientPolicy
         return $this->canManage($user);
     }
 
-    // DELETE /clients/{client}
+    // DELETE /clients/{client} — ALWAYS SOFT DELETE
     public function delete(Staff $user, Client $client): bool
     {
         return $this->canManage($user);
