@@ -9,8 +9,8 @@ if (!API_URL) {
 
 // Buat 1 Axios instance pusat
 export const http = axios.create({
-    baseURL: API_URL,        // tetap: path lengkap dikirim dari luar, misal "/api/v1/clients"
-    withCredentials: true,   // penting untuk Sanctum (kirim cookie)
+    baseURL: API_URL,
+    withCredentials: true,
     headers: {
         Accept: "application/json",
     },

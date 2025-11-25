@@ -6,7 +6,7 @@ use App\Models\Client;
 use Illuminate\Http\Request;
 use App\Http\Requests\StoreClientRequest;
 use App\Http\Requests\UpdateClientRequest;
-use App\Support\ApiResponse; // ⬅️ tambahkan ini
+use App\Support\ApiResponse;
 
 class ClientController extends Controller
 {
