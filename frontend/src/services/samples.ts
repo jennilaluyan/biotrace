@@ -1,4 +1,3 @@
-// src/lib/samples.ts
 import { apiGet, apiPost } from "./api";
 
 // Harus sesuai dengan CHECK constraint di migration

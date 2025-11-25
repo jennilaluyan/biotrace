@@ -1,4 +1,3 @@
-// src/lib/clients.ts
 import { apiGet, apiPost } from "./api";
 
 // Sesuai migration clients table
