@@ -1,4 +1,14 @@
+// src/services/clients.ts
 import { apiGet, apiPost } from "./api";
+
+// Bentuk response standar dari backend (ApiResponse helper)
+type ApiResponse<T> = {
+    timestamp: string;
+    status: number;
+    message: string;
+    data: T;
+    context?: any;
+};
 
 // Sesuai migration clients table
 export interface Client {
@@ -58,17 +68,20 @@ export interface CreateClientPayload {
 // Kumpulan fungsi untuk operasi Clients
 export const clientService = {
     // GET /v1/clients
-    getAll(): Promise<Client[]> {
-        return apiGet<Client[]>("/v1/clients");
+    async getAll(): Promise<Client[]> {
+        const res = await apiGet<ApiResponse<Client[]>>("/v1/clients");
+        return res.data; // <- ambil array di dalam wrapper
     },
 
     // GET /v1/clients/:id
-    getById(id: number): Promise<Client> {
-        return apiGet<Client>(`/v1/clients/${id}`);
+    async getById(id: number): Promise<Client> {
+        const res = await apiGet<ApiResponse<Client>>(`/v1/clients/${id}`);
+        return res.data;
     },
 
     // POST /v1/clients
-    create(payload: CreateClientPayload): Promise<Client> {
-        return apiPost<Client>("/v1/clients", payload);
+    async create(payload: CreateClientPayload): Promise<Client> {
+        const res = await apiPost<ApiResponse<Client>>("/v1/clients", payload);
+        return res.data;
     }
 };

@@ -2,7 +2,7 @@
 
 /* === Theme (Tailwind v4) === */
 @theme {
-    --color-primary: #c21010;
+    --color-primary: #BF092F;
     --color-primary-soft: #e64848;
     --color-cream: #fffde3;
     --color-accent-green: #cfe8a9;
@@ -162,9 +162,39 @@ body {
 }
 
 .lims-badge-individual {
-    @apply lims-badge bg-accent-green/40 text-primary;
+    @apply bg-accent-green/40 text-primary py-0 px-2 rounded-2xl;
 }
 
 .lims-badge-institution {
-    @apply lims-badge bg-primary-soft/10 text-primary-soft;
+    @apply bg-primary-soft/10 text-primary-soft py-0 px-2 rounded-2xl;
+}
+
+/* ------------------------------
+   GLOBAL BUTTON + ICON BUTTON
+--------------------------------*/
+@layer components {
+
+    /* Tombol utama BioTrace */
+    .lims-btn-primary {
+        @apply inline-flex items-center justify-center px-7 py-2 rounded-full border border-primary bg-primary text-white text-xs font-semibold uppercase tracking-[0.15em] transition-colors duration-200 ease-out hover:bg-primary-soft/90;
+    }
+
+    /* Extra: tombol outline dengan primary */
+    .btn-outline {
+        @apply inline-flex items-center justify-center px-4 py-2 rounded-full border border-primary text-primary bg-white text-xs font-semibold tracking-[0.1em] uppercase transition-colors duration-200 ease-out hover:bg-primary/10;
+    }
+
+    /* Extra: tombol destructive */
+    .btn-danger {
+        @apply inline-flex items-center justify-center px-4 py-2 rounded-full bg-red-600 text-white text-xs font-semibold tracking-[0.1em] uppercase transition-colors duration-200 ease-out hover:bg-red-700;
+    }
+
+    /* Icon-only button (view/edit/delete) */
+    .lims-icon-button {
+        @apply inline-flex items-center justify-center h-7 w-7 rounded-full text-gray-600 transition-colors duration-150 ease-out hover:bg-black/5;
+    }
+
+    .lims-icon-button--danger {
+        @apply text-red-600 hover:bg-red-100;
+    }
 }

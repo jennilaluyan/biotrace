@@ -115,7 +115,7 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
             onSubmit={handleLoginSubmit}
             className="flex flex-col items-stretch justify-center px-4 md:px-10 py-8 w-full max-w-md mx-auto"
         >
-            <img src={BiotraceLogo} alt="Biotrace logo" className="h-9 mb-6" />
+            <img src={BiotraceLogo} alt="Biotrace logo" className="h-full w-20 mb-2" />
             <h1 className="text-2xl font-semibold text-gray-900 mb-2">Sign in</h1>
             <p className="text-xs text-gray-500 mb-6">
                 Use your registered staff account to access the LIMS dashboard.
@@ -155,7 +155,7 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
             <button
                 type="submit"
                 disabled={loginLoading}
-                className="mt-6 inline-flex items-center justify-center rounded-full border border-primary-soft bg-primary-soft px-8 py-2 text-xs font-semibold tracking-[0.15em] uppercase text-white disabled:opacity-60"
+                className="mt-6 self-start lims-btn-primary"
             >
                 {loginLoading ? "Signing in..." : "Sign in"}
             </button>
@@ -167,10 +167,8 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
             onSubmit={handleRegisterSubmit}
             className="flex flex-col items-stretch justify-center px-4 md:px-10 py-8 w-full max-w-md mx-auto"
         >
-            <img src={BiotraceLogo} alt="Biotrace logo" className="h-9 mb-6" />
-            <h1 className="text-2xl font-semibold text-primary mb-2">
-                Create account
-            </h1>
+            <img src={BiotraceLogo} alt="Biotrace logo" className="h-full w-20 mb-2" />
+            <h1 className="text-2xl font-semibold text-primary mb-2">Create account</h1>
             <p className="text-xs text-gray-500 mb-6">
                 Register a new staff account to access the biomolecular LIMS.
             </p>
@@ -233,7 +231,7 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
             <button
                 type="submit"
                 disabled={regLoading}
-                className="mt-6 inline-flex items-center justify-center rounded-full border border-primary bg-primary px-8 py-2 text-xs font-semibold tracking-[0.15em] uppercase text-white disabled:opacity-60"
+                className="mt-6 self-start lims-btn-primary"
             >
                 {regLoading ? "Creating..." : "Sign up"}
             </button>
@@ -304,8 +302,8 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
                         <div className="lims-overlay-panel lims-overlay-left">
                             <h2 className="text-3xl font-semibold mb-3">Welcome back!</h2>
                             <p className="text-sm mb-5 max-w-xs">
-                                To keep your lab records consistent, sign in with your registered
-                                staff account.
+                                To keep your lab records consistent, sign in with your
+                                registered staff account.
                             </p>
                             <button
                                 type="button"
