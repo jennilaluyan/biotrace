@@ -1,18 +1,49 @@
-import { useEffect, useState } from "react";
-import { clientService, Client } from "../../services/clients";
+// src/pages/clients/ClientsPage.tsx
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+    clientService,
+    Client,
+    CreateClientPayload,
+    UpdateClientPayload,
+} from "../../services/clients";
 import { ClientFormModal } from "../../components/clients/ClientFormModal";
+import { ClientDeleteModal } from "./ClientDeleteModal";
+import { useAuth } from "../../hooks/useAuth";
+import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
+import { toClientSlug } from "../../utils/slug";
 
 type TypeFilter = "all" | "individual" | "institution";
 
+const PAGE_SIZE = 10;
+
 export const ClientsPage = () => {
+    const { user } = useAuth();
+    const navigate = useNavigate();
+
+    const roleId = getUserRoleId(user);
+    const roleLabel = getUserRoleLabel(user);
+
+    const canViewClients =
+        roleId === ROLE_ID.ADMIN ||
+        roleId === ROLE_ID.LAB_HEAD ||
+        roleId === ROLE_ID.OPERATIONAL_MANAGER;
+
+    const canCrudClients = roleId === ROLE_ID.ADMIN;
+
     const [clients, setClients] = useState<Client[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     const [isCreateOpen, setIsCreateOpen] = useState(false);
+    const [isEditOpen, setIsEditOpen] = useState(false);
+    const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+    const [deleteLoading, setDeleteLoading] = useState(false);
+    const [selectedClient, setSelectedClient] = useState<Client | null>(null);
 
     const [searchTerm, setSearchTerm] = useState("");
     const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+    const [currentPage, setCurrentPage] = useState(1);
 
     useEffect(() => {
         const load = async () => {
@@ -32,62 +63,190 @@ export const ClientsPage = () => {
             }
         };
 
-        load();
-    }, []);
+        if (canViewClients) {
+            load();
+        } else {
+            setLoading(false);
+        }
+    }, [canViewClients]);
 
-    const handleOpenCreate = () => setIsCreateOpen(true);
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm, typeFilter, clients.length]);
+
+    const handleOpenCreate = () => {
+        if (!canCrudClients) return;
+        setSelectedClient(null);
+        setIsCreateOpen(true);
+    };
     const handleCloseCreate = () => setIsCreateOpen(false);
 
-    const handleCreateSubmit = (values: any) => {
-        console.log("Create client (pending API wiring):", values);
-        setIsCreateOpen(false);
+    const handleOpenEdit = (client: Client) => {
+        if (!canCrudClients) return;
+        setSelectedClient(client);
+        setIsEditOpen(true);
+    };
+    const handleCloseEdit = () => {
+        setIsEditOpen(false);
+        setSelectedClient(null);
     };
 
-    // Filtering logic
-    const filteredClients = clients.filter((client) => {
-        if (typeFilter !== "all" && client.type !== typeFilter) return false;
+    const handleAskDelete = (client: Client) => {
+        if (!canCrudClients) return;
+        setSelectedClient(client);
+        setIsDeleteOpen(true);
+    };
+    const handleCloseDelete = () => {
+        setIsDeleteOpen(false);
+        setSelectedClient(null);
+        setDeleteLoading(false);
+    };
 
-        if (!searchTerm.trim()) return true;
+    const handleCreateSubmit = async (
+        payload: CreateClientPayload | Partial<CreateClientPayload>
+    ) => {
+        const values = payload as CreateClientPayload;
 
-        const term = searchTerm.toLowerCase();
-        const haystack = [
-            client.name,
-            client.email,
-            client.phone,
-            client.institution_name,
-            client.contact_person_name,
-            client.contact_person_email,
-            client.address_ktp,
-            client.address_domicile,
-        ]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase();
+        try {
+            setError(null);
+            const created = await clientService.create(values);
+            setClients((prev) => [created, ...prev]);
+            setCurrentPage(1);
+        } catch (err: any) {
+            const msg =
+                err?.data?.message ??
+                err?.data?.error ??
+                "Failed to create client.";
+            setError(msg);
+        } finally {
+            setIsCreateOpen(false);
+        }
+    };
 
-        return haystack.includes(term);
-    });
+    const handleEditSubmit = async (values: UpdateClientPayload) => {
+        if (!selectedClient) return;
+        try {
+            setError(null);
+            const updated = await clientService.update(
+                selectedClient.client_id,
+                values
+            );
+            setClients((prev) =>
+                prev.map((c) =>
+                    c.client_id === updated.client_id ? updated : c
+                )
+            );
+        } catch (err: any) {
+            const msg =
+                err?.data?.message ??
+                err?.data?.error ??
+                "Failed to update client.";
+            setError(msg);
+        } finally {
+            setIsEditOpen(false);
+            setSelectedClient(null);
+        }
+    };
+
+    const handleConfirmDelete = async () => {
+        if (!selectedClient) return;
+        try {
+            setDeleteLoading(true);
+            setError(null);
+            await clientService.destroy(selectedClient.client_id);
+            setClients((prev) =>
+                prev.filter((c) => c.client_id !== selectedClient.client_id)
+            );
+            handleCloseDelete();
+        } catch (err: any) {
+            const msg =
+                err?.data?.message ??
+                err?.data?.error ??
+                "Failed to delete client.";
+            setError(msg);
+            setDeleteLoading(false);
+        }
+    };
+
+    // --- Filtering ---
+    const filteredClients = useMemo(() => {
+        return clients.filter((client) => {
+            if (typeFilter !== "all" && client.type !== typeFilter) return false;
+
+            if (!searchTerm.trim()) return true;
+
+            const term = searchTerm.toLowerCase();
+            const haystack = [
+                client.name,
+                client.email,
+                client.phone,
+                client.institution_name,
+                client.contact_person_name,
+                client.contact_person_email,
+                client.address_ktp,
+                client.address_domicile,
+            ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+
+            return haystack.includes(term);
+        });
+    }, [clients, typeFilter, searchTerm]);
+
+    const totalClients = filteredClients.length;
+    const totalPages = Math.max(1, Math.ceil(totalClients / PAGE_SIZE));
+
+    const paginatedClients = useMemo(() => {
+        const start = (currentPage - 1) * PAGE_SIZE;
+        const end = start + PAGE_SIZE;
+        return filteredClients.slice(start, end);
+    }, [filteredClients, currentPage]);
+
+    const handlePageChange = (page: number) => {
+        if (page < 1 || page > totalPages) return;
+        setCurrentPage(page);
+    };
+
+    const handleViewClient = (client: Client) => {
+        const slug = toClientSlug(client);
+        navigate(`/clients/${slug}`);
+    };
+
+    if (!canViewClients) {
+        return (
+            <div className="min-h-[60vh] flex flex-col items-center justify-center">
+                <h1 className="text-2xl font-semibold text-primary mb-2">
+                    403 – Access denied
+                </h1>
+                <p className="text-sm text-gray-600">
+                    Your role{" "}
+                    <span className="font-semibold">({roleLabel})</span> is not
+                    allowed to access the clients module.
+                </p>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-[60vh]">
-            <div className="flex flex-row flex-wrap items-center justify-between gap-3 px-4 md:px-6 py-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <h1 className="text-lg md:text-xl font-bold text-gray-900">
                     Client Management
                 </h1>
 
-                <button
-                    type="button"
-                    onClick={handleOpenCreate}
-                    className="lims-btn-primary"
-                >
-                    + New client
-                </button>
+                {canCrudClients && (
+                    <button
+                        type="button"
+                        onClick={handleOpenCreate}
+                        className="lims-btn-primary self-start md:self-auto"
+                    >
+                        + New client
+                    </button>
+                )}
             </div>
 
-            {/* CARD utama */}
-            <div className="mt-4 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-
-
-                {/* Search + filter bar */}
+            <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="client-search">
@@ -95,7 +254,6 @@ export const ClientsPage = () => {
                         </label>
                         <div className="relative">
                             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
-                                {/* SVG icon hitam/putih */}
                                 <svg
                                     viewBox="0 0 24 24"
                                     className="h-4 w-4"
@@ -137,7 +295,6 @@ export const ClientsPage = () => {
                     </div>
                 </div>
 
-                {/* TABLE / STATE */}
                 <div className="px-4 md:px-6 py-4">
                     {loading && (
                         <div className="text-sm text-gray-600">Loading clients...</div>
@@ -170,8 +327,9 @@ export const ClientsPage = () => {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {filteredClients.map((client) => {
-                                                const isInstitution = client.type === "institution";
+                                            {paginatedClients.map((client) => {
+                                                const isInstitution =
+                                                    client.type === "institution";
 
                                                 const primaryContact =
                                                     client.email ||
@@ -198,7 +356,8 @@ export const ClientsPage = () => {
                                                             {isInstitution &&
                                                                 client.contact_person_name && (
                                                                     <div className="text-[11px] text-gray-500">
-                                                                        PIC: {client.contact_person_name}
+                                                                        PIC:{" "}
+                                                                        {client.contact_person_name}
                                                                     </div>
                                                                 )}
                                                         </td>
@@ -211,25 +370,27 @@ export const ClientsPage = () => {
                                                                         : "lims-badge-individual"
                                                                 }
                                                             >
-                                                                {isInstitution ? "Institution" : "Individual"}
+                                                                {isInstitution
+                                                                    ? "Institution"
+                                                                    : "Individual"}
                                                             </span>
                                                         </td>
 
-                                                        <td className="px-4 py-3 text-gray-700 text-xs md:text-sm max-w-[120px] md:max-w-none truncate">
+                                                        <td className="px-4 py-3 text-gray-700">
                                                             {primaryContact}
                                                         </td>
 
-                                                        <td className="px-4 py-3 text-gray-700 text-xs md:text-sm max-w-[140px] md:max-w-none truncate">
+                                                        <td className="px-4 py-3 text-gray-700">
                                                             {institutionLabel}
                                                         </td>
 
                                                         <td className="px-4 py-3 text-right">
                                                             <div className="inline-flex gap-1.5">
-                                                                {/* View */}
                                                                 <button
                                                                     type="button"
                                                                     className="lims-icon-button text-gray-600"
                                                                     aria-label="View client"
+                                                                    onClick={() => navigate(`/clients/${toClientSlug(client)}`)}
                                                                 >
                                                                     <svg
                                                                         viewBox="0 0 24 24"
@@ -245,48 +406,56 @@ export const ClientsPage = () => {
                                                                     </svg>
                                                                 </button>
 
-                                                                {/* Edit */}
-                                                                <button
-                                                                    type="button"
-                                                                    className="lims-icon-button text-gray-600"
-                                                                    aria-label="Edit client"
-                                                                >
-                                                                    <svg
-                                                                        viewBox="0 0 24 24"
-                                                                        className="h-4 w-4"
-                                                                        fill="none"
-                                                                        stroke="currentColor"
-                                                                        strokeWidth="1.8"
-                                                                        strokeLinecap="round"
-                                                                        strokeLinejoin="round"
-                                                                    >
-                                                                        <path d="M12 20h9" />
-                                                                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
-                                                                    </svg>
-                                                                </button>
+                                                                {canCrudClients && (
+                                                                    <>
+                                                                        <button
+                                                                            type="button"
+                                                                            className="lims-icon-button text-gray-600"
+                                                                            aria-label="Edit client"
+                                                                            onClick={() =>
+                                                                                handleOpenEdit(client)
+                                                                            }
+                                                                        >
+                                                                            <svg
+                                                                                viewBox="0 0 24 24"
+                                                                                className="h-4 w-4"
+                                                                                fill="none"
+                                                                                stroke="currentColor"
+                                                                                strokeWidth="1.8"
+                                                                                strokeLinecap="round"
+                                                                                strokeLinejoin="round"
+                                                                            >
+                                                                                <path d="M12 20h9" />
+                                                                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+                                                                            </svg>
+                                                                        </button>
 
-                                                                {/* Delete */}
-                                                                <button
-                                                                    type="button"
-                                                                    className="lims-icon-button lims-icon-button--danger"
-                                                                    aria-label="Delete client"
-                                                                >
-                                                                    <svg
-                                                                        viewBox="0 0 24 24"
-                                                                        className="h-4 w-4"
-                                                                        fill="none"
-                                                                        stroke="currentColor"
-                                                                        strokeWidth="1.8"
-                                                                        strokeLinecap="round"
-                                                                        strokeLinejoin="round"
-                                                                    >
-                                                                        <polyline points="3 6 5 6 21 6" />
-                                                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-                                                                        <path d="M10 11v6" />
-                                                                        <path d="M14 11v6" />
-                                                                        <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
-                                                                    </svg>
-                                                                </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            className="lims-icon-button lims-icon-button--danger"
+                                                                            aria-label="Delete client"
+                                                                            onClick={() =>
+                                                                                handleAskDelete(client)
+                                                                            }
+                                                                        >
+                                                                            <svg
+                                                                                viewBox="0 0 24 24"
+                                                                                className="h-4 w-4"
+                                                                                fill="none"
+                                                                                stroke="currentColor"
+                                                                                strokeWidth="1.8"
+                                                                                strokeLinecap="round"
+                                                                                strokeLinejoin="round"
+                                                                            >
+                                                                                <polyline points="3 6 5 6 21 6" />
+                                                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                                                                                <path d="M10 11v6" />
+                                                                                <path d="M14 11v6" />
+                                                                                <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+                                                                            </svg>
+                                                                        </button>
+                                                                    </>
+                                                                )}
                                                             </div>
                                                         </td>
                                                     </tr>
@@ -294,6 +463,57 @@ export const ClientsPage = () => {
                                             })}
                                         </tbody>
                                     </table>
+                                    {/* Pagination bar */}
+                                    <div className="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-xs text-gray-600">
+                                        <div>
+                                            Showing{" "}
+                                            <span className="font-semibold">
+                                                {totalClients === 0
+                                                    ? 0
+                                                    : (currentPage - 1) * PAGE_SIZE + 1}
+                                            </span>{" "}
+                                            –{" "}
+                                            <span className="font-semibold">
+                                                {Math.min(currentPage * PAGE_SIZE, totalClients)}
+                                            </span>{" "}
+                                            of{" "}
+                                            <span className="font-semibold">{totalClients}</span> clients
+                                        </div>
+
+                                        <div className="flex items-center justify-end gap-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => handlePageChange(currentPage - 1)}
+                                                disabled={currentPage === 1}
+                                                className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+                                            >
+                                                Previous
+                                            </button>
+
+                                            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                                                <button
+                                                    key={page}
+                                                    type="button"
+                                                    onClick={() => handlePageChange(page)}
+                                                    className={`px-3 py-1 rounded-full text-xs border ${page === currentPage
+                                                        ? "bg-primary text-white border-primary"
+                                                        : "bg-white text-gray-700 hover:bg-gray-50"
+                                                        }`}
+                                                >
+                                                    {page}
+                                                </button>
+                                            ))}
+
+                                            <button
+                                                type="button"
+                                                onClick={() => handlePageChange(currentPage + 1)}
+                                                disabled={currentPage === totalPages}
+                                                className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+                                            >
+                                                Next
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             )}
                         </>
@@ -301,12 +521,28 @@ export const ClientsPage = () => {
                 </div>
             </div>
 
-            {/* Modal create client */}
             <ClientFormModal
                 open={isCreateOpen}
                 mode="create"
+                initialClient={null}
                 onClose={handleCloseCreate}
                 onSubmit={handleCreateSubmit}
+            />
+
+            <ClientFormModal
+                open={isEditOpen}
+                mode="edit"
+                initialClient={selectedClient ?? null}
+                onClose={handleCloseEdit}
+                onSubmit={handleEditSubmit}
+            />
+
+            <ClientDeleteModal
+                open={isDeleteOpen}
+                loading={deleteLoading}
+                clientName={selectedClient?.name}
+                onCancel={handleCloseDelete}
+                onConfirm={handleConfirmDelete}
             />
         </div>
     );

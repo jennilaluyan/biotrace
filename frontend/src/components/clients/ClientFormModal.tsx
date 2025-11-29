@@ -1,55 +1,19 @@
-import { useState, useEffect, FormEvent } from "react";
-import type { Client } from "../../services/clients";
-
-type ClientFormValues = {
-    type: "individual" | "institution";
-
-    // Common
-    name: string;
-    phone: string;
-    email: string;
-
-    // Individual
-    national_id: string;
-    date_of_birth: string;
-    gender: string;
-    address_ktp: string;
-    address_domicile: string;
-
-    // Institutional
-    institution_name: string;
-    institution_address: string;
-    contact_person_name: string;
-    contact_person_phone: string;
-    contact_person_email: string;
-};
-
-type Mode = "create" | "edit";
+import { useEffect, useState } from "react";
+import type {
+    ClientType,
+    CreateClientPayload,
+    Client,
+} from "../../services/clients";
 
 interface ClientFormModalProps {
     open: boolean;
-    mode: Mode;
+    mode: "create" | "edit" | "view";
     initialClient?: Client | null;
     onClose: () => void;
-    onSubmit: (values: ClientFormValues) => void;
+    onSubmit: (
+        payload: CreateClientPayload | Partial<CreateClientPayload>
+    ) => Promise<void> | void;
 }
-
-const emptyValues: ClientFormValues = {
-    type: "individual",
-    name: "",
-    phone: "",
-    email: "",
-    national_id: "",
-    date_of_birth: "",
-    gender: "",
-    address_ktp: "",
-    address_domicile: "",
-    institution_name: "",
-    institution_address: "",
-    contact_person_name: "",
-    contact_person_phone: "",
-    contact_person_email: "",
-};
 
 export const ClientFormModal = ({
     open,
@@ -58,300 +22,562 @@ export const ClientFormModal = ({
     onClose,
     onSubmit,
 }: ClientFormModalProps) => {
-    const [values, setValues] = useState<ClientFormValues>(emptyValues);
-
-    // Reset / prefll saat modal dibuka
-    useEffect(() => {
-        if (!open) return;
-
-        if (initialClient) {
-            setValues({
-                type: initialClient.type,
-                name: initialClient.name ?? "",
-                phone: initialClient.phone ?? "",
-                email: initialClient.email ?? "",
-                national_id: initialClient.national_id ?? "",
-                date_of_birth: initialClient.date_of_birth ?? "",
-                gender: initialClient.gender ?? "",
-                address_ktp: initialClient.address_ktp ?? "",
-                address_domicile: initialClient.address_domicile ?? "",
-                institution_name: initialClient.institution_name ?? "",
-                institution_address: initialClient.institution_address ?? "",
-                contact_person_name: initialClient.contact_person_name ?? "",
-                contact_person_phone: initialClient.contact_person_phone ?? "",
-                contact_person_email: initialClient.contact_person_email ?? "",
-            });
-        } else {
-            setValues(emptyValues);
-        }
-    }, [open, initialClient]);
-
     if (!open) return null;
 
-    const handleChange = (
-        e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-    ) => {
-        const { name, value } = e.target;
-        setValues((prev) => ({ ...prev, [name]: value }));
-    };
+    const isEdit = mode === "edit";
+    const isView = mode === "view";
 
-    const handleSubmit = (e: FormEvent) => {
+    const [type, setType] = useState<ClientType>(
+        initialClient?.type ?? "individual"
+    );
+
+    const [name, setName] = useState(initialClient?.name ?? "");
+    const [phone, setPhone] = useState(initialClient?.phone ?? "");
+    const [email, setEmail] = useState(initialClient?.email ?? "");
+
+    const [nationalId, setNationalId] = useState(
+        initialClient?.national_id ?? ""
+    );
+    const [dateOfBirth, setDateOfBirth] = useState(
+        initialClient?.date_of_birth ?? ""
+    );
+    const [gender, setGender] = useState(initialClient?.gender ?? "");
+
+    // Address KTP – UI dipecah, DB tetap satu kolom
+    const [ktpStreet, setKtpStreet] = useState(
+        initialClient?.address_ktp ?? ""
+    );
+    const [ktpRtRw, setKtpRtRw] = useState("");
+    const [ktpKelDesa, setKtpKelDesa] = useState("");
+    const [ktpKecamatan, setKtpKecamatan] = useState("");
+    const [ktpCity, setKtpCity] = useState("");
+    const [ktpProvince, setKtpProvince] = useState("");
+
+    const [addressDomicile, setAddressDomicile] = useState(
+        initialClient?.address_domicile ?? ""
+    );
+
+    const [institutionName, setInstitutionName] = useState(
+        initialClient?.institution_name ?? ""
+    );
+    const [institutionAddress, setInstitutionAddress] = useState(
+        initialClient?.institution_address ?? ""
+    );
+    const [contactPersonName, setContactPersonName] = useState(
+        initialClient?.contact_person_name ?? ""
+    );
+    const [contactPersonPhone, setContactPersonPhone] = useState(
+        initialClient?.contact_person_phone ?? ""
+    );
+    const [contactPersonEmail, setContactPersonEmail] = useState(
+        initialClient?.contact_person_email ?? ""
+    );
+
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    // sync state ketika initialClient / mode berubah
+    useEffect(() => {
+        setType(initialClient?.type ?? "individual");
+        setName(initialClient?.name ?? "");
+        setPhone(initialClient?.phone ?? "");
+        setEmail(initialClient?.email ?? "");
+
+        setNationalId(initialClient?.national_id ?? "");
+        setDateOfBirth(initialClient?.date_of_birth ?? "");
+        setGender(initialClient?.gender ?? "");
+
+        // Untuk data lama: isi semua ke street saja, user bisa refine nanti
+        setKtpStreet(initialClient?.address_ktp ?? "");
+        setKtpRtRw("");
+        setKtpKelDesa("");
+        setKtpKecamatan("");
+        setKtpCity("");
+        setKtpProvince("");
+
+        setAddressDomicile(initialClient?.address_domicile ?? "");
+
+        setInstitutionName(initialClient?.institution_name ?? "");
+        setInstitutionAddress(initialClient?.institution_address ?? "");
+        setContactPersonName(initialClient?.contact_person_name ?? "");
+        setContactPersonPhone(initialClient?.contact_person_phone ?? "");
+        setContactPersonEmail(initialClient?.contact_person_email ?? "");
+
+        setError(null);
+        setSubmitting(false);
+    }, [initialClient, mode]);
+
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        onSubmit(values);
+        if (isView) {
+            onClose();
+            return;
+        }
+
+        setError(null);
+
+        if (!name.trim()) {
+            setError("Name is required.");
+            return;
+        }
+
+        if (!email.trim()) {
+            setError("Email is required.");
+            return;
+        }
+
+        // 🔒 Validasi NIK: hanya angka & 16 digit (kalau diisi)
+        if (type === "individual" && nationalId.trim()) {
+            const nikClean = nationalId.replace(/\D/g, "");
+            if (nikClean.length !== 16) {
+                setError("National ID (NIK) must be exactly 16 digits.");
+                return;
+            }
+        }
+
+        // 🔗 Gabungkan alamat KTP jadi satu baris untuk database
+        const ktpParts: string[] = [];
+        if (ktpStreet.trim()) ktpParts.push(ktpStreet.trim());
+        if (ktpRtRw.trim()) ktpParts.push(`RT/RW ${ktpRtRw.trim()}`);
+        if (ktpKelDesa.trim()) ktpParts.push(`Kel/Desa ${ktpKelDesa.trim()}`);
+        if (ktpKecamatan.trim()) ktpParts.push(`Kec. ${ktpKecamatan.trim()}`);
+        if (ktpCity.trim() && ktpProvince.trim()) {
+            ktpParts.push(`${ktpCity.trim()}, ${ktpProvince.trim()}`);
+        } else if (ktpCity.trim()) {
+            ktpParts.push(ktpCity.trim());
+        } else if (ktpProvince.trim()) {
+            ktpParts.push(ktpProvince.trim());
+        }
+        const combinedKtpAddress =
+            ktpParts.length > 0 ? ktpParts.join(", ") : null;
+
+        const payload: CreateClientPayload = {
+            type,
+            name: name.trim(),
+            phone: phone || null,
+            email: email.trim(),
+
+            national_id: nationalId ? nationalId.replace(/\D/g, "") : null,
+            date_of_birth: dateOfBirth || null,
+            gender: gender || null,
+            address_ktp: combinedKtpAddress,
+            address_domicile: addressDomicile || null,
+
+            institution_name: institutionName || null,
+            institution_address: institutionAddress || null,
+            contact_person_name: contactPersonName || null,
+            contact_person_phone: contactPersonPhone || null,
+            contact_person_email: contactPersonEmail || null,
+        };
+
+        try {
+            setSubmitting(true);
+            await onSubmit(payload);
+        } catch (err: any) {
+            const msg =
+                err?.data?.message ??
+                err?.data?.error ??
+                "Failed to save client. Please check your data.";
+            setError(msg);
+        } finally {
+            setSubmitting(false);
+        }
     };
 
-    const title = mode === "create" ? "New client" : "Edit client";
-    const isInstitution = values.type === "institution";
+    const title =
+        mode === "create"
+            ? "New Client"
+            : mode === "edit"
+                ? "Edit Client"
+                : "Client Detail";
+
+    const disabled = submitting || isView;
+
+    // helper agar input numerik NIK tetap halus tapi filternya tegas
+    const handleNikChange = (value: string) => {
+        const onlyDigits = value.replace(/\D/g, "");
+        if (onlyDigits.length <= 16) {
+            setNationalId(onlyDigits);
+        }
+    };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-            <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl max-h-[90vh] overflow-y-auto">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                    <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+            <div className="w-full max-w-2xl rounded-2xl bg-white shadow-lg">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                    <h2 className="text-base font-semibold text-gray-900">
+                        {title}
+                    </h2>
                     <button
                         type="button"
-                        className="text-gray-500 text-xl leading-none"
+                        className="lims-icon-button text-gray-500"
                         onClick={onClose}
+                        aria-label="Close"
                     >
-                        ×
+                        ✕
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
-                    {/* Type + common identity */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="space-y-1">
-                            <label className="text-xs font-medium text-gray-700 uppercase tracking-[0.15em]">
-                                Client type
-                            </label>
-                            <select
-                                name="type"
-                                value={values.type}
-                                onChange={handleChange}
-                                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                            >
-                                <option value="individual">Individual</option>
-                                <option value="institution">Institution</option>
-                            </select>
+                <form
+                    onSubmit={handleSubmit}
+                    className="px-5 py-4 space-y-4 max-h-[70vh] overflow-y-auto"
+                >
+                    {error && (
+                        <div className="text-xs text-red-600 bg-red-100 px-3 py-2 rounded">
+                            {error}
                         </div>
+                    )}
 
-                        <div className="md:col-span-2 space-y-1">
-                            <label className="text-xs font-medium text-gray-700 uppercase tracking-[0.15em]">
-                                Name
-                            </label>
-                            <input
-                                name="name"
-                                value={values.name}
-                                onChange={handleChange}
-                                placeholder={
-                                    isInstitution ? "Main contact / client name" : "Full name"
+                    {/* Type toggle */}
+                    <div className="flex gap-3 items-center">
+                        <label className="text-xs font-medium text-gray-700">
+                            Client type
+                        </label>
+                        <div className="inline-flex rounded-full bg-gray-100 p-1 text-xs">
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    !isView && setType("individual")
                                 }
-                                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                            />
+                                className={`px-3 py-1 rounded-full ${type === "individual"
+                                        ? "bg-white shadow text-gray-900"
+                                        : "text-gray-500"
+                                    }`}
+                                disabled={isView}
+                            >
+                                Individual
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    !isView && setType("institution")
+                                }
+                                className={`px-3 py-1 rounded-full ${type === "institution"
+                                        ? "bg-white shadow text-gray-900"
+                                        : "text-gray-500"
+                                    }`}
+                                disabled={isView}
+                            >
+                                Institution
+                            </button>
                         </div>
                     </div>
 
-                    {/* Contact */}
+                    {/* Common fields */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                            <label className="text-xs font-medium text-gray-700 uppercase tracking-[0.15em]">
+                        <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                                Name
+                            </label>
+                            <input
+                                type="text"
+                                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                placeholder={
+                                    type === "individual"
+                                        ? "Client full name"
+                                        : "Institution name"
+                                }
+                                disabled={disabled}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">
                                 Email
                             </label>
                             <input
                                 type="email"
-                                name="email"
-                                value={values.email}
-                                onChange={handleChange}
+                                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
                                 placeholder="Contact email"
-                                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                disabled={disabled}
                             />
                         </div>
-                        <div className="space-y-1">
-                            <label className="text-xs font-medium text-gray-700 uppercase tracking-[0.15em]">
+                        <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">
                                 Phone
                             </label>
                             <input
-                                name="phone"
-                                value={values.phone}
-                                onChange={handleChange}
-                                placeholder="Contact phone"
-                                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                type="text"
+                                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                value={phone ?? ""}
+                                onChange={(e) => setPhone(e.target.value)}
+                                placeholder="Phone number"
+                                disabled={disabled}
                             />
                         </div>
                     </div>
 
                     {/* Individual section */}
-                    {values.type === "individual" && (
-                        <div className="space-y-3">
-                            <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-[0.15em]">
-                                Individual details
-                            </h3>
-
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div className="space-y-1">
-                                    <label className="text-xs font-medium text-gray-700 uppercase tracking-[0.15em]">
+                    {type === "individual" && (
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-700 mb-1">
                                         National ID (NIK)
                                     </label>
                                     <input
-                                        name="national_id"
-                                        value={values.national_id}
-                                        onChange={handleChange}
-                                        placeholder="e.g. 1234..."
-                                        className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                        type="text"
+                                        inputMode="numeric"
+                                        maxLength={16}
+                                        className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                        value={nationalId}
+                                        onChange={(e) =>
+                                            handleNikChange(e.target.value)
+                                        }
+                                        disabled={disabled}
                                     />
+                                    <p className="mt-1 text-[11px] text-gray-400">
+                                        16 digit angka sesuai KTP.
+                                    </p>
                                 </div>
-
-                                <div className="space-y-1">
-                                    <label className="text-xs font-medium text-gray-700 uppercase tracking-[0.15em]">
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-700 mb-1">
                                         Date of birth
                                     </label>
                                     <input
                                         type="date"
-                                        name="date_of_birth"
-                                        value={values.date_of_birth}
-                                        onChange={handleChange}
-                                        className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                        className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                        value={dateOfBirth ?? ""}
+                                        onChange={(e) =>
+                                            setDateOfBirth(e.target.value)
+                                        }
+                                        disabled={disabled}
                                     />
                                 </div>
-
-                                <div className="space-y-1">
-                                    <label className="text-xs font-medium text-gray-700 uppercase tracking-[0.15em]">
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-700 mb-1">
                                         Gender
                                     </label>
                                     <select
-                                        name="gender"
-                                        value={values.gender}
-                                        onChange={handleChange}
-                                        className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                        className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                        value={gender ?? ""}
+                                        onChange={(e) =>
+                                            setGender(e.target.value)
+                                        }
+                                        disabled={disabled}
                                     >
-                                        <option value="">Select</option>
-                                        <option value="male">Male</option>
-                                        <option value="female">Female</option>
-                                        <option value="other">Other</option>
+                                        <option value="">Select gender</option>
+                                        <option value="Male">Male</option>
+                                        <option value="Female">Female</option>
                                     </select>
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-1">
-                                    <label className="text-xs font-medium text-gray-700 uppercase tracking-[0.15em]">
-                                        Address (KTP)
-                                    </label>
-                                    <input
-                                        name="address_ktp"
-                                        value={values.address_ktp}
-                                        onChange={handleChange}
-                                        placeholder="KTP address"
-                                        className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                    />
+                            {/* Address KTP detail */}
+                            <div className="border border-gray-100 rounded-xl p-3 md:p-4 bg-gray-50/60">
+                                <p className="text-xs font-medium text-gray-700 mb-2">
+                                    Address (KTP)
+                                </p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div className="md:col-span-2">
+                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">
+                                            Street / full address
+                                        </label>
+                                        <input
+                                            type="text"
+                                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                            value={ktpStreet}
+                                            onChange={(e) =>
+                                                setKtpStreet(e.target.value)
+                                            }
+                                            placeholder="e.g. Jl. Sam Ratulangi No. 10"
+                                            disabled={disabled}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">
+                                            RT / RW
+                                        </label>
+                                        <input
+                                            type="text"
+                                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                            value={ktpRtRw}
+                                            onChange={(e) =>
+                                                setKtpRtRw(e.target.value)
+                                            }
+                                            placeholder="e.g. 001/002"
+                                            disabled={disabled}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">
+                                            Kelurahan / Desa
+                                        </label>
+                                        <input
+                                            type="text"
+                                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                            value={ktpKelDesa}
+                                            onChange={(e) =>
+                                                setKtpKelDesa(e.target.value)
+                                            }
+                                            disabled={disabled}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">
+                                            Kecamatan
+                                        </label>
+                                        <input
+                                            type="text"
+                                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                            value={ktpKecamatan}
+                                            onChange={(e) =>
+                                                setKtpKecamatan(e.target.value)
+                                            }
+                                            disabled={disabled}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">
+                                            Kota / Kabupaten
+                                        </label>
+                                        <input
+                                            type="text"
+                                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                            value={ktpCity}
+                                            onChange={(e) =>
+                                                setKtpCity(e.target.value)
+                                            }
+                                            disabled={disabled}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">
+                                            Provinsi
+                                        </label>
+                                        <input
+                                            type="text"
+                                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                            value={ktpProvince}
+                                            onChange={(e) =>
+                                                setKtpProvince(e.target.value)
+                                            }
+                                            disabled={disabled}
+                                        />
+                                    </div>
                                 </div>
-                                <div className="space-y-1">
-                                    <label className="text-xs font-medium text-gray-700 uppercase tracking-[0.15em]">
-                                        Address (domicile)
-                                    </label>
-                                    <input
-                                        name="address_domicile"
-                                        value={values.address_domicile}
-                                        onChange={handleChange}
-                                        placeholder="Current address"
-                                        className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                    />
-                                </div>
+                            </div>
+
+                            <div className="md:col-span-2">
+                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                    Domicile address
+                                </label>
+                                <input
+                                    type="text"
+                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                    value={addressDomicile ?? ""}
+                                    onChange={(e) =>
+                                        setAddressDomicile(e.target.value)
+                                    }
+                                    disabled={disabled}
+                                />
                             </div>
                         </div>
                     )}
 
                     {/* Institution section */}
-                    {values.type === "institution" && (
-                        <div className="space-y-3">
-                            <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-[0.15em]">
-                                Institution details
-                            </h3>
-
-                            <div className="space-y-1">
-                                <label className="text-xs font-medium text-gray-700 uppercase tracking-[0.15em]">
+                    {type === "institution" && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="md:col-span-2">
+                                <label className="block text-xs font-medium text-gray-700 mb-1">
                                     Institution name
                                 </label>
                                 <input
-                                    name="institution_name"
-                                    value={values.institution_name}
-                                    onChange={handleChange}
-                                    placeholder="Hospital / university / company name"
-                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                    type="text"
+                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                    value={institutionName}
+                                    onChange={(e) =>
+                                        setInstitutionName(e.target.value)
+                                    }
+                                    disabled={disabled}
                                 />
                             </div>
-
-                            <div className="space-y-1">
-                                <label className="text-xs font-medium text-gray-700 uppercase tracking-[0.15em]">
+                            <div className="md:col-span-2">
+                                <label className="block text-xs font-medium text-gray-700 mb-1">
                                     Institution address
                                 </label>
                                 <input
-                                    name="institution_address"
-                                    value={values.institution_address}
-                                    onChange={handleChange}
-                                    placeholder="Institution address"
-                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                    type="text"
+                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                    value={institutionAddress}
+                                    onChange={(e) =>
+                                        setInstitutionAddress(e.target.value)
+                                    }
+                                    disabled={disabled}
                                 />
                             </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div className="md:col-span-2 space-y-1">
-                                    <label className="text-xs font-medium text-gray-700 uppercase tracking-[0.15em]">
-                                        PIC name
-                                    </label>
-                                    <input
-                                        name="contact_person_name"
-                                        value={values.contact_person_name}
-                                        onChange={handleChange}
-                                        placeholder="Person in charge / sample sender"
-                                        className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                    />
-                                </div>
-
-                                <div className="space-y-1">
-                                    <label className="text-xs font-medium text-gray-700 uppercase tracking-[0.15em]">
-                                        PIC phone
-                                    </label>
-                                    <input
-                                        name="contact_person_phone"
-                                        value={values.contact_person_phone}
-                                        onChange={handleChange}
-                                        placeholder="PIC phone"
-                                        className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                    />
-                                </div>
+                            <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                    Contact person name
+                                </label>
+                                <input
+                                    type="text"
+                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                    value={contactPersonName}
+                                    onChange={(e) =>
+                                        setContactPersonName(e.target.value)
+                                    }
+                                    disabled={disabled}
+                                />
                             </div>
-
-                            <div className="space-y-1">
-                                <label className="text-xs font-medium text-gray-700 uppercase tracking-[0.15em]">
-                                    PIC email
+                            <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                    Contact person phone
+                                </label>
+                                <input
+                                    type="text"
+                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                    value={contactPersonPhone}
+                                    onChange={(e) =>
+                                        setContactPersonPhone(e.target.value)
+                                    }
+                                    disabled={disabled}
+                                />
+                            </div>
+                            <div className="md:col-span-2">
+                                <label className="block text-xs font-medium text-gray-700 mb-1">
+                                    Contact person email
                                 </label>
                                 <input
                                     type="email"
-                                    name="contact_person_email"
-                                    value={values.contact_person_email}
-                                    onChange={handleChange}
-                                    placeholder="PIC email"
-                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                                    value={contactPersonEmail}
+                                    onChange={(e) =>
+                                        setContactPersonEmail(e.target.value)
+                                    }
+                                    disabled={disabled}
                                 />
                             </div>
                         </div>
                     )}
 
-                    <div className="flex items-center justify-end gap-2 pt-2">
+                    <div className="flex justify-end gap-2 pt-2">
                         <button
                             type="button"
-                            className="rounded-full border border-gray-300 px-4 py-2 text-xs font-semibold uppercase tracking-[0.15em] text-gray-700"
                             onClick={onClose}
+                            className="lims-btn-secondary"
+                            disabled={submitting}
                         >
-                            Cancel
+                            {isView ? "Close" : "Cancel"}
                         </button>
-                        <button
-                            type="submit"
-                            className="lims-btn-primary"
-                        >
-                            {mode === "create" ? "Save client" : "Save changes"}
-                        </button>
+                        {!isView && (
+                            <button
+                                type="submit"
+                                className="lims-btn-primary"
+                                disabled={submitting}
+                            >
+                                {submitting
+                                    ? isEdit
+                                        ? "Saving..."
+                                        : "Creating..."
+                                    : isEdit
+                                        ? "Save changes"
+                                        : "Create client"}
+                            </button>
+                        )}
                     </div>
                 </form>
             </div>

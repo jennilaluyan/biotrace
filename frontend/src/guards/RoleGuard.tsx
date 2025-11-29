@@ -1,21 +1,20 @@
+// src/guards/RoleGuard.tsx
 import { ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-
-type Role =
-    | "ADMIN"
-    | "LAB_HEAD"
-    | "OPERATIONAL_MANAGER"
-    | "OPERATOR"
-    | string;
+import { getUserRoleId, getUserRoleLabel } from "../utils/roles";
 
 interface RoleGuardProps {
-    allowed: Role[];
+    allowedRoleIds: number[];   // pakai role_id angka
     children: ReactNode;
     redirectTo?: string;
 }
 
-export const RoleGuard = ({ allowed, children, redirectTo }: RoleGuardProps) => {
+export const RoleGuard = ({
+    allowedRoleIds,
+    children,
+    redirectTo,
+}: RoleGuardProps) => {
     const { user, loading, isAuthenticated } = useAuth();
 
     if (loading) {
@@ -30,7 +29,10 @@ export const RoleGuard = ({ allowed, children, redirectTo }: RoleGuardProps) => 
         return <Navigate to={redirectTo ?? "/login"} replace />;
     }
 
-    if (!allowed.includes(user.role)) {
+    const roleId = getUserRoleId(user);
+    const roleLabel = getUserRoleLabel(user);
+
+    if (!roleId || !allowedRoleIds.includes(roleId)) {
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-cream">
                 <h1 className="text-2xl font-semibold text-primary mb-2">
@@ -38,8 +40,8 @@ export const RoleGuard = ({ allowed, children, redirectTo }: RoleGuardProps) => 
                 </h1>
                 <p className="text-sm text-gray-600">
                     Your role{" "}
-                    <span className="font-semibold">({user.role})</span> is not allowed to
-                    access this page.
+                    <span className="font-semibold">({roleLabel})</span> is not allowed
+                    to access this page.
                 </p>
             </div>
         );

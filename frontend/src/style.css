@@ -174,27 +174,109 @@ body {
 --------------------------------*/
 @layer components {
 
-    /* Tombol utama BioTrace */
     .lims-btn-primary {
         @apply inline-flex items-center justify-center px-7 py-2 rounded-full border border-primary bg-primary text-white text-xs font-semibold uppercase tracking-[0.15em] transition-colors duration-200 ease-out hover:bg-primary-soft/90;
     }
 
-    /* Extra: tombol outline dengan primary */
     .btn-outline {
         @apply inline-flex items-center justify-center px-4 py-2 rounded-full border border-primary text-primary bg-white text-xs font-semibold tracking-[0.1em] uppercase transition-colors duration-200 ease-out hover:bg-primary/10;
     }
 
-    /* Extra: tombol destructive */
     .btn-danger {
         @apply inline-flex items-center justify-center px-4 py-2 rounded-full bg-red-600 text-white text-xs font-semibold tracking-[0.1em] uppercase transition-colors duration-200 ease-out hover:bg-red-700;
     }
 
-    /* Icon-only button (view/edit/delete) */
+    /* alias biar konsisten naming */
+    .lims-btn-danger {
+        @apply inline-flex items-center justify-center px-4 py-2 rounded-full bg-red-600 text-white text-xs font-semibold tracking-[0.1em] uppercase transition-colors duration-200 ease-out hover:bg-red-700;
+    }
+
     .lims-icon-button {
         @apply inline-flex items-center justify-center h-7 w-7 rounded-full text-gray-600 transition-colors duration-150 ease-out hover:bg-black/5;
     }
 
     .lims-icon-button--danger {
         @apply text-red-600 hover:bg-red-100;
+    }
+
+    /* ------------------------------
+       BREADCRUMB / PAGE HEADER
+    --------------------------------*/
+    .lims-breadcrumb {
+        @apply flex items-center gap-1 text-xs text-gray-500;
+    }
+
+    .lims-breadcrumb-icon {
+        @apply mr-1 text-gray-400 flex items-center justify-center;
+    }
+
+    .lims-breadcrumb-link {
+        @apply cursor-pointer hover:text-primary transition-colors;
+    }
+
+    .lims-breadcrumb-separator {
+        @apply text-gray-400;
+    }
+
+    .lims-breadcrumb-current {
+        @apply font-semibold text-gray-900;
+    }
+
+    /* ------------------------------
+       DETAIL PAGE LAYOUT
+    --------------------------------*/
+    .lims-detail-shell {
+        @apply mt-3 bg-white rounded-2xl shadow-sm border border-gray-200 p-5 md:p-6;
+    }
+
+    .lims-detail-header {
+        @apply flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5;
+    }
+
+    .lims-detail-title {
+        @apply text-base md:text-lg font-semibold text-gray-900;
+    }
+
+    .lims-detail-subtitle {
+        @apply mt-1 text-xs text-gray-500;
+    }
+
+    .lims-detail-grid {
+        @apply grid grid-cols-1 md:grid-cols-2 gap-6 text-sm;
+    }
+
+    .lims-detail-section-title {
+        @apply text-xs font-semibold tracking-wide text-gray-500 uppercase;
+    }
+
+    .lims-detail-label {
+        @apply text-gray-500 text-xs;
+    }
+
+    .lims-detail-value {
+        @apply text-gray-800;
+    }
+
+    /* ------------------------------
+       MODAL LAYOUT
+    --------------------------------*/
+    .lims-modal-backdrop {
+        @apply fixed inset-0 z-50 flex items-center justify-center bg-black/40;
+    }
+
+    .lims-modal-panel {
+        @apply w-full max-w-md rounded-2xl bg-white shadow-lg;
+    }
+
+    .lims-modal-header {
+        @apply px-5 py-4 border-b border-gray-100 flex items-center gap-3;
+    }
+
+    .lims-modal-body {
+        @apply px-5 py-4 space-y-2 text-sm text-gray-700;
+    }
+
+    .lims-modal-footer {
+        @apply px-5 py-3 border-t border-gray-100 flex justify-end gap-2;
     }
 }
