@@ -116,7 +116,7 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
             className="flex flex-col items-stretch justify-center px-4 md:px-10 py-8 w-full max-w-md mx-auto"
         >
             <img src={BiotraceLogo} alt="Biotrace logo" className="h-full w-20 mb-2" />
-            <h1 className="text-2xl font-semibold text-gray-900 mb-2">Sign in</h1>
+            <h1 className="text-2xl font-semibold text-primary mb-2">Sign in</h1>
             <p className="text-xs text-gray-500 mb-6">
                 Use your registered staff account to access the LIMS dashboard.
             </p>

@@ -95,9 +95,11 @@ Route::prefix('v1')->group(function () {
         Route::patch('/clients/{client}', [ClientController::class, 'update']);
         Route::put('/clients/{client}', [ClientController::class, 'update']);
         Route::delete('clients/{client}', [ClientController::class, 'destroy']);
+        Route::get('clients/{client}/samples', [ClientController::class, 'samples']);
 
         Route::get('samples', [SampleController::class, 'index']);
         Route::get('samples/{sample}', [SampleController::class, 'show']);
         Route::post('samples', [SampleController::class, 'store']);
+        Route::post('samples/{sample}/status', [SampleController::class, 'updateStatus']);
     });
 });

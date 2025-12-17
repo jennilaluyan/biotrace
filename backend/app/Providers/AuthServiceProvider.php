@@ -4,6 +4,8 @@ namespace App\Providers;
 
 use App\Models\Client;
 use App\Policies\ClientPolicy;
+use App\Models\Sample;
+use App\Policies\SamplePolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 
 class AuthServiceProvider extends ServiceProvider
@@ -15,7 +17,7 @@ class AuthServiceProvider extends ServiceProvider
      */
     protected $policies = [
         Client::class => ClientPolicy::class,
-        // nanti tambahkan policy lain di sini
+        Sample::class => SamplePolicy::class,
     ];
 
     public function boot(): void

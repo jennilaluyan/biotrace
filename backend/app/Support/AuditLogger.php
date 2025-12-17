@@ -8,14 +8,7 @@ use Illuminate\Support\Facades\Request as RequestFacade;
 class AuditLogger
 {
     /**
-     * Write audit trail log.
-     *
-     * @param  string      $action       e.g. LOGIN_SUCCESS, LOGIN_FAILURE
-     * @param  int|null    $staffId      actor (harus staff_id)
-     * @param  string      $entityName   nama entitas, e.g. 'staffs'
-     * @param  int|null    $entityId     id entitas
-     * @param  array|null  $oldValues    snapshot sebelum
-     * @param  array|null  $newValues    snapshot sesudah
+     * Write audit trail log (fungsi dasar).
      */
     public static function write(
         string $action,
@@ -26,10 +19,9 @@ class AuditLogger
         ?array $newValues = null
     ): void {
 
-        // ❗ Kalau ERD mewajibkan staff_id & entity_id TIDAK BOLEH NULL
-        // maka SKIP log jika masih null
+        // Kalau staff_id atau entity_id null → jangan log
         if (is_null($staffId) || is_null($entityId)) {
-            return; // jangan insert apa-apa
+            return;
         }
 
         $req = RequestFacade::instance();
@@ -39,12 +31,79 @@ class AuditLogger
             'entity_name' => $entityName,
             'entity_id'   => $entityId,
             'action'      => strtoupper($action),
-
             'timestamp'   => now(),
             'ip_address'  => $req->ip(),
-
             'old_values'  => $oldValues ? json_encode($oldValues) : null,
             'new_values'  => $newValues ? json_encode($newValues) : null,
         ]);
+    }
+
+    /**
+     * Optional wrapper supaya bisa tetap pakai AuditLogger::info()
+     * tanpa error intelephense.
+     */
+    public static function info(string $action, array $data = []): void
+    {
+        $staffId   = $data['staff_id']   ?? null;
+        $entity    = $data['entity']     ?? null;
+        $entityId  = $data['entity_id']  ?? null;
+        $oldValues = $data['old']        ?? null;
+        $newValues = $data['new']        ?? null;
+
+        self::write(
+            action: $action,
+            staffId: $staffId,
+            entityName: $entity,
+            entityId: $entityId,
+            oldValues: $oldValues,
+            newValues: $newValues
+        );
+    }
+
+    /**
+     * Audit log untuk SAMPLE REGISTERED (first creation).
+     */
+    public static function logSampleRegistered(
+        int $staffId,
+        int $sampleId,
+        int $clientId,
+        array $newValues
+    ): void {
+        self::write(
+            action: 'SAMPLE_REGISTERED',
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: null,
+            newValues: [
+                'client_id' => $clientId,
+                'data'      => $newValues,
+            ]
+        );
+    }
+
+    /**
+     * Audit log untuk perubahan status sample (workflow).
+     */
+    public static function logSampleStatusChanged(
+        int $staffId,
+        int $sampleId,
+        int $clientId,
+        string $oldStatus,
+        string $newStatus,
+        ?string $note = null
+    ): void {
+        self::write(
+            action: 'SAMPLE_STATUS_CHANGED',
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: ['status' => $oldStatus],
+            newValues: [
+                'status' => $newStatus,
+                'client_id' => $clientId,
+                'note' => $note,
+            ]
+        );
     }
 }

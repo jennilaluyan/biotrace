@@ -2,47 +2,20 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Enums\SampleHighLevelStatus;
 
 class Sample extends Model
 {
-    /**
-     * --------------------------------------------------------------
-     * Table name
-     * --------------------------------------------------------------
-     * Default Laravel: "samples"
-     * Tidak perlu override.
-     */
+    use HasFactory;
 
-    /**
-     * --------------------------------------------------------------
-     * Primary key
-     * --------------------------------------------------------------
-     * Sesuai migration:
-     *   $table->bigIncrements('sample_id');
-     */
+    protected $table = 'samples';
     protected $primaryKey = 'sample_id';
-    public $incrementing = true;
-    protected $keyType = 'int';
 
-    /**
-     * --------------------------------------------------------------
-     * Timestamps
-     * --------------------------------------------------------------
-     * created_at → default null
-     * updated_at → default null
-     *
-     * Migration kamu TIDAK membuat timestamps otomatis (tidak ada $table->timestamps()),
-     * jadi set ->timestamps = false biar Laravel tidak expect kolom itu.
-     */
+    // Di migration kamu tidak ada created_at/updated_at
     public $timestamps = false;
 
-    /**
-     * --------------------------------------------------------------
-     * Mass Assignment
-     * --------------------------------------------------------------
-     * Field yang boleh diisi saat Sample::create($data)
-     */
     protected $fillable = [
         'client_id',
         'received_at',
@@ -55,21 +28,40 @@ class Sample extends Model
         'created_by',
     ];
 
-    /**
-     * --------------------------------------------------------------
-     * Relationships
-     * --------------------------------------------------------------
-     */
+    protected $casts = [
+        'received_at' => 'datetime',
+        'priority'    => 'integer',
+    ];
 
-    // FK: samples.client_id → clients.client_id
+    protected $appends = [
+        'status_enum',
+    ];
+
+    // Relasi ke client (pakai client_id)
     public function client()
     {
         return $this->belongsTo(Client::class, 'client_id', 'client_id');
     }
 
-    // FK: samples.created_by → staffs.staff_id
+    // Staf yang membuat entri (created_by -> staffs.staff_id)
     public function creator()
     {
         return $this->belongsTo(Staff::class, 'created_by', 'staff_id');
+    }
+
+    /**
+     * Status high-level (registered/testing/reported) yang dihitung dari current_status.
+     */
+    public function getStatusEnumAttribute(): ?string
+    {
+        if (!$this->current_status) {
+            return null;
+        }
+
+        // Gunakan enum untuk mapping detail → high-level
+        $enum = SampleHighLevelStatus::fromCurrentStatus($this->current_status);
+
+        // Di JSON, kita kirim value string lower-case: registered/testing/reported
+        return $enum->value;
     }
 }

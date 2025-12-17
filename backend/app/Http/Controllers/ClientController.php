@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Client;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use App\Http\Requests\StoreClientRequest;
 use App\Http\Requests\UpdateClientRequest;
 use App\Support\ApiResponse;
@@ -97,5 +98,42 @@ class ClientController extends Controller
             status: 200,
             extra: ['resource' => 'clients'],
         );
+    }
+
+    public function samples(Request $request, Client $client): JsonResponse
+    {
+        // Kalau kamu pakai ClientPolicy + authorizeResource,
+        // method ini tidak otomatis kena, jadi aman pakai manual:
+        $this->authorize('view', $client);
+
+        $query = $client->samples()
+            ->with(['creator']); // client sudah otomatis, cukup tambah creator
+
+        // Optional filter by status
+        if ($request->filled('status')) {
+            $query->where('current_status', $request->get('status'));
+        }
+
+        // Optional filter by date range: received_at
+        if ($request->filled('from')) {
+            $query->whereDate('received_at', '>=', $request->get('from'));
+        }
+        if ($request->filled('to')) {
+            $query->whereDate('received_at', '<=', $request->get('to'));
+        }
+
+        $samples = $query
+            ->orderByDesc('received_at')
+            ->paginate(15);
+
+        return response()->json([
+            'data' => $samples->items(),
+            'meta' => [
+                'current_page' => $samples->currentPage(),
+                'last_page'    => $samples->lastPage(),
+                'per_page'     => $samples->perPage(),
+                'total'        => $samples->total(),
+            ],
+        ]);
     }
 }
