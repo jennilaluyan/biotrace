@@ -1,5 +1,145 @@
-export const Topbar = () => {
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+
+import { useAuth } from "../../hooks/useAuth";
+import { logoutRequest } from "../../services/auth";
+import { getUserRoleLabel } from "../../utils/roles";
+
+type TopbarProps = {
+    onOpenNav?: () => void;
+};
+
+export const Topbar = ({ onOpenNav }: TopbarProps) => {
+    const navigate = useNavigate();
+    const { user } = useAuth() as any;
+
+    const roleLabel = getUserRoleLabel(user);
+
+    const displayName =
+        user?.name ||
+        user?.full_name ||
+        user?.username ||
+        user?.email ||
+        "Lab User";
+
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [loggingOut, setLoggingOut] = useState(false);
+
+    const menuRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        const onDocClick = (e: MouseEvent) => {
+            if (!menuRef.current) return;
+            if (!menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+        };
+
+        if (menuOpen) document.addEventListener("mousedown", onDocClick);
+        return () => document.removeEventListener("mousedown", onDocClick);
+    }, [menuOpen]);
+
+    const handleLogout = async () => {
+        try {
+            setLoggingOut(true);
+
+            // backend logout
+            await logoutRequest();
+
+            // kalau useAuth kamu punya setter/clearer, kita panggil jika ada
+            const auth = useAuth() as any;
+            if (typeof auth?.setUser === "function") auth.setUser(null);
+            if (typeof auth?.setIsAuthenticated === "function")
+                auth.setIsAuthenticated(false);
+
+            setMenuOpen(false);
+            navigate("/login", { replace: true });
+        } catch (err) {
+            // fallback: tetap redirect ke login agar sesi “bersih” di FE
+            setMenuOpen(false);
+            navigate("/login", { replace: true });
+        } finally {
+            setLoggingOut(false);
+        }
+    };
+
     return (
-        <div>Topbar</div>
-    )
-}
+        <header className="flex items-center justify-between px-4 md:px-6 py-6 border-b border-black/5 bg-cream">
+            {/* Hamburger left – muncul < lg */}
+            <button
+                type="button"
+                className="lg:hidden"
+                onClick={onOpenNav}
+                aria-label="Open navigation"
+            >
+                <div className="space-y-1.5">
+                    <span className="block h-[2px] w-5 rounded-full bg-gray-900" />
+                    <span className="block h-[2px] w-5 rounded-full bg-gray-900" />
+                    <span className="block h-[2px] w-5 rounded-full bg-gray-900" />
+                </div>
+            </button>
+
+            <div className="hidden lg:block" />
+
+            <div className="flex items-center gap-4 ml-auto">
+                {/* Notifications (placeholder) */}
+                <button
+                    type="button"
+                    className="lims-icon-button text-gray-700"
+                    aria-label="Notifications"
+                >
+                    <svg
+                        viewBox="0 0 24 24"
+                        className="h-5 w-5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    >
+                        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                    </svg>
+                </button>
+
+                {/* Profile + dropdown */}
+                <div className="relative" ref={menuRef}>
+                    <button
+                        type="button"
+                        className="flex items-center gap-2"
+                        onClick={() => setMenuOpen((v) => !v)}
+                        aria-label="Open profile menu"
+                    >
+                        <div className="h-8 w-8 rounded-full bg-gray-300" />
+                        <div className="hidden sm:flex flex-col items-start">
+                            <span className="text-xs font-semibold text-gray-900">
+                                {displayName}
+                            </span>
+                            <span className="text-[11px] text-gray-500">{roleLabel}</span>
+                        </div>
+                    </button>
+
+                    {menuOpen && (
+                        <div className="absolute right-0 mt-2 w-56 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden z-50">
+                            <div className="px-4 py-3 border-b border-gray-100">
+                                <div className="text-sm font-semibold text-gray-900">
+                                    {displayName}
+                                </div>
+                                <div className="text-xs text-gray-500">{roleLabel}</div>
+                            </div>
+
+                            <div className="p-2">
+                                <button
+                                    type="button"
+                                    onClick={handleLogout}
+                                    disabled={loggingOut}
+                                    className="w-full text-left px-3 py-2 rounded-lg text-sm text-red-600 hover:bg-red-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                    {loggingOut ? "Logging out..." : "Logout"}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </header>
+    );
+};
