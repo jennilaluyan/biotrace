@@ -4,10 +4,8 @@ import { NavLink, Outlet } from "react-router-dom";
 import BiotraceLogo from "../../assets/biotrace-logo.png";
 
 const NAV_ITEMS = [
-    {
-        label: "Clients",
-        path: "/clients",
-    },
+    { label: "Clients", path: "/clients" },
+    { label: "Samples", path: "/samples" },
 ];
 
 export const AppLayout = () => {

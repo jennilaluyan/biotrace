@@ -1,9 +1,15 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 
+// Clients
 import { LoginPage } from "../pages/auth/LoginPage";
 import { RegisterPage } from "../pages/auth/RegisterPage";
 import { ClientsPage } from "../pages/clients/ClientsPage";
 import { ClientDetailPage } from "../pages/clients/ClientDetailPage";
+
+// Samples
+import { SamplesPage } from "../pages/samples/SamplesPage";
+import { SampleDetailPage } from "../pages/samples/SampleDetailPage";
+
 import { NotFoundPage } from "../pages/NotFoundPage";
 
 import { ProtectedRoute } from "../guards/ProtectedRoute";
@@ -51,6 +57,25 @@ export const AppRouter = () => {
                             </RoleGuard>
                         }
                     />
+
+                    <Route
+                        path="/samples"
+                        element={
+                            <RoleGuard
+                                allowedRoleIds={[
+                                    ROLE_ID.ADMIN,
+                                    ROLE_ID.LAB_HEAD,
+                                    ROLE_ID.OPERATIONAL_MANAGER,
+                                    ROLE_ID.ANALYST,
+                                    ROLE_ID.SAMPLE_COLLECTOR,
+                                ]}
+                            >
+                                <SamplesPage />
+                            </RoleGuard>
+                        }
+                    />
+
+                    <Route path="/samples/:id" element={<SampleDetailPage />} />
 
                 </Route>
             </Route>

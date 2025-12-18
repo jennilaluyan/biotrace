@@ -1,6 +1,7 @@
+// src/services/samples.ts
 import { apiGet, apiPost } from "./api";
 
-// Harus sesuai dengan CHECK constraint di migration
+// --- backend detail statuses (current_status)
 export type SampleStatus =
     | "received"
     | "in_progress"
@@ -9,14 +10,31 @@ export type SampleStatus =
     | "validated"
     | "reported";
 
+// --- backend computed high-level: status_enum
+export type SampleStatusEnum = "registered" | "testing" | "reported";
+
 export type ContactHistory = "ada" | "tidak" | "tidak_tahu" | null;
 
-// Data sample seperti yang disimpan di DB
+export interface SampleClient {
+    client_id: number;
+    type?: string;
+    name: string;
+    email?: string | null;
+    phone?: string | null;
+}
+
+export interface SampleCreator {
+    staff_id: number;
+    name: string;
+    email?: string | null;
+    role_id?: number;
+}
+
 export interface Sample {
     sample_id: number;
     client_id: number;
 
-    received_at: string; // timestampTz → dikirim sebagai ISO string
+    received_at: string;
     sample_type: string;
 
     examination_purpose: string | null;
@@ -26,42 +44,81 @@ export interface Sample {
     current_status: SampleStatus;
 
     additional_notes: string | null;
-
     created_by: number;
+
+    // appended by backend model
+    status_enum?: SampleStatusEnum;
+
+    // eager-loaded relations from backend
+    client?: SampleClient;
+    creator?: SampleCreator;
 }
 
-// Payload untuk membuat sample baru
-export interface CreateSamplePayload {
-    client_id: number;
+export type PaginationMeta = {
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+};
 
-    received_at: string; // contoh: new Date().toISOString()
+export type PaginatedResponse<T> = {
+    data: T[];
+    meta: PaginationMeta;
+};
+
+function unwrapPaginated<T>(res: any): PaginatedResponse<T> {
+    // backend index(): { data: items[], meta: {...} }
+    if (res && typeof res === "object" && "data" in res && "meta" in res) {
+        return res as PaginatedResponse<T>;
+    }
+    return res as PaginatedResponse<T>;
+}
+
+export type SampleListParams = {
+    page?: number;
+    client_id?: number;
+    status_enum?: SampleStatusEnum;
+    from?: string; // YYYY-MM-DD
+    to?: string;   // YYYY-MM-DD
+};
+
+export type CreateSamplePayload = {
+    client_id: number;
+    received_at: string;
     sample_type: string;
 
     examination_purpose?: string | null;
     contact_history?: ContactHistory;
-
-    priority?: number; // kalau tidak diisi, backend pakai default 0
-    current_status: SampleStatus; // wajib, karena tidak ada default di DB
-
+    priority?: number;
     additional_notes?: string | null;
+};
 
-    created_by: number;
-}
+export type UpdateSampleStatusPayload = {
+    target_status: SampleStatus;
+    note?: string | null;
+};
 
-// Service untuk operasi ke /v1/samples
 export const sampleService = {
-    // GET /v1/samples
-    getAll(): Promise<Sample[]> {
-        return apiGet<Sample[]>("/v1/samples");
+    async getAll(params?: SampleListParams): Promise<PaginatedResponse<Sample>> {
+        const res = await apiGet<any>("/v1/samples", { params });
+        return unwrapPaginated<Sample>(res);
     },
 
-    // GET /v1/samples/:id
-    getById(id: number): Promise<Sample> {
-        return apiGet<Sample>(`/v1/samples/${id}`);
+    async getById(id: number): Promise<Sample> {
+        const res = await apiGet<any>(`/v1/samples/${id}`);
+        // show(): { data: sample }
+        return (res?.data ?? res) as Sample;
     },
 
-    // POST /v1/samples
-    create(payload: CreateSamplePayload): Promise<Sample> {
-        return apiPost<Sample>("/v1/samples", payload);
-    }
+    async create(payload: CreateSamplePayload): Promise<Sample> {
+        const res = await apiPost<any>("/v1/samples", payload);
+        // store(): { message, data: sample }
+        return (res?.data ?? res) as Sample;
+    },
+
+    async updateStatus(sampleId: number, payload: UpdateSampleStatusPayload): Promise<Sample> {
+        const res = await apiPost<any>(`/v1/samples/${sampleId}/status`, payload);
+        // updateStatus(): { message, data: sample }
+        return (res?.data ?? res) as Sample;
+    },
 };
