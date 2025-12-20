@@ -221,8 +221,7 @@ export const SampleDetailPage = () => {
                                     Audit Trail / Status History (Next)
                                 </h3>
                                 <div className="text-sm text-gray-600">
-                                    Step berikutnya kita bisa tarik history perubahan status (siapa, kapan, note),
-                                    untuk kebutuhan ISO/IEC 17025.
+                                    -
                                 </div>
                             </div>
                         </div>

@@ -16,6 +16,9 @@ import { UpdateSampleStatusModal } from "../../components/samples/UpdateSampleSt
 type StatusFilter = "all" | SampleStatusEnum;
 
 export const SamplesPage = () => {
+    const [dateFrom, setDateFrom] = useState<string>(""); // YYYY-MM-DD
+    const [dateTo, setDateTo] = useState<string>("");     // YYYY-MM-DD
+
     const navigate = useNavigate();
     const { user } = useAuth();
 
@@ -61,13 +64,15 @@ export const SamplesPage = () => {
         page,
         clientId: clientIdParam,
         statusEnum: statusEnumParam,
-        reloadTick
+        from: dateFrom || undefined,
+        to: dateTo || undefined,
+        reloadTick,
     });
 
     // Reset ke page 1 saat filter berubah
     useEffect(() => {
         setPage(1);
-    }, [clientFilter, statusFilter]);
+    }, [clientFilter, statusFilter, dateFrom, dateTo]);
 
     // Search lokal (backend belum punya param search)
     const visibleItems = useMemo(() => {
@@ -246,6 +251,48 @@ export const SamplesPage = () => {
                             <option value="reported">Reported</option>
                         </select>
                     </div>
+
+                    {/* Date range */}
+                    <div className="w-full md:w-44">
+                        <label className="sr-only" htmlFor="sample-date-from">
+                            From date
+                        </label>
+                        <input
+                            id="sample-date-from"
+                            type="date"
+                            value={dateFrom}
+                            onChange={(e) => setDateFrom(e.target.value)}
+                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                        />
+                    </div>
+
+                    <div className="w-full md:w-44">
+                        <label className="sr-only" htmlFor="sample-date-to">
+                            To date
+                        </label>
+                        <input
+                            id="sample-date-to"
+                            type="date"
+                            value={dateTo}
+                            onChange={(e) => setDateTo(e.target.value)}
+                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                        />
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setSearchTerm("");
+                            setClientFilter("all");
+                            setStatusFilter("all");
+                            setDateFrom("");
+                            setDateTo("");
+                            setPage(1);
+                        }}
+                        className="w-full md:w-auto rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                        Clear
+                    </button>
                 </div>
 
                 {/* Content */}

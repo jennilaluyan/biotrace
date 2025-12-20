@@ -11,6 +11,8 @@ type UseSamplesArgs = {
     page: number;
     clientId?: number;
     statusEnum?: SampleStatusEnum;
+    from?: string; // YYYY-MM-DD
+    to?: string;   // YYYY-MM-DD
     reloadTick?: number;
 };
 
@@ -18,6 +20,8 @@ export function useSamples({
     page,
     clientId,
     statusEnum,
+    from,
+    to,
     reloadTick = 0,
 }: UseSamplesArgs) {
     const [items, setItems] = useState<Sample[]>([]);
@@ -37,22 +41,19 @@ export function useSamples({
                     page,
                     client_id: clientId,
                     status_enum: statusEnum,
+                    from,
+                    to,
                 });
 
                 if (cancelled) return;
-
-                setItems(res?.data ?? []);
-                setMeta(res?.meta ?? null);
+                setItems(res.data ?? []);
+                setMeta(res.meta ?? null);
             } catch (err: any) {
                 if (cancelled) return;
-
                 const msg =
                     err?.data?.message ??
-                    err?.response?.data?.message ??
                     err?.data?.error ??
-                    err?.message ??
                     "Failed to load samples list.";
-
                 setError(msg);
             } finally {
                 if (!cancelled) setLoading(false);
@@ -63,7 +64,7 @@ export function useSamples({
         return () => {
             cancelled = true;
         };
-    }, [page, clientId, statusEnum, reloadTick]);
+    }, [page, clientId, statusEnum, from, to, reloadTick]);
 
     return { items, meta, loading, error };
 }
