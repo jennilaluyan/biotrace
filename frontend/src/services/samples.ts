@@ -79,7 +79,7 @@ export type SampleListParams = {
     client_id?: number;
     status_enum?: SampleStatusEnum;
     from?: string; // YYYY-MM-DD
-    to?: string;   // YYYY-MM-DD
+    to?: string; // YYYY-MM-DD
 };
 
 export type CreateSamplePayload = {
@@ -96,6 +96,39 @@ export type CreateSamplePayload = {
 export type UpdateSampleStatusPayload = {
     target_status: SampleStatus;
     note?: string | null;
+};
+
+// --- sample comments
+export type SampleComment = {
+    comment_id: number;
+    sample_id: number;
+    body: string;
+    created_at: string;
+
+    // optional fields (tolerant)
+    created_by?: number;
+    author_name?: string | null;
+    visible_to_role_ids?: number[];
+    target_status?: string | null;
+};
+
+export type CreateSampleCommentPayload = {
+    body: string;
+};
+
+// --- status history (audit)
+export type SampleStatusHistoryItem = {
+    id: number;
+    created_at: string;
+    from_status: string | null;
+    to_status: string | null;
+    note: string | null;
+    actor: null | {
+        staff_id: number;
+        name: string;
+        email: string;
+        role: null | { role_id: number; name: string };
+    };
 };
 
 export const sampleService = {
@@ -116,9 +149,33 @@ export const sampleService = {
         return (res?.data ?? res) as Sample;
     },
 
-    async updateStatus(sampleId: number, payload: UpdateSampleStatusPayload): Promise<Sample> {
+    async updateStatus(
+        sampleId: number,
+        payload: UpdateSampleStatusPayload
+    ): Promise<Sample> {
         const res = await apiPost<any>(`/v1/samples/${sampleId}/status`, payload);
         // updateStatus(): { message, data: sample }
         return (res?.data ?? res) as Sample;
+    },
+
+    async getComments(sampleId: number): Promise<SampleComment[]> {
+        const res = await apiGet<any>(`/v1/samples/${sampleId}/comments`);
+        // expected: { data: [...] }
+        return (res?.data ?? res) as SampleComment[];
+    },
+
+    async addComment(
+        sampleId: number,
+        payload: CreateSampleCommentPayload
+    ): Promise<SampleComment> {
+        const res = await apiPost<any>(`/v1/samples/${sampleId}/comments`, payload);
+        // expected: { message, data: comment }
+        return (res?.data ?? res) as SampleComment;
+    },
+
+    async getStatusHistory(sampleId: number): Promise<SampleStatusHistoryItem[]> {
+        const res = await apiGet<any>(`/v1/samples/${sampleId}/status-history`);
+        // expected: { data: [...] }
+        return (res?.data ?? res) as SampleStatusHistoryItem[];
     },
 };

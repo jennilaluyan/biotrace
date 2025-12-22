@@ -64,4 +64,10 @@ class Sample extends Model
         // Di JSON, kita kirim value string lower-case: registered/testing/reported
         return $enum->value;
     }
+
+    public function comments()
+{
+    return $this->hasMany(\App\Models\SampleComment::class, 'sample_id', 'sample_id')
+    ->orderByDesc('timestamp');
+}
 }

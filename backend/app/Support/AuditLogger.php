@@ -4,6 +4,7 @@ namespace App\Support;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Request as RequestFacade;
+use Illuminate\Support\Carbon;
 
 class AuditLogger
 {
@@ -31,7 +32,7 @@ class AuditLogger
             'entity_name' => $entityName,
             'entity_id'   => $entityId,
             'action'      => strtoupper($action),
-            'timestamp'   => now(),
+            'timestamp'   => Carbon::now('UTC'),
             'ip_address'  => $req->ip(),
             'old_values'  => $oldValues ? json_encode($oldValues) : null,
             'new_values'  => $newValues ? json_encode($newValues) : null,

@@ -5,6 +5,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import { formatDate } from "../../utils/date";
 import { sampleService, Sample } from "../../services/samples";
+import type { SampleStatusHistoryItem } from "../../services/samples";
 
 export const SampleDetailPage = () => {
     const { id } = useParams<{ id: string }>();
@@ -79,6 +80,32 @@ export const SampleDetailPage = () => {
             </div>
         );
     }
+
+    const [history, setHistory] = useState<SampleStatusHistoryItem[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [historyError, setHistoryError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const loadHistory = async () => {
+            if (!sampleId || Number.isNaN(sampleId)) return;
+
+            try {
+                setHistoryLoading(true);
+                setHistoryError(null);
+                const items = await sampleService.getStatusHistory(sampleId);
+                setHistory(items);
+            } catch (err: any) {
+                const msg = err?.data?.message ?? err?.data?.error ?? "Failed to load status history.";
+                setHistoryError(msg);
+            } finally {
+                setHistoryLoading(false);
+            }
+        };
+
+        if (!loading && !error && sample) {
+            loadHistory();
+        }
+    }, [sampleId, loading, error, sample]);
 
     return (
         <div className="min-h-[60vh]">
@@ -217,12 +244,70 @@ export const SampleDetailPage = () => {
                             </div>
 
                             <div className="mt-6">
-                                <h3 className="lims-detail-section-title mb-2">
-                                    Audit Trail / Status History (Next)
-                                </h3>
-                                <div className="text-sm text-gray-600">
-                                    -
+                                <div className="flex items-center justify-between">
+                                    <h3 className="lims-detail-section-title mb-2">
+                                        Audit Trail / Status History
+                                    </h3>
+                                    <button
+                                        className="text-xs text-gray-500 hover:text-gray-700"
+                                        onClick={() => {
+                                            // simple refresh
+                                            setHistoryLoading(true);
+                                            sampleService.getStatusHistory(sampleId).then(setHistory).catch((e: any) => {
+                                                setHistoryError(e?.data?.message ?? "Failed to load status history.");
+                                            }).finally(() => setHistoryLoading(false));
+                                        }}
+                                        type="button"
+                                    >
+                                        Refresh
+                                    </button>
                                 </div>
+
+                                {historyLoading && (
+                                    <div className="text-sm text-gray-600">Loading history...</div>
+                                )}
+
+                                {historyError && !historyLoading && (
+                                    <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-2">
+                                        {historyError}
+                                    </div>
+                                )}
+
+                                {!historyLoading && !historyError && history.length === 0 && (
+                                    <div className="text-sm text-gray-500">
+                                        No status changes yet.
+                                    </div>
+                                )}
+
+                                {!historyLoading && !historyError && history.length > 0 && (
+                                    <div className="space-y-3">
+                                        {history.map((h) => (
+                                            <div key={h.id} className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div>
+                                                        <div className="text-sm font-semibold text-gray-900">
+                                                            {(h.actor?.name ?? "System")}{h.actor?.role?.name ? ` • ${h.actor.role.name}` : ""}
+                                                        </div>
+                                                        <div className="text-xs text-gray-500 mt-1">
+                                                            {new Date(h.created_at).toLocaleString()}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="text-xs font-medium text-gray-700">
+                                                        {h.from_status ? `${h.from_status} → ` : ""}
+                                                        {h.to_status ?? "-"}
+                                                    </div>
+                                                </div>
+
+                                                {h.note && (
+                                                    <div className="mt-2 text-sm text-gray-700">
+                                                        <span className="font-semibold">Note:</span> {h.note}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

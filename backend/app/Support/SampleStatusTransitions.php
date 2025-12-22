@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\Sample;
 use App\Models\Staff;
+use App\Enums\SampleStatus;
 
 class SampleStatusTransitions
 {
@@ -72,13 +73,6 @@ class SampleStatusTransitions
      */
     public static function allStatuses(): array
     {
-        return [
-            'received',
-            'in_progress',
-            'testing_completed',
-            'verified',
-            'validated',
-            'reported',
-        ];
+        return SampleStatus::values();
     }
 }

@@ -26,11 +26,13 @@ export const SamplesPage = () => {
     const roleId = roleIdRaw ?? ROLE_ID.CLIENT;
     const roleLabel = getUserRoleLabel(user);
 
+    const [createModalOpen, setCreateModalOpen] = useState(false);
+
     const [statusModalOpen, setStatusModalOpen] = useState(false);
     const [selectedSample, setSelectedSample] = useState<Sample | null>(null);
     const [reloadTick, setReloadTick] = useState(0);
 
-    const [createModalOpen, setCreateModalOpen] = useState(false);
+    const [commentCounts, setCommentCounts] = useState<Record<number, number>>({});
 
     // Sesuai SamplePolicy::viewAny (backend)
     const canViewSamples = useMemo(() => {
@@ -397,7 +399,7 @@ export const SamplesPage = () => {
                                                             {/* Update status (Step berikutnya) */}
                                                             <button
                                                                 type="button"
-                                                                className="lims-icon-button text-gray-600"
+                                                                className="relative lims-icon-button text-gray-600"
                                                                 aria-label="Update status"
                                                                 onClick={() => {
                                                                     setSelectedSample(s);
@@ -416,6 +418,12 @@ export const SamplesPage = () => {
                                                                     <path d="M21 12a9 9 0 1 1-2.64-6.36" />
                                                                     <polyline points="21 3 21 9 15 9" />
                                                                 </svg>
+
+                                                                {(commentCounts[s.sample_id] ?? 0) > 0 && (
+                                                                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-white text-[10px] font-semibold flex items-center justify-center">
+                                                                        {commentCounts[s.sample_id]}
+                                                                    </span>
+                                                                )}
                                                             </button>
                                                         </div>
                                                     </td>
@@ -482,6 +490,9 @@ export const SamplesPage = () => {
                 sample={selectedSample}
                 roleId={roleId ?? ROLE_ID.CLIENT}
                 onUpdated={() => setReloadTick((t) => t + 1)}
+                onCommentsCountChange={(sampleId, count) =>
+                    setCommentCounts((prev) => ({ ...prev, [sampleId]: count }))
+                }
             />
 
             <CreateSampleModal

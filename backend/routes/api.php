@@ -6,6 +6,8 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\SampleController;
+use App\Http\Controllers\SampleCommentController;
+use App\Http\Controllers\SampleStatusHistoryController;
 
 /*
 |--------------------------------------------------------------------------
@@ -101,5 +103,9 @@ Route::prefix('v1')->group(function () {
         Route::get('samples/{sample}', [SampleController::class, 'show']);
         Route::post('samples', [SampleController::class, 'store']);
         Route::post('samples/{sample}/status', [SampleController::class, 'updateStatus']);
+        Route::get('samples/{sample}/status-history', [SampleStatusHistoryController::class, 'index']);
+
+        Route::get('samples/{sample}/comments', [SampleCommentController::class, 'index']);
+        Route::post('samples/{sample}/comments', [SampleCommentController::class, 'store']);
     });
 });

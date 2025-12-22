@@ -24,12 +24,9 @@ const TRANSITIONS: Record<number, Partial<Record<SampleStatus, SampleStatus[]>>>
         validated: ["reported"],
     },
 
-    // Administrator: step awal + generate report
-    // (step awal: received → in_progress)
-    // (generate report: validated → reported)
+    // Administrator: received → in_progress (only)
     [ROLE_ID.ADMIN]: {
         received: ["in_progress"],
-        validated: ["reported"],
     },
 };
 

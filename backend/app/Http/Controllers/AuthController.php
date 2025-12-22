@@ -176,7 +176,9 @@ class AuthController extends Controller
             ]
         );
 
-        // logout session (cookie flow)
+        // ✅ logout session (cookie flow) — HARUS panggil guard logout
+        Auth::guard('web')->logout();
+
         if ($request->hasSession()) {
             $request->session()->invalidate();
             $request->session()->regenerateToken();
@@ -184,4 +186,5 @@ class AuthController extends Controller
 
         return response()->noContent();
     }
+
 }

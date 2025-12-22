@@ -34,7 +34,7 @@ export const RoleGuard = ({
 
     if (!roleId || !allowedRoleIds.includes(roleId)) {
         return (
-            <div className="min-h-screen flex flex-col items-center justify-center bg-cream">
+            <div className="h-[95%] flex flex-col items-center justify-center bg-cream">
                 <h1 className="text-2xl font-semibold text-primary mb-2">
                     403 – Access denied
                 </h1>
