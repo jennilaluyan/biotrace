@@ -322,6 +322,7 @@ export const SamplesPage = () => {
                                             <tr className="text-xs text-gray-500 uppercase tracking-wide">
                                                 <th className="px-4 py-3 text-left">Sample ID</th>
                                                 <th className="px-4 py-3 text-left">Client</th>
+                                                <th className="px-4 py-3 text-left">Assignee</th>
                                                 <th className="px-4 py-3 text-left">Sample type</th>
                                                 <th className="px-4 py-3 text-left">Received at</th>
                                                 <th className="px-4 py-3 text-left">Status</th>
@@ -336,12 +337,8 @@ export const SamplesPage = () => {
                                                     className="border-t border-gray-100 hover:bg-gray-50/60"
                                                 >
                                                     <td className="px-4 py-3">
-                                                        <div className="font-medium text-gray-900">
-                                                            #{s.sample_id}
-                                                        </div>
-                                                        <div className="text-[11px] text-gray-500">
-                                                            {s.current_status}
-                                                        </div>
+                                                        <div className="font-medium text-gray-900">#{s.sample_id}</div>
+                                                        <div className="text-[11px] text-gray-500">{s.current_status}</div>
                                                     </td>
 
                                                     <td className="px-4 py-3">
@@ -349,19 +346,23 @@ export const SamplesPage = () => {
                                                             {s.client?.name ?? `Client #${s.client_id}`}
                                                         </div>
                                                         {s.client?.email && (
-                                                            <div className="text-[11px] text-gray-500">
-                                                                {s.client.email}
-                                                            </div>
+                                                            <div className="text-[11px] text-gray-500">{s.client.email}</div>
                                                         )}
                                                     </td>
 
-                                                    <td className="px-4 py-3 text-gray-700">
-                                                        {s.sample_type}
+                                                    {/* ✅ Assignee */}
+                                                    <td className="px-4 py-3">
+                                                        <div className="font-medium text-gray-900">
+                                                            {s.assignee?.name ?? "—"}
+                                                        </div>
+                                                        {s.assignee?.email && (
+                                                            <div className="text-[11px] text-gray-500">{s.assignee.email}</div>
+                                                        )}
                                                     </td>
 
-                                                    <td className="px-4 py-3 text-gray-700">
-                                                        {formatDate(s.received_at)}
-                                                    </td>
+                                                    <td className="px-4 py-3 text-gray-700">{s.sample_type}</td>
+
+                                                    <td className="px-4 py-3 text-gray-700">{formatDate(s.received_at)}</td>
 
                                                     <td className="px-4 py-3">
                                                         <span
@@ -396,7 +397,7 @@ export const SamplesPage = () => {
                                                                 </svg>
                                                             </button>
 
-                                                            {/* Update status (Step berikutnya) */}
+                                                            {/* Update status */}
                                                             <button
                                                                 type="button"
                                                                 className="relative lims-icon-button text-gray-600"
@@ -430,6 +431,7 @@ export const SamplesPage = () => {
                                                 </tr>
                                             ))}
                                         </tbody>
+
                                     </table>
 
                                     {/* Pagination */}

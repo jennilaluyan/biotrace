@@ -30,7 +30,7 @@ class SampleController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = Sample::query()
-            ->with(['client', 'creator']);
+            ->with(['client', 'creator', 'assignee']);
 
         // Filter by client_id
         if ($request->filled('client_id')) {
@@ -96,11 +96,22 @@ class SampleController extends Controller
 
         $data['created_by'] = $staff->staff_id;
 
+        if (
+            array_key_exists('assigned_to', $data)
+            && $data['assigned_to'] !== null
+            && (int) $data['assigned_to'] !== (int) $staff->staff_id
+        ) {
+            $this->authorize('overrideAssigneeOnCreate', Sample::class);
+        }
+
+        // Auto-assignment: default assigned_to = created_by (kalau belum di-set)
+        $data['assigned_to'] = $data['assigned_to'] ?? $staff->staff_id;
+
         // Simpan sample
         $sample = Sample::create($data);
 
         // Load relasi untuk response
-        $sample->load(['client', 'creator']);
+        $sample->load(['client', 'creator', 'assignee']);
 
         // 🔎 Audit log: SAMPLE_REGISTERED
         AuditLogger::logSampleRegistered(
@@ -121,7 +132,7 @@ class SampleController extends Controller
      */
     public function show(Sample $sample): JsonResponse
     {
-        $sample->load(['client', 'creator']);
+        $sample->load(['client', 'creator', 'assignee']);
 
         return response()->json([
             'data' => $sample,

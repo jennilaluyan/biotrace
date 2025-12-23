@@ -16,46 +16,21 @@ class SampleStoreRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'client_id' => [
-                'required',
-                'integer',
-                'exists:clients,client_id',
-            ],
+            'client_id' => ['required', 'integer', 'exists:clients,client_id'],
 
-            'received_at' => [
-                'required',
-                'date', // kalau mau lebih ketat: date_format:Y-m-d H:i
-            ],
+            'received_at' => ['required', 'date'],
 
-            'sample_type' => [
-                'required',
-                'string',
-                'max:80',
-            ],
+            'sample_type' => ['required', 'string', 'max:80'],
 
-            'examination_purpose' => [
-                'nullable',
-                'string',
-                'max:150',
-            ],
+            'examination_purpose' => ['nullable', 'string', 'max:150'],
 
-            'contact_history' => [
-                'nullable',
-                'string',
-                'in:ada,tidak,tidak_tahu',
-            ],
+            'contact_history' => ['nullable', 'string', 'in:ada,tidak,tidak_tahu'],
 
-            'priority' => [
-                'nullable',
-                'integer',
-                'min:0',
-                'max:5',
-            ],
+            'priority' => ['nullable', 'integer', 'min:0', 'max:5'],
 
-            'additional_notes' => [
-                'nullable',
-                'string',
-            ],
+            'assigned_to' => ['nullable', 'integer', 'exists:staffs,staff_id'],
+
+            'additional_notes' => ['nullable', 'string'],
         ];
     }
 
@@ -75,6 +50,9 @@ class SampleStoreRequest extends FormRequest
             'priority.integer' => 'Prioritas harus berupa angka.',
             'priority.min'     => 'Prioritas minimal 0.',
             'priority.max'     => 'Prioritas maksimal 5.',
+
+            'assigned_to.integer' => 'Assignee harus berupa angka (staff_id).',
+            'assigned_to.exists'  => 'Assignee tidak ditemukan di database.',
         ];
     }
 }

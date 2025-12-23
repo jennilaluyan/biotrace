@@ -45,6 +45,7 @@ export interface Sample {
 
     additional_notes: string | null;
     created_by: number;
+    assigned_to: number | null;
 
     // appended by backend model
     status_enum?: SampleStatusEnum;
@@ -52,6 +53,7 @@ export interface Sample {
     // eager-loaded relations from backend
     client?: SampleClient;
     creator?: SampleCreator;
+    assignee?: SampleCreator | null;
 }
 
 export type PaginationMeta = {

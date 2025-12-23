@@ -62,12 +62,13 @@ class SamplePolicy
     {
         return $this->hasRoleName($user, [
             'Administrator',
-            // kalau mau tambahkan:
-            // 'Laboratory Head',
+            'Laboratory Head',
         ]);
     }
-
-    // Nanti kalau ada fitur edit / delete sample, aturan ditambah di sini:
-    // public function update(Staff $user, Sample $sample): bool {...}
-    // public function delete(Staff $user, Sample $sample): bool {...}
+    public function overrideAssigneeOnCreate(Staff $user): bool
+    {
+        return $this->hasRoleName($user, [
+            'Laboratory Head'
+        ]);
+    }
 }

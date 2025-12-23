@@ -28,6 +28,7 @@ class Sample extends Model
         'current_status',
         'additional_notes',
         'created_by',
+        'assigned_to'
     ];
 
     protected $casts = [
@@ -71,5 +72,10 @@ class Sample extends Model
     {
         return $this->hasMany(\App\Models\SampleComment::class, 'sample_id', 'sample_id')
             ->orderByDesc('created_at');
+    }
+
+    public function assignee()
+    {
+        return $this->belongsTo(Staff::class, 'assigned_to', 'staff_id');
     }
 }

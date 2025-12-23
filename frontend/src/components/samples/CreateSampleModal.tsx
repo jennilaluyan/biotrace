@@ -10,7 +10,7 @@ type Props = {
     clientsLoading?: boolean;
 };
 
-const LAB_OFFSET = "+08:00";
+const LAB_OFFSET = "";
 
 function toBackendDateTime(datetimeLocal: string) {
     if (!datetimeLocal) return "";
@@ -93,17 +93,6 @@ export const CreateSampleModal = ({
             console.log("CREATE SAMPLE payload:", payload);
 
             await sampleService.create(payload);
-
-
-            await sampleService.create({
-                client_id: Number(clientId),
-                received_at: toBackendDateTime(receivedAt),
-                sample_type: sampleType.trim(),
-                priority,
-                contact_history: contactHistory,
-                examination_purpose: examinationPurpose.trim() || null,
-                additional_notes: additionalNotes.trim() || null,
-            });
 
             onClose();
             onCreated();

@@ -179,4 +179,85 @@ class SampleLifecycleTest extends TestCase
             'created_by'  => $admin->staff_id,
         ]);
     }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function auto_assigns_assigned_to_to_creator_on_sample_create(): void
+    {
+        // Arrange: buat admin + login
+        $admin = $this->createStaffWithRole('Administrator');
+        $this->actingAs($admin);
+
+        // Client wajib punya staff_id (PIC internal)
+        $client = $this->createClient($admin);
+
+        $payload = [
+            'client_id'   => $client->client_id,
+            'received_at' => now()->toDateTimeString(),
+            'sample_type' => 'Swab',
+            'priority'    => 1,
+        ];
+
+        // Act
+        $res = $this->postJson('/api/v1/samples', $payload);
+
+        // Assert response
+        $res->assertStatus(201);
+        $res->assertJsonPath('data.created_by', $admin->staff_id);
+        $res->assertJsonPath('data.assigned_to', $admin->staff_id);
+
+        $sampleId = $res->json('data.sample_id');
+
+        // Assert DB
+        $this->assertDatabaseHas('samples', [
+            'sample_id'   => $sampleId,
+            'created_by'  => $admin->staff_id,
+            'assigned_to' => $admin->staff_id,
+        ]);
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function admin_cannot_override_assigned_to_on_sample_create(): void
+    {
+        $admin = $this->createStaffWithRole('Administrator');
+        $this->actingAs($admin);
+
+        $assignee = $this->createStaffWithRole('Sample Collector');
+        $client   = $this->createClient($admin);
+
+        $payload = [
+            'client_id'   => $client->client_id,
+            'received_at' => now()->toDateTimeString(),
+            'sample_type' => 'Swab',
+            'priority'    => 1,
+            'assigned_to' => $assignee->staff_id, // override attempt
+        ];
+
+        $this->postJson('/api/v1/samples', $payload)
+            ->assertStatus(403);
+    }
+
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function lab_head_can_override_assigned_to_on_sample_create(): void
+    {
+        $labHead = $this->createStaffWithRole('Laboratory Head');
+        $this->actingAs($labHead);
+
+        $assignee = $this->createStaffWithRole('Sample Collector');
+        $client   = $this->createClient($labHead);
+
+        $payload = [
+            'client_id'   => $client->client_id,
+            'received_at' => now()->toDateTimeString(),
+            'sample_type' => 'Swab',
+            'priority'    => 1,
+            'assigned_to' => $assignee->staff_id,
+        ];
+
+        $res = $this->postJson('/api/v1/samples', $payload);
+
+        $res->assertCreated();
+        $res->assertJsonPath('data.created_by', $labHead->staff_id);
+        $res->assertJsonPath('data.assigned_to', $assignee->staff_id);
+        $res->assertJsonPath('data.assignee.staff_id', $assignee->staff_id);
+    }
 }
