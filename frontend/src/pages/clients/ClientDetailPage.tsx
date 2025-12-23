@@ -3,7 +3,7 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import { clientService, Client } from "../../services/clients";
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
-import { formatDate } from "../../utils/date";
+import { formatDate, formatDateOnly } from "../../utils/date";
 import { clientIdFromSlug, toClientSlug } from "../../utils/slug";
 
 
@@ -345,7 +345,7 @@ export const ClientDetailPage = () => {
                                                     Date of birth
                                                 </div>
                                                 <div className="lims-detail-value">
-                                                    {client.date_of_birth || "-"}
+                                                    {client.date_of_birth ? formatDateOnly(client.date_of_birth) : "-"}
                                                 </div>
                                             </div>
                                             <div>

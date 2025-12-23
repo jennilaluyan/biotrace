@@ -5,13 +5,28 @@ lims.localhost {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
     }
 
-    # 🧪 Semua request yang diawali /api -> ke Laravel (backend)
     @api path /api/*
     handle @api {
         reverse_proxy 127.0.0.1:8000
     }
 
-    # 🌐 Semua request lainnya -> ke Vite (frontend)
+    handle {
+        reverse_proxy 127.0.0.1:5173
+    }
+}
+
+backoffice.lims.localhost {
+    tls internal
+    encode gzip
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    }
+
+    @api path /api/*
+    handle @api {
+        reverse_proxy 127.0.0.1:8000
+    }
+
     handle {
         reverse_proxy 127.0.0.1:5173
     }

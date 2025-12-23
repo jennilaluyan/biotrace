@@ -7,6 +7,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use App\Support\AuditLogger;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Database\QueryException;
+use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
 {
@@ -119,7 +122,6 @@ class AuthController extends Controller
         ], 200);
     }
 
-
     // GET /api/v1/auth/me
     public function me(Request $request)
     {
@@ -187,4 +189,56 @@ class AuthController extends Controller
         return response()->noContent();
     }
 
+    public function register(Request $request)
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:100'],
+            'email' => ['required', 'email', 'max:255'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'role_id' => [
+                'required',
+                'integer',
+                // boleh self-register: Admin, Sample Collector, Analyst, OM
+                Rule::in([2, 3, 4, 5]),
+            ],
+        ]);
+
+        // email case-insensitive sudah ada unique index, tapi tetap aman cek cepat:
+        $exists = Staff::whereRaw('LOWER(email) = ?', [strtolower($data['email'])])->exists();
+        if ($exists) {
+            return response()->json(['message' => 'Email already registered'], 422);
+        }
+
+        $staff = Staff::create([
+            'name' => $data['name'],
+            'email' => $data['email'],
+            'password_hash' => Hash::make($data['password']),
+            'role_id' => $data['role_id'],
+            'is_active' => false, // penting: pending Lab Head approval
+        ]);
+
+        AuditLogger::write(
+            'STAFF_REGISTER',
+            $staff->getKey(), // actor = dirinya sendiri
+            'staffs',
+            $staff->getKey(),
+            null,
+            [
+                'email' => $staff->email,
+                'role_id' => $staff->role_id,
+                'status' => 'PENDING_LAB_HEAD_APPROVAL',
+            ]
+        );
+
+        return response()->json([
+            'message' => 'Registration submitted. Waiting for Laboratory Head approval.',
+            'user' => [
+                'id' => $staff->getKey(),
+                'name' => $staff->name,
+                'email' => $staff->email,
+                'role_id' => $staff->role_id,
+                'is_active' => $staff->is_active,
+            ],
+        ], 201);
+    }
 }

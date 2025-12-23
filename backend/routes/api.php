@@ -8,6 +8,10 @@ use App\Http\Controllers\ClientController;
 use App\Http\Controllers\SampleController;
 use App\Http\Controllers\SampleCommentController;
 use App\Http\Controllers\SampleStatusHistoryController;
+use App\Http\Controllers\StaffApprovalController;
+use App\Http\Controllers\StaffRegistrationController;
+use App\Http\Controllers\ClientAuthController;
+use App\Http\Controllers\ClientVerificationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -73,23 +77,19 @@ Route::prefix('v1')->group(function () {
 
     // Login: cookie-session (SPA) + optional token (Postman)
     Route::post('/auth/login', [AuthController::class, 'login']);
+    Route::post('/auth/register', [AuthController::class, 'register']);
+
+    Route::post('/clients/register', [ClientAuthController::class, 'register']);
+    Route::post('/clients/login', [ClientAuthController::class, 'login']);
+    Route::get('/clients/me', [ClientAuthController::class, 'me']);
+    Route::post('/clients/logout', [ClientAuthController::class, 'logout']);
+
+    Route::post('/staffs/register', [StaffRegistrationController::class, 'register']);
 
     // TERIMA session (guard web) ATAU token Sanctum (guard api)
     Route::middleware('auth:web,api')->group(function () {
         Route::get('/auth/me', [AuthController::class, 'me']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
-
-        /*
-        |--------------------------------------------------------------------------
-        | Clients Routes
-        |--------------------------------------------------------------------------
-        |
-        | Frontend (clientService) mengakses:
-        | - GET  /api/v1/clients
-        | - GET  /api/v1/clients/{client}
-        | - POST /api/v1/clients
-        |
-        */
 
         Route::get('clients', [ClientController::class, 'index']);
         Route::get('clients/{client}', [ClientController::class, 'show']);
@@ -107,5 +107,13 @@ Route::prefix('v1')->group(function () {
 
         Route::get('samples/{sample}/comments', [SampleCommentController::class, 'index']);
         Route::post('samples/{sample}/comments', [SampleCommentController::class, 'store']);
+
+        Route::get('/staffs/pending', [StaffApprovalController::class, 'pending']);
+        Route::post('/staffs/{staff}/approve', [StaffApprovalController::class, 'approve']);
+        Route::post('/staffs/{staff}/reject', [StaffApprovalController::class, 'reject']);
+
+        Route::get('/clients/pending', [ClientVerificationController::class, 'pending']);
+        Route::post('/clients/{client}/approve', [ClientVerificationController::class, 'approve']);
+        Route::post('/clients/{client}/reject', [ClientVerificationController::class, 'reject']);
     });
 });

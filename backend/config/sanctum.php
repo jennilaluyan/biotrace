@@ -33,7 +33,7 @@ return [
     |
     */
 
-    'guard' => ['web'],
+    'guard' => array_filter(array_map('trim', explode(',', env('SANCTUM_GUARD', 'web')))),
 
     /*
     |--------------------------------------------------------------------------

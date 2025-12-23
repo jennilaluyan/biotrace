@@ -5,10 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Enums\SampleHighLevelStatus;
+use App\Models\Concerns\SerializesDatesToIsoMillisUtc;
 
 class Sample extends Model
 {
     use HasFactory;
+    use SerializesDatesToIsoMillisUtc;
 
     protected $table = 'samples';
     protected $primaryKey = 'sample_id';
@@ -66,8 +68,8 @@ class Sample extends Model
     }
 
     public function comments()
-{
-    return $this->hasMany(\App\Models\SampleComment::class, 'sample_id', 'sample_id')
-    ->orderByDesc('timestamp');
-}
+    {
+        return $this->hasMany(\App\Models\SampleComment::class, 'sample_id', 'sample_id')
+            ->orderByDesc('created_at');
+    }
 }

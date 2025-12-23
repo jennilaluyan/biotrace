@@ -1,23 +1,53 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
-import { apiPost } from "../../services/api";
+import { getTenant } from "../../utils/tenant";
+import { ROLE_ID } from "../../utils/roles";
+import {
+    registerStaffRequest,
+    clientLoginRequest,
+    clientRegisterRequest,
+} from "../../services/auth";
 
 import LabHero from "../../assets/lab-login-hero.png";
 import BiotraceLogo from "../../assets/biotrace-logo.png";
 
 type Mode = "login" | "register";
+type Tenant = "portal" | "backoffice";
+
+type ClientType = "individual" | "institution";
+type Gender = "male" | "female" | "other";
 
 interface AuthPageProps {
     initialMode?: Mode;
+    tenant?: Tenant;
 }
 
-export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
+export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
+    const t = tenant ?? getTenant();
+    const isPortal = t === "portal";
+
     const [mode, setMode] = useState<Mode>(initialMode);
     const [isMobile, setIsMobile] = useState(false);
 
+    // password visibility
+    const [showLoginPassword, setShowLoginPassword] = useState(false);
+    const [showRegPassword, setShowRegPassword] = useState(false);
+    const [showRegPasswordConfirmation, setShowRegPasswordConfirmation] = useState(false);
+
     const { login } = useAuth();
     const navigate = useNavigate();
+
+    const headingLogin = isPortal ? "Client sign in" : "Staff sign in";
+    const subtitleLogin = isPortal
+        ? "Use your client account to submit and track sample requests."
+        : "Use your registered staff account to access the LIMS dashboard.";
+
+    const headingRegister = isPortal ? "Create client account" : "Create staff account";
+    const subtitleRegister = isPortal
+        ? "Register as a client. Your account will be verified by admin."
+        : "Register as staff. Your account will be verified by Laboratory Head.";
 
     // Responsive detection
     useEffect(() => {
@@ -33,7 +63,7 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
     const [loginError, setLoginError] = useState<string | null>(null);
     const [loginLoading, setLoginLoading] = useState(false);
 
-    // REGISTER STATE
+    // REGISTER (shared base) STATE
     const [regName, setRegName] = useState("");
     const [regEmail, setRegEmail] = useState("");
     const [regPassword, setRegPassword] = useState("");
@@ -41,6 +71,39 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
     const [regError, setRegError] = useState<string | null>(null);
     const [regLoading, setRegLoading] = useState(false);
     const [regSuccess, setRegSuccess] = useState<string | null>(null);
+
+    // REGISTER (staff only)
+    const [regRoleId, setRegRoleId] = useState<number>(ROLE_ID.ANALYST);
+
+    // REGISTER (client only) ✅
+    const [regClientType, setRegClientType] = useState<ClientType>("individual");
+    const [regPhone, setRegPhone] = useState("");
+
+    // individual fields
+    const [regNationalId, setRegNationalId] = useState("");
+    const [regDob, setRegDob] = useState(""); // yyyy-mm-dd
+    const [regGender, setRegGender] = useState<Gender>("female");
+    const [regAddressKtp, setRegAddressKtp] = useState("");
+    const [regAddressDomicile, setRegAddressDomicile] = useState("");
+
+    // institution fields
+    const [regInstitutionName, setRegInstitutionName] = useState("");
+    const [regInstitutionAddress, setRegInstitutionAddress] = useState("");
+    const [regContactPersonName, setRegContactPersonName] = useState("");
+    const [regContactPersonPhone, setRegContactPersonPhone] = useState("");
+    const [regContactPersonEmail, setRegContactPersonEmail] = useState("");
+
+    const STAFF_ROLE_OPTIONS = useMemo(
+        () => [
+            { id: ROLE_ID.ADMIN, label: "Administrator" },
+            { id: ROLE_ID.SAMPLE_COLLECTOR, label: "Sample Collector" },
+            { id: ROLE_ID.ANALYST, label: "Analyst" },
+            { id: ROLE_ID.OPERATIONAL_MANAGER, label: "Operational Manager" },
+            // ❌ LAB_HEAD tidak ada
+            // ❌ CLIENT tidak ada
+        ],
+        []
+    );
 
     const handleLoginSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -53,6 +116,17 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
 
         try {
             setLoginLoading(true);
+
+            const currentTenant: Tenant = (tenant ?? getTenant()) as Tenant;
+
+            if (currentTenant === "portal") {
+                // ✅ client login (portal)
+                await clientLoginRequest(loginEmail, loginPassword);
+                navigate("/portal");
+                return;
+            }
+
+            // ✅ staff login (backoffice)
             await login(loginEmail, loginPassword);
             navigate("/clients");
         } catch (err: any) {
@@ -71,8 +145,8 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
         setRegError(null);
         setRegSuccess(null);
 
-        if (!regName || !regEmail || !regPassword || !regPasswordConfirmation) {
-            setRegError("All fields are required.");
+        if (!regEmail || !regPassword || !regPasswordConfirmation) {
+            setRegError("Email and password are required.");
             return;
         }
 
@@ -83,14 +157,76 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
 
         try {
             setRegLoading(true);
-            await apiPost("/auth/register", {
+
+            if (isPortal) {
+                // ✅ CLIENT REGISTER VALIDATION (minimal)
+                if (!regClientType) {
+                    setRegError("Client type is required.");
+                    return;
+                }
+                if (!regPhone) {
+                    setRegError("Phone is required.");
+                    return;
+                }
+
+                // Untuk institution, kalau user gak isi regName, isi otomatis pakai institution_name
+                const safeName =
+                    regName?.trim() ||
+                    (regClientType === "institution" ? regInstitutionName?.trim() : "") ||
+                    "";
+
+                if (!safeName) {
+                    setRegError("Name is required.");
+                    return;
+                }
+
+                // Build payload sesuai backend (yang kamu test di Postman)
+                const payload: any = {
+                    type: regClientType,
+                    name: safeName,
+                    email: regEmail,
+                    phone: regPhone,
+                    password: regPassword,
+                    password_confirmation: regPasswordConfirmation,
+                };
+
+                if (regClientType === "individual") {
+                    // OPTIONAL — isi kalau ada (backend kamu nampaknya menerima nullable)
+                    payload.national_id = regNationalId || null;
+                    payload.date_of_birth = regDob || null;
+                    payload.gender = regGender || null;
+                    payload.address_ktp = regAddressKtp || null;
+                    payload.address_domicile = regAddressDomicile || null;
+                } else {
+                    payload.institution_name = regInstitutionName || null;
+                    payload.institution_address = regInstitutionAddress || null;
+                    payload.contact_person_name = regContactPersonName || null;
+                    payload.contact_person_phone = regContactPersonPhone || null;
+                    payload.contact_person_email = regContactPersonEmail || null;
+                }
+
+                await clientRegisterRequest(payload);
+
+                setRegSuccess("Client registration submitted. Waiting for admin verification.");
+                setTimeout(() => navigate("/login"), 800);
+                return;
+            }
+
+            // ✅ STAFF REGISTER
+            if (!regName) {
+                setRegError("Full name is required.");
+                return;
+            }
+
+            await registerStaffRequest({
                 name: regName,
                 email: regEmail,
                 password: regPassword,
                 password_confirmation: regPasswordConfirmation,
+                role_id: regRoleId,
             });
 
-            setRegSuccess("Account created. You can now sign in.");
+            setRegSuccess("Staff registration submitted. Waiting for Laboratory Head approval.");
             setTimeout(() => navigate("/login"), 800);
         } catch (err: any) {
             const msg =
@@ -104,22 +240,23 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
     };
 
     const containerClass =
-        "lims-auth-container bg-white rounded-3xl shadow-2xl w-full max-w-6xl min-h-[600px]";
+        "lims-auth-container bg-white rounded-3xl shadow-2xl w-full max-w-6xl min-h-[600px] max-h-[calc(100vh-80px)] overflow-hidden";
 
     const inputClass =
         "w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent-green focus:border-accent-green";
     const labelClass = "block mb-1 text-left text-sm text-gray-700";
+    const formBaseClass =
+        "flex flex-col items-stretch justify-center w-full max-w-md mx-auto px-4 md:px-10 py-10";
 
     const loginForm = (
         <form
             onSubmit={handleLoginSubmit}
-            className="flex flex-col items-stretch justify-center px-4 md:px-10 py-8 w-full max-w-md mx-auto"
+            className={formBaseClass}
         >
-            <img src={BiotraceLogo} alt="Biotrace logo" className="h-full w-20 mb-2" />
-            <h1 className="text-2xl font-semibold text-primary mb-2">Sign in</h1>
-            <p className="text-xs text-gray-500 mb-6">
-                Use your registered staff account to access the LIMS dashboard.
-            </p>
+            <img src={BiotraceLogo} alt="Biotrace logo" className="w-20 mb-6" />
+
+            <h1 className="text-2xl font-semibold text-primary mb-2">{headingLogin}</h1>
+            <p className="text-xs text-gray-500 mb-6">{subtitleLogin}</p>
 
             {loginError && (
                 <div className="mb-3 text-xs text-red-600 bg-red-100 px-3 py-2 rounded">
@@ -139,39 +276,213 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
                         autoComplete="email"
                     />
                 </div>
-                <div>
+
+                <div className="relative">
                     <label className={labelClass}>Password</label>
+
                     <input
-                        type="password"
+                        type={showLoginPassword ? "text" : "password"}
                         value={loginPassword}
                         onChange={(e) => setLoginPassword(e.target.value)}
-                        className={inputClass}
+                        className={inputClass + " pr-12"}
                         placeholder="Enter your password"
                         autoComplete="current-password"
                     />
+
+                    <button
+                        type="button"
+                        onClick={() => setShowLoginPassword((v) => !v)}
+                        className="absolute right-3 top-[34px] text-gray-500 hover:text-gray-700"
+                        aria-label={showLoginPassword ? "Hide password" : "Show password"}
+                    >
+                        {showLoginPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
                 </div>
             </div>
 
-            <button
-                type="submit"
-                disabled={loginLoading}
-                className="mt-6 self-start lims-btn-primary"
-            >
+            <button type="submit" disabled={loginLoading} className="mt-6 self-start lims-btn-primary">
                 {loginLoading ? "Signing in..." : "Sign in"}
             </button>
         </form>
     );
 
+    const portalClientFields = (
+        <div className="space-y-3">
+            <div>
+                <label className={labelClass}>Client type</label>
+                <select
+                    value={regClientType}
+                    onChange={(e) => setRegClientType(e.target.value as ClientType)}
+                    className={inputClass}
+                >
+                    <option value="individual">Individual</option>
+                    <option value="institution">Institution</option>
+                </select>
+            </div>
+
+            <div>
+                <label className={labelClass}>{regClientType === "institution" ? "Client/Institution name" : "Full name"}</label>
+                <input
+                    type="text"
+                    value={regName}
+                    onChange={(e) => setRegName(e.target.value)}
+                    className={inputClass}
+                    placeholder={regClientType === "institution" ? "e.g., Stark Industries" : "Your full name"}
+                />
+                {regClientType === "institution" && (
+                    <p className="mt-1 text-[11px] text-gray-500">
+                        Tip: you can leave this blank and we will use “Institution name”.
+                    </p>
+                )}
+            </div>
+
+            <div>
+                <label className={labelClass}>Phone</label>
+                <input
+                    type="tel"
+                    value={regPhone}
+                    onChange={(e) => setRegPhone(e.target.value)}
+                    className={inputClass}
+                    placeholder="e.g., +62-812-xxxx-xxxx"
+                />
+            </div>
+
+            {regClientType === "individual" ? (
+                <>
+                    <div>
+                        <label className={labelClass}>National ID (optional)</label>
+                        <input
+                            type="text"
+                            value={regNationalId}
+                            onChange={(e) => setRegNationalId(e.target.value)}
+                            className={inputClass}
+                            placeholder="NIK / National ID"
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                            <label className={labelClass}>Date of birth (optional)</label>
+                            <input
+                                type="date"
+                                value={regDob}
+                                onChange={(e) => setRegDob(e.target.value)}
+                                className={inputClass}
+                            />
+                        </div>
+
+                        <div>
+                            <label className={labelClass}>Gender (optional)</label>
+                            <select
+                                value={regGender}
+                                onChange={(e) => setRegGender(e.target.value as Gender)}
+                                className={inputClass}
+                            >
+                                <option value="female">Female</option>
+                                <option value="male">Male</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className={labelClass}>Address (KTP) (optional)</label>
+                        <input
+                            type="text"
+                            value={regAddressKtp}
+                            onChange={(e) => setRegAddressKtp(e.target.value)}
+                            className={inputClass}
+                            placeholder="As per identity card"
+                        />
+                    </div>
+
+                    <div>
+                        <label className={labelClass}>Address (domicile) (optional)</label>
+                        <input
+                            type="text"
+                            value={regAddressDomicile}
+                            onChange={(e) => setRegAddressDomicile(e.target.value)}
+                            className={inputClass}
+                            placeholder="Current address"
+                        />
+                    </div>
+                </>
+            ) : (
+                <>
+                    <div>
+                        <label className={labelClass}>Institution name (optional)</label>
+                        <input
+                            type="text"
+                            value={regInstitutionName}
+                            onChange={(e) => setRegInstitutionName(e.target.value)}
+                            className={inputClass}
+                            placeholder="Institution / company name"
+                        />
+                    </div>
+
+                    <div>
+                        <label className={labelClass}>Institution address (optional)</label>
+                        <input
+                            type="text"
+                            value={regInstitutionAddress}
+                            onChange={(e) => setRegInstitutionAddress(e.target.value)}
+                            className={inputClass}
+                            placeholder="Institution address"
+                        />
+                    </div>
+
+                    <div className="pt-2">
+                        <p className="text-xs font-semibold text-gray-700 mb-2">Contact person (optional)</p>
+
+                        <div className="space-y-3">
+                            <div>
+                                <label className={labelClass}>Name</label>
+                                <input
+                                    type="text"
+                                    value={regContactPersonName}
+                                    onChange={(e) => setRegContactPersonName(e.target.value)}
+                                    className={inputClass}
+                                    placeholder="Contact person name"
+                                />
+                            </div>
+
+                            <div>
+                                <label className={labelClass}>Phone</label>
+                                <input
+                                    type="tel"
+                                    value={regContactPersonPhone}
+                                    onChange={(e) => setRegContactPersonPhone(e.target.value)}
+                                    className={inputClass}
+                                    placeholder="+62-..."
+                                />
+                            </div>
+
+                            <div>
+                                <label className={labelClass}>Email</label>
+                                <input
+                                    type="email"
+                                    value={regContactPersonEmail}
+                                    onChange={(e) => setRegContactPersonEmail(e.target.value)}
+                                    className={inputClass}
+                                    placeholder="contact@example.com"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
+        </div>
+    );
+
     const registerForm = (
         <form
             onSubmit={handleRegisterSubmit}
-            className="flex flex-col items-stretch justify-center px-4 md:px-10 py-8 w-full max-w-md mx-auto"
+            className={formBaseClass}
         >
-            <img src={BiotraceLogo} alt="Biotrace logo" className="h-full w-20 mb-2" />
-            <h1 className="text-2xl font-semibold text-primary mb-2">Create account</h1>
-            <p className="text-xs text-gray-500 mb-6">
-                Register a new staff account to access the biomolecular LIMS.
-            </p>
+            <img src={BiotraceLogo} alt="Biotrace logo" className="w-20 mb-4 mt-2" />
+
+            <h1 className="text-2xl font-semibold text-primary mb-2">{headingRegister}</h1>
+            <p className="text-xs text-gray-500 mb-6">{subtitleRegister}</p>
 
             {regError && (
                 <div className="mb-3 text-xs text-red-600 bg-red-100 px-3 py-2 rounded">
@@ -186,53 +497,113 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
             )}
 
             <div className="space-y-3">
-                <div>
-                    <label className={labelClass}>Full name</label>
-                    <input
-                        type="text"
-                        value={regName}
-                        onChange={(e) => setRegName(e.target.value)}
-                        className={inputClass}
-                        placeholder="Your full name"
-                    />
-                </div>
-                <div>
-                    <label className={labelClass}>Email</label>
-                    <input
-                        type="email"
-                        value={regEmail}
-                        onChange={(e) => setRegEmail(e.target.value)}
-                        className={inputClass}
-                        placeholder="Enter your email"
-                    />
-                </div>
-                <div>
+                {isPortal ? (
+                    <>
+                        {/* PORTAL (CLIENT) FIELDS */}
+                        {portalClientFields}
+
+                        <div>
+                            <label className={labelClass}>Email</label>
+                            <input
+                                type="email"
+                                value={regEmail}
+                                onChange={(e) => setRegEmail(e.target.value)}
+                                className={inputClass}
+                                placeholder="Enter your email"
+                            />
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        {/* BACKOFFICE (STAFF) FIELDS */}
+                        <div>
+                            <label className={labelClass}>Full name</label>
+                            <input
+                                type="text"
+                                value={regName}
+                                onChange={(e) => setRegName(e.target.value)}
+                                className={inputClass}
+                                placeholder="Your full name"
+                            />
+                        </div>
+
+                        <div>
+                            <label className={labelClass}>Email</label>
+                            <input
+                                type="email"
+                                value={regEmail}
+                                onChange={(e) => setRegEmail(e.target.value)}
+                                className={inputClass}
+                                placeholder="Enter your email"
+                            />
+                        </div>
+
+                        <div>
+                            <label className={labelClass}>Role</label>
+                            <select
+                                value={regRoleId}
+                                onChange={(e) => setRegRoleId(Number(e.target.value))}
+                                className={inputClass}
+                            >
+                                {STAFF_ROLE_OPTIONS.map((r) => (
+                                    <option key={r.id} value={r.id}>
+                                        {r.label}
+                                    </option>
+                                ))}
+                            </select>
+
+                            <p className="mt-1 text-[11px] text-gray-500">
+                                Account will be inactive until Laboratory Head approval.
+                            </p>
+                        </div>
+                    </>
+                )}
+
+                <div className="relative">
                     <label className={labelClass}>Password</label>
+
                     <input
-                        type="password"
+                        type={showRegPassword ? "text" : "password"}
                         value={regPassword}
                         onChange={(e) => setRegPassword(e.target.value)}
-                        className={inputClass}
+                        className={inputClass + " pr-12"}
                         placeholder="Enter your password"
                     />
+
+                    <button
+                        type="button"
+                        onClick={() => setShowRegPassword((v) => !v)}
+                        className="absolute right-3 top-[34px] text-gray-500 hover:text-gray-700"
+                        aria-label={showRegPassword ? "Hide password" : "Show password"}
+                    >
+                        {showRegPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
                 </div>
-                <div>
+
+                <div className="relative">
                     <label className={labelClass}>Confirm password</label>
+
                     <input
-                        type="password"
+                        type={showRegPasswordConfirmation ? "text" : "password"}
                         value={regPasswordConfirmation}
                         onChange={(e) => setRegPasswordConfirmation(e.target.value)}
-                        className={inputClass}
+                        className={inputClass + " pr-12"}
                         placeholder="Confirm your password"
                     />
+
+                    <button
+                        type="button"
+                        onClick={() => setShowRegPasswordConfirmation((v) => !v)}
+                        className="absolute right-3 top-[34px] text-gray-500 hover:text-gray-700"
+                        aria-label={showRegPasswordConfirmation ? "Hide password" : "Show password"}
+                    >
+                        {showRegPasswordConfirmation ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
                 </div>
+
             </div>
 
-            <button
-                type="submit"
-                disabled={regLoading}
-                className="mt-6 self-start lims-btn-primary"
-            >
+            <button type="submit" disabled={regLoading} className="mt-6 self-start lims-btn-primary">
                 {regLoading ? "Creating..." : "Sign up"}
             </button>
         </form>
@@ -280,12 +651,12 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
         <div className="min-h-screen w-full flex items-center justify-center bg-cream px-4 py-10">
             <div className={containerClass + (mode === "register" ? " lims-right-active" : "")}>
                 {/* SIGN UP desktop */}
-                <div className="lims-auth-form-container lims-sign-up flex items-center justify-center">
+                <div className="lims-auth-form-container lims-sign-up flex items-start justify-center overflow-y-auto">
                     {registerForm}
                 </div>
 
                 {/* SIGN IN desktop */}
-                <div className="lims-auth-form-container lims-sign-in flex items-center justify-center">
+                <div className="lims-auth-form-container lims-sign-in lims-auth-center flex items-center justify-center overflow-y-auto">
                     {loginForm}
                 </div>
 
@@ -302,8 +673,9 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
                         <div className="lims-overlay-panel lims-overlay-left">
                             <h2 className="text-3xl font-semibold mb-3">Welcome back!</h2>
                             <p className="text-sm mb-5 max-w-xs">
-                                To keep your lab records consistent, sign in with your
-                                registered staff account.
+                                {isPortal
+                                    ? "Sign in to manage your sample requests and results."
+                                    : "To keep your lab records consistent, sign in with your registered staff account."}
                             </p>
                             <button
                                 type="button"
@@ -315,10 +687,13 @@ export const AuthPage = ({ initialMode = "login" }: AuthPageProps) => {
                         </div>
 
                         <div className="lims-overlay-panel lims-overlay-right">
-                            <h2 className="text-3xl font-semibold mb-3">Trace Every Sample</h2>
+                            <h2 className="text-3xl font-semibold mb-3">
+                                {isPortal ? "Request Biomolecular Tests" : "Trace Every Sample"}
+                            </h2>
                             <p className="text-sm mb-5 max-w-xs">
-                                Create a new user and begin your biomolecular workflow with ISO
-                                17025–aligned records.
+                                {isPortal
+                                    ? "Create a client account and submit sample requests in a structured ISO-aligned workflow."
+                                    : "Create a new user and begin your biomolecular workflow with ISO 17025–aligned records."}
                             </p>
                             <button
                                 type="button"

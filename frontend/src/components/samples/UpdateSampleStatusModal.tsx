@@ -8,6 +8,7 @@ import {
 } from "../../utils/sampleTransitions";
 import { ROLE_ID } from "../../utils/roles";
 import { commentTargetLabelByStatus } from "../../utils/sampleCommentTargets";
+import { formatDateTimeLocal } from "../../utils/date";
 
 type Props = {
     open: boolean;
@@ -265,9 +266,7 @@ export const UpdateSampleStatusModal = ({
                                                             : "Lab Head"}
                                                 </span>
                                                 <span>
-                                                    {c.created_at
-                                                        ? new Date(c.created_at).toLocaleString()
-                                                        : ""}
+                                                    {formatDateTimeLocal(c.created_at)}
                                                 </span>
                                             </div>
                                             <div className="text-sm text-gray-800 mt-1 whitespace-pre-wrap">

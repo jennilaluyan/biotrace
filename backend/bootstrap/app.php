@@ -13,7 +13,8 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
-
+use App\Http\Middleware\EnsureClient;
+use App\Http\Middleware\EnsureStaff;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -33,6 +34,11 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'auth' => \App\Http\Middleware\Authenticate::class,
+        ]);
+
+        $middleware->alias([
+            'client' => EnsureClient::class,
+            'staff'  => EnsureStaff::class,
         ]);
 
         $middleware->redirectGuestsTo(function ($request) {

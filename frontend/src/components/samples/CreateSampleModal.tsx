@@ -10,13 +10,17 @@ type Props = {
     clientsLoading?: boolean;
 };
 
+const LAB_OFFSET = "+08:00";
+
 function toBackendDateTime(datetimeLocal: string) {
-    // input: "YYYY-MM-DDTHH:mm" -> backend: "YYYY-MM-DD HH:mm:00"
     if (!datetimeLocal) return "";
     const [d, t] = datetimeLocal.split("T");
     if (!d || !t) return datetimeLocal;
-    return `${d} ${t}:00`;
+
+    // hasil: 2025-12-23T14:23:00+08:00  (tanpa .000 juga boleh)
+    return `${d}T${t}:00${LAB_OFFSET}`;
 }
+
 
 export const CreateSampleModal = ({
     open,
@@ -75,6 +79,21 @@ export const CreateSampleModal = ({
         try {
             setSubmitting(true);
             setError(null);
+
+            const payload = {
+                client_id: Number(clientId),
+                received_at: toBackendDateTime(receivedAt),
+                sample_type: sampleType.trim(),
+                priority,
+                contact_history: contactHistory,
+                examination_purpose: examinationPurpose.trim() || null,
+                additional_notes: additionalNotes.trim() || null,
+            };
+
+            console.log("CREATE SAMPLE payload:", payload);
+
+            await sampleService.create(payload);
+
 
             await sampleService.create({
                 client_id: Number(clientId),

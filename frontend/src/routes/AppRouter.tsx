@@ -17,6 +17,8 @@ import { AppLayout } from "../components/layout/AppLayout";
 
 import { RoleGuard } from "../guards/RoleGuard";
 import { ROLE_ID } from "../utils/roles";
+import { StaffApprovalsPage } from "../pages/staff/StaffApprovalsPage";
+import { ClientApprovalsPage } from "../pages/clients/ClientApprovalsPage";
 
 export const AppRouter = () => {
     return (
@@ -28,6 +30,16 @@ export const AppRouter = () => {
 
             <Route element={<ProtectedRoute />}>
                 <Route element={<AppLayout />}>
+                    {/* ✅ CLIENT APPROVALS harus di atas /clients/:slug */}
+                    <Route
+                        path="/clients/approvals"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN]}>
+                                <ClientApprovalsPage />
+                            </RoleGuard>
+                        }
+                    />
+
                     <Route
                         path="/clients"
                         element={
@@ -75,8 +87,32 @@ export const AppRouter = () => {
                         }
                     />
 
-                    <Route path="/samples/:id" element={<SampleDetailPage />} />
+                    <Route
+                        path="/samples/:id"
+                        element={
+                            <RoleGuard
+                                allowedRoleIds={[
+                                    ROLE_ID.ADMIN,
+                                    ROLE_ID.LAB_HEAD,
+                                    ROLE_ID.OPERATIONAL_MANAGER,
+                                    ROLE_ID.ANALYST,
+                                    ROLE_ID.SAMPLE_COLLECTOR,
+                                ]}
+                            >
+                                <SampleDetailPage />
+                            </RoleGuard>
+                        }
+                    />
 
+                    {/* ✅ Staff approvals satu aja, konsisten */}
+                    <Route
+                        path="/staff/approvals"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.LAB_HEAD]}>
+                                <StaffApprovalsPage />
+                            </RoleGuard>
+                        }
+                    />
                 </Route>
             </Route>
 

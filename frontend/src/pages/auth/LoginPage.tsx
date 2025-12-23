@@ -1,5 +1,4 @@
 import { AuthPage } from "./AuthPage";
+import { getTenant } from "../../utils/tenant";
 
-export const LoginPage = () => {
-    return <AuthPage initialMode="login" />;
-};
+export const LoginPage = () => <AuthPage initialMode="login" tenant={getTenant()} />;

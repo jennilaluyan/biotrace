@@ -3,34 +3,33 @@ import { apiGet, apiPost } from "./api";
 
 export type ClientType = "individual" | "institution";
 
-// Sesuai migration `clients` table
-export interface Client {
+export type Client = {
     client_id: number;
-    staff_id: number;
-    type: ClientType;
+    staff_id?: number | null;
 
-    // Common fields
+    type: "individual" | "institution";
     name: string;
-    phone: string | null;
-    email: string | null;
+    email?: string | null;
+    phone?: string | null;
 
-    // Individual only
-    national_id: string | null;
-    date_of_birth: string | null; // "YYYY-MM-DD"
-    gender: string | null;
-    address_ktp: string | null;
-    address_domicile: string | null;
+    // fields lain...
+    institution_name?: string | null;
+    institution_address?: string | null;
+    contact_person_name?: string | null;
+    contact_person_phone?: string | null;
+    contact_person_email?: string | null;
 
-    // Institutional only
-    institution_name: string | null;
-    institution_address: string | null;
-    contact_person_name: string | null;
-    contact_person_phone: string | null;
-    contact_person_email: string | null;
+    national_id?: string | null;
+    date_of_birth?: string | null;
+    gender?: string | null;
+    address_ktp?: string | null;
+    address_domicile?: string | null;
 
-    created_at: string;
-    updated_at: string | null;
-}
+    created_at?: string;
+    updated_at?: string | null;
+    is_active?: boolean | null;
+    deleted_at?: string | null;
+};
 
 // Payload untuk CREATE (staff_id diisi di backend dari user login)
 export interface CreateClientPayload {

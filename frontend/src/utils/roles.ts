@@ -76,3 +76,18 @@ export function getUserRoleLabel(user: any): string {
 
     return "UNKNOWN";
 }
+
+// Ambil label role dari role_id (untuk list approvals, dsb.)
+export const ROLE_LABEL_BY_ID: Record<number, string> = {
+    [ROLE_ID.CLIENT]: "Client",
+    [ROLE_ID.ADMIN]: "Administrator",
+    [ROLE_ID.SAMPLE_COLLECTOR]: "Sample Collector",
+    [ROLE_ID.ANALYST]: "Analyst",
+    [ROLE_ID.OPERATIONAL_MANAGER]: "Operational Manager",
+    [ROLE_ID.LAB_HEAD]: "Laboratory Head",
+};
+
+export function getRoleLabelById(roleId: number | null | undefined): string | null {
+    if (roleId == null) return null;
+    return ROLE_LABEL_BY_ID[roleId] ?? null;
+}

@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
-import { formatDate } from "../../utils/date";
+import { formatDate, formatDateTimeLocal } from "../../utils/date";
 import { sampleService, Sample } from "../../services/samples";
 import type { SampleStatusHistoryItem } from "../../services/samples";
 
@@ -289,7 +289,7 @@ export const SampleDetailPage = () => {
                                                             {(h.actor?.name ?? "System")}{h.actor?.role?.name ? ` • ${h.actor.role.name}` : ""}
                                                         </div>
                                                         <div className="text-xs text-gray-500 mt-1">
-                                                            {new Date(h.created_at).toLocaleString()}
+                                                            {formatDateTimeLocal(h.created_at)}
                                                         </div>
                                                     </div>
 

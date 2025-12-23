@@ -11,11 +11,13 @@ import {
     fetchProfile,
 } from "../services/auth";
 
+type UserRole = { id: number; name: string } | null;
+
 type User = {
     id: number;
     name: string;
     email: string;
-    role: string;
+    role: UserRole;
 };
 
 type AuthContextType = {

@@ -48,13 +48,16 @@ class SampleStatusHistoryController extends Controller
                     null;
 
                 $note = $new['note'] ?? null;
+                $tz = config('app.timezone', 'Asia/Makassar');
 
                 return [
                     'id' => $log->log_id,
                     'action' => $log->action,
 
                     // ✅ kirim ISO 8601 dengan offset (+00:00) supaya frontend bisa convert ke timezone user
-                    'created_at' => $log->timestamp ? $log->timestamp->toIso8601String() : null,
+                    'created_at' => $log->timestamp
+                        ? $log->timestamp->setTimezone($tz)->format('Y-m-d\TH:i:s.vP')
+                        : null,
 
                     'from_status' => $from,
                     'to_status' => $to,
