@@ -5,14 +5,24 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Laravel\Sanctum\HasApiTokens;
+use App\Models\Concerns\SerializesDatesToIsoMillisUtc;
 
 class Staff extends Authenticatable
 {
     use HasApiTokens, HasFactory;
+    use SerializesDatesToIsoMillisUtc;
 
     // Table & PK to match your migration
     protected $table = 'staffs';
     protected $primaryKey = 'staff_id';
+
+    protected $fillable = [
+        'name',
+        'email',
+        'password_hash',
+        'role_id',
+        'is_active',
+    ];
 
     // Use email for auth identifier
     public function getAuthIdentifierName()

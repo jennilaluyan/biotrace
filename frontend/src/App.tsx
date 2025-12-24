@@ -1,16 +1,12 @@
-import { useEffect } from "react";
-import { apiGet } from "./lib/api";
+import { AppRouter } from "./routes/AppRouter";
+import { AuthProvider } from "./context/AuthContext";
 
-export default function App() {
-  useEffect(() => {
-    apiGet("/health-check").catch((err) => {
-      console.error(err);
-    });
-  }, []);
-
+function App() {
   return (
-    <div className="flex h-screen items-center justify-center bg-slate-900 text-slate-100 text-2xl">
-      BioTrace Frontend Connected (env ready) ✅
-    </div>
+    <AuthProvider>
+      <AppRouter />
+    </AuthProvider>
   );
 }
+
+export default App;

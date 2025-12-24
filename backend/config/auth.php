@@ -43,6 +43,10 @@ return [
         'api' => [
             'driver' => 'sanctum',
             'provider' => 'staffs'
+        ],
+        'client' => [
+            'driver' => 'session',
+            'provider' => 'clients',
         ]
     ],
 
@@ -66,13 +70,12 @@ return [
     'providers' => [
         'staffs' => [
             'driver' => 'eloquent',
-            'model' => env('AUTH_MODEL', App\Models\User::class),
+            'model' => env('AUTH_MODEL', App\Models\Staff::class),
         ],
-
-        // 'users' => [
-        //     'driver' => 'database',
-        //     'table' => 'users',
-        // ],
+        'clients' => [
+            'driver' => 'eloquent',
+            'model' => App\Models\Client::class,
+        ]
     ],
 
     /*
