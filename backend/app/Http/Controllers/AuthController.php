@@ -63,16 +63,6 @@ class AuthController extends Controller
             return response()->json(['message' => 'Account inactive'], 403);
         }
 
-        // =====================
-        // LOGIN via SESSION (browser SPA)
-        // =====================
-        // 👉 JANGAN pakai if ($request->hasSession())
-        // Langsung login ke guard web dan regenerate session.
-        if ($request->hasSession()) {
-            Auth::guard('web')->login($user);
-            $request->session()->regenerate();
-        }
-
         // role user
         $role = $user->role()->select('role_id', 'name')->first();
 
@@ -92,16 +82,20 @@ class AuthController extends Controller
         // =====================
         // LOGIN_SUCCESS → catat audit
         // =====================
+
+        $deviceName = $data['device_name'] ?? 'staff_web';
+        $token = $user->createToken($deviceName)->plainTextToken;
+
         AuditLogger::write(
             'LOGIN_SUCCESS',
-            $user->getKey(),      // staff_id
+            $user->getKey(),
             'staffs',
-            $user->getKey(),      // entity_id
+            $user->getKey(),
             null,
             [
-                'email'       => $user->email,
-                'via'         => empty($data['device_name']) ? 'browser_session' : 'api_token',
-                'device_name' => $data['device_name'] ?? null,
+                'email' => $user->email,
+                'via' => 'api_token',
+                'device_name' => $deviceName,
             ]
         );
 
@@ -110,14 +104,8 @@ class AuthController extends Controller
                 'id'    => $user->getKey(),
                 'name'  => $user->name ?? $user->full_name ?? null,
                 'email' => $user->email,
-                'role'  => $role
-                    ? [
-                        'id'   => $role->role_id,
-                        'name' => $role->name,
-                    ]
-                    : null,
+                'role'  => $role ? ['id' => $role->role_id, 'name' => $role->name] : null,
             ],
-            // null untuk browser (cookie), string token untuk Postman
             'token' => $token,
         ], 200);
     }
@@ -125,25 +113,19 @@ class AuthController extends Controller
     // GET /api/v1/auth/me
     public function me(Request $request)
     {
-        $user = $request->user(); // bisa dari session atau token Sanctum
+        /** @var \App\Models\Staff|null $user */
+        $user = $request->user();
 
-        if (! $user) {
-            return response()->json(['message' => 'Unauthenticated'], 401);
-        }
+        if (! $user) return response()->json(['message' => 'Unauthenticated'], 401);
 
         $role = $user->role()->select('role_id', 'name')->first();
 
         return response()->json([
             'user' => [
-                'id'    => $user->getKey(),
-                'name'  => $user->name ?? $user->full_name ?? null,
+                'id' => $user->getKey(),
+                'name' => $user->name ?? $user->full_name ?? null,
                 'email' => $user->email,
-                'role'  => $role
-                    ? [
-                        'id'   => $role->role_id,
-                        'name' => $role->name,
-                    ]
-                    : null,
+                'role' => $role ? ['id' => $role->role_id, 'name' => $role->name] : null,
             ],
         ], 200);
     }
@@ -154,17 +136,14 @@ class AuthController extends Controller
         $user = $request->user();
         $tokenId = null;
 
-        // kalau logout pakai Bearer token (Postman)
         if ($user && method_exists($user, 'currentAccessToken')) {
             $token = $user->currentAccessToken();
-
             if ($token && ! $token instanceof \Laravel\Sanctum\TransientToken) {
                 $tokenId = $token->id;
                 $token->delete();
             }
         }
 
-        // AUDIT: LOGOUT sebelum session dihancurkan
         AuditLogger::write(
             'LOGOUT',
             $user?->getKey(),
@@ -172,19 +151,11 @@ class AuthController extends Controller
             $user?->getKey(),
             null,
             [
-                'email'    => $user?->email,
+                'email' => $user?->email,
                 'token_id' => $tokenId,
-                'via'      => $tokenId ? 'api_token' : 'browser_session',
+                'via' => 'api_token',
             ]
         );
-
-        // ✅ logout session (cookie flow) — HARUS panggil guard logout
-        Auth::guard('web')->logout();
-
-        if ($request->hasSession()) {
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
-        }
 
         return response()->noContent();
     }

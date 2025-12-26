@@ -6,9 +6,9 @@ import { getTenant } from "../../utils/tenant";
 import { ROLE_ID } from "../../utils/roles";
 import {
     registerStaffRequest,
-    clientLoginRequest,
     clientRegisterRequest,
 } from "../../services/auth";
+import { usePortalAuth } from "../../context/PortalAuthContext";
 
 import LabHero from "../../assets/lab-login-hero.png";
 import BiotraceLogo from "../../assets/biotrace-logo.png";
@@ -37,7 +37,11 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const [showRegPasswordConfirmation, setShowRegPasswordConfirmation] = useState(false);
 
     const { login } = useAuth();
+    const { loginClient } = usePortalAuth();
     const navigate = useNavigate();
+
+    const loginPath = isPortal ? "/portal/login" : "/login";
+    const registerPath = isPortal ? "/portal/register" : "/register";
 
     const headingLogin = isPortal ? "Client sign in" : "Staff sign in";
     const subtitleLogin = isPortal
@@ -120,9 +124,8 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             const currentTenant: Tenant = (tenant ?? getTenant()) as Tenant;
 
             if (currentTenant === "portal") {
-                // ✅ client login (portal)
-                await clientLoginRequest(loginEmail, loginPassword);
-                navigate("/portal");
+                await loginClient(loginEmail, loginPassword);
+                navigate("/portal/my-requests");
                 return;
             }
 
@@ -208,7 +211,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                 await clientRegisterRequest(payload);
 
                 setRegSuccess("Client registration submitted. Waiting for admin verification.");
-                setTimeout(() => navigate("/login"), 800);
+                setTimeout(() => navigate("/portal/login"), 800);
                 return;
             }
 
@@ -624,7 +627,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                             <button
                                 type="button"
                                 className="text-primary font-semibold"
-                                onClick={() => navigate("/register")}
+                                onClick={() => navigate(registerPath)}
                             >
                                 Register here
                             </button>
@@ -635,7 +638,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                             <button
                                 type="button"
                                 className="text-primary font-semibold"
-                                onClick={() => navigate("/login")}
+                                onClick={() => navigate(loginPath)}
                             >
                                 Sign in here
                             </button>

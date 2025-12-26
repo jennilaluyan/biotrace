@@ -1,24 +1,10 @@
-import {
-    createContext,
-    useContext,
-    useEffect,
-    useState,
-    ReactNode,
-} from "react";
-import {
-    loginRequest,
-    logoutRequest,
-    fetchProfile,
-} from "../services/auth";
+// src/context/AuthContext.tsx
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { staffLoginRequest, staffLogoutRequest, staffMeRequest } from "../services/auth";
 
 type UserRole = { id: number; name: string } | null;
 
-type User = {
-    id: number;
-    name: string;
-    email: string;
-    role: UserRole;
-};
+type User = { id: number; name: string; email: string; role: UserRole };
 
 type AuthContextType = {
     user: User | null;
@@ -37,38 +23,41 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => {
         const init = async () => {
             try {
-                const res = await fetchProfile();
-                setUser(res.user); // <- penting
+                const token = localStorage.getItem("staff_token");
+                if (!token) {
+                    setUser(null);
+                    return;
+                }
+                const res = await staffMeRequest();
+                setUser(res.user);
             } catch {
+                localStorage.removeItem("staff_token");
                 setUser(null);
             } finally {
                 setLoading(false);
             }
         };
-
         init();
     }, []);
 
     const login = async (email: string, password: string) => {
-        const res = await loginRequest(email, password);
+        const res = await staffLoginRequest(email, password);
+        if (!res.token) throw new Error("Staff login succeeded but token is missing.");
+        localStorage.setItem("staff_token", res.token);
         setUser(res.user);
     };
 
     const logout = async () => {
-        await logoutRequest();
-        setUser(null);
+        try {
+            await staffLogoutRequest();
+        } finally {
+            localStorage.removeItem("staff_token");
+            setUser(null);
+        }
     };
 
     return (
-        <AuthContext.Provider
-            value={{
-                user,
-                loading,
-                isAuthenticated: !!user,
-                login,
-                logout,
-            }}
-        >
+        <AuthContext.Provider value={{ user, loading, isAuthenticated: !!user, login, logout }}>
             {children}
         </AuthContext.Provider>
     );
@@ -76,8 +65,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
 export const useAuthContext = () => {
     const ctx = useContext(AuthContext);
-    if (!ctx) {
-        throw new Error("useAuthContext must be used within AuthProvider");
-    }
+    if (!ctx) throw new Error("useAuthContext must be used within AuthProvider");
     return ctx;
 };

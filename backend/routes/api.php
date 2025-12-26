@@ -1,7 +1,5 @@
 <?php
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ClientController;
@@ -9,88 +7,31 @@ use App\Http\Controllers\SampleController;
 use App\Http\Controllers\SampleCommentController;
 use App\Http\Controllers\SampleStatusHistoryController;
 use App\Http\Controllers\StaffApprovalController;
-use App\Http\Controllers\StaffRegistrationController;
 use App\Http\Controllers\ClientAuthController;
 use App\Http\Controllers\ClientVerificationController;
+use App\Http\Controllers\SampleRequestController;
+use App\Http\Controllers\SampleRequestIntakeController;
+use App\Http\Middleware\EnsureStaff;
+use App\Http\Middleware\EnsureClient;
 
-/*
-|--------------------------------------------------------------------------
-| API Debug Route (sementara, untuk cek session & guard)
-|--------------------------------------------------------------------------
-|
-| Endpoint ini tanpa middleware auth, cuma untuk melihat:
-| - session kebaca atau tidak
-| - guard web/api melihat user atau tidak
-| - $request->user() isinya apa
-|
-| Akses pakai browser: https://lims.localhost/api/v1/debug/session
-|
-*/
-
-Route::get('/v1/debug/session', function (Request $request) {
-    $webUser     = Auth::guard('web')->user();
-    $apiUser     = Auth::guard('api')->user();
-    $requestUser = $request->user();
-
-    return response()->json([
-        'has_session'        => $request->hasSession(),
-        'session_id'         => $request->hasSession() ? $request->session()->getId() : null,
-        'session_all_keys'   => $request->hasSession() ? array_keys($request->session()->all()) : null,
-
-        'auth_web_user'      => $webUser
-            ? [
-                'id'    => $webUser->getAuthIdentifier(),
-                'email' => $webUser->email ?? null,
-            ]
-            : null,
-
-        'auth_api_user'      => $apiUser
-            ? [
-                'id'    => $apiUser->getAuthIdentifier(),
-                'email' => $apiUser->email ?? null,
-            ]
-            : null,
-
-        'request_user'       => $requestUser
-            ? [
-                'id'    => $requestUser->getAuthIdentifier(),
-                'email' => $requestUser->email ?? null,
-            ]
-            : null,
-
-    ]);
-});
-
-/*
-|--------------------------------------------------------------------------
-| API v1 Routes
-|--------------------------------------------------------------------------
-|
-| Di bawah ini baru route “beneran” untuk auth:
-| - /auth/login  (tanpa auth)
-| - /auth/me     (butuh auth:web,api)
-| - /auth/logout (butuh auth:web,api)
-|
-*/
 
 Route::prefix('v1')->group(function () {
 
-    // Login: cookie-session (SPA) + optional token (Postman)
+    // ===== AUTH STAFF =====
     Route::post('/auth/login', [AuthController::class, 'login']);
     Route::post('/auth/register', [AuthController::class, 'register']);
 
+    // ===== AUTH CLIENT =====
     Route::post('/clients/register', [ClientAuthController::class, 'register']);
     Route::post('/clients/login', [ClientAuthController::class, 'login']);
-    Route::get('/clients/me', [ClientAuthController::class, 'me']);
-    Route::post('/clients/logout', [ClientAuthController::class, 'logout']);
 
-    Route::post('/staffs/register', [StaffRegistrationController::class, 'register']);
+    // ===== STAFF PROTECTED =====
+    Route::middleware(['auth:sanctum', EnsureStaff::class])->group(function () {
 
-    // TERIMA session (guard web) ATAU token Sanctum (guard api)
-    Route::middleware('auth:web,api')->group(function () {
         Route::get('/auth/me', [AuthController::class, 'me']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
 
+        // clients
         Route::get('clients', [ClientController::class, 'index']);
         Route::get('clients/{client}', [ClientController::class, 'show']);
         Route::post('clients', [ClientController::class, 'store']);
@@ -99,6 +40,7 @@ Route::prefix('v1')->group(function () {
         Route::delete('clients/{client}', [ClientController::class, 'destroy']);
         Route::get('clients/{client}/samples', [ClientController::class, 'samples']);
 
+        // samples
         Route::get('samples', [SampleController::class, 'index']);
         Route::get('samples/{sample}', [SampleController::class, 'show']);
         Route::post('samples', [SampleController::class, 'store']);
@@ -108,6 +50,7 @@ Route::prefix('v1')->group(function () {
         Route::get('samples/{sample}/comments', [SampleCommentController::class, 'index']);
         Route::post('samples/{sample}/comments', [SampleCommentController::class, 'store']);
 
+        // approvals
         Route::get('/staffs/pending', [StaffApprovalController::class, 'pending']);
         Route::post('/staffs/{staff}/approve', [StaffApprovalController::class, 'approve']);
         Route::post('/staffs/{staff}/reject', [StaffApprovalController::class, 'reject']);
@@ -115,5 +58,23 @@ Route::prefix('v1')->group(function () {
         Route::get('/clients/pending', [ClientVerificationController::class, 'pending']);
         Route::post('/clients/{client}/approve', [ClientVerificationController::class, 'approve']);
         Route::post('/clients/{client}/reject', [ClientVerificationController::class, 'reject']);
+
+        // sample requests (staff queue)
+        Route::get('/sample-requests', [SampleRequestController::class, 'index']);
+        Route::get('/sample-requests/{sampleRequest}', [SampleRequestController::class, 'show']);
+        Route::patch('/sample-requests/{sampleRequest}/status', [SampleRequestController::class, 'updateStatus']);
+        Route::patch('/sample-requests/{sampleRequest}/handover', [SampleRequestController::class, 'handover']);
+        Route::post('/sample-requests/{sampleRequest}/intake', [SampleRequestIntakeController::class, 'store']);
+    });
+
+    // ===== CLIENT PROTECTED =====
+    Route::middleware('auth:client,client_api')->group(function () {
+        Route::get('/clients/me', [ClientAuthController::class, 'me']);
+        Route::post('/clients/logout', [ClientAuthController::class, 'logout']);
+
+        // client submit request
+        Route::post('/sample-requests', [SampleRequestController::class, 'store']);
+        Route::get('/sample-requests', [SampleRequestController::class, 'index']); // my requests
+        Route::get('/sample-requests/{sampleRequest}', [SampleRequestController::class, 'show']);
     });
 });

@@ -42,12 +42,19 @@ return [
         ],
         'api' => [
             'driver' => 'sanctum',
-            'provider' => 'staffs'
+            'provider' => 'staffs',
         ],
+
         'client' => [
             'driver' => 'session',
             'provider' => 'clients',
-        ]
+        ],
+
+        // ✅ NEW: client token guard
+        'client_api' => [
+            'driver' => 'sanctum',
+            'provider' => 'clients',
+        ],
     ],
 
     /*

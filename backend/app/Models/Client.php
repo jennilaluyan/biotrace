@@ -4,12 +4,13 @@ namespace App\Models;
 
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Facades\Hash;
+use Laravel\Sanctum\HasApiTokens;
 use App\Models\Concerns\SerializesDatesToIsoMillisUtc;
+use Illuminate\Testing\Fluent\Concerns\Has;
 
 class Client extends Authenticatable
 {
-    use SoftDeletes, SerializesDatesToIsoMillisUtc;
+    use SoftDeletes, SerializesDatesToIsoMillisUtc, HasApiTokens;
 
     protected $primaryKey = 'client_id';
     public $incrementing = true;
@@ -65,5 +66,10 @@ class Client extends Authenticatable
     public function samples()
     {
         return $this->hasMany(Sample::class, 'client_id', 'client_id');
+    }
+
+    public function sampleRequests()
+    {
+        return $this->hasMany(\App\Models\SampleRequest::class, 'client_id', 'client_id');
     }
 }

@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Enums\SampleHighLevelStatus;
 use App\Models\Concerns\SerializesDatesToIsoMillisUtc;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Sample extends Model
 {
@@ -15,7 +16,6 @@ class Sample extends Model
     protected $table = 'samples';
     protected $primaryKey = 'sample_id';
 
-    // Di migration kamu tidak ada created_at/updated_at
     public $timestamps = false;
 
     protected $fillable = [
@@ -28,7 +28,8 @@ class Sample extends Model
         'current_status',
         'additional_notes',
         'created_by',
-        'assigned_to'
+        'assigned_to',
+        'request_id',
     ];
 
     protected $casts = [
@@ -40,32 +41,24 @@ class Sample extends Model
         'status_enum',
     ];
 
-    // Relasi ke client (pakai client_id)
-    public function client()
+    public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class, 'client_id', 'client_id');
     }
 
-    // Staf yang membuat entri (created_by -> staffs.staff_id)
-    public function creator()
+    public function creator(): BelongsTo
     {
         return $this->belongsTo(Staff::class, 'created_by', 'staff_id');
     }
 
-    /**
-     * Status high-level (registered/testing/reported) yang dihitung dari current_status.
-     */
-    public function getStatusEnumAttribute(): ?string
+    public function assignee(): BelongsTo
     {
-        if (!$this->current_status) {
-            return null;
-        }
+        return $this->belongsTo(Staff::class, 'assigned_to', 'staff_id');
+    }
 
-        // Gunakan enum untuk mapping detail → high-level
-        $enum = SampleHighLevelStatus::fromCurrentStatus($this->current_status);
-
-        // Di JSON, kita kirim value string lower-case: registered/testing/reported
-        return $enum->value;
+    public function sampleRequest(): BelongsTo
+    {
+        return $this->belongsTo(SampleRequest::class, 'request_id', 'request_id');
     }
 
     public function comments()
@@ -74,8 +67,11 @@ class Sample extends Model
             ->orderByDesc('created_at');
     }
 
-    public function assignee()
+    public function getStatusEnumAttribute(): ?string
     {
-        return $this->belongsTo(Staff::class, 'assigned_to', 'staff_id');
+        if (!$this->current_status) return null;
+
+        $enum = SampleHighLevelStatus::fromCurrentStatus($this->current_status);
+        return $enum->value;
     }
 }

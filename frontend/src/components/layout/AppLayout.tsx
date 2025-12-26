@@ -20,6 +20,7 @@ export const AppLayout = () => {
     const baseItems: NavItem[] = [
         { label: "Clients", path: "/clients", icon: "users" },
         { label: "Samples", path: "/samples", icon: "flask" },
+        { label: "Sample Requests", path: "/sample-requests", icon: "check" },
     ];
 
     const adminItems: NavItem[] =

@@ -19,12 +19,6 @@ class AuditLogger
         ?array $oldValues = null,
         ?array $newValues = null
     ): void {
-
-        // Kalau staff_id atau entity_id null → jangan log
-        if (is_null($staffId) || is_null($entityId)) {
-            return;
-        }
-
         $req = RequestFacade::instance();
 
         DB::table('audit_logs')->insert([
@@ -40,21 +34,20 @@ class AuditLogger
     }
 
     /**
-     * Optional wrapper supaya bisa tetap pakai AuditLogger::info()
-     * tanpa error intelephense.
+     * Optional wrapper: tetap bisa pakai AuditLogger::info()
      */
     public static function info(string $action, array $data = []): void
     {
-        $staffId   = $data['staff_id']   ?? null;
-        $entity    = $data['entity']     ?? null;
-        $entityId  = $data['entity_id']  ?? null;
-        $oldValues = $data['old']        ?? null;
-        $newValues = $data['new']        ?? null;
+        $staffId   = $data['staff_id'] ?? null;
+        $entity    = $data['entity'] ?? null;
+        $entityId  = $data['entity_id'] ?? null;
+        $oldValues = $data['old'] ?? null;
+        $newValues = $data['new'] ?? null;
 
         self::write(
             action: $action,
             staffId: $staffId,
-            entityName: $entity,
+            entityName: $entity ?? '-',
             entityId: $entityId,
             oldValues: $oldValues,
             newValues: $newValues
@@ -62,8 +55,20 @@ class AuditLogger
     }
 
     /**
-     * Audit log untuk SAMPLE REGISTERED (first creation).
+     * Helper: ambil staff_id yang benar dari authenticated user (FK staffs.staff_id)
      */
+    public static function resolveStaffId($user): ?int
+    {
+        if (!$user) return null;
+
+        return $user->staff_id
+            ?? ($user->staff->staff_id ?? null);
+    }
+
+    // ============================================================
+    // Existing sample wrappers (punya kamu)
+    // ============================================================
+
     public static function logSampleRegistered(
         int $staffId,
         int $sampleId,
@@ -78,14 +83,11 @@ class AuditLogger
             oldValues: null,
             newValues: [
                 'client_id' => $clientId,
-                'data'      => $newValues,
+                'data' => $newValues,
             ]
         );
     }
 
-    /**
-     * Audit log untuk perubahan status sample (workflow).
-     */
     public static function logSampleStatusChanged(
         int $staffId,
         int $sampleId,
@@ -105,6 +107,81 @@ class AuditLogger
                 'client_id' => $clientId,
                 'note' => $note,
             ]
+        );
+    }
+
+    // ============================================================
+    // Step 7 wrappers (Sample Request + Intake)
+    // ============================================================
+
+    public static function logSampleRequestSubmitted(int $requestId, int $clientId, int $itemsCount): void
+    {
+        self::write(
+            action: 'SAMPLE_REQUEST_SUBMITTED',
+            staffId: null, // actor client portal
+            entityName: 'sample_requests',
+            entityId: $requestId,
+            oldValues: null,
+            newValues: [
+                'client_id' => $clientId,
+                'items_count' => $itemsCount,
+                'request_status' => 'submitted',
+            ]
+        );
+    }
+
+    public static function logSampleRequestStatusUpdated(int $staffId, int $requestId, array $old, array $new): void
+    {
+        self::write(
+            action: 'SAMPLE_REQUEST_STATUS_UPDATED',
+            staffId: $staffId,
+            entityName: 'sample_requests',
+            entityId: $requestId,
+            oldValues: $old,
+            newValues: $new
+        );
+    }
+
+    public static function logSampleRequestHandover(int $staffId, int $requestId, array $old, array $new): void
+    {
+        self::write(
+            action: 'SAMPLE_REQUEST_HANDOVER',
+            staffId: $staffId,
+            entityName: 'sample_requests',
+            entityId: $requestId,
+            oldValues: $old,
+            newValues: $new
+        );
+    }
+
+    public static function logSampleIntakeCreatedSample(
+        int $staffId,
+        int $requestId,
+        int $sampleId,
+        array $old,
+        array $new
+    ): void {
+        $new = array_merge($new, ['sample_id' => $sampleId]);
+
+        self::write(
+            action: 'SAMPLE_INTAKE_CREATED_SAMPLE',
+            staffId: $staffId,
+            entityName: 'sample_requests',
+            entityId: $requestId,
+            oldValues: $old,
+            newValues: $new
+        );
+    }
+
+    public static function logSampleIntakeFailed(int $staffId, int $requestId, array $old, array $new): void
+    {
+        self::write(
+            action: 'SAMPLE_INTAKE_FAILED',
+            staffId: $staffId,
+            entityName: 'sample_requests',
+            entityId: $requestId,
+            oldValues: $old,
+            newValues: $new
         );
     }
 }

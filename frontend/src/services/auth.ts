@@ -1,17 +1,21 @@
 // src/services/auth.ts
-import { apiGet, apiPost } from "./api";
+import { staffHttp, clientHttp, apiGet, apiPost } from "./api";
 
-// STAFF
-export const loginRequest = async (email: string, password: string) => {
-    return apiPost<{ user: any }>("/v1/auth/login", { email, password });
+// ===== STAFF =====
+export const staffLoginRequest = async (email: string, password: string) => {
+    return apiPost<{ user: any; token: string }>(staffHttp, "/v1/auth/login", {
+        email,
+        password,
+        device_name: "staff_web",
+    });
 };
 
-export const logoutRequest = async () => {
-    return apiPost("/v1/auth/logout");
+export const staffMeRequest = async () => {
+    return apiGet<{ user: any }>(staffHttp, "/v1/auth/me");
 };
 
-export const fetchProfile = async () => {
-    return apiGet<{ user: any }>("/v1/auth/me");
+export const staffLogoutRequest = async () => {
+    return apiPost(staffHttp, "/v1/auth/logout");
 };
 
 export const registerStaffRequest = async (payload: {
@@ -21,22 +25,43 @@ export const registerStaffRequest = async (payload: {
     password_confirmation: string;
     role_id: number;
 }) => {
-    return apiPost("/v1/staffs/register", payload);
+    return apiPost(staffHttp, "/v1/staffs/register", payload);
 };
 
-// CLIENT ✅
+// ===== CLIENT =====
 export const clientRegisterRequest = async (payload: any) => {
-    return apiPost("/v1/clients/register", payload);
+    return apiPost(clientHttp, "/v1/clients/register", payload);
 };
 
 export const clientLoginRequest = async (email: string, password: string) => {
-    return apiPost("/v1/clients/login", { email, password });
+    return apiPost<{ client: any; token: string }>(clientHttp, "/v1/clients/login", {
+        email,
+        password,
+        device_name: "client_web",
+    });
 };
 
 export const clientMeRequest = async () => {
-    return apiGet("/v1/clients/me");
+    return apiGet<{ client: any }>(clientHttp, "/v1/clients/me");
 };
 
 export const clientLogoutRequest = async () => {
-    return apiPost("/v1/clients/logout");
+    return apiPost(clientHttp, "/v1/clients/logout");
+};
+
+// ===== GENERIC (TOPBAR) =====
+// Dipakai Topbar biar tidak perlu tahu ini staff/client.
+export const logoutRequest = async () => {
+    // prioritas: staff
+    if (localStorage.getItem("staff_token")) {
+        return staffLogoutRequest();
+    }
+
+    // kalau portal/client yang login
+    if (localStorage.getItem("client_token")) {
+        return clientLogoutRequest();
+    }
+
+    // tidak ada token -> tidak perlu call backend
+    return Promise.resolve();
 };

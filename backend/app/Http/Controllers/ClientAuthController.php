@@ -7,10 +7,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use App\Support\AuditLogger;
+use Laravel\Sanctum\TransientToken;
 
 class ClientAuthController extends Controller
 {
-    // POST /api/v1/clients/register
     public function register(Request $request)
     {
         $data = $request->validate([
@@ -18,18 +18,15 @@ class ClientAuthController extends Controller
             'name' => ['required', 'string', 'max:150'],
             'phone' => ['nullable', 'string', 'max:30'],
             'email' => ['required', 'email', 'max:150'],
-
             'password' => ['required', 'string', 'min:8'],
             'password_confirmation' => ['required', 'same:password'],
 
-            // optional: individual fields
             'national_id' => ['nullable', 'string', 'max:50'],
             'date_of_birth' => ['nullable', 'date'],
             'gender' => ['nullable', 'string', 'max:10'],
             'address_ktp' => ['nullable', 'string', 'max:255'],
             'address_domicile' => ['nullable', 'string', 'max:255'],
 
-            // optional: institution fields
             'institution_name' => ['nullable', 'string', 'max:200'],
             'institution_address' => ['nullable', 'string', 'max:255'],
             'contact_person_name' => ['nullable', 'string', 'max:150'],
@@ -37,28 +34,21 @@ class ClientAuthController extends Controller
             'contact_person_email' => ['nullable', 'email', 'max:150'],
         ]);
 
-        // enforce rules by type (biar data ga “campur”)
         if ($data['type'] === 'institution' && empty($data['institution_name'])) {
-            return response()->json([
-                'message' => 'institution_name is required when type=institution'
-            ], 422);
+            return response()->json(['message' => 'institution_name is required when type=institution'], 422);
         }
 
         $client = Client::create([
             ...collect($data)->except(['password', 'password_confirmation'])->all(),
-            'staff_id' => null, // belum ada PIC
+            'staff_id' => null,
             'password_hash' => Hash::make($data['password']),
-            'is_active' => false, // nunggu admin verify
+            'is_active' => false,
         ]);
 
-        AuditLogger::write(
-            'CLIENT_REGISTER_SUBMITTED',
-            null,
-            'clients',
-            $client->getKey(),
-            null,
-            ['email' => $client->email, 'type' => $client->type]
-        );
+        AuditLogger::write('CLIENT_REGISTER_SUBMITTED', null, 'clients', $client->getKey(), null, [
+            'email' => $client->email,
+            'type'  => $client->type,
+        ]);
 
         return response()->json([
             'message' => 'Client registration submitted. Waiting for admin verification.',
@@ -71,12 +61,12 @@ class ClientAuthController extends Controller
         ], 201);
     }
 
-    // POST /api/v1/clients/login
     public function login(Request $request)
     {
         $data = $request->validate([
-            'email' => ['required', 'email'],
-            'password' => ['required', 'string'],
+            'email'       => ['required', 'email'],
+            'password'    => ['required', 'string'],
+            'device_name' => ['nullable', 'string'], // ✅ token optional
         ]);
 
         $client = Client::where('email', $data['email'])->first();
@@ -97,15 +87,23 @@ class ClientAuthController extends Controller
             return response()->json(['message' => 'Account inactive'], 403);
         }
 
-        // session login
+        // ✅ session login (optional)
         if ($request->hasSession()) {
             Auth::guard('client')->login($client);
             $request->session()->regenerate();
         }
 
+        // ✅ token login (recommended)
+        $token = null;
+        if (!empty($data['device_name'])) {
+            $client->tokens()->delete(); // kebijakan: 1 client 1 token aktif
+            $token = $client->createToken($data['device_name'])->plainTextToken;
+        }
+
         AuditLogger::write('CLIENT_LOGIN_SUCCESS', null, 'clients', $client->getKey(), null, [
             'email' => $client->email,
-            'via' => 'browser_session',
+            'via' => $token ? 'api_token' : 'browser_session',
+            'device_name' => $data['device_name'] ?? null,
         ]);
 
         return response()->json([
@@ -114,13 +112,16 @@ class ClientAuthController extends Controller
                 'name' => $client->name,
                 'email' => $client->email,
             ],
+            'token' => $token, // ✅ bisa null kalau login session
         ], 200);
     }
 
-    // GET /api/v1/clients/me
     public function me(Request $request)
     {
-        $client = Auth::guard('client')->user();
+        // ✅ try token guard first, then session guard
+        $client =
+            $request->user('client_api')
+            ?? Auth::guard('client')->user();
 
         if (!$client) {
             return response()->json(['message' => 'Unauthenticated'], 401);
@@ -135,14 +136,27 @@ class ClientAuthController extends Controller
         ], 200);
     }
 
-    // POST /api/v1/clients/logout
     public function logout(Request $request)
     {
-        $client = Auth::guard('client')->user();
+        $client =
+            $request->user('client_api')
+            ?? Auth::guard('client')->user();
+
+        $tokenId = null;
+
+        // revoke token kalau via token
+        if ($client && method_exists($client, 'currentAccessToken')) {
+            $token = $client->currentAccessToken();
+            if ($token && !$token instanceof TransientToken) {
+                $tokenId = $token->id;
+                $token->delete();
+            }
+        }
 
         AuditLogger::write('CLIENT_LOGOUT', null, 'clients', $client?->client_id, null, [
             'email' => $client?->email,
-            'via' => 'browser_session',
+            'token_id' => $tokenId,
+            'via' => $tokenId ? 'api_token' : 'browser_session',
         ]);
 
         Auth::guard('client')->logout();
