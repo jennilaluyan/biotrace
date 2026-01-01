@@ -3,11 +3,9 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use App\Models\Concerns\SerializesDatesToIsoMillisUtc;
 
 class AuditLog extends Model
 {
-    use SerializesDatesToIsoMillisUtc;
     protected $table = 'audit_logs';
     protected $primaryKey = 'log_id';
     public $timestamps = false;

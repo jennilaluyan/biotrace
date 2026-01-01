@@ -5,12 +5,10 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Enums\SampleHighLevelStatus;
-use App\Models\Concerns\SerializesDatesToIsoMillisUtc;
 
 class Sample extends Model
 {
     use HasFactory;
-    use SerializesDatesToIsoMillisUtc;
 
     protected $table = 'samples';
     protected $primaryKey = 'sample_id';

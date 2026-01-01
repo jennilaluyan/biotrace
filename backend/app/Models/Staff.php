@@ -5,12 +5,10 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Laravel\Sanctum\HasApiTokens;
-use App\Models\Concerns\SerializesDatesToIsoMillisUtc;
 
 class Staff extends Authenticatable
 {
     use HasApiTokens, HasFactory;
-    use SerializesDatesToIsoMillisUtc;
 
     // Table & PK to match your migration
     protected $table = 'staffs';

@@ -44,10 +44,16 @@ return [
             'driver' => 'sanctum',
             'provider' => 'staffs'
         ],
+        // Guard untuk Backoffice (yang Anda perbaiki sebelumnya)
+        'client_api' => [
+            'driver' => 'session',
+            'provider' => 'clients',
+        ],
+        // Tambahkan kembali Guard untuk Client login
         'client' => [
             'driver' => 'session',
             'provider' => 'clients',
-        ]
+        ],
     ],
 
     /*
