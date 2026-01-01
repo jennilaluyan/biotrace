@@ -18,6 +18,9 @@ class AuthServiceProvider extends ServiceProvider
     protected $policies = [
         Client::class => ClientPolicy::class,
         Sample::class => SamplePolicy::class,
+        \App\Models\Parameter::class => \App\Policies\ParameterPolicy::class,
+        \App\Models\Method::class    => \App\Policies\MethodPolicy::class,
+        \App\Models\Reagent::class   => \App\Policies\ReagentPolicy::class,
     ];
 
     public function boot(): void
