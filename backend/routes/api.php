@@ -12,6 +12,9 @@ use App\Http\Controllers\StaffApprovalController;
 use App\Http\Controllers\StaffRegistrationController;
 use App\Http\Controllers\ClientAuthController;
 use App\Http\Controllers\ClientVerificationController;
+use App\Http\Controllers\ParameterController;
+use App\Http\Controllers\MethodController;
+use App\Http\Controllers\ReagentController;
 
 /*
 |--------------------------------------------------------------------------
@@ -28,38 +31,16 @@ use App\Http\Controllers\ClientVerificationController;
 */
 
 Route::get('/v1/debug/session', function (Request $request) {
-    $webUser     = Auth::guard('web')->user();
-    $apiUser     = Auth::guard('api')->user();
-    $requestUser = $request->user();
-
     return response()->json([
-        'has_session'        => $request->hasSession(),
-        'session_id'         => $request->hasSession() ? $request->session()->getId() : null,
-        'session_all_keys'   => $request->hasSession() ? array_keys($request->session()->all()) : null,
-
-        'auth_web_user'      => $webUser
-            ? [
-                'id'    => $webUser->getAuthIdentifier(),
-                'email' => $webUser->email ?? null,
-            ]
-            : null,
-
-        'auth_api_user'      => $apiUser
-            ? [
-                'id'    => $apiUser->getAuthIdentifier(),
-                'email' => $apiUser->email ?? null,
-            ]
-            : null,
-
-        'request_user'       => $requestUser
-            ? [
-                'id'    => $requestUser->getAuthIdentifier(),
-                'email' => $requestUser->email ?? null,
-            ]
-            : null,
-
+        'authorization_header' => $request->header('authorization'),
+        'bearer_token'         => $request->bearerToken(),
+        'has_session'          => $request->hasSession(),
+        'auth_web'             => Auth::guard('web')->user()?->email,
+        'auth_sanctum'         => Auth::guard('sanctum')->user()?->email,
+        'request_user'         => $request->user()?->email,
     ]);
 });
+
 
 /*
 |--------------------------------------------------------------------------
@@ -87,9 +68,13 @@ Route::prefix('v1')->group(function () {
     Route::post('/staffs/register', [StaffRegistrationController::class, 'register']);
 
     // TERIMA session (guard web) ATAU token Sanctum (guard api)
-    Route::middleware('auth:web,api')->group(function () {
+    Route::middleware('auth:sanctum')->group(function () {
         Route::get('/auth/me', [AuthController::class, 'me']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
+
+        Route::get('/parameters', [ParameterController::class, 'index']);
+        Route::get('/methods', [MethodController::class, 'index']);
+        Route::get('/reagents', [ReagentController::class, 'index']);
 
         Route::get('clients', [ClientController::class, 'index']);
         Route::get('clients/{client}', [ClientController::class, 'show']);
