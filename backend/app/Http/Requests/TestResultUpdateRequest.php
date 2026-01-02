@@ -3,7 +3,6 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class TestResultUpdateRequest extends FormRequest
 {
@@ -15,9 +14,9 @@ class TestResultUpdateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'value_raw'   => ['sometimes', 'string'],
-            'value_final' => ['sometimes', 'nullable', 'string'],
-            'unit_id'     => ['sometimes', 'nullable', 'integer', Rule::exists('units', 'unit_id')],
+            'value_raw'   => ['sometimes', 'nullable', 'string', 'max:2000'],
+            'value_final' => ['sometimes', 'nullable', 'string', 'max:2000'],
+            'unit_id'     => ['sometimes', 'nullable', 'integer', 'exists:units,unit_id'],
             'flags'       => ['sometimes', 'nullable', 'array'],
         ];
     }
