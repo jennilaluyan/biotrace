@@ -16,6 +16,7 @@ use App\Http\Controllers\ParameterController;
 use App\Http\Controllers\MethodController;
 use App\Http\Controllers\ReagentController;
 use App\Http\Controllers\SampleTestBulkController;
+use App\Http\Controllers\SampleTestStatusController;
 
 /*
 |--------------------------------------------------------------------------
@@ -122,5 +123,7 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::post('samples/{sample}/sample-tests/bulk', [SampleTestBulkController::class, 'store']);
+
+        Route::post('/sample-tests/{sampleTest}/status', [SampleTestStatusController::class, 'update']);
     });
 });
