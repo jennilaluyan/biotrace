@@ -7,6 +7,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use App\Support\SampleTestStatusTransitions;
 use Illuminate\Validation\ValidationException;
+use App\Models\AuditLog;
+use Illuminate\Support\Facades\Log;
 
 class SampleTestStatusController extends Controller
 {
@@ -65,6 +67,35 @@ class SampleTestStatusController extends Controller
 
         $sampleTest->status = $to;
         $sampleTest->save();
+
+        $old = [
+            'status'       => $from,
+            'started_at'   => optional($sampleTest->getOriginal('started_at'))->toIso8601String(),
+            'completed_at' => optional($sampleTest->getOriginal('completed_at'))->toIso8601String(),
+            'assigned_to'  => $sampleTest->getOriginal('assigned_to'),
+        ];
+
+        $new = [
+            'status'       => $sampleTest->status,
+            'started_at'   => optional($sampleTest->started_at)->toIso8601String(),
+            'completed_at' => optional($sampleTest->completed_at)->toIso8601String(),
+            'assigned_to'  => $sampleTest->assigned_to,
+        ];
+
+        try {
+            AuditLog::create([
+                'staff_id'    => $request->user()?->staff_id,
+                'entity_name' => 'sample_test',
+                'entity_id'   => (int) $sampleTest->sample_test_id,
+                'action'      => 'SAMPLE_TEST_STATUS_CHANGED',
+                'timestamp'   => now(),
+                'ip_address'  => $request->ip(),
+                'old_values'  => $old,
+                'new_values'  => $new,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('AuditLog write failed (sample_test status): ' . $e->getMessage());
+        }
 
         return response()->json([
             'status' => 200,

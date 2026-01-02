@@ -22,7 +22,7 @@ class AuditLog extends Model
     ];
 
     protected $casts = [
-        'timestamp'  => 'datetime', // IMPORTANT
+        'timestamp'  => 'datetime',
         'old_values' => 'array',
         'new_values' => 'array',
     ];
