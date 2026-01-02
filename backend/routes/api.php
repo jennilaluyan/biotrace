@@ -17,6 +17,7 @@ use App\Http\Controllers\MethodController;
 use App\Http\Controllers\ReagentController;
 use App\Http\Controllers\SampleTestBulkController;
 use App\Http\Controllers\SampleTestStatusController;
+use App\Http\Controllers\SampleTestDecisionController;
 
 /*
 |--------------------------------------------------------------------------
@@ -113,10 +114,9 @@ Route::prefix('v1')->group(function () {
                     'role' => $user?->role?->name ?? null,
                 ],
                 'abilities' => [
-                    'bulk_create' => $user ? $user->can('bulkCreate', \App\Models\SampleTest::class) : false,
-                    'decide_om'   => $user ? $user->can('decideAsOM', [\App\Models\SampleTest::class, new \App\Models\SampleTest]) : false,
-                    'decide_lh'   => $user ? $user->can('decideAsLH', [\App\Models\SampleTest::class, new \App\Models\SampleTest]) : false,
-                    // updateStatusAsAnalyst butuh object; kita pakai dummy object:
+                    'bulk_create' => $user ? $user->can('bulkCreate', [\App\Models\SampleTest::class, \App\Models\Sample::query()->first()]) : false,
+                    'decide_om'   => $user ? $user->can('decideAsOM', new \App\Models\SampleTest) : false,
+                    'decide_lh'   => $user ? $user->can('decideAsLH', new \App\Models\SampleTest) : false,
                     'analyst_update_status' => $user ? $user->can('updateStatusAsAnalyst', new \App\Models\SampleTest) : false,
                 ],
             ]);
@@ -125,5 +125,8 @@ Route::prefix('v1')->group(function () {
         Route::post('samples/{sample}/sample-tests/bulk', [SampleTestBulkController::class, 'store']);
 
         Route::post('/sample-tests/{sampleTest}/status', [SampleTestStatusController::class, 'update']);
+
+        Route::post('sample-tests/{sampleTest}/om/decision', [SampleTestDecisionController::class, 'omDecision']);
+        Route::post('sample-tests/{sampleTest}/lh/decision', [SampleTestDecisionController::class, 'lhDecision']);
     });
 });
