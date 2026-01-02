@@ -100,5 +100,24 @@ Route::prefix('v1')->group(function () {
         Route::get('/clients/pending', [ClientVerificationController::class, 'pending']);
         Route::post('/clients/{client}/approve', [ClientVerificationController::class, 'approve']);
         Route::post('/clients/{client}/reject', [ClientVerificationController::class, 'reject']);
+
+        Route::get('/debug/policy/sample-test', function (Request $request) {
+            $user = $request->user();
+
+            return response()->json([
+                'user' => [
+                    'id'   => $user?->getAuthIdentifier(),
+                    'email' => $user?->email ?? null,
+                    'role' => $user?->role?->name ?? null,
+                ],
+                'abilities' => [
+                    'bulk_create' => $user ? $user->can('bulkCreate', \App\Models\SampleTest::class) : false,
+                    'decide_om'   => $user ? $user->can('decideAsOM', [\App\Models\SampleTest::class, new \App\Models\SampleTest]) : false,
+                    'decide_lh'   => $user ? $user->can('decideAsLH', [\App\Models\SampleTest::class, new \App\Models\SampleTest]) : false,
+                    // updateStatusAsAnalyst butuh object; kita pakai dummy object:
+                    'analyst_update_status' => $user ? $user->can('updateStatusAsAnalyst', new \App\Models\SampleTest) : false,
+                ],
+            ]);
+        });
     });
 });

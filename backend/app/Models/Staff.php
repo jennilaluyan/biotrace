@@ -45,4 +45,9 @@ class Staff extends Authenticatable
     {
         return $this->belongsTo(\App\Models\Role::class, 'role_id', 'role_id');
     }
+
+    public function assignedSampleTests()
+    {
+        return $this->hasMany(\App\Models\SampleTest::class, 'assigned_to', 'staff_id');
+    }
 }
