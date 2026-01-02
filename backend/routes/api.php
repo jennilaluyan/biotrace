@@ -18,6 +18,7 @@ use App\Http\Controllers\ReagentController;
 use App\Http\Controllers\SampleTestBulkController;
 use App\Http\Controllers\SampleTestStatusController;
 use App\Http\Controllers\SampleTestDecisionController;
+use App\Http\Controllers\TestResultController;
 
 /*
 |--------------------------------------------------------------------------
@@ -128,5 +129,8 @@ Route::prefix('v1')->group(function () {
 
         Route::post('sample-tests/{sampleTest}/om/decision', [SampleTestDecisionController::class, 'omDecision']);
         Route::post('sample-tests/{sampleTest}/lh/decision', [SampleTestDecisionController::class, 'lhDecision']);
+
+        Route::post('/sample-tests/{sampleTest}/results', [TestResultController::class, 'store']);
+        Route::patch('/test-results/{testResult}', [TestResultController::class, 'update']);
     });
 });
