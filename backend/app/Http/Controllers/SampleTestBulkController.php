@@ -105,7 +105,7 @@ class SampleTestBulkController extends Controller
                 'parameter_id'  => $pid,
                 'method_id'     => $it['method_id'] ?? null,
                 'assigned_to'   => $it['assigned_to'] ?? null,
-                'status'        => 'queued',
+                'status'        => 'draft',
                 'qc_done'       => false,
                 'om_verified'   => false,
                 'lh_validated'  => false,

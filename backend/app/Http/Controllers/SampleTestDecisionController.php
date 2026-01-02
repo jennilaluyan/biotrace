@@ -19,8 +19,8 @@ class SampleTestDecisionController extends Controller
         $decision = $request->validated()['decision'];
         $note     = $request->validated()['note'] ?? null;
 
-        // (opsional) OM biasanya hanya setelah testing_completed
-        if (!in_array($sampleTest->status, ['testing_completed'], true)) {
+        // (opsional) OM biasanya hanya setelah measured
+        if (!in_array($sampleTest->status, ['measured'], true)) {
             return response()->json([
                 'status' => 422,
                 'message' => 'OM decision not allowed for current status.',

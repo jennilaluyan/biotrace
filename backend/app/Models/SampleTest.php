@@ -21,7 +21,7 @@ class SampleTest extends Model
         'assigned_to',
         'started_at',
         'completed_at',
-        'status',          // queued|in_progress|testing_completed|verified|validated|cancelled|failed
+        'status',          // draft|in_progress|measured|verified|validated|cancelled|failed
         'qc_done',
         'om_verified',
         'om_verified_at',
