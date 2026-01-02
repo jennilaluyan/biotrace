@@ -76,4 +76,9 @@ class Sample extends Model
     {
         return $this->belongsTo(Staff::class, 'assigned_to', 'staff_id');
     }
+
+    public function sampleTests()
+    {
+        return $this->hasMany(\App\Models\SampleTest::class, 'sample_id', 'sample_id');
+    }
 }

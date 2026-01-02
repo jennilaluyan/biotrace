@@ -12,6 +12,12 @@ use App\Http\Controllers\StaffApprovalController;
 use App\Http\Controllers\StaffRegistrationController;
 use App\Http\Controllers\ClientAuthController;
 use App\Http\Controllers\ClientVerificationController;
+use App\Http\Controllers\ParameterController;
+use App\Http\Controllers\MethodController;
+use App\Http\Controllers\ReagentController;
+use App\Http\Controllers\SampleTestBulkController;
+use App\Http\Controllers\SampleTestStatusController;
+use App\Http\Controllers\SampleTestDecisionController;
 
 /*
 |--------------------------------------------------------------------------
@@ -28,38 +34,16 @@ use App\Http\Controllers\ClientVerificationController;
 */
 
 Route::get('/v1/debug/session', function (Request $request) {
-    $webUser     = Auth::guard('web')->user();
-    $apiUser     = Auth::guard('api')->user();
-    $requestUser = $request->user();
-
     return response()->json([
-        'has_session'        => $request->hasSession(),
-        'session_id'         => $request->hasSession() ? $request->session()->getId() : null,
-        'session_all_keys'   => $request->hasSession() ? array_keys($request->session()->all()) : null,
-
-        'auth_web_user'      => $webUser
-            ? [
-                'id'    => $webUser->getAuthIdentifier(),
-                'email' => $webUser->email ?? null,
-            ]
-            : null,
-
-        'auth_api_user'      => $apiUser
-            ? [
-                'id'    => $apiUser->getAuthIdentifier(),
-                'email' => $apiUser->email ?? null,
-            ]
-            : null,
-
-        'request_user'       => $requestUser
-            ? [
-                'id'    => $requestUser->getAuthIdentifier(),
-                'email' => $requestUser->email ?? null,
-            ]
-            : null,
-
+        'authorization_header' => $request->header('authorization'),
+        'bearer_token'         => $request->bearerToken(),
+        'has_session'          => $request->hasSession(),
+        'auth_web'             => Auth::guard('web')->user()?->email,
+        'auth_sanctum'         => Auth::guard('sanctum')->user()?->email,
+        'request_user'         => $request->user()?->email,
     ]);
 });
+
 
 /*
 |--------------------------------------------------------------------------
@@ -87,9 +71,13 @@ Route::prefix('v1')->group(function () {
     Route::post('/staffs/register', [StaffRegistrationController::class, 'register']);
 
     // TERIMA session (guard web) ATAU token Sanctum (guard api)
-    Route::middleware('auth:web,api')->group(function () {
+    Route::middleware('auth:sanctum')->group(function () {
         Route::get('/auth/me', [AuthController::class, 'me']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
+
+        Route::get('/parameters', [ParameterController::class, 'index']);
+        Route::get('/methods', [MethodController::class, 'index']);
+        Route::get('/reagents', [ReagentController::class, 'index']);
 
         Route::get('clients', [ClientController::class, 'index']);
         Route::get('clients/{client}', [ClientController::class, 'show']);
@@ -115,5 +103,30 @@ Route::prefix('v1')->group(function () {
         Route::get('/clients/pending', [ClientVerificationController::class, 'pending']);
         Route::post('/clients/{client}/approve', [ClientVerificationController::class, 'approve']);
         Route::post('/clients/{client}/reject', [ClientVerificationController::class, 'reject']);
+
+        Route::get('/debug/policy/sample-test', function (Request $request) {
+            $user = $request->user();
+
+            return response()->json([
+                'user' => [
+                    'id'   => $user?->getAuthIdentifier(),
+                    'email' => $user?->email ?? null,
+                    'role' => $user?->role?->name ?? null,
+                ],
+                'abilities' => [
+                    'bulk_create' => $user ? $user->can('bulkCreate', [\App\Models\SampleTest::class, \App\Models\Sample::query()->first()]) : false,
+                    'decide_om'   => $user ? $user->can('decideAsOM', new \App\Models\SampleTest) : false,
+                    'decide_lh'   => $user ? $user->can('decideAsLH', new \App\Models\SampleTest) : false,
+                    'analyst_update_status' => $user ? $user->can('updateStatusAsAnalyst', new \App\Models\SampleTest) : false,
+                ],
+            ]);
+        });
+
+        Route::post('samples/{sample}/sample-tests/bulk', [SampleTestBulkController::class, 'store']);
+
+        Route::post('/sample-tests/{sampleTest}/status', [SampleTestStatusController::class, 'update']);
+
+        Route::post('sample-tests/{sampleTest}/om/decision', [SampleTestDecisionController::class, 'omDecision']);
+        Route::post('sample-tests/{sampleTest}/lh/decision', [SampleTestDecisionController::class, 'lhDecision']);
     });
 });
