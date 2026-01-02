@@ -15,6 +15,7 @@ use App\Http\Controllers\ClientVerificationController;
 use App\Http\Controllers\ParameterController;
 use App\Http\Controllers\MethodController;
 use App\Http\Controllers\ReagentController;
+use App\Http\Controllers\SampleTestBulkController;
 
 /*
 |--------------------------------------------------------------------------
@@ -119,5 +120,7 @@ Route::prefix('v1')->group(function () {
                 ],
             ]);
         });
+
+        Route::post('samples/{sample}/sample-tests/bulk', [SampleTestBulkController::class, 'store']);
     });
 });
