@@ -227,7 +227,8 @@ class ReagentCalcService
             $activeCount = count($activeTests);
             $cancelledCount = count($cancelledTests);
 
-            // repeats_count = sum(max(version_no)-1) per sample_test_id (active only)
+            // ===== Step 9: runs per sample_test_id (MAX(version_no)) =====
+            $runsBySampleTestId = []; // sample_test_id => run_count_base (>=1)
             $repeatsCount = 0;
 
             if ($activeCount > 0) {
@@ -241,11 +242,29 @@ class ReagentCalcService
                         ->get();
 
                     foreach ($rows as $r) {
+                        $stid = (int) ($r->sample_test_id ?? 0);
+                        if ($stid <= 0) continue;
+
                         $maxV = (int) ($r->max_version ?? 1);
+                        if ($maxV <= 0) $maxV = 1;
+
+                        // base run_count untuk test ini
+                        $runsBySampleTestId[$stid] = $maxV;
+
+                        // repeats = maxV - 1
                         if ($maxV > 1) $repeatsCount += ($maxV - 1);
                     }
                 }
+
+                // kalau ada sample_test aktif tapi belum punya test_results sama sekali,
+                // anggap run_count_base = 1
+                foreach ($ids as $stid) {
+                    if (!isset($runsBySampleTestId[$stid])) {
+                        $runsBySampleTestId[$stid] = 1;
+                    }
+                }
             }
+
 
             // ===== Step 8: resolve rules + evaluator skeleton =====
             $pairs = [];
@@ -261,9 +280,10 @@ class ReagentCalcService
             [$itemsAgg, $missingRules] = $this->computeReagentsFromRules(
                 $activeTests,
                 $rulesMap,
+                $runsBySampleTestId,
                 [
+                    'active_count' => $activeCount,
                     'repeats_count' => $repeatsCount,
-                    'active_count'  => $activeCount,
                 ]
             );
 
@@ -401,18 +421,21 @@ class ReagentCalcService
      * - kalau rule belum ada → missing_rules
      * - kalau ada → agregasi reagents[uL_per_run] × run_count
      */
-    private function computeReagentsFromRules(array $activeTests, array $rulesMap, array $ctx): array
-    {
+    private function computeReagentsFromRules(
+        array $activeTests,
+        array $rulesMap,
+        array $runsBySampleTestId, // sample_test_id => base runs (MAX(version_no) or 1)
+        array $ctx
+    ): array {
         $missing = [];
         $agg = [];
 
-        $repeatsCount = (int) ($ctx['repeats_count'] ?? 0);
-
         foreach ($activeTests as $t) {
-            $pid = (int) ($t->parameter_id ?? 0);
-            $mid = $t->method_id !== null ? (int) $t->method_id : 0;
+            $stid = (int) ($t->sample_test_id ?? 0);
+            $pid  = (int) ($t->parameter_id ?? 0);
+            $mid  = $t->method_id !== null ? (int) $t->method_id : 0;
 
-            if ($pid <= 0) continue;
+            if ($pid <= 0 || $stid <= 0) continue;
 
             $keyExact = $pid . '|' . $mid;
             $keyFallback = $pid . '|0';
@@ -421,6 +444,7 @@ class ReagentCalcService
 
             if (!$rule) {
                 $missing[] = [
+                    'sample_test_id' => $stid,
                     'parameter_id' => $pid,
                     'method_id'    => $mid !== 0 ? $mid : null,
                     'reason'       => 'rule_not_found',
@@ -436,17 +460,17 @@ class ReagentCalcService
             $qcRuns = (int) ($rule['qc_runs'] ?? 0);
             $blankRuns = (int) ($rule['blank_runs'] ?? 0);
 
-            $runCount = 1 + max(0, $qcRuns) + max(0, $blankRuns);
+            // ✅ Step 9: run_count dasar = MAX(version_no) per sample_test_id
+            $baseRuns = (int) ($runsBySampleTestId[$stid] ?? 1);
+            if ($baseRuns <= 0) $baseRuns = 1;
 
-            // distribusi sederhana dulu
-            if ($repeatsCount > 0) {
-                $runCount += 1;
-            }
+            // total run_count untuk rule ini
+            $runCount = $baseRuns + max(0, $qcRuns) + max(0, $blankRuns);
 
             $reagents = is_array($rule['reagents'] ?? null) ? $rule['reagents'] : [];
-
             if (empty($reagents)) {
                 $missing[] = [
+                    'sample_test_id' => $stid,
                     'parameter_id' => $pid,
                     'method_id'    => $mid !== 0 ? $mid : null,
                     'reason'       => 'rule_missing_reagents',
@@ -459,7 +483,7 @@ class ReagentCalcService
                 $rid = (int) ($rg['reagent_id'] ?? 0);
                 if ($rid <= 0) continue;
 
-                // ✅ hardening: terima uL_per_run atau ul_per_run
+                // terima uL_per_run atau ul_per_run
                 $uLPerRun = $rg['uL_per_run'] ?? ($rg['ul_per_run'] ?? null);
                 $uLPerRun = (float) ($uLPerRun ?? 0);
 
@@ -477,12 +501,17 @@ class ReagentCalcService
 
                 $agg[$rid]['estimated_volume_uL'] += $estimated;
 
+                // trace sources compact
                 if (count($agg[$rid]['sources']) < 10) {
                     $agg[$rid]['sources'][] = [
+                        'sample_test_id' => $stid,
                         'parameter_id' => $pid,
                         'method_id'    => $mid !== 0 ? $mid : null,
                         'uL_per_run'   => $uLPerRun,
-                        'run_count'    => $runCount,
+                        'run_count_base' => $baseRuns,
+                        'qc_runs'      => max(0, $qcRuns),
+                        'blank_runs'   => max(0, $blankRuns),
+                        'run_count_total' => $runCount,
                         'dilution_factor' => $dilution,
                     ];
                 }
