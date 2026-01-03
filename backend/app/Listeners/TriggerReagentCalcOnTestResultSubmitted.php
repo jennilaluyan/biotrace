@@ -4,22 +4,36 @@ namespace App\Listeners;
 
 use App\Events\TestResultSubmitted;
 use App\Services\ReagentCalcService;
-use Illuminate\Support\Facades\Log;
 
 class TriggerReagentCalcOnTestResultSubmitted
 {
-    public function __construct(private readonly ReagentCalcService $service) {}
-
     public function handle(TestResultSubmitted $event): void
     {
         try {
-            $this->service->upsertFromEvent($event);
+            $sampleId = (int) ($event->sampleId ?? 0);
+            if ($sampleId <= 0) return;
+
+            // actorStaffId wajib (computed_by NOT NULL)
+            $actorStaffId = (int) ($event->actorStaffId ?? 0);
+            if ($actorStaffId <= 0) {
+                throw new \RuntimeException('Missing actorStaffId in TestResultSubmitted event.');
+            }
+
+            $trigger = (string) ($event->trigger ?? 'updated');
+
+            app(ReagentCalcService::class)->recomputeForSample(
+                $sampleId,
+                $trigger, // "created" | "updated"
+                $actorStaffId,
+                [
+                    'test_result_id' => (int) ($event->testResultId ?? 0),
+                    'sample_test_id' => (int) ($event->sampleTestId ?? 0),
+                ]
+            );
         } catch (\Throwable $e) {
-            // jangan bikin API error / jangan bikin memory spike
-            Log::warning('Reagent calc failed: ' . $e->getMessage(), [
-                'sample_id' => $event->sampleId,
-                'sample_test_id' => $event->sampleTestId,
-                'test_result_id' => $event->testResultId,
+            logger()->warning('Reagent recompute failed on TestResultSubmitted', [
+                'error' => $e->getMessage(),
+                'exception' => get_class($e),
             ]);
         }
     }
