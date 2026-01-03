@@ -19,6 +19,8 @@ use App\Http\Controllers\SampleTestBulkController;
 use App\Http\Controllers\SampleTestStatusController;
 use App\Http\Controllers\SampleTestDecisionController;
 use App\Http\Controllers\TestResultController;
+use App\Http\Controllers\ReagentCalculationController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -132,5 +134,13 @@ Route::prefix('v1')->group(function () {
 
         Route::post('/sample-tests/{sampleTest}/results', [TestResultController::class, 'store']);
         Route::patch('/test-results/{testResult}', [TestResultController::class, 'update']);
+
+        Route::get('/samples/{sample}/reagent-calculation', [ReagentCalculationController::class, 'showBySample']);
+        Route::post('/reagent-calculations/{calc}/request-approval', [ReagentCalculationController::class, 'requestApproval']);
+        Route::post('/reagent-calculations/{calc}/approve', [ReagentCalculationController::class, 'approve']);
+        Route::patch('/reagent-calculations/{calc}', [ReagentCalculationController::class, 'update']);
+        Route::get('/samples/{sample}/reagent-calculation', [ReagentCalculationController::class, 'show']);
+        Route::patch('/samples/{sample}/reagent-calculation', [ReagentCalculationController::class, 'update']);
+        Route::post('/samples/{sample}/reagent-calculation/om-approve', [ReagentCalculationController::class, 'omApprove']);
     });
 });
