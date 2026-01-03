@@ -9,6 +9,9 @@ use App\Support\SampleTestStatusTransitions;
 use Illuminate\Validation\ValidationException;
 use App\Models\AuditLog;
 use Illuminate\Support\Facades\Log;
+use App\Models\Staff;
+use App\Services\ReagentCalcService;
+use Illuminate\Support\Facades\Auth;
 
 class SampleTestStatusController extends Controller
 {
@@ -67,6 +70,54 @@ class SampleTestStatusController extends Controller
 
         $sampleTest->status = $to;
         $sampleTest->save();
+
+        try {
+            $oldStatus = (string) ($oldStatus ?? ''); // kalau kamu sudah simpan sebelumnya
+            $newStatus = (string) $sampleTest->status;
+
+            // resolve actorStaffId (computed_by NOT NULL)
+            $user = Auth::user();
+            $actorStaffId = (int) ($user?->staff_id ?? 0);
+
+            if ($actorStaffId <= 0 && $user) {
+                $actorStaffId = (int) Staff::query()->where('user_id', $user->id)->value('staff_id');
+            }
+
+            if ($actorStaffId > 0) {
+                $trigger = null;
+
+                // cancellation
+                if ($newStatus === 'cancelled') {
+                    $trigger = 'cancelled';
+                }
+
+                // rerun: balik ke in_progress dari status lebih lanjut
+                $forwardStates = ['measured', 'verified', 'validated'];
+                if ($newStatus === 'in_progress' && in_array($oldStatus, $forwardStates, true)) {
+                    $trigger = 'rerun';
+                }
+
+                if ($trigger) {
+                    app(ReagentCalcService::class)->recomputeForSample(
+                        (int) $sampleTest->sample_id,
+                        $trigger,
+                        $actorStaffId,
+                        [
+                            'sample_test_id' => (int) $sampleTest->sample_test_id,
+                            'from' => $oldStatus,
+                            'to' => $newStatus,
+                        ]
+                    );
+                }
+            }
+        } catch (\Throwable $e) {
+            logger()->warning('Reagent recompute skipped on sample_test status change', [
+                'sample_test_id' => $sampleTest->sample_test_id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        $oldStatus = (string) $sampleTest->status;
 
         $old = [
             'status'       => $from,
