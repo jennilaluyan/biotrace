@@ -7,6 +7,8 @@ use App\Policies\ClientPolicy;
 use App\Models\Sample;
 use App\Policies\SamplePolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
+use App\Models\ReagentCalcRule;
+use App\Policies\ReagentCalcRulePolicy;
 
 class AuthServiceProvider extends ServiceProvider
 {
@@ -22,6 +24,7 @@ class AuthServiceProvider extends ServiceProvider
         \App\Models\Method::class    => \App\Policies\MethodPolicy::class,
         \App\Models\Reagent::class   => \App\Policies\ReagentPolicy::class,
         \App\Models\SampleTest::class => \App\Policies\SampleTestPolicy::class,
+        ReagentCalcRule::class => ReagentCalcRulePolicy::class,
     ];
 
     public function boot(): void
