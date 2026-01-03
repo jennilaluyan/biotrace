@@ -1,0 +1,30 @@
+<?php
+
+namespace App\Providers;
+
+use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
+
+use App\Events\TestResultSubmitted;
+use App\Listeners\TriggerReagentCalcOnTestResultSubmitted;
+
+class EventServiceProvider extends ServiceProvider
+{
+    /**
+     * The event to listener mappings for the application.
+     *
+     * @var array<class-string, array<int, class-string>>
+     */
+    protected $listen = [
+        TestResultSubmitted::class => [
+            TriggerReagentCalcOnTestResultSubmitted::class,
+        ],
+    ];
+
+    /**
+     * Disable auto-discovery for predictable behavior.
+     */
+    public function shouldDiscoverEvents(): bool
+    {
+        return false;
+    }
+}
