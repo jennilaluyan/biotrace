@@ -4,397 +4,534 @@ namespace App\Services;
 
 use App\Models\AuditLog;
 use App\Models\ReagentCalculation;
-use App\Models\SampleTest;
-use App\Models\TestResult;
+use App\Models\ReagentRule;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Log;
 
 class ReagentCalcService
 {
-    /**
-     * Schema version for payload contract.
-     */
-    private const SCHEMA_VERSION = 1;
+    private const TRACE_LIMIT = 50;
+    private const SCHEMA_VERSION = 2;
 
     /**
-     * Keep trace bounded to avoid payload growth / memory bloat.
+     * Baseline record: dibuat ketika sample tests baru dibuat (atau manual).
      */
-    private const TRACE_MAX = 50;
-
-    /**
-     * Create/update a baseline reagent calculation row for a sample.
-     * Used after bulk create sample tests.
-     */
-    public function upsertBaselineForSample(int $sampleId, int $actorStaffId): ReagentCalculation
+    public function upsertBaselineForSample(int $sampleId, ?int $actorStaffId): ReagentCalculation
     {
-        return $this->recomputeForSample(
-            $sampleId,
-            'baseline',
-            $actorStaffId,
-            [
-                'ref' => [],
-            ]
-        );
+        if (!$actorStaffId || $actorStaffId <= 0) {
+            throw new \InvalidArgumentException('actorStaffId is required (computed_by NOT NULL).');
+        }
+
+        $now = now();
+
+        return DB::transaction(function () use ($sampleId, $actorStaffId, $now) {
+            /** @var ReagentCalculation|null $existing */
+            $existing = ReagentCalculation::query()
+                ->where('sample_id', $sampleId)
+                ->lockForUpdate()
+                ->first();
+
+            $basePayload = [
+                'schema_version' => self::SCHEMA_VERSION,
+                'state'          => 'baseline',
+                'computed_at'    => $now->toIso8601String(),
+                'sample_id'      => $sampleId,
+                'summary'        => [
+                    'items_count' => 0,
+                    'total_estimated_volume_uL' => 0,
+                    'active_sample_tests_count' => 0,
+                    'cancelled_sample_tests_count' => 0,
+                    'repeats_count' => 0,
+                ],
+                'items'   => [],
+                'missing' => [],
+                'trace'   => [
+                    [
+                        'ts'    => $now->toIso8601String(),
+                        'event' => 'baseline',
+                        'ref'   => [],
+                        'note'  => 'reagent calc baseline created',
+                    ],
+                ],
+                'last_event' => [
+                    'trigger'        => 'baseline',
+                    'actor_staff_id' => $actorStaffId,
+                    'ref'            => [],
+                ],
+            ];
+
+            if (!$existing) {
+                $calc = ReagentCalculation::query()->create([
+                    'sample_id'    => $sampleId,
+                    'computed_by'  => $actorStaffId,
+                    'edited_by'    => $actorStaffId,
+                    'locked'       => false,
+                    'computed_at'  => $now,
+                    'payload'      => $basePayload,
+                    'version_no'   => 1,
+                ]);
+
+                $this->writeAuditSafe(
+                    $actorStaffId,
+                    'reagent_calculation',
+                    (int) ($calc->calc_id ?? $calc->id ?? 0),
+                    'REAGENT_CALC_BASELINE_CREATED',
+                    null,
+                    [
+                        'sample_id' => $sampleId,
+                        'state'     => 'baseline',
+                        'schema_version' => self::SCHEMA_VERSION,
+                    ]
+                );
+
+                return $calc;
+            }
+
+            // update minimal (jangan timpa payload kalau sudah ada state lain)
+            $payload = is_array($existing->payload) ? $existing->payload : [];
+            $payload['schema_version'] = $payload['schema_version'] ?? self::SCHEMA_VERSION;
+            $payload['sample_id'] = $payload['sample_id'] ?? $sampleId;
+
+            $payload = $this->appendTrace($payload, [
+                'ts'    => $now->toIso8601String(),
+                'event' => 'baseline_upsert',
+                'ref'   => [],
+                'note'  => 'baseline upsert requested',
+            ]);
+
+            $existing->fill([
+                'edited_by'   => $actorStaffId,
+                'computed_at' => $now,
+                'payload'     => $payload,
+            ])->save();
+
+            $this->writeAuditSafe(
+                $actorStaffId,
+                'reagent_calculation',
+                (int) ($existing->calc_id ?? $existing->id ?? 0),
+                'REAGENT_CALC_BASELINE_UPSERTED',
+                null,
+                [
+                    'sample_id' => $sampleId,
+                    'state'     => $payload['state'] ?? 'unknown',
+                    'schema_version' => $payload['schema_version'] ?? null,
+                ]
+            );
+
+            return $existing;
+        });
     }
 
     /**
-     * Recompute reagent calculations for a sample.
-     *
-     * @param string $trigger baseline|created|updated|cancelled|rerun
-     * @param array  $ref     compact reference metadata (ids, status change, etc.)
+     * Recompute called by listener when test_result created/updated.
      */
     public function recomputeForSample(
         int $sampleId,
-        string $trigger,
+        string $trigger, // created|updated|bulk_created|manual
         int $actorStaffId,
         array $ref = []
-    ): ReagentCalculation {
-        if ($sampleId <= 0) {
-            throw new \InvalidArgumentException('sampleId must be positive.');
-        }
+    ): ?ReagentCalculation {
+        if ($sampleId <= 0) return null;
+
         if ($actorStaffId <= 0) {
-            // computed_by NOT NULL safeguard
-            throw new \InvalidArgumentException('actorStaffId must be positive (computed_by NOT NULL).');
+            throw new \InvalidArgumentException('actorStaffId is required (computed_by NOT NULL).');
         }
 
-        // Get existing row (single row per sample)
-        $existing = ReagentCalculation::query()
-            ->where('sample_id', $sampleId)
-            ->first();
-
-        $oldSummary = $existing ? $this->summarizePayload($existing->payload) : null;
-
-        // If locked, do not overwrite computation content (but we still may update trace/audit lightly if desired).
-        // We'll respect locked hard: return as-is.
-        if ($existing && (bool) $existing->locked === true) {
-            // Still write a small audit that recompute was requested but skipped.
-            $this->writeAudit(
-                staffId: $actorStaffId,
-                calcId: (int) $existing->calc_id,
-                action: 'REAGENT_CALC_RECOMPUTE_SKIPPED_LOCKED',
-                oldValues: $oldSummary,
-                newValues: array_merge((array) $oldSummary, [
-                    'trigger' => $trigger,
-                    'skipped_reason' => 'locked',
-                ])
-            );
-            return $existing;
-        }
-
-        // Compute new payload (memory-safe queries; avoid loading huge collections)
-        $payload = $this->computePayloadForSample($sampleId, $trigger, $actorStaffId, $ref);
-
-        // Upsert row
         $now = now();
-        $data = [
-            'sample_id'    => $sampleId,
-            'computed_by'  => $actorStaffId,
-            'edited_by'    => $actorStaffId,
-            'computed_at'  => $now,
-            'edited_at'    => $now,
-            'locked'       => false,
-            'version_no'   => (int) ($existing?->version_no ?? 0) + 1,
-            'payload'      => $payload,
-        ];
 
-        // Some columns might not exist across environments; guard them
-        $data = $this->onlyExistingColumns('reagent_calculations', $data);
+        return DB::transaction(function () use ($sampleId, $trigger, $actorStaffId, $ref, $now) {
+            /** @var ReagentCalculation|null $calc */
+            $calc = ReagentCalculation::query()
+                ->where('sample_id', $sampleId)
+                ->lockForUpdate()
+                ->first();
 
-        $calc = DB::transaction(function () use ($existing, $data, $sampleId) {
-            if ($existing) {
-                $existing->fill($data);
-                $existing->save();
-
-                return $existing;
+            if (!$calc) {
+                // kalau belum ada baseline, bikin baseline dulu
+                $calc = $this->upsertBaselineForSample($sampleId, $actorStaffId);
+                $calc = ReagentCalculation::query()
+                    ->where('sample_id', $sampleId)
+                    ->lockForUpdate()
+                    ->first();
             }
 
-            return ReagentCalculation::query()->create($data);
-        });
+            if (!$calc) return null;
 
-        // Audit (ringkas)
-        $newSummary = $this->summarizePayload($payload);
-
-        $this->writeAudit(
-            staffId: $actorStaffId,
-            calcId: (int) $calc->calc_id,
-            action: 'REAGENT_CALC_RECOMPUTED',
-            oldValues: $oldSummary,
-            newValues: $newSummary
-        );
-
-        return $calc;
-    }
-
-    /**
-     * Step 7 core:
-     * - skip cancelled sample_tests
-     * - repeats_count from version_no > 1
-     * - bounded trace
-     * - compact state
-     */
-    private function computePayloadForSample(
-        int $sampleId,
-        string $trigger,
-        int $actorStaffId,
-        array $ref = []
-    ): array {
-        $nowIso = now()->toIso8601String();
-
-        // Count cancelled vs active (memory-safe)
-        $cancelledCount = SampleTest::query()
-            ->where('sample_id', $sampleId)
-            ->where('status', 'cancelled')
-            ->count();
-
-        // Active sample_tests: exclude cancelled
-        $activeSampleTestIds = SampleTest::query()
-            ->where('sample_id', $sampleId)
-            ->where('status', '!=', 'cancelled')
-            ->pluck('sample_test_id')
-            ->map(fn($v) => (int) $v)
-            ->values()
-            ->all();
-
-        $activeCount = count($activeSampleTestIds);
-
-        // Repeat count: how many results have version_no > 1 for active tests (DB count only)
-        $repeatsCount = 0;
-        if ($activeCount > 0) {
-            $repeatsCount = TestResult::query()
-                ->whereIn('sample_test_id', $activeSampleTestIds)
-                ->where('version_no', '>', 1)
-                ->count();
-        }
-
-        // ---- Optional: hook into formula engine if present (defensive) ----
-        // We keep this memory-safe: only compute minimal placeholder until rules engine exists/returns items.
-        $items = [];
-        $missing = [];
-        $state = 'baseline';
-
-        // If you already have engine classes, we try to use them. If not available, fallback to missing_rules.
-        // We avoid hard "use" to prevent fatal if classes are absent.
-        $resolverClass = '\\App\\Services\\ReagentCalcRuleResolver';
-        $evaluatorClass = '\\App\\Services\\ReagentCalcFormulaEvaluator';
-
-        if ($activeCount === 0) {
-            // If everything cancelled or no tests yet
-            $state = ($trigger === 'cancelled') ? 'cancelled' : 'baseline';
-        } elseif (class_exists($resolverClass) && class_exists($evaluatorClass)) {
-            try {
-                $resolver = app($resolverClass);
-                $evaluator = app($evaluatorClass);
-
-                // Pull minimal data needed for rules (avoid loading relations)
-                $tests = SampleTest::query()
-                    ->select(['sample_test_id', 'parameter_id', 'method_id'])
-                    ->whereIn('sample_test_id', $activeSampleTestIds)
-                    ->get();
-
-                foreach ($tests as $t) {
-                    $parameterId = (int) $t->parameter_id;
-                    $methodId = $t->method_id !== null ? (int) $t->method_id : null;
-
-                    // Try common resolver method names defensively
-                    $rule = null;
-                    if (method_exists($resolver, 'resolveFor')) {
-                        $rule = $resolver->resolveFor($parameterId, $methodId);
-                    } elseif (method_exists($resolver, 'resolve')) {
-                        $rule = $resolver->resolve($parameterId, $methodId);
-                    } elseif (method_exists($resolver, 'resolveForSampleTest')) {
-                        $rule = $resolver->resolveForSampleTest($t);
-                    }
-
-                    if (!$rule) {
-                        $missing[] = [
-                            'parameter_id' => $parameterId,
-                            'method_id' => $methodId,
-                            'reason' => 'rule_not_found',
-                        ];
-                        continue;
-                    }
-
-                    // Evaluate formula (defensively)
-                    $computed = null;
-                    if (method_exists($evaluator, 'evaluate')) {
-                        $computed = $evaluator->evaluate($rule, [
-                            'sample_id' => $sampleId,
-                            'sample_test_id' => (int) $t->sample_test_id,
-                        ]);
-                    } elseif (method_exists($evaluator, 'compute')) {
-                        $computed = $evaluator->compute($rule, [
-                            'sample_id' => $sampleId,
-                            'sample_test_id' => (int) $t->sample_test_id,
-                        ]);
-                    }
-
-                    if (is_array($computed)) {
-                        // evaluator can return a single item or list
-                        $isList = array_is_list($computed);
-                        if ($isList) {
-                            foreach ($computed as $row) {
-                                if (is_array($row)) $items[] = $row;
-                            }
-                        } else {
-                            $items[] = $computed;
-                        }
-                    }
-                }
-
-                if (!empty($missing)) {
-                    $state = 'missing_rules';
-                } else {
-                    // If trigger is updated/created/rerun we consider adjusted
-                    $state = in_array($trigger, ['updated', 'created', 'rerun'], true) ? 'adjusted' : 'baseline';
-                }
-            } catch (\Throwable $e) {
-                // If engine fails, keep safe fallback
-                $items = [];
-                $missing = [
-                    ['reason' => 'engine_error', 'message' => $e->getMessage()],
+            // kalau locked, jangan compute ulang (tapi tetap catat audit + trace)
+            if ((bool) $calc->locked === true) {
+                $payload = is_array($calc->payload) ? $calc->payload : [];
+                $payload = $this->appendTrace($payload, [
+                    'ts'    => $now->toIso8601String(),
+                    'event' => 'skipped_locked',
+                    'ref'   => $ref,
+                    'note'  => 'recompute skipped because locked=true',
+                ]);
+                $payload['last_event'] = [
+                    'trigger'        => $trigger,
+                    'actor_staff_id' => $actorStaffId,
+                    'ref'            => $ref,
                 ];
+
+                $calc->fill([
+                    'edited_by'   => $actorStaffId,
+                    'computed_at' => $now,
+                    'payload'     => $payload,
+                ])->save();
+
+                $this->writeAuditSafe(
+                    $actorStaffId,
+                    'reagent_calculation',
+                    (int) ($calc->calc_id ?? $calc->id ?? 0),
+                    'REAGENT_CALC_SKIPPED_LOCKED',
+                    null,
+                    [
+                        'sample_id' => $sampleId,
+                        'trigger'   => $trigger,
+                        'ref'       => $ref,
+                    ]
+                );
+
+                return $calc;
+            }
+
+            // ===== Step 7: counts + repeats (memory-safe aggregation) =====
+            $tests = DB::table('sample_tests')
+                ->select(['sample_test_id', 'parameter_id', 'method_id', 'status'])
+                ->where('sample_id', $sampleId)
+                ->get();
+
+            $activeTests = [];
+            $cancelledTests = [];
+
+            // "cancelled" group
+            $cancelledStatuses = ['cancelled', 'void', 'rejected'];
+
+            // ✅ Opsi A: "draft" TIDAK ikut dihitung ke reagent calculation
+            $excludedFromCompute = array_merge($cancelledStatuses, ['draft']);
+
+            foreach ($tests as $t) {
+                $status = (string) ($t->status ?? '');
+
+                if (in_array($status, $cancelledStatuses, true)) {
+                    $cancelledTests[] = $t;
+                    continue;
+                }
+
+                if (in_array($status, $excludedFromCompute, true)) {
+                    continue;
+                }
+
+                $activeTests[] = $t;
+            }
+
+            $activeCount = count($activeTests);
+            $cancelledCount = count($cancelledTests);
+
+            // repeats_count = sum(max(version_no)-1) per sample_test_id (active only)
+            $repeatsCount = 0;
+
+            if ($activeCount > 0) {
+                $ids = array_map(fn($x) => (int) $x->sample_test_id, $activeTests);
+
+                foreach (array_chunk($ids, 500) as $chunk) {
+                    $rows = DB::table('test_results')
+                        ->select(['sample_test_id', DB::raw('MAX(version_no) as max_version')])
+                        ->whereIn('sample_test_id', $chunk)
+                        ->groupBy('sample_test_id')
+                        ->get();
+
+                    foreach ($rows as $r) {
+                        $maxV = (int) ($r->max_version ?? 1);
+                        if ($maxV > 1) $repeatsCount += ($maxV - 1);
+                    }
+                }
+            }
+
+            // ===== Step 8: resolve rules + evaluator skeleton =====
+            $pairs = [];
+            foreach ($activeTests as $t) {
+                $pairs[] = [
+                    'parameter_id' => (int) $t->parameter_id,
+                    'method_id'    => $t->method_id !== null ? (int) $t->method_id : null,
+                ];
+            }
+
+            $rulesMap = $this->resolveActiveRules($pairs);
+
+            [$itemsAgg, $missingRules] = $this->computeReagentsFromRules(
+                $activeTests,
+                $rulesMap,
+                [
+                    'repeats_count' => $repeatsCount,
+                    'active_count'  => $activeCount,
+                ]
+            );
+
+            $itemsCount = count($itemsAgg);
+            $totalVol = 0;
+            foreach ($itemsAgg as $it) {
+                $totalVol += (int) ($it['estimated_volume_uL'] ?? 0);
+            }
+
+            // kalau activeCount=0 -> computed (empty), bukan missing_rules
+            $state = 'computed';
+            if ($activeCount > 0 && !empty($missingRules)) {
                 $state = 'missing_rules';
             }
-        } else {
-            // No engine classes found yet
-            $missing = [
-                ['reason' => 'engine_not_ready'],
-            ];
-            $state = 'missing_rules';
-        }
 
-        // Summary aggregation (keep lightweight)
-        $itemsCount = is_array($items) ? count($items) : 0;
+            $payload = is_array($calc->payload) ? $calc->payload : [];
+            $payload['schema_version'] = self::SCHEMA_VERSION;
+            $payload['state'] = $state;
+            $payload['computed_at'] = $now->toIso8601String();
+            $payload['sample_id'] = $sampleId;
 
-        // Estimate total volume (if your items include volume_uL)
-        $totalVol = 0;
-        foreach ($items as $it) {
-            if (is_array($it) && isset($it['volume_uL']) && is_numeric($it['volume_uL'])) {
-                $totalVol += (float) $it['volume_uL'];
-            }
-        }
-
-        $payload = [
-            'schema_version' => self::SCHEMA_VERSION,
-            'state' => $state,
-            'computed_at' => $nowIso,
-            'sample_id' => $sampleId,
-            'summary' => [
-                'active_sample_tests_count' => $activeCount,
-                'cancelled_sample_tests_count' => $cancelledCount,
+            $payload['summary'] = [
                 'items_count' => $itemsCount,
                 'total_estimated_volume_uL' => $totalVol,
-                'repeats_count' => (int) $repeatsCount,
-            ],
-            'items' => $items,
-            'missing' => $missing,
-            'trace' => [],
-            'last_event' => [
-                'trigger' => $trigger,
+                'active_sample_tests_count' => $activeCount,
+                'cancelled_sample_tests_count' => $cancelledCount,
+                'repeats_count' => $repeatsCount,
+            ];
+
+            $payload['items'] = array_values($itemsAgg);
+            $payload['missing'] = $missingRules;
+
+            $payload = $this->appendTrace($payload, [
+                'ts'    => $now->toIso8601String(),
+                'event' => 'recompute',
+                'ref'   => $ref,
+                'note'  => $state === 'computed'
+                    ? 'reagent calc recomputed'
+                    : 'reagent calc recomputed but missing rules',
+            ]);
+
+            $payload['last_event'] = [
+                'trigger'        => $trigger,
                 'actor_staff_id' => $actorStaffId,
-                'ref' => $ref,
-            ],
-        ];
+                'ref'            => $ref,
+            ];
 
-        // Add bounded trace entry
-        $this->pushTrace($payload, [
-            'ts' => $nowIso,
-            'event' => $trigger,
-            'ref' => $ref,
-            'note' => 'reagent calc computed',
-        ]);
+            $oldSummary = null;
+            if (is_array($calc->payload) && isset($calc->payload['summary'])) {
+                $oldSummary = $calc->payload['summary'];
+            }
 
-        return $payload;
+            $calc->fill([
+                'computed_by' => $calc->computed_by ?: $actorStaffId,
+                'edited_by'   => $actorStaffId,
+                'computed_at' => $now,
+                'payload'     => $payload,
+                'version_no'  => (int) ($calc->version_no ?? 1),
+            ])->save();
+
+            $this->writeAuditSafe(
+                $actorStaffId,
+                'reagent_calculation',
+                (int) ($calc->calc_id ?? $calc->id ?? 0),
+                'REAGENT_CALC_RECOMPUTED',
+                ['summary' => $oldSummary],
+                [
+                    'sample_id' => $sampleId,
+                    'trigger'   => $trigger,
+                    'ref'       => $ref,
+                    'state'     => $state,
+                    'summary'   => $payload['summary'],
+                    'missing_rules_count' => count($missingRules),
+                ]
+            );
+
+            return $calc;
+        });
     }
 
     /**
-     * Bounded trace helper (anti memory bloat).
+     * Resolve active rules for (parameter_id, method_id) pairs.
+     * Priority: exact match pid|mid, then fallback pid|0 (method null rule).
      */
-    private function pushTrace(array &$payload, array $entry): void
+    private function resolveActiveRules(array $pairs): array
     {
-        $trace = $payload['trace'] ?? [];
-        if (!is_array($trace)) {
-            $trace = [];
+        $paramIds = [];
+        foreach ($pairs as $p) {
+            $pid = (int) ($p['parameter_id'] ?? 0);
+            if ($pid > 0) $paramIds[$pid] = true;
+        }
+        $paramIds = array_keys($paramIds);
+
+        if (empty($paramIds)) return [];
+
+        $rules = ReagentRule::query()
+            ->select(['rule_id', 'parameter_id', 'method_id', 'version_no', 'formula'])
+            ->whereIn('parameter_id', $paramIds)
+            ->where('is_active', true)
+            ->orderByDesc('version_no')
+            ->get();
+
+        $map = [];
+        foreach ($rules as $r) {
+            $pid = (int) $r->parameter_id;
+            $mid = $r->method_id !== null ? (int) $r->method_id : 0;
+
+            $key = $pid . '|' . $mid;
+
+            if (isset($map[$key])) {
+                continue;
+            }
+
+            // ✅ hardening: formula bisa kebaca array / object / string (json)
+            $formula = $r->formula;
+
+            if (is_string($formula)) {
+                $decoded = json_decode($formula, true);
+                $formula = is_array($decoded) ? $decoded : [];
+            } elseif (is_object($formula)) {
+                $formula = json_decode(json_encode($formula), true);
+                if (!is_array($formula)) $formula = [];
+            } elseif (!is_array($formula)) {
+                $formula = [];
+            }
+
+            $map[$key] = $formula;
+        }
+
+        return $map;
+    }
+
+    /**
+     * Skeleton evaluator:
+     * - kalau rule belum ada → missing_rules
+     * - kalau ada → agregasi reagents[uL_per_run] × run_count
+     */
+    private function computeReagentsFromRules(array $activeTests, array $rulesMap, array $ctx): array
+    {
+        $missing = [];
+        $agg = [];
+
+        $repeatsCount = (int) ($ctx['repeats_count'] ?? 0);
+
+        foreach ($activeTests as $t) {
+            $pid = (int) ($t->parameter_id ?? 0);
+            $mid = $t->method_id !== null ? (int) $t->method_id : 0;
+
+            if ($pid <= 0) continue;
+
+            $keyExact = $pid . '|' . $mid;
+            $keyFallback = $pid . '|0';
+
+            $rule = $rulesMap[$keyExact] ?? ($rulesMap[$keyFallback] ?? null);
+
+            if (!$rule) {
+                $missing[] = [
+                    'parameter_id' => $pid,
+                    'method_id'    => $mid !== 0 ? $mid : null,
+                    'reason'       => 'rule_not_found',
+                ];
+                continue;
+            }
+
+            $type = (string) ($rule['type'] ?? 'simple_v1');
+
+            $dilution = (float) ($rule['dilution_factor'] ?? 1);
+            if ($dilution <= 0) $dilution = 1;
+
+            $qcRuns = (int) ($rule['qc_runs'] ?? 0);
+            $blankRuns = (int) ($rule['blank_runs'] ?? 0);
+
+            $runCount = 1 + max(0, $qcRuns) + max(0, $blankRuns);
+
+            // distribusi sederhana dulu
+            if ($repeatsCount > 0) {
+                $runCount += 1;
+            }
+
+            $reagents = is_array($rule['reagents'] ?? null) ? $rule['reagents'] : [];
+
+            if (empty($reagents)) {
+                $missing[] = [
+                    'parameter_id' => $pid,
+                    'method_id'    => $mid !== 0 ? $mid : null,
+                    'reason'       => 'rule_missing_reagents',
+                    'rule_type'    => $type,
+                ];
+                continue;
+            }
+
+            foreach ($reagents as $rg) {
+                $rid = (int) ($rg['reagent_id'] ?? 0);
+                if ($rid <= 0) continue;
+
+                // ✅ hardening: terima uL_per_run atau ul_per_run
+                $uLPerRun = $rg['uL_per_run'] ?? ($rg['ul_per_run'] ?? null);
+                $uLPerRun = (float) ($uLPerRun ?? 0);
+
+                if ($uLPerRun <= 0) continue;
+
+                $estimated = (int) round($uLPerRun * $runCount * $dilution);
+
+                if (!isset($agg[$rid])) {
+                    $agg[$rid] = [
+                        'reagent_id' => $rid,
+                        'estimated_volume_uL' => 0,
+                        'sources' => [],
+                    ];
+                }
+
+                $agg[$rid]['estimated_volume_uL'] += $estimated;
+
+                if (count($agg[$rid]['sources']) < 10) {
+                    $agg[$rid]['sources'][] = [
+                        'parameter_id' => $pid,
+                        'method_id'    => $mid !== 0 ? $mid : null,
+                        'uL_per_run'   => $uLPerRun,
+                        'run_count'    => $runCount,
+                        'dilution_factor' => $dilution,
+                    ];
+                }
+            }
+        }
+
+        return [$agg, $missing];
+    }
+
+    private function appendTrace(array $payload, array $entry): array
+    {
+        $trace = [];
+
+        if (isset($payload['trace']) && is_array($payload['trace'])) {
+            $trace = $payload['trace'];
         }
 
         $trace[] = $entry;
 
-        $count = count($trace);
-        if ($count > self::TRACE_MAX) {
-            $trace = array_slice($trace, $count - self::TRACE_MAX);
+        if (count($trace) > self::TRACE_LIMIT) {
+            $trace = array_slice($trace, -self::TRACE_LIMIT);
         }
 
         $payload['trace'] = $trace;
+
+        return $payload;
     }
 
-    /**
-     * Audit log (ringkas). Jangan simpan payload full.
-     */
-    private function writeAudit(
+    private function writeAuditSafe(
         int $staffId,
-        int $calcId,
+        string $entityName,
+        int $entityId,
         string $action,
-        ?array $oldValues,
-        ?array $newValues
+        $oldValues,
+        $newValues
     ): void {
         try {
-            AuditLog::query()->create($this->onlyExistingColumns('audit_logs', [
-                'staff_id' => $staffId,
-                'entity_name' => 'reagent_calculation',
-                'entity_id' => $calcId,
-                'action' => $action,
-                'timestamp' => now(),
-                'ip_address' => request()?->ip(),
-                'old_values' => $oldValues,
-                'new_values' => $newValues,
-            ]));
+            AuditLog::create([
+                'staff_id'    => $staffId,
+                'entity_name' => $entityName,
+                'entity_id'   => $entityId,
+                'action'      => $action,
+                'timestamp'   => now(),
+                'ip_address'  => request()?->ip(),
+                'old_values'  => $oldValues,
+                'new_values'  => $newValues,
+            ]);
         } catch (\Throwable $e) {
-            // do not break main flow
-            logger()->warning('AuditLog write failed (reagent calc): ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Summarize payload to keep audit snapshots lightweight.
-     */
-    private function summarizePayload($payload): ?array
-    {
-        if (!is_array($payload)) {
-            return null;
-        }
-
-        $summary = $payload['summary'] ?? null;
-
-        return [
-            'schema_version' => $payload['schema_version'] ?? null,
-            'state' => $payload['state'] ?? null,
-            'sample_id' => $payload['sample_id'] ?? null,
-            'computed_at' => $payload['computed_at'] ?? null,
-            'trigger' => $payload['last_event']['trigger'] ?? null,
-            'items_count' => is_array($summary) ? ($summary['items_count'] ?? null) : null,
-            'repeats_count' => is_array($summary) ? ($summary['repeats_count'] ?? null) : null,
-            'active_sample_tests_count' => is_array($summary) ? ($summary['active_sample_tests_count'] ?? null) : null,
-            'cancelled_sample_tests_count' => is_array($summary) ? ($summary['cancelled_sample_tests_count'] ?? null) : null,
-        ];
-    }
-
-    /**
-     * Only keep keys that exist as columns (helps compatibility across migrations).
-     */
-    private function onlyExistingColumns(string $table, array $data): array
-    {
-        try {
-            $cols = Schema::getColumnListing($table);
-            $cols = array_flip($cols);
-
-            return array_filter(
-                $data,
-                fn($v, $k) => isset($cols[$k]),
-                ARRAY_FILTER_USE_BOTH
-            );
-        } catch (\Throwable $e) {
-            // If schema introspection fails, return original
-            return $data;
+            Log::warning('AuditLog write failed (reagent calc): ' . $e->getMessage());
         }
     }
 }
