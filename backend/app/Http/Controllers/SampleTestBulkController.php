@@ -12,14 +12,13 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use App\Services\ReagentCalcService;
 
 class SampleTestBulkController extends Controller
 {
     public function store(SampleTestsBulkStoreRequest $request, Sample $sample): JsonResponse
     {
         // 1) RBAC / Policy check
-        // Pakai cara ini biar konsisten dengan "abilities" yang sudah kamu debug.
-        // Kalau kamu sudah punya SampleTestPolicy@bulkCreate, ini akan jalan.
         $this->authorize('bulkCreate', [SampleTest::class, $sample]);
 
         $items = $request->validated()['tests'];
@@ -80,12 +79,11 @@ class SampleTestBulkController extends Controller
         }
 
         // 4) Ambil yang sudah ada untuk sample ini (kunci idempotent)
-        // Asumsi desain: 1 sample hanya punya 1 row SampleTest per parameter_id.
         $already = SampleTest::query()
             ->where('sample_id', $sample->getAttribute('sample_id'))
             ->whereIn('parameter_id', $parameterIds)
             ->pluck('parameter_id')
-            ->flip(); // jadi set lookup cepat
+            ->flip();
 
         $now = now();
 
@@ -126,6 +124,34 @@ class SampleTestBulkController extends Controller
 
         // 6) Audit log (aman: hanya insert kalau table & kolom tersedia)
         $this->tryAuditBulkCreated($sample->getAttribute('sample_id'), $toInsert, $skippedParameterIds);
+
+        // 7) ✅ Reagent calc baseline (post bulk create)
+        try {
+            $user = Auth::user();
+            $actorStaffId = 0;
+
+            if ($user && isset($user->staff_id) && is_numeric($user->staff_id)) {
+                $actorStaffId = (int) $user->staff_id;
+            } elseif ($user && method_exists($user, 'staff') && $user->staff && isset($user->staff->staff_id)) {
+                $actorStaffId = (int) $user->staff->staff_id;
+            } elseif ($user) {
+                // fallback: staff.user_id -> staff_id
+                $actorStaffId = (int) Staff::query()->where('user_id', $user->id)->value('staff_id');
+            }
+
+            if ($actorStaffId <= 0) {
+                throw new \RuntimeException('Missing actor staff_id for reagent baseline calc (computed_by NOT NULL).');
+            }
+
+            app(\App\Services\ReagentCalcService::class)
+                ->upsertBaselineForSample((int) $sample->getAttribute('sample_id'), $actorStaffId);
+        } catch (\Throwable $e) {
+            logger()->warning('Reagent baseline calc failed after bulk sample_tests', [
+                'sample_id' => $sample->getAttribute('sample_id'),
+                'error' => $e->getMessage(),
+                'exception' => get_class($e),
+            ]);
+        }
 
         return response()->json([
             'status' => 200,
