@@ -11,6 +11,10 @@ use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use App\Events\TestResultSubmitted;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+
 
 class TestResultController extends Controller
 {
@@ -105,6 +109,14 @@ class TestResultController extends Controller
             ]
         );
 
+        TestResultSubmitted::dispatch(
+            (int) $result->result_id,
+            (int) $sampleTest->sample_test_id,
+            (int) $sampleTest->sample_id,
+            (int) $actorId,
+            'created'
+        );
+
         return ApiResponse::success(
             [
                 'result_id'      => $result->result_id,
@@ -138,6 +150,11 @@ class TestResultController extends Controller
         $role = optional($user->role)->name;
         if (!in_array($role, ['Analyst', 'Operator'], true)) {
             return ApiResponse::error('Forbidden.', 'FORBIDDEN', 403, ['resource' => 'test_results']);
+        }
+
+        $actorId = $user->{$user->getKeyName()} ?? ($user->staff_id ?? null);
+        if (!$actorId) {
+            return ApiResponse::error('Unauthenticated.', 'UNAUTHENTICATED', 401, ['resource' => 'test_results']);
         }
 
         // cek parent status
@@ -232,6 +249,21 @@ class TestResultController extends Controller
             $old,
             $new
         );
+
+        $sample = DB::table('sample_tests')
+            ->select(['sample_id', 'sample_test_id'])
+            ->where('sample_test_id', $testResult->sample_test_id)
+            ->first();
+
+        if ($sample) {
+            TestResultSubmitted::dispatch(
+                (int) $testResult->result_id,
+                (int) $sample->sample_test_id,
+                (int) $sample->sample_id,
+                (int) $actorId,
+                'updated'
+            );
+        }
 
         return ApiResponse::success(
             [
