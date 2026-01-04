@@ -84,3 +84,53 @@ export async function apiPost<T = any>(
         })
     );
 }
+
+// ----------------------------
+// PATCH (versi Axios)
+// ----------------------------
+export async function apiPatch<T = any>(
+    path: string,
+    body?: unknown,
+    options?: AxiosRequestConfig
+) {
+    return handleAxios<T>(
+        http.patch(path, body, {
+            headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+                ...(options?.headers || {}),
+            },
+            ...options,
+        })
+    );
+}
+
+// ----------------------------
+// PUT (versi Axios)
+// ----------------------------
+export async function apiPut<T = any>(
+    path: string,
+    body?: unknown,
+    options?: AxiosRequestConfig
+) {
+    return handleAxios<T>(
+        http.put(path, body, {
+            headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+                ...(options?.headers || {}),
+            },
+            ...options,
+        })
+    );
+}
+
+// ----------------------------
+// DELETE (versi Axios)
+// ----------------------------
+export async function apiDelete<T = any>(
+    path: string,
+    options?: AxiosRequestConfig
+) {
+    return handleAxios<T>(http.delete(path, options));
+}
