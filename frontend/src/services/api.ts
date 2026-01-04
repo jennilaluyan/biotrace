@@ -1,3 +1,4 @@
+// frontend/src/services/api.ts
 import axios, { AxiosRequestConfig, AxiosError } from "axios";
 
 const API_URL = import.meta.env.VITE_API_URL;
@@ -17,12 +18,6 @@ export const http = axios.create({
 
 // Helper untuk samakan perilaku dengan handleResponse lama
 function normalizeData(data: any) {
-    // Di versi fetch lama:
-    // - 204 No Content → null
-    // - JSON → object
-    // - text biasa → string
-    // Axios sudah mirip: kalau JSON → object, kalau text → string
-    // Di sini kita cuma samakan empty-string jadi null biar lebih dekat.
     if (data === "" || data === undefined) {
         return null;
     }
@@ -38,17 +33,36 @@ async function handleAxios<T>(promise: Promise<any>): Promise<T> {
         const error = err as AxiosError;
 
         if (error.response) {
-            // Samakan bentuk error seperti versi fetch:
-            // throw { status: res.status, data }
             throw {
                 status: error.response.status,
                 data: normalizeData(error.response.data),
             };
         }
 
-        // Kalau error jaringan / timeout / dll
         throw err;
     }
+}
+
+/**
+ * Normalize path supaya tidak double "/api" ketika:
+ * - baseURL = ".../api"
+ * - path   = "/api/v1/...."
+ *
+ * Maka hasilnya: "/v1/...." (jadi request final tetap ".../api/v1/....")
+ */
+function normalizePath(path: string) {
+    let p = path.startsWith("/") ? path : `/${path}`;
+
+    const base = (http.defaults.baseURL ?? "").replace(/\/+$/, ""); // trim trailing "/"
+    const baseHasApiSuffix = base.endsWith("/api");
+
+    if (baseHasApiSuffix) {
+        // kalau path mulai dengan "/api" → buang prefix "/api"
+        if (p === "/api") return "/";
+        if (p.startsWith("/api/")) p = p.replace(/^\/api/, "");
+    }
+
+    return p;
 }
 
 // ----------------------------
@@ -58,9 +72,7 @@ export async function apiGet<T = any>(
     path: string,
     options?: AxiosRequestConfig
 ) {
-    // Dulu: fetch(`${API_URL}${path}`, {...})
-    // Sekarang: http.get(path, {...}) → baseURL sudah di-set
-    return handleAxios<T>(http.get(path, options));
+    return handleAxios<T>(http.get(normalizePath(path), options));
 }
 
 // ----------------------------
@@ -71,10 +83,8 @@ export async function apiPost<T = any>(
     body?: unknown,
     options?: AxiosRequestConfig
 ) {
-    // Dulu: fetch(`${API_URL}${path}`, { method: "POST", ... })
-    // Sekarang: http.post(path, body, {...})
     return handleAxios<T>(
-        http.post(path, body, {
+        http.post(normalizePath(path), body, {
             headers: {
                 "Content-Type": "application/json",
                 Accept: "application/json",
@@ -94,7 +104,7 @@ export async function apiPatch<T = any>(
     options?: AxiosRequestConfig
 ) {
     return handleAxios<T>(
-        http.patch(path, body, {
+        http.patch(normalizePath(path), body, {
             headers: {
                 "Content-Type": "application/json",
                 Accept: "application/json",

@@ -1,17 +1,20 @@
+// frontend/src/pages/samples/SampleDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import { formatDate, formatDateTimeLocal } from "../../utils/date";
 import { sampleService, Sample } from "../../services/samples";
 import type { SampleStatusHistoryItem } from "../../services/samples";
+import { SampleTestsTab } from "../../components/samples/SampleTestsTab";
+
+type TabKey = "overview" | "tests";
 
 export const SampleDetailPage = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
-    const { user } = useAuth();
 
+    const { user } = useAuth();
     const roleId = getUserRoleId(user);
     const roleLabel = getUserRoleLabel(user);
 
@@ -27,9 +30,16 @@ export const SampleDetailPage = () => {
     }, [roleId]);
 
     const sampleId = Number(id);
+
     const [sample, setSample] = useState<Sample | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    const [history, setHistory] = useState<SampleStatusHistoryItem[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [historyError, setHistoryError] = useState<string | null>(null);
+
+    const [activeTab, setActiveTab] = useState<TabKey>("overview");
 
     useEffect(() => {
         const load = async () => {
@@ -47,7 +57,6 @@ export const SampleDetailPage = () => {
             try {
                 setLoading(true);
                 setError(null);
-
                 const data = await sampleService.getById(sampleId);
                 setSample(data);
             } catch (err: any) {
@@ -63,6 +72,29 @@ export const SampleDetailPage = () => {
 
         load();
     }, [canViewSamples, sampleId]);
+
+    useEffect(() => {
+        const loadHistory = async () => {
+            if (!sampleId || Number.isNaN(sampleId)) return;
+
+            try {
+                setHistoryLoading(true);
+                setHistoryError(null);
+                const items = await sampleService.getStatusHistory(sampleId);
+                setHistory(items);
+            } catch (err: any) {
+                const msg =
+                    err?.data?.message ?? err?.data?.error ?? "Failed to load status history.";
+                setHistoryError(msg);
+            } finally {
+                setHistoryLoading(false);
+            }
+        };
+
+        if (!loading && !error && sample) {
+            loadHistory();
+        }
+    }, [sampleId, loading, error, sample]);
 
     if (!canViewSamples) {
         return (
@@ -81,31 +113,15 @@ export const SampleDetailPage = () => {
         );
     }
 
-    const [history, setHistory] = useState<SampleStatusHistoryItem[]>([]);
-    const [historyLoading, setHistoryLoading] = useState(false);
-    const [historyError, setHistoryError] = useState<string | null>(null);
-
-    useEffect(() => {
-        const loadHistory = async () => {
-            if (!sampleId || Number.isNaN(sampleId)) return;
-
-            try {
-                setHistoryLoading(true);
-                setHistoryError(null);
-                const items = await sampleService.getStatusHistory(sampleId);
-                setHistory(items);
-            } catch (err: any) {
-                const msg = err?.data?.message ?? err?.data?.error ?? "Failed to load status history.";
-                setHistoryError(msg);
-            } finally {
-                setHistoryLoading(false);
-            }
-        };
-
-        if (!loading && !error && sample) {
-            loadHistory();
-        }
-    }, [sampleId, loading, error, sample]);
+    const tabBtnClass = (key: TabKey) => {
+        const base =
+            "px-3 py-2 text-sm rounded-xl border transition-colors";
+        const active =
+            "bg-primary-soft/10 text-primary-soft border-primary-soft/30";
+        const inactive =
+            "bg-white text-gray-700 border-gray-200 hover:bg-gray-50";
+        return `${base} ${activeTab === key ? active : inactive}`;
+    };
 
     return (
         <div className="min-h-[60vh]">
@@ -131,9 +147,7 @@ export const SampleDetailPage = () => {
                     <Link to="/samples" className="lims-breadcrumb-link">
                         Samples
                     </Link>
-
                     <span className="lims-breadcrumb-separator">›</span>
-
                     <span className="lims-breadcrumb-current">Sample Detail</span>
                 </nav>
             </div>
@@ -158,7 +172,8 @@ export const SampleDetailPage = () => {
                                     Sample Detail
                                 </h1>
                                 <div className="text-sm text-gray-600 mt-1">
-                                    Sample ID <span className="font-semibold">#{sample.sample_id}</span>
+                                    Sample ID{" "}
+                                    <span className="font-semibold">#{sample.sample_id}</span>
                                     {" · "}
                                     Current Status{" "}
                                     <span className="font-semibold">{sample.current_status}</span>
@@ -167,149 +182,208 @@ export const SampleDetailPage = () => {
                                     <span className="font-mono text-xs">{sample.status_enum ?? "-"}</span>
                                 </div>
                             </div>
+
+                            <button
+                                type="button"
+                                onClick={() => navigate("/samples")}
+                                className="rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                            >
+                                Back
+                            </button>
                         </div>
 
-                        {/* Cards (boleh tetap pakai layout kamu yang sekarang) */}
-                        <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] px-5 py-5">
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                <div>
-                                    <h3 className="lims-detail-section-title mb-3">Sample Info</h3>
-                                    <div className="grid grid-cols-2 gap-3 text-sm">
+                        {/* ✅ Tabs */}
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                className={tabBtnClass("overview")}
+                                onClick={() => setActiveTab("overview")}
+                            >
+                                Overview
+                            </button>
+                            <button
+                                type="button"
+                                className={tabBtnClass("tests")}
+                                onClick={() => setActiveTab("tests")}
+                            >
+                                Tests
+                            </button>
+                        </div>
+
+                        {/* TAB CONTENT */}
+                        {activeTab === "overview" && (
+                            <>
+                                {/* Cards (layout existing) */}
+                                <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] px-5 py-5">
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                         <div>
-                                            <div className="lims-detail-label">Sample Type</div>
-                                            <div className="lims-detail-value">{sample.sample_type}</div>
-                                        </div>
-                                        <div>
-                                            <div className="lims-detail-label">Received At</div>
-                                            <div className="lims-detail-value">{formatDate(sample.received_at)}</div>
-                                        </div>
-                                        <div>
-                                            <div className="lims-detail-label">Priority</div>
-                                            <div className="lims-detail-value">{String(sample.priority ?? "-")}</div>
-                                        </div>
-                                        <div>
-                                            <div className="lims-detail-label">Contact History</div>
-                                            <div className="lims-detail-value">{sample.contact_history ?? "-"}</div>
-                                        </div>
-                                        <div className="col-span-2">
-                                            <div className="lims-detail-label">Examination Purpose</div>
-                                            <div className="lims-detail-value">
-                                                {sample.examination_purpose ?? "-"}
-                                            </div>
-                                        </div>
-                                        <div className="col-span-2">
-                                            <div className="lims-detail-label">Additional Notes</div>
-                                            <div className="lims-detail-value">
-                                                {sample.additional_notes ?? "-"}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                                            <h3 className="lims-detail-section-title mb-3">Sample Info</h3>
+                                            <div className="grid grid-cols-2 gap-3 text-sm">
+                                                <div>
+                                                    <div className="lims-detail-label">Sample Type</div>
+                                                    <div className="lims-detail-value">{sample.sample_type}</div>
+                                                </div>
 
-                                <div>
-                                    <h3 className="lims-detail-section-title mb-3">Client & Creator</h3>
-                                    <div className="grid grid-cols-2 gap-3 text-sm">
-                                        <div className="col-span-2">
-                                            <div className="lims-detail-label">Client</div>
-                                            <div className="lims-detail-value">
-                                                {sample.client?.name ?? `Client #${sample.client_id}`}
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <div className="lims-detail-label">Client Email</div>
-                                            <div className="lims-detail-value break-all">
-                                                {sample.client?.email ?? "-"}
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <div className="lims-detail-label">Client Phone</div>
-                                            <div className="lims-detail-value">
-                                                {sample.client?.phone ?? "-"}
-                                            </div>
-                                        </div>
-                                        <div className="col-span-2">
-                                            <div className="lims-detail-label">Created By</div>
-                                            <div className="lims-detail-value">
-                                                {sample.creator?.name ?? `Staff #${sample.created_by}`}
-                                            </div>
-                                        </div>
-                                        <div className="col-span-2">
-                                            <div className="lims-detail-label">Creator Email</div>
-                                            <div className="lims-detail-value break-all">
-                                                {sample.creator?.email ?? "-"}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="mt-6">
-                                <div className="flex items-center justify-between">
-                                    <h3 className="lims-detail-section-title mb-2">
-                                        Audit Trail / Status History
-                                    </h3>
-                                    <button
-                                        className="text-xs text-gray-500 hover:text-gray-700"
-                                        onClick={() => {
-                                            // simple refresh
-                                            setHistoryLoading(true);
-                                            sampleService.getStatusHistory(sampleId).then(setHistory).catch((e: any) => {
-                                                setHistoryError(e?.data?.message ?? "Failed to load status history.");
-                                            }).finally(() => setHistoryLoading(false));
-                                        }}
-                                        type="button"
-                                    >
-                                        Refresh
-                                    </button>
-                                </div>
-
-                                {historyLoading && (
-                                    <div className="text-sm text-gray-600">Loading history...</div>
-                                )}
-
-                                {historyError && !historyLoading && (
-                                    <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-2">
-                                        {historyError}
-                                    </div>
-                                )}
-
-                                {!historyLoading && !historyError && history.length === 0 && (
-                                    <div className="text-sm text-gray-500">
-                                        No status changes yet.
-                                    </div>
-                                )}
-
-                                {!historyLoading && !historyError && history.length > 0 && (
-                                    <div className="space-y-3">
-                                        {history.map((h) => (
-                                            <div key={h.id} className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div>
-                                                        <div className="text-sm font-semibold text-gray-900">
-                                                            {(h.actor?.name ?? "System")}{h.actor?.role?.name ? ` • ${h.actor.role.name}` : ""}
-                                                        </div>
-                                                        <div className="text-xs text-gray-500 mt-1">
-                                                            {formatDateTimeLocal(h.created_at)}
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="text-xs font-medium text-gray-700">
-                                                        {h.from_status ? `${h.from_status} → ` : ""}
-                                                        {h.to_status ?? "-"}
+                                                <div>
+                                                    <div className="lims-detail-label">Received At</div>
+                                                    <div className="lims-detail-value">
+                                                        {formatDate(sample.received_at)}
                                                     </div>
                                                 </div>
 
-                                                {h.note && (
-                                                    <div className="mt-2 text-sm text-gray-700">
-                                                        <span className="font-semibold">Note:</span> {h.note}
+                                                <div>
+                                                    <div className="lims-detail-label">Priority</div>
+                                                    <div className="lims-detail-value">
+                                                        {String(sample.priority ?? "-")}
                                                     </div>
-                                                )}
+                                                </div>
+
+                                                <div>
+                                                    <div className="lims-detail-label">Contact History</div>
+                                                    <div className="lims-detail-value">
+                                                        {sample.contact_history ?? "-"}
+                                                    </div>
+                                                </div>
+
+                                                <div className="col-span-2">
+                                                    <div className="lims-detail-label">Examination Purpose</div>
+                                                    <div className="lims-detail-value">
+                                                        {sample.examination_purpose ?? "-"}
+                                                    </div>
+                                                </div>
+
+                                                <div className="col-span-2">
+                                                    <div className="lims-detail-label">Additional Notes</div>
+                                                    <div className="lims-detail-value">
+                                                        {sample.additional_notes ?? "-"}
+                                                    </div>
+                                                </div>
                                             </div>
-                                        ))}
+                                        </div>
+
+                                        <div>
+                                            <h3 className="lims-detail-section-title mb-3">Client & Creator</h3>
+                                            <div className="grid grid-cols-2 gap-3 text-sm">
+                                                <div className="col-span-2">
+                                                    <div className="lims-detail-label">Client</div>
+                                                    <div className="lims-detail-value">
+                                                        {sample.client?.name ?? `Client #${sample.client_id}`}
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <div className="lims-detail-label">Client Email</div>
+                                                    <div className="lims-detail-value break-all">
+                                                        {sample.client?.email ?? "-"}
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <div className="lims-detail-label">Client Phone</div>
+                                                    <div className="lims-detail-value">
+                                                        {sample.client?.phone ?? "-"}
+                                                    </div>
+                                                </div>
+
+                                                <div className="col-span-2">
+                                                    <div className="lims-detail-label">Created By</div>
+                                                    <div className="lims-detail-value">
+                                                        {sample.creator?.name ?? `Staff #${sample.created_by}`}
+                                                    </div>
+                                                </div>
+
+                                                <div className="col-span-2">
+                                                    <div className="lims-detail-label">Creator Email</div>
+                                                    <div className="lims-detail-value break-all">
+                                                        {sample.creator?.email ?? "-"}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                )}
-                            </div>
-                        </div>
+
+                                    {/* Audit Trail */}
+                                    <div className="mt-6">
+                                        <div className="flex items-center justify-between">
+                                            <h3 className="lims-detail-section-title mb-2">
+                                                Audit Trail / Status History
+                                            </h3>
+
+                                            <button
+                                                className="text-xs text-gray-500 hover:text-gray-700"
+                                                type="button"
+                                                onClick={() => {
+                                                    setHistoryLoading(true);
+                                                    sampleService
+                                                        .getStatusHistory(sampleId)
+                                                        .then(setHistory)
+                                                        .catch((e: any) => {
+                                                            setHistoryError(
+                                                                e?.data?.message ?? "Failed to load status history."
+                                                            );
+                                                        })
+                                                        .finally(() => setHistoryLoading(false));
+                                                }}
+                                            >
+                                                Refresh
+                                            </button>
+                                        </div>
+
+                                        {historyLoading && (
+                                            <div className="text-sm text-gray-600">Loading history...</div>
+                                        )}
+
+                                        {historyError && !historyLoading && (
+                                            <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-2">
+                                                {historyError}
+                                            </div>
+                                        )}
+
+                                        {!historyLoading && !historyError && history.length === 0 && (
+                                            <div className="text-sm text-gray-500">No status changes yet.</div>
+                                        )}
+
+                                        {!historyLoading && !historyError && history.length > 0 && (
+                                            <div className="space-y-3">
+                                                {history.map((h) => (
+                                                    <div
+                                                        key={h.id}
+                                                        className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3"
+                                                    >
+                                                        <div className="flex items-start justify-between gap-3">
+                                                            <div>
+                                                                <div className="text-sm font-semibold text-gray-900">
+                                                                    {(h.actor?.name ?? "System")}
+                                                                    {h.actor?.role?.name ? ` • ${h.actor.role.name}` : ""}
+                                                                </div>
+                                                                <div className="text-xs text-gray-500 mt-1">
+                                                                    {formatDateTimeLocal(h.created_at)}
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="text-xs font-medium text-gray-700">
+                                                                {h.from_status ? `${h.from_status} → ` : ""}
+                                                                {h.to_status ?? "-"}
+                                                            </div>
+                                                        </div>
+
+                                                        {h.note && (
+                                                            <div className="mt-2 text-sm text-gray-700">
+                                                                <span className="font-semibold">Note:</span> {h.note}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {activeTab === "tests" && (
+                            <SampleTestsTab sampleId={sampleId} />
+                        )}
                     </div>
                 )}
             </div>
