@@ -87,6 +87,21 @@ export type SampleTest = {
     latest_result?: TestResult | null;
 };
 
+export type TestResultPayload = {
+    value_raw?: string | number | null;
+    value_final?: string | number | null;
+    unit_id?: number | null;
+    flags?: any;
+    notes?: string | null;
+};
+
+export type UnitLite = {
+    unit_id: number;
+    code?: string | null;
+    name?: string | null;
+    symbol?: string | null;
+};
+
 export type SampleTestStatus = "draft" | "in_progress" | "measured" | "verified" | "validated" | string;
 
 // ---- API response shape (based on ApiResponse::success)
@@ -255,13 +270,25 @@ export async function bulkCreateSampleTests(
     );
 }
 
-export async function updateSampleTestStatus(
-    sampleTestId: number,
-    status: "in_progress" | "measured" | "failed"
-) {
-    // ✅ baseURL sudah /api, jadi pakai /v1/...
-    const res = await apiPost(`/v1/sample-tests/${sampleTestId}/status`, {
-        status, // ✅ wajib pakai key "status"
-    });
-    return res?.data;
+// ✅ Load units for dropdown
+export async function fetchUnits(perPage = 200): Promise<UnitLite[]> {
+    const res = await apiGet<any>(`/v1/units?per_page=${perPage}`);
+    // adapt ke response kamu: bisa res.data.data atau res.data.items
+    return res?.data?.data ?? res?.data?.items ?? res?.data ?? [];
+}
+
+// ✅ create result
+export async function createSampleTestResult(sampleTestId: number, payload: any) {
+    // kalau baseURL kamu sudah "/api", pakai "/v1/..."
+    return apiPost(`/v1/sample-tests/${sampleTestId}/results`, payload);
+}
+
+// ✅ update result
+export async function updateSampleTestResult(resultId: number, payload: any) {
+    return apiPatch(`/v1/test-results/${resultId}`, payload);
+}
+
+// ✅ update status
+export async function updateSampleTestStatus(sampleTestId: number, status: "in_progress" | "measured" | "failed") {
+    return apiPost(`/v1/sample-tests/${sampleTestId}/status`, { status });
 }
