@@ -292,3 +292,13 @@ export async function updateSampleTestResult(resultId: number, payload: any) {
 export async function updateSampleTestStatus(sampleTestId: number, status: "in_progress" | "measured" | "failed") {
     return apiPost(`/v1/sample-tests/${sampleTestId}/status`, { status });
 }
+
+export async function fetchReagentCalculationBySample(sampleId: number) {
+    return apiGet(`/v1/samples/${sampleId}/reagent-calculation`);
+}
+
+export function unwrapCalc(res: any) {
+    const data = res?.data?.data;
+    if (!data) return null;
+    return data?.calc ?? data;
+}

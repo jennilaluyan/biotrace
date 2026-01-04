@@ -12,6 +12,7 @@ import { apiGet } from "../../services/api";
 import { AddSampleTestsModal } from "../../components/sampleTests/AddSampleTestsModal";
 import { ResultEntryModal } from "../../components/sampleTests/ResultEntryModal";
 import { updateSampleTestStatus } from "../../services/sampleTests";
+import { ReagentCalculationPanel } from "../../components/sampleTests/ReagentCalculationPanel";
 
 /* ----------------------------- Types (ringan) ----------------------------- */
 type StaffLite = {
@@ -225,6 +226,7 @@ export const SampleDetailPage = () => {
     const [testsPage, setTestsPage] = useState(1);
     const [testsStatus, setTestsStatus] = useState<string>("");
     const [openAddTests, setOpenAddTests] = useState(false);
+    const [reagentRefreshKey, setReagentRefreshKey] = useState(0);
 
     // status action
     const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
@@ -354,6 +356,7 @@ export const SampleDetailPage = () => {
 
             await updateSampleTestStatus(sampleTestId, nextStatus);
             await loadTests(); // ✅ refresh list
+            setReagentRefreshKey((k) => k + 1);
         } catch (err: any) {
             const msg =
                 err?.response?.data?.message ??
@@ -376,6 +379,7 @@ export const SampleDetailPage = () => {
             await loadHistory();
             if (tab === "tests") {
                 await loadTests();
+                setReagentRefreshKey((k) => k + 1);
             }
         } finally {
             setPageRefreshing(false);
@@ -766,6 +770,7 @@ export const SampleDetailPage = () => {
                                             <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
                                                 {testsError}
                                             </div>
+
                                         )}
 
                                         {/* empty state */}
@@ -793,6 +798,13 @@ export const SampleDetailPage = () => {
                                             <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-lg">
                                                 {statusActionError}
                                             </div>
+                                        )}
+
+                                        {!testsLoading && !testsError && (
+                                            <ReagentCalculationPanel
+                                                sampleId={sampleId}
+                                                refreshKey={reagentRefreshKey}
+                                            />
                                         )}
 
                                         {!testsError && tests.length > 0 && (
@@ -925,13 +937,7 @@ export const SampleDetailPage = () => {
                                                                                 <span className="text-xs text-gray-400">—</span>
                                                                             )}
                                                                         </td>
-
                                                                         <td className="px-4 py-3">
-                                                                            {/** ✅ RESULT GATE:
-   * - Create result: hanya saat in_progress
-   * - Edit result: boleh saat sudah ada latest_result
-   * - Draft: suruh Start dulu
-   */}
                                                                             {t.status === "in_progress" ? (
                                                                                 <button
                                                                                     type="button"
@@ -1041,6 +1047,7 @@ export const SampleDetailPage = () => {
                             onCreated={() => {
                                 setTestsPage(1);
                                 loadTests();
+                                setReagentRefreshKey((k) => k + 1);
                             }}
                         />
 
@@ -1058,6 +1065,7 @@ export const SampleDetailPage = () => {
                             } : null}
                             onSaved={async () => {
                                 await loadTests();   // refresh table
+                                setReagentRefreshKey((k) => k + 1);
                             }}
                         />
                     </div>
