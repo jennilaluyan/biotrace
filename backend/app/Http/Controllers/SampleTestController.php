@@ -37,7 +37,22 @@ class SampleTestController extends Controller
                 'parameter:parameter_id,code,name,unit,unit_id,method_ref,status,tag',
                 'method:method_id,code,name,description,is_active',
                 'assignee:staff_id,name,email,role_id,is_active',
-                'latestResult:result_id,sample_test_id,value_raw,value_final,unit_id,flags,version_no,created_by,created_at',
+
+                // ✅ FIX: avoid PGSQL "ambiguous column sample_test_id"
+                // because latestResult uses a subquery join (ofMany) that also has sample_test_id
+                'latestResult' => function ($rel) {
+                    $rel->select([
+                        'test_results.result_id',
+                        'test_results.sample_test_id', // qualified to avoid ambiguity
+                        'test_results.value_raw',
+                        'test_results.value_final',
+                        'test_results.unit_id',
+                        'test_results.flags',
+                        'test_results.version_no',
+                        'test_results.created_by',
+                        'test_results.created_at',
+                    ]);
+                },
             ])
             ->orderByDesc('sample_test_id');
 
