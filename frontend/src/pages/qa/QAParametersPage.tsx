@@ -1,6 +1,5 @@
 // frontend/src/pages/qa/QAParametersPage.tsx
 import { useEffect, useMemo, useState } from "react";
-
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import {
@@ -11,7 +10,6 @@ import {
     type ParameterPayload,
     type ParameterRow,
 } from "../../services/parameters";
-
 import { ParameterFormModal } from "../../components/qa/ParameterFormModal";
 import { DeleteConfirmModal } from "../../components/qa/DeleteConfirmModal";
 
@@ -28,14 +26,42 @@ function useDebounced<T>(value: T, delay = 300) {
     return v;
 }
 
+/**
+ * Envelope-safe pager extractor.
+ * Supports:
+ * 1) ApiResponse: { data: paginator }
+ * 2) Axios raw: { data: ApiResponse }
+ * 3) Direct paginator: { data: [...], total, last_page }
+ * 4) Direct array rows: [...]
+ */
+function extractPager(res: any): { data: ParameterRow[]; total: number; last_page: number } {
+    const root = res?.data ?? res;            // axios -> payload OR already payload
+    const maybeWrapped = root?.data ?? root;  // ApiResponse wraps in data
+
+    // Case: array directly
+    if (Array.isArray(maybeWrapped)) {
+        return { data: maybeWrapped as ParameterRow[], total: maybeWrapped.length, last_page: 1 };
+    }
+
+    // Case: paginator object
+    if (Array.isArray(maybeWrapped?.data)) {
+        return {
+            data: maybeWrapped.data as ParameterRow[],
+            total: Number(maybeWrapped.total ?? maybeWrapped.data.length ?? 0),
+            last_page: Number(maybeWrapped.last_page ?? 1),
+        };
+    }
+
+    // fallback
+    return { data: [], total: 0, last_page: 1 };
+}
+
 export const QAParametersPage = () => {
     const { user } = useAuth();
+    const roleId = getUserRoleId(user);
+    const roleLabel = (getUserRoleLabel(user) ?? "").toLowerCase();
 
-    const roleIdRaw = getUserRoleId(user);
-    const roleId = roleIdRaw ?? ROLE_ID.CLIENT;
-    const roleLabel = getUserRoleLabel(user);
-
-    // ✅ Access hanya: Analyst, Lab Head, Operational Manager (Admin TIDAK boleh)
+    // ✅ Access: Analyst, Lab Head, Operational Manager ONLY (Admin tidak boleh)
     const canAccess = useMemo(() => {
         return (
             roleId === ROLE_ID.ANALYST ||
@@ -44,15 +70,16 @@ export const QAParametersPage = () => {
         );
     }, [roleId]);
 
-    // ✅ Karena 3 role itu yang boleh buka, kita bikin mereka juga boleh CRUD
-    const canWrite = canAccess;
+    // ✅ CRUD: Analyst ONLY
+    const canWrite = useMemo(() => roleId === ROLE_ID.ANALYST, [roleId]);
 
     const [loading, setLoading] = useState(false);
     const [err, setErr] = useState<string | null>(null);
 
     const [items, setItems] = useState<ParameterRow[]>([]);
     const [page, setPage] = useState(1);
-    const [perPage] = useState(20);
+    const perPage = 20;
+
     const [total, setTotal] = useState(0);
     const [lastPage, setLastPage] = useState(1);
 
@@ -79,13 +106,10 @@ export const QAParametersPage = () => {
                 q: qDebounced.trim() || undefined,
             });
 
-            // envelope-safe
-            const pager = (res as any)?.data?.data ?? (res as any)?.data;
-            const data = pager?.data ?? [];
-
-            setItems(data);
-            setTotal(pager?.total ?? data.length);
-            setLastPage(pager?.last_page ?? 1);
+            const pager = extractPager(res);
+            setItems(pager.data);
+            setTotal(pager.total);
+            setLastPage(pager.last_page);
         } catch (e: any) {
             const msg =
                 e?.response?.data?.message ??
@@ -99,16 +123,13 @@ export const QAParametersPage = () => {
     };
 
     useEffect(() => {
-        if (!canAccess) return;
         fetchList();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canAccess, page, perPage, qDebounced]);
+    }, [page, qDebounced]);
 
     // reset page when search changes
     useEffect(() => {
-        if (!canAccess) return;
         setPage(1);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [qDebounced]);
 
     const openCreate = () => {
@@ -131,12 +152,29 @@ export const QAParametersPage = () => {
     const handleSubmit = async (payload: ParameterPayload) => {
         if (!canWrite) return;
 
-        if (formMode === "create") {
-            await createParameter(payload);
-        } else {
-            await updateParameter(editing!.parameter_id, payload);
+        try {
+            if (formMode === "create") {
+                await createParameter(payload);
+            } else {
+                await updateParameter(editing!.parameter_id, payload);
+            }
+            await fetchList();
+        } catch (e: any) {
+            // Optional: bikin error lebih manusiawi utk unique constraint code
+            const raw =
+                e?.response?.data?.message ??
+                e?.data?.message ??
+                e?.message ??
+                "Failed to save parameter.";
+
+            const nice =
+                typeof raw === "string" && raw.toLowerCase().includes("duplicate")
+                    ? "Code already exists. Please use another code."
+                    : raw;
+
+            setErr(nice);
+            throw e;
         }
-        await fetchList();
     };
 
     const handleDelete = async () => {
@@ -161,39 +199,13 @@ export const QAParametersPage = () => {
         }
     };
 
-    const from = total === 0 ? 0 : (page - 1) * perPage + 1;
-    const to = Math.min(page * perPage, total);
-
-    const goToPage = (p: number) => {
-        if (p < 1 || p > lastPage) return;
-        setPage(p);
-    };
-
-    const pageButtons = useMemo(() => {
-        // bikin tombol page gak kepanjangan (max 7)
-        const max = 7;
-        if (lastPage <= max) return Array.from({ length: lastPage }, (_, i) => i + 1);
-
-        const left = Math.max(1, page - 2);
-        const right = Math.min(lastPage, page + 2);
-
-        const nums = new Set<number>();
-        nums.add(1);
-        nums.add(lastPage);
-        for (let i = left; i <= right; i++) nums.add(i);
-
-        return Array.from(nums).sort((a, b) => a - b);
-    }, [page, lastPage]);
-
     if (!canAccess) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
-                <h1 className="text-2xl font-semibold text-primary mb-2">
-                    403 – Access denied
-                </h1>
+                <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
                 <p className="text-sm text-gray-600">
-                    Your role <span className="font-semibold">({roleLabel})</span> is not
-                    allowed to access QA Parameters.
+                    Your role <span className="font-semibold">({getUserRoleLabel(user)})</span> is not allowed to
+                    access the QA Parameters module.
                 </p>
             </div>
         );
@@ -201,35 +213,29 @@ export const QAParametersPage = () => {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Header (samain SamplesPage) */}
+            {/* Header (samain kayak SamplesPage) */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                        QA Parameters
-                    </h1>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">QA Parameters</h1>
                     <div className="text-xs text-gray-500 mt-1">
                         Manage parameters (CRUD). {canWrite ? "You can edit." : "Read-only."}
                     </div>
                 </div>
 
                 {canWrite && (
-                    <button
-                        type="button"
-                        onClick={openCreate}
-                        className="lims-btn-primary self-start md:self-auto"
-                    >
+                    <button type="button" onClick={openCreate} className="lims-btn-primary self-start md:self-auto">
                         + New parameter
                     </button>
                 )}
             </div>
 
-            {/* Card (samain SamplesPage) */}
+            {/* Card */}
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 {/* Filter bar */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     {/* Search */}
                     <div className="flex-1">
-                        <label className="sr-only" htmlFor="qa-parameter-search">
+                        <label className="sr-only" htmlFor="param-search">
                             Search parameters
                         </label>
                         <div className="relative">
@@ -248,7 +254,7 @@ export const QAParametersPage = () => {
                                 </svg>
                             </span>
                             <input
-                                id="qa-parameter-search"
+                                id="param-search"
                                 type="text"
                                 value={q}
                                 onChange={(e) => setQ(e.target.value)}
@@ -261,8 +267,8 @@ export const QAParametersPage = () => {
                     <button
                         type="button"
                         onClick={fetchList}
-                        disabled={loading}
                         className="w-full md:w-auto rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                        disabled={loading}
                     >
                         {loading ? "Refreshing..." : "Refresh"}
                     </button>
@@ -281,36 +287,30 @@ export const QAParametersPage = () => {
 
                 {/* Content */}
                 <div className="px-4 md:px-6 py-4">
-                    {loading && (
-                        <div className="text-sm text-gray-600">Loading parameters...</div>
+                    {err && (
+                        <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{err}</div>
                     )}
 
-                    {err && !loading && (
-                        <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">
-                            {err}
-                        </div>
-                    )}
+                    {loading && <div className="text-sm text-gray-600">Loading parameters...</div>}
 
-                    {!loading && !err && (
+                    {!loading && (
                         <>
                             {items.length === 0 ? (
-                                <div className="text-sm text-gray-600">
-                                    No parameters found with current filters.
-                                </div>
+                                <div className="text-sm text-gray-600">No parameters found with current filters.</div>
                             ) : (
                                 <div className="overflow-x-auto">
-                                    <table className="min-w-full text-sm">
+                                    <table className="min-w-[1050px] w-full text-sm">
                                         <thead className="bg-gray-50">
                                             <tr className="text-xs text-gray-500 uppercase tracking-wide">
-                                                <th className="px-4 py-3 text-left">ID</th>
-                                                <th className="px-4 py-3 text-left">Code</th>
-                                                <th className="px-4 py-3 text-left">Name</th>
-                                                <th className="px-4 py-3 text-left">Unit</th>
-                                                <th className="px-4 py-3 text-left">Unit ID</th>
-                                                <th className="px-4 py-3 text-left">Method Ref</th>
-                                                <th className="px-4 py-3 text-left">Status</th>
-                                                <th className="px-4 py-3 text-left">Tag</th>
-                                                <th className="px-4 py-3 text-right">Actions</th>
+                                                <th className="px-4 py-3 text-left w-[110px]">ID</th>
+                                                <th className="px-4 py-3 text-left w-[170px]">Code</th>
+                                                <th className="px-4 py-3 text-left w-[320px]">Name</th>
+                                                <th className="px-4 py-3 text-left w-[140px]">Unit</th>
+                                                <th className="px-4 py-3 text-left w-[120px]">Unit ID</th>
+                                                <th className="px-4 py-3 text-left w-[180px]">Method Ref</th>
+                                                <th className="px-4 py-3 text-left w-[140px]">Status</th>
+                                                <th className="px-4 py-3 text-left w-40">Tag</th>
+                                                <th className="px-4 py-3 text-right w-[170px]">Actions</th>
                                             </tr>
                                         </thead>
 
@@ -321,21 +321,15 @@ export const QAParametersPage = () => {
                                                     className="border-t border-gray-100 hover:bg-gray-50/60"
                                                 >
                                                     <td className="px-4 py-3">
-                                                        <div className="font-medium text-gray-900">
-                                                            #{p.parameter_id}
-                                                        </div>
+                                                        <div className="font-medium text-gray-900">#{p.parameter_id}</div>
+                                                    </td>
+
+                                                    <td className="px-4 py-3 text-gray-700 font-mono text-xs">
+                                                        {p.code ?? "—"}
                                                     </td>
 
                                                     <td className="px-4 py-3">
-                                                        <div className="text-[12px] text-gray-700 font-mono">
-                                                            {p.code ?? "—"}
-                                                        </div>
-                                                    </td>
-
-                                                    <td className="px-4 py-3">
-                                                        <div className="font-medium text-gray-900">
-                                                            {p.name ?? "—"}
-                                                        </div>
+                                                        <div className="font-medium text-gray-900">{p.name ?? "—"}</div>
                                                     </td>
 
                                                     <td className="px-4 py-3 text-gray-700">{p.unit ?? "—"}</td>
@@ -348,51 +342,23 @@ export const QAParametersPage = () => {
                                                         {!canWrite ? (
                                                             <span className="text-xs text-gray-400">—</span>
                                                         ) : (
-                                                            <div className="inline-flex gap-1.5">
+                                                            <div className="inline-flex gap-2">
                                                                 <button
+                                                                    className="rounded-xl border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
                                                                     type="button"
-                                                                    className="lims-icon-button text-gray-600"
-                                                                    aria-label="Edit parameter"
                                                                     onClick={() => openEdit(p)}
                                                                 >
-                                                                    <svg
-                                                                        viewBox="0 0 24 24"
-                                                                        className="h-4 w-4"
-                                                                        fill="none"
-                                                                        stroke="currentColor"
-                                                                        strokeWidth="1.8"
-                                                                        strokeLinecap="round"
-                                                                        strokeLinejoin="round"
-                                                                    >
-                                                                        <path d="M12 20h9" />
-                                                                        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
-                                                                    </svg>
+                                                                    Edit
                                                                 </button>
-
                                                                 <button
-                                                                    type="button"
                                                                     className={cx(
-                                                                        "lims-icon-button",
-                                                                        "lims-icon-button--danger"
+                                                                        "rounded-xl border px-3 py-1.5 text-xs",
+                                                                        "border-red-200 text-red-700 hover:bg-red-50"
                                                                     )}
-                                                                    aria-label="Delete parameter"
+                                                                    type="button"
                                                                     onClick={() => openDeleteConfirm(p)}
                                                                 >
-                                                                    <svg
-                                                                        viewBox="0 0 24 24"
-                                                                        className="h-4 w-4"
-                                                                        fill="none"
-                                                                        stroke="currentColor"
-                                                                        strokeWidth="1.8"
-                                                                        strokeLinecap="round"
-                                                                        strokeLinejoin="round"
-                                                                    >
-                                                                        <path d="M3 6h18" />
-                                                                        <path d="M8 6V4h8v2" />
-                                                                        <path d="M19 6l-1 14H6L5 6" />
-                                                                        <path d="M10 11v6" />
-                                                                        <path d="M14 11v6" />
-                                                                    </svg>
+                                                                    Delete
                                                                 </button>
                                                             </div>
                                                         )}
@@ -402,51 +368,27 @@ export const QAParametersPage = () => {
                                         </tbody>
                                     </table>
 
-                                    {/* Pagination (leave mirip SamplesPage) */}
+                                    {/* Pagination (samain gaya SamplesPage) */}
                                     <div className="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-xs text-gray-600">
                                         <div>
-                                            Showing{" "}
-                                            <span className="font-semibold">{from}</span> –{" "}
-                                            <span className="font-semibold">{to}</span> of{" "}
-                                            <span className="font-semibold">{total}</span> parameters
+                                            Page <span className="font-semibold">{page}</span> of{" "}
+                                            <span className="font-semibold">{lastPage}</span> • Total{" "}
+                                            <span className="font-semibold">{total}</span>
                                         </div>
 
                                         <div className="flex items-center justify-end gap-1">
                                             <button
                                                 type="button"
-                                                onClick={() => goToPage(page - 1)}
+                                                onClick={() => setPage((p) => Math.max(1, p - 1))}
                                                 disabled={page <= 1 || loading}
                                                 className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
                                             >
                                                 Previous
                                             </button>
 
-                                            {pageButtons.map((p, idx) => {
-                                                const prev = pageButtons[idx - 1];
-                                                const showEllipsis = prev && p - prev > 1;
-
-                                                return (
-                                                    <span key={p} className="flex items-center gap-1">
-                                                        {showEllipsis && (
-                                                            <span className="px-2 text-gray-400">…</span>
-                                                        )}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => goToPage(p)}
-                                                            className={`px-3 py-1 rounded-full text-xs border ${p === page
-                                                                    ? "bg-primary text-white border-primary"
-                                                                    : "bg-white text-gray-700 hover:bg-gray-50"
-                                                                }`}
-                                                        >
-                                                            {p}
-                                                        </button>
-                                                    </span>
-                                                );
-                                            })}
-
                                             <button
                                                 type="button"
-                                                onClick={() => goToPage(page + 1)}
+                                                onClick={() => setPage((p) => Math.min(lastPage, p + 1))}
                                                 disabled={page >= lastPage || loading}
                                                 className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
                                             >
@@ -467,16 +409,13 @@ export const QAParametersPage = () => {
                 initial={editing}
                 onClose={() => setOpenForm(false)}
                 onSubmit={handleSubmit}
+                readOnly={!canWrite}
             />
 
             <DeleteConfirmModal
                 open={openDelete}
                 title="Delete parameter"
-                message={
-                    deleting
-                        ? `Delete "${deleting.name ?? deleting.code ?? `#${deleting.parameter_id}`}" ?`
-                        : "Delete this parameter?"
-                }
+                message={deleting ? `Delete "${deleting.name ?? deleting.code ?? `#${deleting.parameter_id}`}" ?` : "Delete this parameter?"}
                 confirmText="Delete"
                 loading={deletingBusy}
                 onClose={() => {

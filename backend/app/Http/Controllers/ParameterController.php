@@ -2,98 +2,62 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\ParameterRequest;
 use App\Models\Parameter;
 use App\Support\ApiResponse;
-use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 
 class ParameterController extends Controller
 {
-    public function index(Request $request)
+    public function index(): JsonResponse
     {
         $this->authorize('viewAny', Parameter::class);
 
-        $q = Parameter::query()
-            ->select(['parameter_id', 'code', 'name', 'unit', 'unit_id', 'method_ref', 'status', 'tag'])
-            ->orderBy('parameter_id');
+        $q = trim((string) request('q', ''));
+        $perPage = (int) request('per_page', 20);
 
-        if ($search = $request->query('q')) {
-            $q->where(function ($w) use ($search) {
-                $w->where('name', 'ilike', "%{$search}%")
-                    ->orWhere('code', 'ilike', "%{$search}%");
+        $query = Parameter::query();
+
+        if ($q !== '') {
+            $query->where(function ($w) use ($q) {
+                $w->where('name', 'ilike', "%{$q}%")
+                    ->orWhere('code', 'ilike', "%{$q}%");
             });
         }
 
-        $perPage = (int) $request->query('per_page', 20);
-        $perPage = max(1, min($perPage, 100));
+        $query->orderBy('parameter_id', 'desc');
 
-        return ApiResponse::success(
-            $q->paginate($perPage),
-            'Parameters fetched',
-            200,
-            ['resource' => 'parameters']
-        );
+        return ApiResponse::success($query->paginate($perPage));
     }
 
-    public function store(Request $request)
+    public function store(ParameterRequest $request): JsonResponse
     {
         $this->authorize('create', Parameter::class);
 
-        $data = $request->validate([
-            'code'       => ['nullable', 'string', 'max:80'],
-            'name'       => ['required', 'string', 'max:255'],
-            'unit'       => ['nullable', 'string', 'max:80'],
-            'unit_id'    => ['nullable', 'integer', 'exists:units,unit_id'],
-            'method_ref' => ['nullable', 'string', 'max:120'],
-            'status'     => ['nullable', 'string', 'max:50'],
-            'tag'        => ['nullable', 'string', 'max:80'],
-        ]);
+        $data = $request->validated();
+        $data['created_by'] = $request->user()->staff_id;
 
-        $p = Parameter::create($data);
+        $row = Parameter::create($data);
 
-        return ApiResponse::success(
-            $p->only(['parameter_id', 'code', 'name', 'unit', 'unit_id', 'method_ref', 'status', 'tag']),
-            'Parameter created',
-            201,
-            ['resource' => 'parameters']
-        );
+        return ApiResponse::success($row, 'Parameter created.', 201);
     }
 
-    public function update(Request $request, Parameter $parameter)
+    public function update(ParameterRequest $request, Parameter $parameter): JsonResponse
     {
         $this->authorize('update', $parameter);
 
-        $data = $request->validate([
-            'code'       => ['nullable', 'string', 'max:80'],
-            'name'       => ['sometimes', 'required', 'string', 'max:255'],
-            'unit'       => ['nullable', 'string', 'max:80'],
-            'unit_id'    => ['nullable', 'integer', 'exists:units,unit_id'],
-            'method_ref' => ['nullable', 'string', 'max:120'],
-            'status'     => ['nullable', 'string', 'max:50'],
-            'tag'        => ['nullable', 'string', 'max:80'],
-        ]);
-
-        $parameter->fill($data);
+        $parameter->fill($request->validated());
         $parameter->save();
 
-        return ApiResponse::success(
-            $parameter->only(['parameter_id', 'code', 'name', 'unit', 'unit_id', 'method_ref', 'status', 'tag']),
-            'Parameter updated',
-            200,
-            ['resource' => 'parameters']
-        );
+        return ApiResponse::success($parameter, 'Parameter updated.');
     }
 
-    public function destroy(Parameter $parameter)
+    public function destroy(Parameter $parameter): JsonResponse
     {
         $this->authorize('delete', $parameter);
 
         $parameter->delete();
 
-        return ApiResponse::success(
-            null,
-            'Parameter deleted',
-            200,
-            ['resource' => 'parameters']
-        );
+        return ApiResponse::success(null, 'Parameter deleted.');
     }
 }

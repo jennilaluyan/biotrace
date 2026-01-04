@@ -37,11 +37,14 @@ export const AppLayout = () => {
             ? [{ label: "Staff Approvals", path: "/staff/approvals", icon: "check" }]
             : [];
 
-    const qaItems: NavItem[] = canAccessQAParams
-        ? [{ label: "QA Parameters", path: "/qa/parameters", icon: "check" }]
-        : [];
+    const qaItems: NavItem[] =
+        roleId === ROLE_ID.ANALYST ||
+            roleId === ROLE_ID.LAB_HEAD ||
+            roleId === ROLE_ID.OPERATIONAL_MANAGER
+            ? [{ label: "QA Parameters", path: "/qa/parameters", icon: "check" }]
+            : [];
 
-    const navItems: NavItem[] = [...baseItems, ...adminItems, ...labHeadItems, ...qaItems];
+    const navItems: NavItem[] = [...baseItems, ...qaItems, ...adminItems, ...labHeadItems];
 
     const renderIcon = (icon?: NavItem["icon"]) => {
         // simple: beda icon sedikit biar gak semua “users”
