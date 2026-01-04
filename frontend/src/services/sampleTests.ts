@@ -87,6 +87,8 @@ export type SampleTest = {
     latest_result?: TestResult | null;
 };
 
+export type SampleTestStatus = "draft" | "in_progress" | "measured" | "verified" | "validated" | string;
+
 // ---- API response shape (based on ApiResponse::success)
 type ApiSuccess<T> = {
     timestamp?: string;
@@ -251,4 +253,15 @@ export async function bulkCreateSampleTests(
         `${API_VER}/samples/${sampleId}/sample-tests/bulk`,
         { tests }
     );
+}
+
+export async function updateSampleTestStatus(
+    sampleTestId: number,
+    status: "in_progress" | "measured" | "failed"
+) {
+    // ✅ baseURL sudah /api, jadi pakai /v1/...
+    const res = await apiPost(`/v1/sample-tests/${sampleTestId}/status`, {
+        status, // ✅ wajib pakai key "status"
+    });
+    return res?.data;
 }

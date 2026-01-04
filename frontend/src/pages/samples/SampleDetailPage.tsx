@@ -10,6 +10,7 @@ import type { SampleStatusHistoryItem } from "../../services/samples";
 import { apiGet } from "../../services/api";
 
 import { AddSampleTestsModal } from "../../components/sampleTests/AddSampleTestsModal";
+import { updateSampleTestStatus } from "../../services/sampleTests";
 
 /**
  * NOTE penting untuk .env kamu:
@@ -164,6 +165,35 @@ export const SampleDetailPage = () => {
     const [testsPage, setTestsPage] = useState(1);
     const [testsStatus, setTestsStatus] = useState<string>("");
     const [openAddTests, setOpenAddTests] = useState(false);
+
+    const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
+    const [statusActionError, setStatusActionError] = useState<string | null>(null);
+
+    const canUpdateTestStatus =
+        roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.ANALYST;
+
+    type NextTestStatus = Parameters<typeof updateSampleTestStatus>[1];
+
+    const changeStatus = async (sampleTestId: number, nextStatus: NextTestStatus) => {
+        try {
+            setStatusUpdatingId(sampleTestId);
+            setStatusActionError(null);
+
+            await updateSampleTestStatus(sampleTestId, nextStatus);
+
+            // ✅ refresh list tests
+            await loadTests();
+        } catch (err: any) {
+            const msg =
+                err?.response?.data?.message ??
+                err?.response?.data?.errors?.status?.[0] ??
+                err?.data?.message ??
+                "Failed to update test status.";
+            setStatusActionError(msg);
+        } finally {
+            setStatusUpdatingId(null);
+        }
+    };
 
     const canAddTests = useMemo(() => {
         // Step 4 biasanya untuk Admin / OM / LH / Analyst (collector read-only)
@@ -656,6 +686,11 @@ export const SampleDetailPage = () => {
                                         )}
 
                                         {/* table */}
+                                        {statusActionError && (
+                                            <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-lg">
+                                                {statusActionError}
+                                            </div>
+                                        )}
                                         {!testsError && tests.length > 0 && (
                                             <div className="border border-gray-100 rounded-2xl overflow-hidden">
                                                 <div className="overflow-auto">
@@ -668,6 +703,7 @@ export const SampleDetailPage = () => {
                                                                     Assignee
                                                                 </th>
                                                                 <th className="px-4 py-3">Status</th>
+                                                                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600">Actions</th>
                                                                 <th className="px-4 py-3">Started</th>
                                                                 <th className="px-4 py-3">
                                                                     Completed
@@ -730,6 +766,41 @@ export const SampleDetailPage = () => {
                                                                         <td className="px-4 py-3">
                                                                             <StatusPill value={t.status} />
                                                                         </td>
+                                                                        <td className="px-4 py-3">
+                                                                            {!canUpdateTestStatus ? (
+                                                                                <span className="text-xs text-gray-400">—</span>
+                                                                            ) : (
+                                                                                <div className="flex items-center gap-2">
+                                                                                    {t.status === "draft" && (
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            className="lims-btn-primary px-3 py-1.5 text-xs rounded-lg whitespace-nowrap"
+                                                                                            disabled={statusUpdatingId === t.sample_test_id}
+                                                                                            onClick={() => changeStatus(t.sample_test_id, "in_progress")}
+                                                                                            title="Start test (set status to in_progress)"
+                                                                                        >
+                                                                                            {statusUpdatingId === t.sample_test_id ? "Starting..." : "Start"}
+                                                                                        </button>
+                                                                                    )}
+                                                                                    {t.status === "in_progress" && (
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            className="lims-btn-primary px-3 py-1.5 text-xs rounded-lg whitespace-nowrap"
+                                                                                            disabled={statusUpdatingId === t.sample_test_id}
+                                                                                            onClick={() => changeStatus(t.sample_test_id, "measured")}
+                                                                                            title="Mark as measured"
+                                                                                        >
+                                                                                            {statusUpdatingId === t.sample_test_id ? "Updating..." : "Measured"}
+                                                                                        </button>
+                                                                                    )}
+
+                                                                                    {t.status !== "draft" && t.status !== "in_progress" && (
+                                                                                        <span className="text-xs text-gray-400">—</span>
+                                                                                    )}
+                                                                                </div>
+                                                                            )}
+                                                                        </td>
+
                                                                         <td className="px-4 py-3 text-gray-700">
                                                                             {t.started_at
                                                                                 ? formatDateTimeLocal(

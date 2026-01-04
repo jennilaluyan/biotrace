@@ -219,7 +219,7 @@ export function AddSampleTestsModal({
     const selectedCount = selectedParamIds.size;
 
     return (
-        <div className="fixed inset-0 z-[80] bg-black/40 flex items-center justify-center px-3">
+        <div className="fixed inset-0 z-80 bg-black/40 flex items-center justify-center px-3">
             <div className="w-full max-w-4xl bg-white rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-gray-100 overflow-hidden">
                 {/* header */}
                 <div className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-3">
@@ -331,7 +331,7 @@ export function AddSampleTestsModal({
                                                             {p.name ??
                                                                 `Parameter #${p.parameter_id}`}
                                                         </div>
-                                                        <div className="text-xs text-gray-500 mt-1 break-words">
+                                                        <div className="text-xs text-gray-500 mt-1 wrap-break-word">
                                                             <span className="font-mono">
                                                                 {p.code ?? "-"}
                                                             </span>
