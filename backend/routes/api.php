@@ -80,6 +80,10 @@ Route::prefix('v1')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
 
         Route::get('/parameters', [ParameterController::class, 'index']);
+        Route::post('/parameters', [ParameterController::class, 'store']);
+        Route::patch('/parameters/{parameter}', [ParameterController::class, 'update']);
+        Route::delete('/parameters/{parameter}', [ParameterController::class, 'destroy']);
+
         Route::get('/methods', [MethodController::class, 'index']);
         Route::get('/reagents', [ReagentController::class, 'index']);
 

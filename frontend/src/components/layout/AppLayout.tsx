@@ -17,6 +17,11 @@ export const AppLayout = () => {
     const { user } = useAuth();
     const roleId = getUserRoleId(user);
 
+    const canAccessQAParams =
+        roleId === ROLE_ID.ANALYST ||
+        roleId === ROLE_ID.LAB_HEAD ||
+        roleId === ROLE_ID.OPERATIONAL_MANAGER;
+
     const baseItems: NavItem[] = [
         { label: "Clients", path: "/clients", icon: "users" },
         { label: "Samples", path: "/samples", icon: "flask" },
@@ -32,7 +37,11 @@ export const AppLayout = () => {
             ? [{ label: "Staff Approvals", path: "/staff/approvals", icon: "check" }]
             : [];
 
-    const navItems: NavItem[] = [...baseItems, ...adminItems, ...labHeadItems];
+    const qaItems: NavItem[] = canAccessQAParams
+        ? [{ label: "QA Parameters", path: "/qa/parameters", icon: "check" }]
+        : [];
+
+    const navItems: NavItem[] = [...baseItems, ...adminItems, ...labHeadItems, ...qaItems];
 
     const renderIcon = (icon?: NavItem["icon"]) => {
         // simple: beda icon sedikit biar gak semua “users”

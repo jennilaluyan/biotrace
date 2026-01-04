@@ -71,9 +71,9 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
                 aria-label="Open navigation"
             >
                 <div className="space-y-1.5">
-                    <span className="block h-[2px] w-5 rounded-full bg-gray-900" />
-                    <span className="block h-[2px] w-5 rounded-full bg-gray-900" />
-                    <span className="block h-[2px] w-5 rounded-full bg-gray-900" />
+                    <span className="block h-0.5 w-5 rounded-full bg-gray-900" />
+                    <span className="block h-0.5 w-5 rounded-full bg-gray-900" />
+                    <span className="block h-0.5 w-5 rounded-full bg-gray-900" />
                 </div>
             </button>
 

@@ -20,6 +20,8 @@ import { ROLE_ID } from "../utils/roles";
 import { StaffApprovalsPage } from "../pages/staff/StaffApprovalsPage";
 import { ClientApprovalsPage } from "../pages/clients/ClientApprovalsPage";
 
+import { QAParametersPage } from "../pages/qa/QAParametersPage";
+
 export const AppRouter = () => {
     return (
         <Routes>
@@ -113,6 +115,7 @@ export const AppRouter = () => {
                             </RoleGuard>
                         }
                     />
+                    <Route path="/qa/parameters" element={<QAParametersPage />} />
                 </Route>
             </Route>
 
