@@ -20,7 +20,8 @@ use App\Http\Controllers\SampleTestStatusController;
 use App\Http\Controllers\SampleTestDecisionController;
 use App\Http\Controllers\TestResultController;
 use App\Http\Controllers\ReagentCalculationController;
-
+use App\Http\Controllers\UnitController;
+use App\Http\Controllers\SampleTestController;
 
 /*
 |--------------------------------------------------------------------------
@@ -142,5 +143,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/samples/{sample}/reagent-calculation', [ReagentCalculationController::class, 'show']);
         Route::patch('/samples/{sample}/reagent-calculation', [ReagentCalculationController::class, 'update']);
         Route::post('/samples/{sample}/reagent-calculation/om-approve', [ReagentCalculationController::class, 'omApprove']);
+
+        Route::get('units', [UnitController::class, 'index']);
+        Route::get('samples/{sample}/sample-tests', [SampleTestController::class, 'indexBySample']);
     });
 });
