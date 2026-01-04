@@ -1,6 +1,11 @@
 // frontend/src/services/sampleTests.ts
 import { apiGet, apiPost, apiPatch } from "./api";
 
+const RAW_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
+const API_VER =
+    (import.meta.env.VITE_API_VER as string | undefined) ??
+    (RAW_BASE === "/api" || RAW_BASE.endsWith("/api") ? "/v1" : "/api/v1");
+
 export type Paginated<T> = {
     current_page: number;
     data: T[];
@@ -96,11 +101,6 @@ function unwrap<T>(res: any): T {
     return (res?.data?.data ?? res?.data) as T;
 }
 
-async function listUnits(params?: { q?: string; per_page?: number; page?: number }) {
-    const res = await apiGet("/units", { params });
-    return unwrap<Paginated<Unit>>(res);
-}
-
 async function listBySample(
     sampleId: number,
     params?: { status?: string; assigned_to?: number; per_page?: number; page?: number }
@@ -148,3 +148,107 @@ export const sampleTestService = {
     createResult,
     updateResult,
 };
+
+export type ApiEnvelope<T> = {
+    status: number;
+    message?: string | null;
+    data: T;
+    timestamp?: string;
+    context?: any;
+};
+
+export type ParameterLite = {
+    parameter_id: number;
+    code?: string | null;
+    name?: string | null;
+    unit?: string | null;
+    unit_id?: number | null;
+    method_ref?: string | null;
+    status?: string | null;
+    tag?: string | null;
+};
+
+export type MethodLite = {
+    method_id: number;
+    code?: string | null;
+    name: string;
+    description?: string | null;
+    is_active?: boolean;
+};
+
+export type BulkCreateTestItem = {
+    parameter_id: number;
+    method_id: number;
+    assigned_to?: number | null;
+};
+
+export type BulkCreateResponse = {
+    sample_id: number;
+    created_count: number;
+    skipped_count: number;
+    skipped_parameter_ids?: number[];
+};
+
+export async function listParameters(params?: {
+    page?: number;
+    per_page?: number;
+    q?: string;
+}) {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.per_page) qs.set("per_page", String(params.per_page));
+    if (params?.q) qs.set("q", params.q);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+
+    return apiGet<ApiEnvelope<Paginated<ParameterLite>>>(
+        `${API_VER}/parameters${suffix}`
+    );
+}
+
+export async function listMethods(params?: {
+    page?: number;
+    per_page?: number;
+    q?: string;
+}) {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.per_page) qs.set("per_page", String(params.per_page));
+    if (params?.q) qs.set("q", params.q);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+
+    return apiGet<ApiEnvelope<Paginated<MethodLite>>>(
+        `${API_VER}/methods${suffix}`
+    );
+}
+
+export async function listUnits(params?: { page?: number; per_page?: number }) {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.per_page) qs.set("per_page", String(params.per_page));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+
+    return apiGet(`${API_VER}/units${suffix}`);
+}
+
+export async function listSampleTestsBySample(
+    sampleId: number,
+    params?: { page?: number; per_page?: number; status?: string }
+) {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.per_page) qs.set("per_page", String(params.per_page));
+    if (params?.status) qs.set("status", params.status);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+
+    return apiGet(`${API_VER}/samples/${sampleId}/sample-tests${suffix}`);
+}
+
+export async function bulkCreateSampleTests(
+    sampleId: number,
+    tests: BulkCreateTestItem[]
+) {
+    return apiPost<ApiEnvelope<BulkCreateResponse>>(
+        `${API_VER}/samples/${sampleId}/sample-tests/bulk`,
+        { tests }
+    );
+}
