@@ -4,6 +4,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class SampleTest extends Model
 {
@@ -59,5 +62,17 @@ class SampleTest extends Model
     public function results()
     {
         return $this->hasMany(TestResult::class, 'sample_test_id', 'sample_test_id');
+    }
+
+    public function assignee(): BelongsTo
+    {
+        return $this->belongsTo(Staff::class, 'assigned_to', 'staff_id');
+    }
+
+    public function latestResult(): HasOne
+    {
+        // ambil result dengan version_no terbesar
+        return $this->hasOne(TestResult::class, 'sample_test_id', 'sample_test_id')
+            ->ofMany('version_no', 'max');
     }
 }

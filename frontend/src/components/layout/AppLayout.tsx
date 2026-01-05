@@ -17,6 +17,14 @@ export const AppLayout = () => {
     const { user } = useAuth();
     const roleId = getUserRoleId(user);
 
+    // ✅ QA modules access rules (matching latest policy intent):
+    // - Methods: Analyst + Operational Manager (CRUD) + Lab Head (read-only) => can see menu
+    // - Admin: not allowed (no access)
+    const canAccessQAModules =
+        roleId === ROLE_ID.ANALYST ||
+        roleId === ROLE_ID.LAB_HEAD ||
+        roleId === ROLE_ID.OPERATIONAL_MANAGER;
+
     const baseItems: NavItem[] = [
         { label: "Clients", path: "/clients", icon: "users" },
         { label: "Samples", path: "/samples", icon: "flask" },
@@ -32,7 +40,15 @@ export const AppLayout = () => {
             ? [{ label: "Staff Approvals", path: "/staff/approvals", icon: "check" }]
             : [];
 
-    const navItems: NavItem[] = [...baseItems, ...adminItems, ...labHeadItems];
+    // ✅ Add QA Methods + QA Parameters in menu for allowed roles
+    const qaItems: NavItem[] = canAccessQAModules
+        ? [
+            { label: "QA Parameters", path: "/qa/parameters", icon: "check" },
+            { label: "QA Methods", path: "/qa/methods", icon: "check" },
+        ]
+        : [];
+
+    const navItems: NavItem[] = [...baseItems, ...qaItems, ...adminItems, ...labHeadItems];
 
     const renderIcon = (icon?: NavItem["icon"]) => {
         // simple: beda icon sedikit biar gak semua “users”

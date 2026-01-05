@@ -20,7 +20,8 @@ use App\Http\Controllers\SampleTestStatusController;
 use App\Http\Controllers\SampleTestDecisionController;
 use App\Http\Controllers\TestResultController;
 use App\Http\Controllers\ReagentCalculationController;
-
+use App\Http\Controllers\UnitController;
+use App\Http\Controllers\SampleTestController;
 
 /*
 |--------------------------------------------------------------------------
@@ -79,7 +80,15 @@ Route::prefix('v1')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
 
         Route::get('/parameters', [ParameterController::class, 'index']);
+        Route::post('/parameters', [ParameterController::class, 'store']);
+        Route::patch('/parameters/{parameter}', [ParameterController::class, 'update']);
+        Route::delete('/parameters/{parameter}', [ParameterController::class, 'destroy']);
+
         Route::get('/methods', [MethodController::class, 'index']);
+        Route::post('/methods', [MethodController::class, 'store']);
+        Route::patch('/methods/{method}', [MethodController::class, 'update']);
+        Route::delete('/methods/{method}', [MethodController::class, 'destroy']);
+
         Route::get('/reagents', [ReagentController::class, 'index']);
 
         Route::get('clients', [ClientController::class, 'index']);
@@ -142,5 +151,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/samples/{sample}/reagent-calculation', [ReagentCalculationController::class, 'show']);
         Route::patch('/samples/{sample}/reagent-calculation', [ReagentCalculationController::class, 'update']);
         Route::post('/samples/{sample}/reagent-calculation/om-approve', [ReagentCalculationController::class, 'omApprove']);
+
+        Route::get('units', [UnitController::class, 'index']);
+        Route::get('samples/{sample}/sample-tests', [SampleTestController::class, 'indexBySample']);
     });
 });

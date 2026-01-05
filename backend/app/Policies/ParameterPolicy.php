@@ -14,8 +14,6 @@ class ParameterPolicy
     public function viewAny(Staff $user): bool
     {
         return in_array($this->role($user), [
-            'Administrator',
-            'Sample Collector',
             'Analyst',
             'Operational Manager',
             'Lab Head',
@@ -29,16 +27,16 @@ class ParameterPolicy
 
     public function create(Staff $user): bool
     {
-        return in_array($this->role($user), ['Administrator', 'Lab Head'], true);
+        return $this->role($user) === 'Analyst';
     }
 
     public function update(Staff $user): bool
     {
-        return in_array($this->role($user), ['Administrator', 'Lab Head'], true);
+        return $this->role($user) === 'Analyst';
     }
 
     public function delete(Staff $user): bool
     {
-        return in_array($this->role($user), ['Administrator', 'Lab Head'], true);
+        return $this->role($user) === 'Analyst';
     }
 }

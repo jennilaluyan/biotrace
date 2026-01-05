@@ -2,43 +2,61 @@
 
 namespace App\Policies;
 
+use App\Models\Method;
 use App\Models\Staff;
 
 class MethodPolicy
 {
-    private function role(Staff $user): ?string
+    /**
+     * Get role name safely from Staff model.
+     * (Supports $staff->role->name or $staff->role_name if exists)
+     */
+    private function roleName(Staff $staff): ?string
     {
-        return $user->role?->name;
+        $name = $staff->role->name ?? ($staff->role_name ?? null);
+
+        return is_string($name) ? trim($name) : null;
     }
 
-    public function viewAny(Staff $user): bool
+    /**
+     * Rules:
+     * - CRUD: Analyst, Operational Manager
+     * - Read-only: Lab Head
+     * - No access: Administrator
+     */
+    public function viewAny(Staff $staff): bool
     {
-        return in_array($this->role($user), [
-            'Administrator',
-            'Sample Collector',
+        $role = $this->roleName($staff);
+
+        return in_array($role, [
             'Analyst',
             'Operational Manager',
             'Lab Head',
         ], true);
     }
 
-    public function view(Staff $user): bool
+    public function view(Staff $staff, Method $method): bool
     {
-        return $this->viewAny($user);
+        return $this->viewAny($staff);
     }
 
-    public function create(Staff $user): bool
+    public function create(Staff $staff): bool
     {
-        return in_array($this->role($user), ['Administrator', 'Lab Head'], true);
+        $role = $this->roleName($staff);
+
+        return in_array($role, [
+            'Analyst',
+            'Operational Manager',
+        ], true);
     }
 
-    public function update(Staff $user): bool
+    public function update(Staff $staff, Method $method): bool
     {
-        return in_array($this->role($user), ['Administrator', 'Lab Head'], true);
+        return $this->create($staff);
     }
 
-    public function delete(Staff $user): bool
+    public function delete(Staff $staff, Method $method): bool
     {
-        return in_array($this->role($user), ['Administrator', 'Lab Head'], true);
+        return $this->create($staff);
     }
 }
