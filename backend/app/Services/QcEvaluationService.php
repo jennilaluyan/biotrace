@@ -126,11 +126,20 @@ class QcEvaluationService
      */
     public function summarizeBatch(int $batchId): array
     {
-        $counts = QcRun::query()
-            ->selectRaw("status, COUNT(*) as c")
+        // ambil status berdasarkan latest qc_run per qc_control_id
+        $latest = QcRun::query()
+            ->selectRaw('qc_control_id, MAX(qc_run_id) as max_id')
             ->where('batch_id', $batchId)
-            ->groupBy('status')
-            ->pluck('c', 'status')
+            ->groupBy('qc_control_id');
+
+        $counts = QcRun::query()
+            ->joinSub($latest, 'latest', function ($join) {
+                $join->on('qc_runs.qc_run_id', '=', 'latest.max_id');
+            })
+            ->where('qc_runs.batch_id', $batchId)
+            ->selectRaw('qc_runs.status, COUNT(*) as c')
+            ->groupBy('qc_runs.status')
+            ->pluck('c', 'qc_runs.status')
             ->toArray();
 
         $status = 'pass';

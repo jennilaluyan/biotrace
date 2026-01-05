@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Log;
 use App\Models\Staff;
 use App\Services\ReagentCalcService;
 use Illuminate\Support\Facades\Auth;
+use App\Services\QcEvaluationService;
 
 class SampleTestStatusController extends Controller
 {
@@ -47,6 +48,24 @@ class SampleTestStatusController extends Controller
             'draft' => ['in_progress'],
             'in_progress' => ['measured', 'failed'],
         ];
+
+        if ($to === 'measured') {
+            $batchId = (int) ($sampleTest->batch_id ?? $sampleTest->sample_id);
+
+            $summary = app(QcEvaluationService::class)->summarizeBatch($batchId);
+
+            if (($summary['status'] ?? 'pass') === 'fail') {
+                return response()->json([
+                    'status' => 422,
+                    'message' => 'QC failed: cannot mark sample test as measured until QC is resolved.',
+                    'data' => [
+                        'batch_id' => $batchId,
+                        'qc_status' => $summary['status'] ?? 'fail',
+                        'qc_counts' => $summary['counts'] ?? null,
+                    ],
+                ], 422);
+            }
+        }
 
         if (!isset($allowed[$from]) || !in_array($data['status'], $allowed[$from], true)) {
             return response()->json([
