@@ -85,6 +85,10 @@ Route::prefix('v1')->group(function () {
         Route::delete('/parameters/{parameter}', [ParameterController::class, 'destroy']);
 
         Route::get('/methods', [MethodController::class, 'index']);
+        Route::post('/methods', [MethodController::class, 'store']);
+        Route::patch('/methods/{method}', [MethodController::class, 'update']);
+        Route::delete('/methods/{method}', [MethodController::class, 'destroy']);
+
         Route::get('/reagents', [ReagentController::class, 'index']);
 
         Route::get('clients', [ClientController::class, 'index']);

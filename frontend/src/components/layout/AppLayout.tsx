@@ -17,7 +17,10 @@ export const AppLayout = () => {
     const { user } = useAuth();
     const roleId = getUserRoleId(user);
 
-    const canAccessQAParams =
+    // ✅ QA modules access rules (matching latest policy intent):
+    // - Methods: Analyst + Operational Manager (CRUD) + Lab Head (read-only) => can see menu
+    // - Admin: not allowed (no access)
+    const canAccessQAModules =
         roleId === ROLE_ID.ANALYST ||
         roleId === ROLE_ID.LAB_HEAD ||
         roleId === ROLE_ID.OPERATIONAL_MANAGER;
@@ -37,12 +40,13 @@ export const AppLayout = () => {
             ? [{ label: "Staff Approvals", path: "/staff/approvals", icon: "check" }]
             : [];
 
-    const qaItems: NavItem[] =
-        roleId === ROLE_ID.ANALYST ||
-            roleId === ROLE_ID.LAB_HEAD ||
-            roleId === ROLE_ID.OPERATIONAL_MANAGER
-            ? [{ label: "QA Parameters", path: "/qa/parameters", icon: "check" }]
-            : [];
+    // ✅ Add QA Methods + QA Parameters in menu for allowed roles
+    const qaItems: NavItem[] = canAccessQAModules
+        ? [
+            { label: "QA Parameters", path: "/qa/parameters", icon: "check" },
+            { label: "QA Methods", path: "/qa/methods", icon: "check" },
+        ]
+        : [];
 
     const navItems: NavItem[] = [...baseItems, ...qaItems, ...adminItems, ...labHeadItems];
 
