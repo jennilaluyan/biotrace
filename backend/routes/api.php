@@ -22,6 +22,7 @@ use App\Http\Controllers\TestResultController;
 use App\Http\Controllers\ReagentCalculationController;
 use App\Http\Controllers\UnitController;
 use App\Http\Controllers\SampleTestController;
+use App\Http\Controllers\QcControlController;
 
 /*
 |--------------------------------------------------------------------------
@@ -154,5 +155,8 @@ Route::prefix('v1')->group(function () {
 
         Route::get('units', [UnitController::class, 'index']);
         Route::get('samples/{sample}/sample-tests', [SampleTestController::class, 'indexBySample']);
+
+        Route::get('qc-controls', [QcControlController::class, 'index']);
+        Route::get('samples/{sample}/qc-controls', [QcControlController::class, 'forSample']);
     });
 });
