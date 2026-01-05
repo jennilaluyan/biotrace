@@ -100,6 +100,7 @@ class SampleTestBulkController extends Controller
 
             $toInsert[] = [
                 'sample_id'     => $sample->getAttribute('sample_id'),
+                'batch_id'      => $sample->getAttribute('sample_id'),
                 'parameter_id'  => $pid,
                 'method_id'     => $it['method_id'] ?? null,
                 'assigned_to'   => $it['assigned_to'] ?? null,
