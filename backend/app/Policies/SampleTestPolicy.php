@@ -37,4 +37,20 @@ class SampleTestPolicy
     {
         return $this->role($user) === 'Laboratory Head';
     }
+
+    /**
+     * OM can set Verified (alias of decideAsOM for clarity)
+     */
+    public function verifyAsOM(Staff $staff, SampleTest $sampleTest): bool
+    {
+        return $this->decideAsOM($staff, $sampleTest);
+    }
+
+    /**
+     * LH can set Validated (alias of decideAsLH for clarity)
+     */
+    public function validateAsLH(Staff $staff, SampleTest $sampleTest): bool
+    {
+        return $this->decideAsLH($staff, $sampleTest);
+    }
 }

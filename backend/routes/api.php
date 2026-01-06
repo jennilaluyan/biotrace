@@ -142,6 +142,8 @@ Route::prefix('v1')->group(function () {
 
         Route::post('sample-tests/{sampleTest}/om/decision', [SampleTestDecisionController::class, 'omDecision']);
         Route::post('sample-tests/{sampleTest}/lh/decision', [SampleTestDecisionController::class, 'lhDecision']);
+        Route::post('sample-tests/{sampleTest}/verify', [SampleTestDecisionController::class, 'verifyAsOM']);
+        Route::post('sample-tests/{sampleTest}/validate', [SampleTestDecisionController::class, 'validateAsLH']);
 
         Route::post('/sample-tests/{sampleTest}/results', [TestResultController::class, 'store']);
         Route::patch('/test-results/{testResult}', [TestResultController::class, 'update']);
