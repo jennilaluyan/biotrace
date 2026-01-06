@@ -12,15 +12,11 @@ class SampleTestPolicy
         return $user?->role?->name;
     }
 
-    // Step 7: bulk create
     public function bulkCreate(Staff $user, \App\Models\Sample $sample): bool
     {
-        $role = $user->role?->name;
-
-        return in_array($role, ['Administrator', 'Operational Manager', 'Laboratory Head'], true);
+        return $this->role($user) === 'Analyst';
     }
 
-    // Step 8: analyst update status (nanti tetap divalidasi transition di controller/request)
     public function updateStatusAsAnalyst(Staff $user, SampleTest $test): bool
     {
         return $this->role($user) === 'Analyst';
@@ -36,5 +32,21 @@ class SampleTestPolicy
     public function decideAsLH(Staff $user, SampleTest $test): bool
     {
         return $this->role($user) === 'Laboratory Head';
+    }
+
+    /**
+     * OM can set Verified (alias of decideAsOM for clarity)
+     */
+    public function verifyAsOM(Staff $staff, SampleTest $sampleTest): bool
+    {
+        return $this->decideAsOM($staff, $sampleTest);
+    }
+
+    /**
+     * LH can set Validated (alias of decideAsLH for clarity)
+     */
+    public function validateAsLH(Staff $staff, SampleTest $sampleTest): bool
+    {
+        return $this->decideAsLH($staff, $sampleTest);
     }
 }

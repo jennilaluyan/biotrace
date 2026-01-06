@@ -302,3 +302,73 @@ export function unwrapCalc(res: any) {
     if (!data) return null;
     return data?.calc ?? data;
 }
+
+export async function verifySampleTest(id: number, note?: string | null) {
+    const payload = note ? { note } : {};
+    return apiPost<ApiEnvelope<any>>(`/v1/sample-tests/${id}/verify`, payload);
+}
+
+export async function validateSampleTest(id: number, note?: string | null) {
+    const payload = note ? { note } : {};
+    return apiPost<ApiEnvelope<any>>(`/v1/sample-tests/${id}/validate`, payload);
+}
+
+export type BulkRunResult = {
+    okIds: number[];
+    failed: Array<{ id: number; error: any }>;
+};
+
+export async function runBulkLimited(
+    ids: number[],
+    runner: (id: number) => Promise<any>,
+    concurrency = 2
+): Promise<BulkRunResult> {
+    const queue = [...ids];
+    const okIds: number[] = [];
+    const failed: Array<{ id: number; error: any }> = [];
+
+    const workerCount = Math.max(1, Math.min(concurrency, ids.length || 1));
+
+    const workers = Array.from({ length: workerCount }).map(async () => {
+        while (queue.length > 0) {
+            const id = queue.shift()!;
+            try {
+                await runner(id);
+                okIds.push(id);
+            } catch (e) {
+                failed.push({ id, error: e });
+            }
+        }
+    });
+
+    await Promise.all(workers);
+
+    return { okIds, failed };
+}
+
+export async function bulkVerifySampleTests(
+    ids: number[],
+    note?: string | null,
+    concurrency = 2
+) {
+    return runBulkLimited(ids, (id) => verifySampleTest(id, note), concurrency);
+}
+
+export async function bulkValidateSampleTests(
+    ids: number[],
+    note?: string | null,
+    concurrency = 2
+) {
+    return runBulkLimited(ids, (id) => validateSampleTest(id, note), concurrency);
+}
+
+export async function runSerial<T>(
+    items: T[],
+    worker: (item: T) => Promise<any>
+) {
+    const results: any[] = [];
+    for (const item of items) {
+        results.push(await worker(item));
+    }
+    return results;
+}
