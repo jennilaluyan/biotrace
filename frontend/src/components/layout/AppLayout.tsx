@@ -17,13 +17,18 @@ export const AppLayout = () => {
     const { user } = useAuth();
     const roleId = getUserRoleId(user);
 
-    // ✅ QA modules access rules (matching latest policy intent):
-    // - Methods: Analyst + Operational Manager (CRUD) + Lab Head (read-only) => can see menu
-    // - Admin: not allowed (no access)
     const canAccessQAModules =
         roleId === ROLE_ID.ANALYST ||
         roleId === ROLE_ID.LAB_HEAD ||
         roleId === ROLE_ID.OPERATIONAL_MANAGER;
+
+    // ✅ Step 6: for now ALL STAFF ROLES can see audit logs page
+    const canSeeAuditLogs =
+        roleId === ROLE_ID.ADMIN ||
+        roleId === ROLE_ID.SAMPLE_COLLECTOR ||
+        roleId === ROLE_ID.ANALYST ||
+        roleId === ROLE_ID.OPERATIONAL_MANAGER ||
+        roleId === ROLE_ID.LAB_HEAD;
 
     const baseItems: NavItem[] = [
         { label: "Clients", path: "/clients", icon: "users" },
@@ -40,7 +45,6 @@ export const AppLayout = () => {
             ? [{ label: "Staff Approvals", path: "/staff/approvals", icon: "check" }]
             : [];
 
-    // ✅ Add QA Methods + QA Parameters in menu for allowed roles
     const qaItems: NavItem[] = canAccessQAModules
         ? [
             { label: "QA Parameters", path: "/qa/parameters", icon: "check" },
@@ -48,7 +52,19 @@ export const AppLayout = () => {
         ]
         : [];
 
-    const navItems: NavItem[] = [...baseItems, ...qaItems, ...adminItems, ...labHeadItems];
+    // ✅ Step 6: Audit Logs menu item
+    const auditItems: NavItem[] = canSeeAuditLogs
+        ? [{ label: "Audit Logs", path: "/audit-logs", icon: "check" }]
+        : [];
+
+    // ✅ include auditItems
+    const navItems: NavItem[] = [
+        ...baseItems,
+        ...qaItems,
+        ...auditItems,
+        ...adminItems,
+        ...labHeadItems,
+    ];
 
     const renderIcon = (icon?: NavItem["icon"]) => {
         // simple: beda icon sedikit biar gak semua “users”

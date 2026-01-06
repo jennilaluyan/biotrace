@@ -23,6 +23,8 @@ import { ClientApprovalsPage } from "../pages/clients/ClientApprovalsPage";
 import { QAParametersPage } from "../pages/qa/QAParametersPage";
 import { QAMethodsPage } from "../pages/qa/QAMethodsPage";
 
+import { AuditLogsPage } from "../pages/audit/AuditLogsPage";
+
 export const AppRouter = () => {
     return (
         <Routes>
@@ -131,6 +133,7 @@ export const AppRouter = () => {
                         }
                     />
 
+                    <Route path="/audit-logs" element={<AuditLogsPage />} />
                 </Route>
             </Route>
 
