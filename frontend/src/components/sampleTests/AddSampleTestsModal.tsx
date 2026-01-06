@@ -47,12 +47,14 @@ export function AddSampleTestsModal({
     sampleId,
     defaultAssignedTo,
     onCreated,
+    canSubmit = true,
 }: {
     open: boolean;
     onClose: () => void;
     sampleId: number;
     defaultAssignedTo: number | null;
     onCreated: () => void;
+    canSubmit?: boolean;
 }) {
     const [paramSearch, setParamSearch] = useState("");
     const [paramPage, setParamPage] = useState(1);
@@ -166,6 +168,11 @@ export function AddSampleTestsModal({
     };
 
     const submit = async () => {
+        if (!canSubmit) {
+            setSubmitError("You don’t have permission to bulk create sample tests.");
+            return;
+        }
+
         try {
             setSubmitting(true);
             setSubmitError(null);
@@ -452,6 +459,7 @@ export function AddSampleTestsModal({
                                         )}
                                         type="button"
                                         disabled={
+                                            !canSubmit ||
                                             submitting ||
                                             !methodId ||
                                             selectedParamIds.size === 0

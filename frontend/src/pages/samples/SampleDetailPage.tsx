@@ -60,7 +60,16 @@ type TestResultLite = {
     updated_at?: string | null;
 };
 
-type SampleTestStatus = "draft" | "in_progress" | "measured" | "failed";
+type SampleTestStatus =
+    | "draft"
+    | "in_progress"
+    | "measured"
+    | "failed"
+    | "verified"
+    | "validated";
+
+// hanya status yang boleh di-set oleh Analyst/Admin via status endpoint
+type AdvanceStatus = "in_progress" | "measured" | "failed";
 
 type SampleTestRow = {
     sample_test_id: number;
@@ -101,16 +110,14 @@ function cx(...arr: Array<string | false | null | undefined>) {
 /* ----------------------------- UI atoms ----------------------------- */
 function StatusPill({ value }: { value?: string | null }) {
     const v = (value ?? "-").toLowerCase();
-    const tone =
-        v === "draft"
-            ? "bg-gray-100 text-gray-700 border-gray-200"
-            : v === "in_progress"
-                ? "bg-amber-50 text-amber-800 border-amber-200"
-                : v === "measured"
-                    ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                    : v === "failed"
-                        ? "bg-red-50 text-red-700 border-red-200"
-                        : "bg-slate-50 text-slate-700 border-slate-200";
+    const tones: Record<string, string> = {
+        draft: "bg-slate-100 text-slate-700 border-slate-200",
+        in_progress: "bg-blue-50 text-blue-700 border-blue-200",
+        measured: "bg-emerald-50 text-emerald-700 border-emerald-200",
+        failed: "bg-red-50 text-red-700 border-red-200",
+        verified: "bg-purple-50 text-purple-700 border-purple-200",
+    };
+    const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
 
     return (
         <span
@@ -243,15 +250,9 @@ export const SampleDetailPage = () => {
     };
 
     const canAddTests = useMemo(() => {
-        return (
-            roleId === ROLE_ID.ADMIN ||
-            roleId === ROLE_ID.LAB_HEAD ||
-            roleId === ROLE_ID.OPERATIONAL_MANAGER ||
-            roleId === ROLE_ID.ANALYST
-        );
+        return roleId === ROLE_ID.ANALYST;
     }, [roleId]);
 
-    // ✅ Step 6 — QC state (full response)
     const [qc, setQc] = useState<QcSummaryResponse | null>(null); // ✅ FIX
     const [qcLoading, setQcLoading] = useState(false);
     const [qcError, setQcError] = useState<string | null>(null);
@@ -387,10 +388,7 @@ export const SampleDetailPage = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tab, loading, error, sample, testsPage, testsStatus]);
 
-    const changeStatus = async (
-        sampleTestId: number,
-        nextStatus: Exclude<SampleTestStatus, "draft">
-    ) => {
+    const changeStatus = async (sampleTestId: number, nextStatus: AdvanceStatus) => {
         try {
             setStatusUpdatingId(sampleTestId);
             setStatusActionError(null);
@@ -904,8 +902,145 @@ export const SampleDetailPage = () => {
                                             <ReagentCalculationPanel sampleId={sampleId} refreshKey={reagentRefreshKey} />
                                         )}
 
-                                        {/* table tetap sama dengan versi kamu */}
-                                        {/* ... (aku nggak ubah logic, hanya fixing errors di bagian atas) */}
+                                        {/* Sample Tests Table (FIX: previously not rendered) */}
+                                        {!testsLoading && !testsError && tests.length > 0 && (
+                                            <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+                                                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+                                                    <div className="text-sm font-semibold text-gray-900">Sample Tests</div>
+                                                    <div className="text-xs text-gray-500">
+                                                        Page {testsPager?.current_page ?? 1} • Total {totalTests}
+                                                    </div>
+                                                </div>
+
+                                                <div className="overflow-auto">
+                                                    <table className="min-w-[900px] w-full text-sm">
+                                                        <thead className="bg-white sticky top-0 z-10">
+                                                            <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
+                                                                <th className="px-4 py-3">Parameter</th>
+                                                                <th className="px-4 py-3">Method</th>
+                                                                <th className="px-4 py-3">Assignee</th>
+                                                                <th className="px-4 py-3">Status</th>
+                                                                <th className="px-4 py-3">Result</th>
+                                                                <th className="px-4 py-3 text-right">
+                                                                    Actions
+                                                                    <div className="text-[11px] font-normal text-gray-400 mt-0.5">
+                                                                        click buttons
+                                                                    </div>
+                                                                </th>
+                                                            </tr>
+                                                        </thead>
+
+                                                        <tbody>
+                                                            {tests.map((t) => {
+                                                                const pname = t.parameter?.name ?? `Parameter #${t.parameter_id}`;
+                                                                const mname = t.method?.name ?? (t.method_id ? `Method #${t.method_id}` : "-");
+                                                                const aname = t.assignee?.name ?? (t.assigned_to ? `Staff #${t.assigned_to}` : "-");
+                                                                const hasResult = !!t.latest_result?.result_id;
+                                                                const disableAdvance = qcIsFail || statusUpdatingId === t.sample_test_id;
+
+                                                                return (
+                                                                    <tr key={t.sample_test_id} className="group border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
+                                                                        <td className="px-4 py-4">
+                                                                            <div className="font-bold text-gray-800 group-hover:text-primary transition-colors">{pname}</div>
+                                                                            <div className="flex gap-2 mt-1">
+                                                                                <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 rounded font-mono">#{t.sample_test_id}</span>
+                                                                                <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 rounded font-mono">PID:{t.parameter_id}</span>
+                                                                            </div>
+                                                                        </td>
+
+                                                                        <td className="px-4 py-4 text-gray-600 font-medium">{mname}</td>
+
+                                                                        <td className="px-4 py-4">
+                                                                            <div className="text-gray-700">{aname}</div>
+                                                                        </td>
+
+                                                                        <td className="px-4 py-4">
+                                                                            <StatusPill value={t.status} />
+                                                                        </td>
+
+                                                                        {/* Kolom Result: Sekarang lebih terlihat seperti tombol interaktif */}
+                                                                        <td className="px-4 py-4">
+                                                                            <button
+                                                                                onClick={() => openResult(t)}
+                                                                                className={cx(
+                                                                                    "flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all text-xs font-semibold",
+                                                                                    hasResult
+                                                                                        ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+                                                                                        : "bg-white border-gray-200 text-gray-600 hover:border-primary hover:text-primary shadow-sm"
+                                                                                )}
+                                                                            >
+                                                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                                                </svg>
+                                                                                {hasResult ? "View Result" : "Enter Result"}
+                                                                            </button>
+                                                                        </td>
+
+                                                                        <td className="px-4 py-4 text-right">
+                                                                            <div className="flex justify-end items-center gap-2">
+                                                                                {canUpdateTestStatus && (t.status === "draft" || t.status === "in_progress") ? (
+                                                                                    <div className="flex bg-gray-100 p-1 rounded-xl gap-1">
+                                                                                        {t.status === "draft" && (
+                                                                                            <button
+                                                                                                disabled={disableAdvance}
+                                                                                                onClick={() => changeStatus(t.sample_test_id, "in_progress")}
+                                                                                                className="px-3 py-1 bg-white text-primary rounded-lg shadow-sm text-xs font-bold hover:bg-blue-50 disabled:opacity-50"
+                                                                                            >
+                                                                                                Start
+                                                                                            </button>
+                                                                                        )}
+                                                                                        {t.status === "in_progress" && (
+                                                                                            <button
+                                                                                                disabled={disableAdvance}
+                                                                                                onClick={() => changeStatus(t.sample_test_id, "measured")}
+                                                                                                className="px-3 py-1 bg-emerald-600 text-white rounded-lg shadow-sm text-xs font-bold hover:bg-emerald-700 disabled:opacity-50"
+                                                                                            >
+                                                                                                Complete
+                                                                                            </button>
+                                                                                        )}
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <span className="text-[10px] font-bold text-gray-400 italic px-2">
+                                                                                        {t.status === "measured" ? "Waiting Verification" : "Locked"}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+                                                {/* Pagination controls */}
+                                                {testsPager && (testsPager.last_page ?? 1) > 1 && (
+                                                    <div className="px-4 py-3 flex items-center justify-between gap-2 bg-white border-t border-gray-100">
+                                                        <SmallButton
+                                                            type="button"
+                                                            disabled={(testsPager.current_page ?? 1) <= 1}
+                                                            onClick={() => setTestsPage((p) => Math.max(1, p - 1))}
+                                                        >
+                                                            Prev
+                                                        </SmallButton>
+
+                                                        <div className="text-xs text-gray-500">
+                                                            Page <span className="font-semibold text-gray-700">{testsPager.current_page}</span>{" "}
+                                                            / <span className="font-semibold text-gray-700">{testsPager.last_page ?? 1}</span>
+                                                        </div>
+
+                                                        <SmallButton
+                                                            type="button"
+                                                            disabled={(testsPager.current_page ?? 1) >= (testsPager.last_page ?? 1)}
+                                                            onClick={() => setTestsPage((p) => p + 1)}
+                                                        >
+                                                            Next
+                                                        </SmallButton>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
                                     </div>
                                 )}
                             </div>
@@ -916,6 +1051,7 @@ export const SampleDetailPage = () => {
                             onClose={() => setOpenAddTests(false)}
                             sampleId={sampleId}
                             defaultAssignedTo={myStaffId}
+                            canSubmit={roleId === ROLE_ID.ANALYST}
                             onCreated={() => {
                                 setTestsPage(1);
                                 loadTests();
