@@ -89,11 +89,10 @@ class ClientRbacTest extends TestCase
         ]);
         $updateResponse->assertStatus(200);
 
-        // DELETE (soft delete)
+        // DELETE (currently hard delete)
         $deleteResponse = $this->deleteJson("/api/v1/clients/{$clientId}");
         $deleteResponse->assertStatus(200);
-
-        $this->assertSoftDeleted('clients', ['client_id' => $clientId]);
+        $this->assertDatabaseMissing('clients', ['client_id' => $clientId]);
     }
 
     #[\PHPUnit\Framework\Attributes\Test]

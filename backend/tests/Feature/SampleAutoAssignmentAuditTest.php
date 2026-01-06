@@ -102,7 +102,7 @@ class SampleAutoAssignmentAuditTest extends TestCase
     private function actingAsStaff(Staff $staff): void
     {
         if (class_exists(Sanctum::class)) {
-            Sanctum::actingAs($staff, ['*'], 'api');
+            Sanctum::actingAs($staff, ['*']);
             return;
         }
         $this->actingAs($staff, 'api');

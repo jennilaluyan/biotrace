@@ -168,8 +168,7 @@ class UserClientModuleTest extends TestCase
         $deleteResponse = $this->deleteJson("/api/v1/clients/{$client->client_id}");
         $deleteResponse->assertStatus(200);
 
-        // Tabel menggunakan SoftDeletes
-        $this->assertSoftDeleted('clients', [
+        $this->assertDatabaseMissing('clients', [
             'client_id' => $client->client_id,
         ]);
 
