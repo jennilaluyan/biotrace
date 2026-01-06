@@ -2,32 +2,34 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\SampleTest;
+use App\Models\Staff;
+use App\Services\QcEvaluationService;
+use App\Services\ReagentCalcService;
+use App\Support\SampleTestStatusTransitions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use App\Support\SampleTestStatusTransitions;
-use Illuminate\Validation\ValidationException;
-use App\Models\AuditLog;
-use Illuminate\Support\Facades\Log;
-use App\Models\Staff;
-use App\Services\ReagentCalcService;
 use Illuminate\Support\Facades\Auth;
-use App\Services\QcEvaluationService;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 class SampleTestStatusController extends Controller
 {
     public function update(Request $request, SampleTest $sampleTest): JsonResponse
     {
-        // RBAC (Analyst only) - sesuaikan nama ability/policy kamu
+        // RBAC (Analyst only)
         $this->authorize('updateStatusAsAnalyst', $sampleTest);
 
         $data = $request->validate([
             'status' => ['required', 'string', 'in:in_progress,measured,failed'],
         ]);
 
-        $from = $sampleTest->status;
+        $from = (string) $sampleTest->status;
+        $to   = (string) $data['status'];
 
-        $to = $data['status'];
+        // keep original status (untuk audit + recompute)
+        $oldStatus = $from;
 
         if (!SampleTestStatusTransitions::isAllowedForAnalyst($from, $to)) {
             throw ValidationException::withMessages([
@@ -35,6 +37,40 @@ class SampleTestStatusController extends Controller
             ]);
         }
 
+        /**
+         * ✅ QC GUARD (per-sample, sama dengan /samples/{sample}/qc-summary)
+         * Test butuh: QC fail -> draft->in_progress harus diblok.
+         */
+        if (in_array($to, ['in_progress', 'measured'], true)) {
+            $qcService = app(QcEvaluationService::class);
+
+            $sampleId = (int) $sampleTest->sample_id;
+            $batchId  = (int) ($sampleTest->batch_id ?? $sampleId);
+
+            // prefer summarizeSample kalau ada, biar konsisten dengan endpoint qc-summary
+            if (method_exists($qcService, 'summarizeSample')) {
+                $summary = $qcService->summarizeSample($sampleId);
+            } else {
+                $summary = $qcService->summarizeBatch($batchId);
+            }
+
+            $qcStatus = strtolower((string) ($summary['status'] ?? 'pass'));
+
+            if ($qcStatus === 'fail') {
+                return response()->json([
+                    'status' => 422,
+                    'message' => 'QC failed: cannot progress sample test status until QC is resolved.',
+                    'data' => [
+                        'sample_id' => $sampleId,
+                        'batch_id' => $batchId,
+                        'qc_status' => $qcStatus,
+                        'qc_counts' => $summary['counts'] ?? null,
+                    ],
+                ], 422);
+            }
+        }
+
+        // Timestamp automation
         if ($to === 'in_progress' && $sampleTest->started_at === null) {
             $sampleTest->started_at = now();
         }
@@ -43,63 +79,23 @@ class SampleTestStatusController extends Controller
             $sampleTest->completed_at = now();
         }
 
-        // Guard transisi (Step 8)
-        $allowed = [
-            'draft' => ['in_progress'],
-            'in_progress' => ['measured', 'failed'],
-        ];
-
-        if ($to === 'measured') {
-            $batchId = (int) ($sampleTest->batch_id ?? $sampleTest->sample_id);
-
-            $summary = app(QcEvaluationService::class)->summarizeBatch($batchId);
-
-            if (($summary['status'] ?? 'pass') === 'fail') {
-                return response()->json([
-                    'status' => 422,
-                    'message' => 'QC failed: cannot mark sample test as measured until QC is resolved.',
-                    'data' => [
-                        'batch_id' => $batchId,
-                        'qc_status' => $summary['status'] ?? 'fail',
-                        'qc_counts' => $summary['counts'] ?? null,
-                    ],
-                ], 422);
-            }
-        }
-
-        if (!isset($allowed[$from]) || !in_array($data['status'], $allowed[$from], true)) {
-            return response()->json([
-                'status' => 422,
-                'message' => 'Invalid status transition for Analyst.',
-                'data' => [
-                    'from' => $from,
-                    'to' => $data['status'],
-                ],
-            ], 422);
-        }
-
-        // Timestamp automation
-        if ($from === 'draft' && $data['status'] === 'in_progress' && !$sampleTest->started_at) {
-            $sampleTest->started_at = now();
-        }
-
-        if ($data['status'] === 'measured' && !$sampleTest->completed_at) {
-            $sampleTest->completed_at = now();
-        }
-
+        // Apply status
         $sampleTest->status = $to;
         $sampleTest->save();
 
+        /**
+         * Optional: trigger reagent recompute (kalau ada flow rerun/cancelled)
+         */
         try {
-            $oldStatus = (string) ($oldStatus ?? ''); // kalau kamu sudah simpan sebelumnya
             $newStatus = (string) $sampleTest->status;
 
-            // resolve actorStaffId (computed_by NOT NULL)
             $user = Auth::user();
             $actorStaffId = (int) ($user?->staff_id ?? 0);
 
             if ($actorStaffId <= 0 && $user) {
-                $actorStaffId = (int) Staff::query()->where('user_id', $user->id)->value('staff_id');
+                $actorStaffId = (int) Staff::query()
+                    ->where('user_id', $user->id)
+                    ->value('staff_id');
             }
 
             if ($actorStaffId > 0) {
@@ -136,10 +132,9 @@ class SampleTestStatusController extends Controller
             ]);
         }
 
-        $oldStatus = (string) $sampleTest->status;
-
+        // audit payload
         $old = [
-            'status'       => $from,
+            'status'       => $oldStatus,
             'started_at'   => optional($sampleTest->getOriginal('started_at'))->toIso8601String(),
             'completed_at' => optional($sampleTest->getOriginal('completed_at'))->toIso8601String(),
             'assigned_to'  => $sampleTest->getOriginal('assigned_to'),

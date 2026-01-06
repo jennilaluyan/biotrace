@@ -159,4 +159,9 @@ class QcEvaluationService
             ],
         ];
     }
+
+    public function summarizeSample(int $sampleId): array
+    {
+        return $this->summarizeBatch($sampleId);
+    }
 }
