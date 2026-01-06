@@ -24,6 +24,7 @@ use App\Http\Controllers\UnitController;
 use App\Http\Controllers\SampleTestController;
 use App\Http\Controllers\QcControlController;
 use App\Http\Controllers\QcRunController;
+use App\Http\Controllers\AuditLogController;
 
 /*
 |--------------------------------------------------------------------------
@@ -164,5 +165,7 @@ Route::prefix('v1')->group(function () {
 
         Route::post('samples/{sample}/qc-runs', [QcRunController::class, 'store']);
         Route::get('samples/{sample}/qc-summary', [QcRunController::class, 'summary']);
+
+        Route::get('/audit-logs', [AuditLogController::class, 'index']);
     });
 });
