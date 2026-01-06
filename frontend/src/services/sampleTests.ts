@@ -361,3 +361,14 @@ export async function bulkValidateSampleTests(
 ) {
     return runBulkLimited(ids, (id) => validateSampleTest(id, note), concurrency);
 }
+
+export async function runSerial<T>(
+    items: T[],
+    worker: (item: T) => Promise<any>
+) {
+    const results: any[] = [];
+    for (const item of items) {
+        results.push(await worker(item));
+    }
+    return results;
+}

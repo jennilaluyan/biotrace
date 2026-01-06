@@ -12,12 +12,18 @@ import { apiGet } from "../../services/api";
 
 import { AddSampleTestsModal } from "../../components/sampleTests/AddSampleTestsModal";
 import { ResultEntryModal } from "../../components/sampleTests/ResultEntryModal";
-import { updateSampleTestStatus } from "../../services/sampleTests";
+import {
+    updateSampleTestStatus,
+    verifySampleTest,
+    validateSampleTest,
+    runSerial,
+} from "../../services/sampleTests";
 import { ReagentCalculationPanel } from "../../components/sampleTests/ReagentCalculationPanel";
 
-// ✅ Step 6: QC service
 import { getQcSummary, type QcSummaryResponse } from "../../services/qc";
 import { EnterQcModal } from "../../components/qc/EnterQcModal";
+
+import { BulkVerifyValidateBar } from "../../components/sampleTests/BulkVerifyValidateBar";
 
 /* ----------------------------- Types (ringan) ----------------------------- */
 type StaffLite = {
@@ -116,6 +122,7 @@ function StatusPill({ value }: { value?: string | null }) {
         measured: "bg-emerald-50 text-emerald-700 border-emerald-200",
         failed: "bg-red-50 text-red-700 border-red-200",
         verified: "bg-purple-50 text-purple-700 border-purple-200",
+        validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
     };
     const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
 
@@ -440,6 +447,76 @@ export const SampleDetailPage = () => {
         const mname = resultRow.method?.name ?? `Method #${resultRow.method_id}`;
         return `${pname} • ${mname} • Status: ${resultRow.status}`;
     }, [resultRow]);
+
+    /* ============================= Step 5: Bulk Verify/Validate (OM/LH) ============================= */
+    const isOM = roleId === ROLE_ID.OPERATIONAL_MANAGER;
+    const isLH = roleId === ROLE_ID.LAB_HEAD;
+
+    const [bulkSelectedIds, setBulkSelectedIds] = useState<number[]>([]);
+    const [bulkRunning, setBulkRunning] = useState(false);
+
+    const eligibleIds = useMemo(() => {
+        if (!tests || tests.length === 0) return [];
+        if (isOM) return tests.filter((t) => t.status === "measured").map((t) => t.sample_test_id);
+        if (isLH) return tests.filter((t) => t.status === "verified").map((t) => t.sample_test_id);
+        return [];
+    }, [tests, isOM, isLH]);
+
+    const selectedEligibleIds = useMemo(() => {
+        const eligibleSet = new Set(eligibleIds);
+        return bulkSelectedIds.filter((id) => eligibleSet.has(id));
+    }, [bulkSelectedIds, eligibleIds]);
+
+    function toggleOne(id: number) {
+        setBulkSelectedIds((prev) =>
+            prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+        );
+    }
+
+    function toggleAllEligible() {
+        setBulkSelectedIds((prev) => {
+            const prevSet = new Set(prev);
+            const allSelected = eligibleIds.length > 0 && eligibleIds.every((id) => prevSet.has(id));
+            return allSelected ? [] : [...eligibleIds];
+        });
+    }
+
+    function clearBulkSelection() {
+        setBulkSelectedIds([]);
+    }
+
+    async function runBulkAction(note?: string) {
+        const ids = selectedEligibleIds;
+        if (ids.length === 0) return;
+
+        setBulkRunning(true);
+        setStatusActionError(null);
+
+        try {
+            if (isOM) {
+                await runSerial(ids, (id) => verifySampleTest(id, note));
+            } else if (isLH) {
+                await runSerial(ids, (id) => validateSampleTest(id, note));
+            }
+
+            await loadTests();
+            await loadQc();
+            setReagentRefreshKey((k) => k + 1);
+
+            setBulkSelectedIds([]);
+        } catch (err: any) {
+            const msg =
+                err?.response?.data?.message ??
+                err?.response?.data?.error ??
+                err?.data?.message ??
+                err?.message ??
+                "Bulk action failed.";
+            setStatusActionError(msg);
+        } finally {
+            setBulkRunning(false);
+        }
+    }
+    /* ================================================================================================= */
 
     if (!canViewSamples) {
         return (
@@ -793,6 +870,8 @@ export const SampleDetailPage = () => {
                                                         <option value="in_progress">in_progress</option>
                                                         <option value="measured">measured</option>
                                                         <option value="failed">failed</option>
+                                                        <option value="verified">verified</option>
+                                                        <option value="validated">validated</option>
                                                     </select>
                                                 </div>
 
@@ -902,7 +981,20 @@ export const SampleDetailPage = () => {
                                             <ReagentCalculationPanel sampleId={sampleId} refreshKey={reagentRefreshKey} />
                                         )}
 
-                                        {/* Sample Tests Table (FIX: previously not rendered) */}
+                                        {/* ===== Step 5: Bulk bar (OM verify / LH validate) ===== */}
+                                        {(isOM || isLH) && eligibleIds.length > 0 && !testsLoading && !testsError && (
+                                            <BulkVerifyValidateBar
+                                                mode={isOM ? "verify" : "validate"}
+                                                eligibleCount={eligibleIds.length}
+                                                selectedCount={selectedEligibleIds.length}
+                                                running={bulkRunning}
+                                                onToggleAll={toggleAllEligible}
+                                                onClear={clearBulkSelection}
+                                                onRun={runBulkAction}
+                                            />
+                                        )}
+
+                                        {/* Sample Tests Table */}
                                         {!testsLoading && !testsError && tests.length > 0 && (
                                             <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
                                                 <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
@@ -936,15 +1028,28 @@ export const SampleDetailPage = () => {
                                                                 const mname = t.method?.name ?? (t.method_id ? `Method #${t.method_id}` : "-");
                                                                 const aname = t.assignee?.name ?? (t.assigned_to ? `Staff #${t.assigned_to}` : "-");
                                                                 const hasResult = !!t.latest_result?.result_id;
+
                                                                 const disableAdvance = qcIsFail || statusUpdatingId === t.sample_test_id;
+                                                                const eligible =
+                                                                    (isOM && t.status === "measured") ||
+                                                                    (isLH && t.status === "verified");
 
                                                                 return (
-                                                                    <tr key={t.sample_test_id} className="group border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
+                                                                    <tr
+                                                                        key={t.sample_test_id}
+                                                                        className="group border-b border-gray-100 hover:bg-blue-50/30 transition-colors"
+                                                                    >
                                                                         <td className="px-4 py-4">
-                                                                            <div className="font-bold text-gray-800 group-hover:text-primary transition-colors">{pname}</div>
+                                                                            <div className="font-bold text-gray-800 group-hover:text-primary transition-colors">
+                                                                                {pname}
+                                                                            </div>
                                                                             <div className="flex gap-2 mt-1">
-                                                                                <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 rounded font-mono">#{t.sample_test_id}</span>
-                                                                                <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 rounded font-mono">PID:{t.parameter_id}</span>
+                                                                                <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 rounded font-mono">
+                                                                                    #{t.sample_test_id}
+                                                                                </span>
+                                                                                <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 rounded font-mono">
+                                                                                    PID:{t.parameter_id}
+                                                                                </span>
                                                                             </div>
                                                                         </td>
 
@@ -958,7 +1063,7 @@ export const SampleDetailPage = () => {
                                                                             <StatusPill value={t.status} />
                                                                         </td>
 
-                                                                        {/* Kolom Result: Sekarang lebih terlihat seperti tombol interaktif */}
+                                                                        {/* Result */}
                                                                         <td className="px-4 py-4">
                                                                             <button
                                                                                 onClick={() => openResult(t)}
@@ -970,14 +1075,35 @@ export const SampleDetailPage = () => {
                                                                                 )}
                                                                             >
                                                                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                                                    <path
+                                                                                        strokeLinecap="round"
+                                                                                        strokeLinejoin="round"
+                                                                                        strokeWidth="2"
+                                                                                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                                                                    />
                                                                                 </svg>
                                                                                 {hasResult ? "View Result" : "Enter Result"}
                                                                             </button>
                                                                         </td>
 
                                                                         <td className="px-4 py-4 text-right">
-                                                                            <div className="flex justify-end items-center gap-2">
+                                                                            <div className="flex justify-end items-center gap-3">
+                                                                                {/* Step 5: checkbox bulk select (eligible only) */}
+                                                                                {(isOM || isLH) && eligible && (
+                                                                                    <label className="flex items-center gap-2 text-xs text-slate-500">
+                                                                                        <input
+                                                                                            type="checkbox"
+                                                                                            className="h-4 w-4 cursor-pointer"
+                                                                                            checked={bulkSelectedIds.includes(t.sample_test_id)}
+                                                                                            onChange={() => toggleOne(t.sample_test_id)}
+                                                                                            disabled={bulkRunning}
+                                                                                            title="Select for bulk action"
+                                                                                        />
+                                                                                        Select
+                                                                                    </label>
+                                                                                )}
+
+                                                                                {/* Status advance buttons (Analyst/Admin) */}
                                                                                 {canUpdateTestStatus && (t.status === "draft" || t.status === "in_progress") ? (
                                                                                     <div className="flex bg-gray-100 p-1 rounded-xl gap-1">
                                                                                         {t.status === "draft" && (
@@ -1001,7 +1127,11 @@ export const SampleDetailPage = () => {
                                                                                     </div>
                                                                                 ) : (
                                                                                     <span className="text-[10px] font-bold text-gray-400 italic px-2">
-                                                                                        {t.status === "measured" ? "Waiting Verification" : "Locked"}
+                                                                                        {t.status === "measured"
+                                                                                            ? "Waiting Verification"
+                                                                                            : t.status === "verified"
+                                                                                                ? "Waiting Validation"
+                                                                                                : "Locked"}
                                                                                     </span>
                                                                                 )}
                                                                             </div>
@@ -1040,7 +1170,6 @@ export const SampleDetailPage = () => {
                                                 )}
                                             </div>
                                         )}
-
                                     </div>
                                 )}
                             </div>
