@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "../../hooks/useAuth";
-import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
+import { ROLE_ID, getUserRoleId, getRoleLabelById, getUserRoleLabel } from "../../utils/roles";
 import { formatDateTimeLocal } from "../../utils/date";
 import { fetchAuditLogs, type AuditLogRow, type Paginator } from "../../services/auditLogs";
 
@@ -23,15 +23,19 @@ function safeJson(v: any) {
 
 export const AuditLogsPage = () => {
     const { user } = useAuth();
-    const roleId = getUserRoleId(user);
-    const roleLabel = getUserRoleLabel(roleId);
 
+    const roleId = getUserRoleId(user);
+
+    // ✅ FIX: label harus dari user / roleId, bukan getUserRoleLabel(roleId)
+    const roleLabel =
+        getRoleLabelById(roleId) ??
+        getUserRoleLabel(user) ?? // fallback
+        "UNKNOWN";
+
+    // ✅ FIX: audit logs visible for all STAFF roles (exclude client)
     const canView = useMemo(() => {
-        return (
-            roleId === ROLE_ID.ADMIN ||
-            roleId === ROLE_ID.OPERATIONAL_MANAGER ||
-            roleId === ROLE_ID.LAB_HEAD
-        );
+        if (!roleId) return false;
+        return roleId !== ROLE_ID.CLIENT;
     }, [roleId]);
 
     const [pager, setPager] = useState<Paginator<AuditLogRow> | null>(null);
@@ -94,12 +98,9 @@ export const AuditLogsPage = () => {
     if (!canView) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
-                <h1 className="text-2xl font-semibold text-primary mb-2">
-                    403 – Access denied
-                </h1>
+                <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
                 <p className="text-sm text-gray-600">
-                    Your role <span className="font-semibold">({roleLabel})</span> is not
-                    allowed to access audit logs.
+                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access audit logs.
                 </p>
                 <Link to="/" className="mt-4 lims-btn-primary">
                     Back to dashboard
@@ -112,9 +113,7 @@ export const AuditLogsPage = () => {
         <div className="min-h-[60vh] space-y-4">
             <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                        Audit Logs
-                    </h1>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">Audit Logs</h1>
                     <div className="text-xs text-gray-500 mt-1">
                         {loading ? "Loading..." : `${total} log(s)`}
                     </div>
@@ -209,7 +208,6 @@ export const AuditLogsPage = () => {
                             setStaffId("");
                             setAction("");
                             setPage(1);
-                            // load without filters
                             setTimeout(() => load({ keepPage: false }), 0);
                         }}
                         disabled={loading}
@@ -279,9 +277,7 @@ export const AuditLogsPage = () => {
                                     </td>
 
                                     <td className="px-4 py-4 text-gray-700">
-                                        <div className="font-medium">
-                                            {r.entity_name ?? "-"}
-                                        </div>
+                                        <div className="font-medium">{r.entity_name ?? "-"}</div>
                                         <div className="text-xs text-gray-500 font-mono">
                                             id={r.entity_id ?? "-"}
                                         </div>
@@ -341,10 +337,7 @@ export const AuditLogsPage = () => {
                     </div>
 
                     <button
-                        className={cx(
-                            "lims-btn",
-                            (page >= lastPage || loading) && "opacity-60 cursor-not-allowed"
-                        )}
+                        className={cx("lims-btn", (page >= lastPage || loading) && "opacity-60 cursor-not-allowed")}
                         type="button"
                         disabled={page >= lastPage || loading}
                         onClick={() => setPage((p) => p + 1)}
