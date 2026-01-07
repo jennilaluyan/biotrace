@@ -75,4 +75,9 @@ class SampleTest extends Model
         return $this->hasOne(TestResult::class, 'sample_test_id', 'sample_test_id')
             ->ofMany('version_no', 'max');
     }
+
+    public function reportItems()
+    {
+        return $this->hasMany(\App\Models\ReportItem::class, 'sample_test_id', 'sample_test_id');
+    }
 }
