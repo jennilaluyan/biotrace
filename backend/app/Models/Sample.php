@@ -81,4 +81,9 @@ class Sample extends Model
     {
         return $this->hasMany(\App\Models\SampleTest::class, 'sample_id', 'sample_id');
     }
+
+    public function report()
+    {
+        return $this->hasOne(\App\Models\Report::class, 'sample_id', 'sample_id');
+    }
 }

@@ -60,8 +60,10 @@ return new class extends Migration
         DB::statement("ALTER TABLE report_signoffs DROP CONSTRAINT IF EXISTS chk_signoff_role;");
 
         Schema::table('report_signoffs', function (Blueprint $table) {
-            $table->dropForeign('fk_signoff_reports');
+            // FIX: di up() namanya fk_signoff_report (singular)
+            $table->dropForeign('fk_signoff_report');
             $table->dropForeign('fk_signoff_staffs_signer');
+
             $table->dropUnique('uq_signoff_report_role');
             $table->dropIndex('idx_signoff_signer');
         });
