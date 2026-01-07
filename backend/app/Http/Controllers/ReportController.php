@@ -84,11 +84,13 @@ class ReportController extends Controller
             ->get()
             ->values();
 
-        $signatures = DB::table('report_signatures')
+        $allowedCodes = \App\Models\ReportSignatureRole::query()->pluck('role_code')->all();
+
+        $signatures = \App\Models\ReportSignature::query()
             ->where('report_id', $reportId)
+            ->when(!empty($allowedCodes), fn($q) => $q->whereIn('role_code', $allowedCodes))
             ->orderBy('role_code')
-            ->get()
-            ->values();
+            ->get();
 
         return [
             'report' => $report,
