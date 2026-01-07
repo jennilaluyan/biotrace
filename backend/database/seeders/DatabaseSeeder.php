@@ -24,5 +24,8 @@ class DatabaseSeeder extends Seeder
             MethodsSeeder::class,
             ParametersSeeder::class,
         ]);
+        $this->call(
+            \Database\Seeders\ReportSignatureRoleSeeder::class
+        );
     }
 }
