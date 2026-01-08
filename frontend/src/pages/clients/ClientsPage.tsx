@@ -170,29 +170,27 @@ export const ClientsPage = () => {
 
     // --- Filtering ---
     const filteredClients = useMemo(() => {
-        return clients
-            .filter((client) => client.is_active !== false) // ✅ hide pending only
-            .filter((client) => {
-                if (typeFilter !== "all" && client.type !== typeFilter) return false;
-                if (!searchTerm.trim()) return true;
+        return clients.filter((client) => {
+            if (typeFilter !== "all" && client.type !== typeFilter) return false;
+            if (!searchTerm.trim()) return true;
 
-                const term = searchTerm.toLowerCase();
-                const haystack = [
-                    client.name,
-                    client.email,
-                    client.phone,
-                    client.institution_name,
-                    client.contact_person_name,
-                    client.contact_person_email,
-                    client.address_ktp,
-                    client.address_domicile,
-                ]
-                    .filter(Boolean)
-                    .join(" ")
-                    .toLowerCase();
+            const term = searchTerm.toLowerCase();
+            const haystack = [
+                client.name,
+                client.email,
+                client.phone,
+                client.institution_name,
+                client.contact_person_name,
+                client.contact_person_email,
+                client.address_ktp,
+                client.address_domicile,
+            ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
 
-                return haystack.includes(term);
-            });
+            return haystack.includes(term);
+        });
     }, [clients, typeFilter, searchTerm]);
 
     const totalClients = filteredClients.length;

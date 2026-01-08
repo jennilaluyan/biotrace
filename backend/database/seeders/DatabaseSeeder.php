@@ -23,6 +23,7 @@ class DatabaseSeeder extends Seeder
             UnitsSeeder::class,
             MethodsSeeder::class,
             ParametersSeeder::class,
+            QCControlsSeeder::class,
         ]);
         $this->call(
             \Database\Seeders\ReportSignatureRoleSeeder::class
