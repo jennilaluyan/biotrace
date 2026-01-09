@@ -27,6 +27,7 @@ use App\Http\Controllers\QcRunController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ReportSignatureController;
+use App\Http\Controllers\CoaPdfController;
 
 /*
 |--------------------------------------------------------------------------
@@ -173,5 +174,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/samples/{id}/reports', [ReportController::class, 'store']);  // generate
         Route::get('/reports/{id}', [ReportController::class, 'show']);           // detail
         Route::post('/reports/{id}/sign', [ReportSignatureController::class, 'sign']); // sign
+
+        Route::get('/samples/{id}/coa', [CoaPdfController::class, 'downloadBySample']);
     });
 });
