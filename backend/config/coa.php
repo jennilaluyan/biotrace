@@ -4,6 +4,44 @@ return [
     // Kode lab untuk nomor laporan / identitas dokumen
     'lab_code' => env('LAB_CODE', 'UNSRAT-BML'),
 
+    /**
+     * Context mapping (NO assumptions hardcoded in code)
+     */
+    'access' => [
+        // Default LH role_id (ubah lewat .env kalau ternyata beda)
+        'lab_head_role_id' => (int) env('COA_LH_ROLE_ID', 6),
+    ],
+
+    'client_type' => [
+        // Field di table clients untuk menentukan jenis client
+        'field' => env('COA_CLIENT_TYPE_FIELD', 'type'),
+
+        // value yang dianggap INSTITUSI
+        'institution_values' => array_filter(array_map('trim', explode(',', env('COA_INSTITUTION_VALUES', 'institution,institusi,instansi,company')))),
+
+        // value yang dianggap INDIVIDU
+        'individual_values' => array_filter(array_map('trim', explode(',', env('COA_INDIVIDUAL_VALUES', 'individual,individu,personal')))),
+    ],
+
+    /**
+     * LH signature resolver:
+     * Kita tidak asumsi fieldnya apa; kita coba beberapa kandidat.
+     * Nanti Step 6 kita pakai resolver ini untuk inject ttd ke PDF.
+     */
+    'lab_head_signature' => [
+        // Field-field yang akan dicoba di model staff/user (urut prioritas)
+        'candidate_fields' => array_filter(array_map('trim', explode(',', env(
+            'COA_SIGNATURE_FIELDS',
+            'signature_path,signature_url,signature_image,signature,ttd_path,ttd_url'
+        )))),
+
+        // Kalau signature disimpan sebagai file path, disk yang dipakai untuk baca file
+        'disk' => env('COA_SIGNATURE_DISK', 'public'),
+
+        // Kalau signature disimpan base64 (data URI), kita akan decode saat generate PDF (Step 6)
+        'allow_base64' => (bool) env('COA_SIGNATURE_ALLOW_BASE64', true),
+    ],
+
     // Storage lokasi PDF yang digenerate
     'storage_disk' => env('COA_STORAGE_DISK', 'local'),
     'storage_path' => env('COA_STORAGE_PATH', 'reports/coa'),
