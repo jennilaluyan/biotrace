@@ -1,42 +1,51 @@
 @extends('reports.coa.layout')
 
 @section('content')
+<style>
+@page { margin: 40px; }
+
+.watermark {
+    position: fixed;
+    top: 40%;
+    left: 10%;
+    width: 80%;
+    text-align: center;
+    opacity: 0.12;
+    font-size: 72px;
+    font-weight: bold;
+    transform: rotate(-30deg);
+    z-index: -1000;
+}
+
+.qr {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    width: 90px;
+}
+</style>
+
+@if($report->is_locked)
+    <div class="watermark">FINAL / LOCKED</div>
+@endif
+
 @php
     $lab = $lab ?? [];
 
-    $reportNo = $reportNo ?? ($report['report_no'] ?? ($report->report_no ?? ''));
-    $clientName = $clientName ?? ($client['name'] ?? ($client->name ?? ''));
-    $clientType = $clientType ?? ($client['type'] ?? ($client->type ?? 'individual'));
-
-    $sampleId = $sampleId ?? ($sample['sample_id'] ?? ($sample->sample_id ?? ''));
-    $sampleType = $sampleType ?? ($sample['sample_type'] ?? ($sample->sample_type ?? ''));
-    $receivedAt = $receivedAt ?? ($sample['received_at'] ?? ($sample->received_at ?? null));
-
-    $printedAt = $printedAt ?? ($printed_at ?? now());
-
-    $items = $items ?? ($reportItems ?? ($report_items ?? []));
-    $map = [];
-    foreach ($items as $it) {
-        $p = $it['parameter_name'] ?? ($it->parameter_name ?? '');
-        $k = strtoupper(trim((string)$p));
-        if ($k !== '') $map[$k] = $it;
-    }
-    $getVal = function(string $key) use ($map) {
-        $it = $map[strtoupper($key)] ?? null;
-        if (!$it) return '-';
-        $v = $it['result_value'] ?? ($it->result_value ?? ($it['value_final'] ?? ($it->value_final ?? null)));
-        $u = $it['unit_label'] ?? ($it->unit_label ?? '');
-        $v = ($v === null || $v === '') ? '-' : $v;
-        $u = ($u === null) ? '' : $u;
-        return trim((string)$v . ' ' . (string)$u);
-    };
-
-    $overall = $overall_result ?? ($overallResult ?? '-');
-    $signatureDataUri = $signature_data_uri ?? null;
+    $reportNo = $report->report_no ?? '-';
+    $clientName = $client->name ?? '-';
+    $sampleId = $sample->sample_id ?? '-';
+    $sampleType = $sample->sample_type ?? '-';
+    $receivedAt = $sample->received_at ?? null;
+    $printedAt = now();
 
     $fmtDate = function($dt) {
         if (!$dt) return '-';
-        try { return \Illuminate\Support\Carbon::parse($dt)->format('d/m/Y'); } catch (\Throwable $e) { return (string)$dt; }
+        try {
+            return \Illuminate\Support\Carbon::parse($dt)->format('d/m/Y');
+        } catch (\Throwable $e) {
+            return (string) $dt;
+        }
     };
 @endphp
 
@@ -57,7 +66,7 @@
         </td>
         <td class="text-right" style="width: 18%;">
             <div class="small">No. CoA</div>
-            <div class="text-bold">{{ $reportNo ?: '-' }}</div>
+            <div class="text-bold">{{ $reportNo }}</div>
         </td>
     </tr>
 </table>
@@ -69,66 +78,51 @@
 </div>
 
 <table class="tbl mb-10">
-    <tr>
-        <td class="label">Nama Pelanggan</td>
-        <td class="value">{{ $clientName ?: '-' }}</td>
-    </tr>
-    <tr>
-        <td class="label">Kode Sampel Lab</td>
-        <td class="value">{{ $sampleId ?: '-' }}</td>
-    </tr>
-    <tr>
-        <td class="label">Jenis Sampel</td>
-        <td class="value">{{ $sampleType ?: '-' }}</td>
-    </tr>
-    <tr>
-        <td class="label">Tanggal Penerimaan Sampel</td>
-        <td class="value">{{ $fmtDate($receivedAt) }}</td>
-    </tr>
-    <tr>
-        <td class="label">Tanggal Cetak Hasil</td>
-        <td class="value">{{ $fmtDate($printedAt) }}</td>
-    </tr>
+    <tr><td class="label">Nama Pelanggan</td><td>{{ $clientName }}</td></tr>
+    <tr><td class="label">Kode Sampel Lab</td><td>{{ $sampleId }}</td></tr>
+    <tr><td class="label">Jenis Sampel</td><td>{{ $sampleType }}</td></tr>
+    <tr><td class="label">Tanggal Terima</td><td>{{ $fmtDate($receivedAt) }}</td></tr>
+    <tr><td class="label">Tanggal Cetak</td><td>{{ $fmtDate($printedAt) }}</td></tr>
 </table>
 
 <table class="tbl mb-10">
-    <tr class="text-center text-bold">
-        <td style="width: 22%;">Nama Pelanggan</td>
-        <td style="width: 16%;">Kode Sampel Lab</td>
-        <td style="width: 12%;">ORF1b</td>
-        <td style="width: 12%;">RdRp</td>
-        <td style="width: 12%;">RPP30</td>
-        <td style="width: 26%;">Hasil Pengujian</td>
+    <tr class="text-bold text-center">
+        <td>Parameter</td>
+        <td>Metode</td>
+        <td>Hasil</td>
+        <td>Satuan</td>
     </tr>
-    <tr class="text-center">
-        <td>{{ $clientName ?: '-' }}</td>
-        <td>{{ $sampleId ?: '-' }}</td>
-        <td>{{ $getVal('ORF1b') }}</td>
-        <td>{{ $getVal('RdRp') }}</td>
-        <td>{{ $getVal('RPP30') }}</td>
-        <td>{{ $overall }}</td>
-    </tr>
+    @foreach($items as $it)
+        <tr class="text-center">
+            <td>{{ $it->parameter_name }}</td>
+            <td>{{ $it->method_name }}</td>
+            <td>{{ $it->result_value ?? '-' }}</td>
+            <td>{{ $it->unit_label ?? '-' }}</td>
+        </tr>
+    @endforeach
 </table>
 
-<div class="small mb-10">
-    Catatan: Hasil pada sertifikat ini berlaku untuk sampel yang diuji.
-</div>
-
-<table class="no-border" style="margin-top: 18px;">
+<table class="no-border" style="margin-top: 24px;">
     <tr>
         <td style="width: 55%;"></td>
-        <td style="width: 45%;">
-            <div class="text-center mb-6">Manado, {{ $fmtDate($printedAt) }}</div>
-            <div class="text-center text-bold mb-6">Kepala Laboratorium</div>
-            <div class="signature-box text-center">
-                @if(!empty($signatureDataUri))
-                    <img src="{{ $signatureDataUri }}" style="height: 70px;">
-                @endif
-            </div>
-            <div class="text-center text-bold mt-6">
-                {{ $lab_head_name ?? ($labHeadName ?? 'LAB HEAD') }}
+        <td style="width: 45%; text-align: center;">
+            <div>Manado, {{ $fmtDate($printedAt) }}</div>
+            <div class="text-bold mt-6">Kepala Laboratorium</div>
+            <div class="signature-box" style="height: 70px;"></div>
+            <div class="text-bold mt-6">
+                {{ optional($signatures->firstWhere('role_code','LH')->signer)->name ?? 'LAB HEAD' }}
             </div>
         </td>
     </tr>
 </table>
+
+@if($report->is_locked)
+    <div class="qr">
+        <img
+            src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=https://google.com"
+            width="90"
+            alt="QR Verification"
+        >
+    </div>
+@endif
 @endsection
