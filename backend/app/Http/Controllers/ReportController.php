@@ -71,6 +71,65 @@ class ReportController extends Controller
     }
 
     /**
+     * POST /api/v1/reports/{id}/finalize
+     * Finalize & lock report (Lab Head only).
+     */
+    public function finalize(Request $request, int $id): JsonResponse
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        // LH only (role_id = 6)
+        if ((int) ($user->role_id ?? 0) !== 6) {
+            return response()->json(['message' => 'Forbidden. Lab Head only.'], 403);
+        }
+
+        $report = Report::query()->where('report_id', $id)->first();
+        if (!$report) {
+            return response()->json(['message' => 'Report not found.'], 404);
+        }
+
+        if ($report->is_locked) {
+            return response()->json([
+                'message' => 'Report already finalized.',
+            ], 409);
+        }
+
+        $signature = \App\Models\ReportSignature::query()
+            ->where('report_id', $id)
+            ->where('role_code', 'LH')
+            ->first();
+
+        if (!$signature) {
+            return response()->json([
+                'message' => 'LH signature slot not found.',
+            ], 409);
+        }
+
+        DB::transaction(function () use ($report, $signature, $user) {
+            $now = now();
+
+            // Sign as LH
+            $signature->signed_by = $user->staff_id;
+            $signature->signed_at = $now;
+            $signature->save();
+
+            // Lock report
+            $report->is_locked = true;
+            $report->updated_at = $now;
+            $report->save();
+        });
+
+        return response()->json([
+            'message' => 'Report finalized and locked.',
+            'report_id' => $report->report_id,
+            'locked' => true,
+        ], 200);
+    }
+
+    /**
      * Build full report payload without depending on Eloquent relations
      * (safe even if relations are not defined yet).
      */

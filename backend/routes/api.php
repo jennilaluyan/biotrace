@@ -174,6 +174,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/samples/{id}/reports', [ReportController::class, 'store']);  // generate
         Route::get('/reports/{id}', [ReportController::class, 'show']);           // detail
         Route::post('/reports/{id}/sign', [ReportSignatureController::class, 'sign']); // sign
+        Route::post('/reports/{id}/finalize', [ReportController::class, 'finalize']);
 
         Route::middleware(['auth:sanctum', 'role:LH'])->group(function () {
             Route::get('/reports/{id}', [ReportController::class, 'show']);
