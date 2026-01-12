@@ -23,7 +23,7 @@ class CoaPdfController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $report = $this->reportGeneration->generateForSample($sampleId, $actorStaffId);
+        $report = \App\Models\Report::where('sample_id', $sampleId)->first();
 
         // 🔒 NO RE-GENERATE IF LOCKED
         if ($report->is_locked && $report->pdf_url) {
