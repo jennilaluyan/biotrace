@@ -32,6 +32,13 @@ class CoaPdfController extends Controller
             if (Storage::disk($disk)->exists($report->pdf_url)) {
                 $binary = Storage::disk($disk)->get($report->pdf_url);
 
+                // 🔎 VERIFIKASI HASH
+                $currentHash = hash('sha256', $binary);
+
+                if ($report->document_hash !== $currentHash) {
+                    abort(409, 'Document integrity check failed.');
+                }
+
                 return response($binary, 200, [
                     'Content-Type' => 'application/pdf',
                     'Content-Disposition' =>
@@ -57,6 +64,12 @@ class CoaPdfController extends Controller
 
         $view = $this->coaPdf->resolveView($templateKey);
 
+        $hashForQr = $report->document_hash ?: 'pending';
+
+        $qrBinary = $this->coaPdf->generateQrPng(
+            url('/api/public/verify/coa/' . $hashForQr)
+        );
+
         $payload = [
             'report' => $report,
             'sample' => $report->sample,
@@ -64,14 +77,24 @@ class CoaPdfController extends Controller
             'items' => $report->items,
             'signatures' => $report->signatures,
             'templateKey' => $templateKey,
+
+            'qr_data_uri' => 'data:image/png;base64,' . base64_encode($qrBinary),
         ];
 
         $binary = $this->coaPdf->render($view, $payload);
 
+        // 🔐 HITUNG DOCUMENT HASH (SHA-256)
+        $documentHash = hash('sha256', $binary);
+
         $path = $this->coaPdf->buildPath($report->report_no, $templateKey);
         $this->coaPdf->store($path, $binary);
 
+        // 🔒 SIMPAN SEKALI SAJA (SOURCE OF TRUTH)
+        $hash = hash('sha256', $binary);
+
         $report->pdf_url = $path;
+        $report->document_hash = $hash;
+        $report->is_locked = true;
         $report->save();
 
         return response($binary, 200, [

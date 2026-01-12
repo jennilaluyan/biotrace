@@ -28,6 +28,7 @@ use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ReportSignatureController;
 use App\Http\Controllers\CoaPdfController;
+use App\Http\Controllers\PublicCoaVerificationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -184,4 +185,9 @@ Route::prefix('v1')->group(function () {
 
         Route::get('/samples/{id}/coa', [CoaPdfController::class, 'downloadBySample']);
     });
+
+    Route::get('/verify/coa/{hash}', [
+        PublicCoaVerificationController::class,
+        'verify'
+    ]);
 });

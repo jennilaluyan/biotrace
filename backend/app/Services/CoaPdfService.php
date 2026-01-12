@@ -40,4 +40,12 @@ class CoaPdfService
     {
         Storage::disk($this->disk())->put($path, $binary);
     }
+
+    public function generateQrPng(string $url): string
+    {
+        return \SimpleSoftwareIO\QrCode\Facades\QrCode::format('png')
+            ->size(120)
+            ->margin(1)
+            ->generate($url);
+    }
 }
