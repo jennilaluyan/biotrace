@@ -111,9 +111,20 @@ class ReportController extends Controller
         DB::transaction(function () use ($report, $signature, $user) {
             $now = now();
 
+            // Build canonical payload
+            $payload = $this->buildSignaturePayload(
+                $report->report_id,
+                $user->staff_id,
+                $now->toISOString()
+            );
+
+            // Deterministic SHA-256
+            $hash = hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE));
+
             // Sign as LH
             $signature->signed_by = $user->staff_id;
             $signature->signed_at = $now;
+            $signature->signature_hash = $hash;
             $signature->save();
 
             // Lock report
@@ -155,6 +166,41 @@ class ReportController extends Controller
             'report' => $report,
             'items' => $items,
             'signatures' => $signatures,
+        ];
+    }
+
+    /**
+     * Build canonical payload for digital signature hashing.
+     */
+    private function buildSignaturePayload(int $reportId, int $signedBy, string $signedAt): array
+    {
+        $report = DB::table('reports')
+            ->where('report_id', $reportId)
+            ->first();
+
+        $items = DB::table('report_items')
+            ->where('report_id', $reportId)
+            ->orderBy('order_no')
+            ->get()
+            ->map(fn($i) => [
+                'parameter' => $i->parameter_name,
+                'method' => $i->method_name,
+                'value' => $i->result_value,
+                'unit' => $i->unit_label,
+                'flags' => $i->flags,
+                'interpretation' => $i->interpretation,
+            ])
+            ->values()
+            ->all();
+
+        return [
+            'report_id' => $report->report_id,
+            'report_no' => $report->report_no,
+            'sample_id' => $report->sample_id,
+            'generated_at' => (string) $report->generated_at,
+            'items' => $items,
+            'signed_by' => $signedBy,
+            'signed_at' => $signedAt,
         ];
     }
 }
