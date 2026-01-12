@@ -9,6 +9,8 @@ use App\Models\Sample;
 use App\Models\SampleTest;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
+use Illuminate\Support\Facades\Schema;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class ReportGenerationService
 {
@@ -28,6 +30,89 @@ class ReportGenerationService
      *
      * pdf_url: placeholder for now (controller later will update)
      */
+
+    private function sampleStatusColumn(): string
+    {
+        // supaya tidak asumsi nama kolom
+        if (Schema::hasColumn('samples', 'current_status')) return 'current_status';
+        if (Schema::hasColumn('samples', 'status')) return 'status';
+        return 'current_status'; // fallback (kalau schema check gagal)
+    }
+
+    private function qcMode(): array
+    {
+        // cek kolom QC mana yang ada, urut prioritas
+        if (Schema::hasColumn('sample_tests', 'qc_done')) {
+            return ['type' => 'bool', 'field' => 'qc_done', 'pass' => true];
+        }
+
+        if (Schema::hasColumn('sample_tests', 'qc_summary_status')) {
+            // biasanya: pass / warning / fail → kita butuh PASS semua
+            return ['type' => 'string', 'field' => 'qc_summary_status', 'pass' => 'pass'];
+        }
+
+        if (Schema::hasColumn('sample_tests', 'qc_status')) {
+            return ['type' => 'string', 'field' => 'qc_status', 'pass' => 'pass'];
+        }
+
+        // jika belum ada kolom QC sama sekali, kita fail-safe: jangan allow create CoA
+        return ['type' => 'none', 'field' => null, 'pass' => null];
+    }
+
+    private function assertCoaEligibleForCreationOrFail(int $sampleId): void
+    {
+        $statusCol = $this->sampleStatusColumn();
+
+        $sample = \App\Models\Sample::query()
+            ->select(['sample_id', $statusCol])
+            ->where('sample_id', $sampleId)
+            ->first();
+
+        if (!$sample) {
+            throw new ConflictHttpException('Sample not found.');
+        }
+
+        $sampleStatus = (string) ($sample->{$statusCol} ?? '');
+        if ($sampleStatus !== 'validated') {
+            throw new ConflictHttpException('Sample belum boleh dibuatkan CoA. Status sample harus "validated".');
+        }
+
+        // semua sample_tests harus validated
+        $hasNotValidated = \App\Models\SampleTest::query()
+            ->where('sample_id', $sampleId)
+            ->where('status', '!=', 'validated')
+            ->exists();
+
+        if ($hasNotValidated) {
+            throw new ConflictHttpException('Semua sample tests harus "validated" sebelum CoA dibuat.');
+        }
+
+        // QC PASS semua
+        $qc = $this->qcMode();
+        if ($qc['type'] === 'none') {
+            throw new ConflictHttpException('QC field tidak ditemukan di sample_tests. Tidak bisa membuat CoA.');
+        }
+
+        $qcFailExists = \App\Models\SampleTest::query()
+            ->where('sample_id', $sampleId)
+            ->where(function ($q) use ($qc) {
+                $field = $qc['field'];
+
+                if ($qc['type'] === 'bool') {
+                    $q->whereNull($field)->orWhere($field, '!=', true);
+                    return;
+                }
+
+                // string mode
+                $q->whereNull($field)->orWhere($field, '!=', (string) $qc['pass']);
+            })
+            ->exists();
+
+        if ($qcFailExists) {
+            throw new ConflictHttpException('QC harus PASS untuk semua test sebelum CoA dibuat.');
+        }
+    }
+
     public function generateForSample(int $sampleId, int $actorStaffId): Report
     {
         return DB::transaction(function () use ($sampleId, $actorStaffId) {
@@ -37,11 +122,17 @@ class ReportGenerationService
                 throw new RuntimeException('Sample not found.');
             }
 
-            // Prevent duplicate report
-            $existing = Report::query()->where('sample_id', $sampleId)->first();
+            $existing = \App\Models\Report::query()
+                ->where('sample_id', $sampleId)
+                ->latest('report_id')
+                ->first();
+
             if ($existing) {
                 return $existing;
             }
+
+            // Enforce eligibility untuk create
+            $this->assertCoaEligibleForCreationOrFail($sampleId);
 
             // Validate tests states (keep query minimal)
             $tests = SampleTest::query()
