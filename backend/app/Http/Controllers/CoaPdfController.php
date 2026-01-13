@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Report;
+use App\Models\AuditLog;
 use App\Services\CoaPdfService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,19 +19,21 @@ class CoaPdfController extends Controller
     {
         $staff = $request->user();
 
-        // ✅ HANYA ROLE SAH
+        /**
+         * 🔐 STEP 8 — STRICT ROLE ACCESS
+         * ALLOWED:
+         * - Operational Manager (role_id = 5)
+         * - Laboratory Head     (role_id = 6)
+         */
         if (
             !$staff ||
-            !in_array((int) $staff->role_id, [
-                5, // Operational Manager
-                6, // Laboratory Head
-            ])
+            !in_array((int) $staff->role_id, [5, 6], true)
         ) {
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
         $report = Report::where('sample_id', $sampleId)->firstOrFail();
-        $disk = $this->coaPdf->disk();
+        $disk   = $this->coaPdf->disk();
 
         /**
          * 🔒 IMMUTABLE MODE (SELF-HEALING)
@@ -41,14 +44,27 @@ class CoaPdfController extends Controller
                 $binary = Storage::disk($disk)->get($report->pdf_url);
 
                 if (hash('sha256', $binary) === $report->document_hash) {
+
+                    // ✅ STEP 7 — AUDIT LOG
+                    AuditLog::create([
+                        'staff_id'   => $staff->staff_id,
+                        'entity_name' => 'report',
+                        'entity_id'  => $report->report_id,
+                        'action'     => 'VIEW_COA',
+                        'ip_address' => $request->ip(),
+                        'new_values' => [
+                            'hash' => $report->document_hash,
+                        ],
+                    ]);
+
                     return response($binary, 200, [
-                        'Content-Type' => 'application/pdf',
+                        'Content-Type'        => 'application/pdf',
                         'Content-Disposition' => 'inline; filename="coa.pdf"',
                     ]);
                 }
             }
 
-            // ❌ FILE HILANG / HASH RUSAK → RESET
+            // ❌ FILE / HASH RUSAK → RESET STATE
             $report->update([
                 'pdf_url'       => null,
                 'document_hash' => null,
@@ -57,14 +73,14 @@ class CoaPdfController extends Controller
         }
 
         /**
-         * 🔓 GENERATE MODE (ONCE)
+         * 🔓 GENERATE MODE (ONCE ONLY)
          */
         $report->loadMissing(['sample.client', 'items', 'signatures']);
 
         // 1️⃣ Placeholder URL
         $verificationUrl = '__HASH__';
 
-        // 2️⃣ Payload (BERSIH)
+        // 2️⃣ Payload awal (tanpa QR)
         $payload = [
             'report'          => $report,
             'sample'          => $report->sample,
@@ -92,7 +108,7 @@ class CoaPdfController extends Controller
         // 5️⃣ Verification URL FINAL
         $verificationUrl = url('/api/v1/verify/coa/' . $hash);
 
-        // 6️⃣ QR CODE
+        // 6️⃣ Generate QR
         $qrPng = file_get_contents(
             'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' .
                 urlencode($verificationUrl)
@@ -100,7 +116,7 @@ class CoaPdfController extends Controller
 
         // 7️⃣ Render FINAL + QR
         $payload['verificationUrl'] = $verificationUrl;
-        $payload['qr_data_uri'] = 'data:image/png;base64,' . base64_encode($qrPng);
+        $payload['qr_data_uri']     = 'data:image/png;base64,' . base64_encode($qrPng);
 
         $binaryFinal = $this->coaPdf->renderWithMetadata(
             'reports.coa.individual',
@@ -128,8 +144,20 @@ class CoaPdfController extends Controller
             'is_locked'     => true,
         ]);
 
+        // ✅ STEP 7 — AUDIT LOG (GENERATE)
+        AuditLog::create([
+            'staff_id'   => $staff->staff_id,
+            'entity_name' => 'report',
+            'entity_id'  => $report->report_id,
+            'action'     => 'GENERATE_COA',
+            'ip_address' => $request->ip(),
+            'new_values' => [
+                'hash' => hash('sha256', $binaryFinal),
+            ],
+        ]);
+
         return response($binaryFinal, 200, [
-            'Content-Type' => 'application/pdf',
+            'Content-Type'        => 'application/pdf',
             'Content-Disposition' => 'inline; filename="coa.pdf"',
         ]);
     }
