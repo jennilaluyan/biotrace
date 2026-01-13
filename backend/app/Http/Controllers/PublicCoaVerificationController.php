@@ -50,4 +50,26 @@ class PublicCoaVerificationController extends Controller
             ],
         ]);
     }
+
+    public function show(string $hash)
+    {
+        $report = Report::query()
+            ->with(['sample.client'])
+            ->where('document_hash', $hash)
+            ->where('is_locked', true)
+            ->first();
+
+        if (!$report) {
+            return view('public.coa.invalid', [
+                'hash' => $hash,
+            ]);
+        }
+
+        return view('public.coa.valid', [
+            'report' => $report,
+            'sample' => $report->sample,
+            'client' => $report->sample?->client,
+            'hash'   => $hash,
+        ]);
+    }
 }

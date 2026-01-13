@@ -17,90 +17,119 @@ class CoaPdfController extends Controller
     public function downloadBySample(Request $request, int $sampleId)
     {
         $staff = $request->user();
-        $actorStaffId = (int) ($staff->staff_id ?? 0);
-
-        if ($actorStaffId <= 0) {
+        if (!$staff || !$staff->staff_id) {
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $report = \App\Models\Report::where('sample_id', $sampleId)->first();
+        $report = \App\Models\Report::where('sample_id', $sampleId)->firstOrFail();
+        $disk = $this->coaPdf->disk();
 
-        // 🔒 NO RE-GENERATE IF LOCKED
+        /**
+         * 🔒 IMMUTABLE MODE
+         */
         if ($report->is_locked && $report->pdf_url) {
-            $disk = $this->coaPdf->disk();
-
-            if (Storage::disk($disk)->exists($report->pdf_url)) {
-                $binary = Storage::disk($disk)->get($report->pdf_url);
-
-                // 🔎 VERIFIKASI HASH
-                $currentHash = hash('sha256', $binary);
-
-                if ($report->document_hash !== $currentHash) {
-                    abort(409, 'Document integrity check failed.');
-                }
-
-                return response($binary, 200, [
-                    'Content-Type' => 'application/pdf',
-                    'Content-Disposition' =>
-                    'inline; filename="' . ($report->report_no ?: 'coa') . '.pdf"',
-                ]);
+            if (!Storage::disk($disk)->exists($report->pdf_url)) {
+                abort(500, 'Locked PDF missing.');
             }
+
+            $binary = Storage::disk($disk)->get($report->pdf_url);
+
+            if (hash('sha256', $binary) !== $report->document_hash) {
+                abort(409, 'Document integrity check failed.');
+            }
+
+            return response($binary, 200, [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'inline; filename="coa.pdf"',
+            ]);
         }
 
-        // load data only if NOT locked
+        /**
+         * 🔓 GENERATE MODE (ONCE)
+         */
         $report->loadMissing(['sample.client', 'items', 'signatures']);
 
-        $client = $report->sample?->client;
-        $clientType = strtolower((string)(
-            data_get($client, 'client_type')
-            ?? data_get($client, 'type')
-            ?? 'individual'
-        ));
-
-        $requestedTemplate = (string) $request->query('template_key', '');
-        $templateKey = $clientType === 'institution'
-            ? ($requestedTemplate ?: 'institution_v1')
-            : 'individual';
-
-        $view = $this->coaPdf->resolveView($templateKey);
-
-        $hashForQr = $report->document_hash ?: 'pending';
-
-        $qrBinary = $this->coaPdf->generateQrPng(
-            url('/api/public/verify/coa/' . $hashForQr)
-        );
-
+        /**
+         * 1️⃣ Render FINAL TANPA QR → dapatkan HASH
+         */
         $payload = [
-            'report' => $report,
-            'sample' => $report->sample,
-            'client' => $client,
-            'items' => $report->items,
-            'signatures' => $report->signatures,
-            'templateKey' => $templateKey,
-
-            'qr_data_uri' => 'data:image/png;base64,' . base64_encode($qrBinary),
+            'report'          => $report,
+            'sample'          => $report->sample,
+            'client'          => $report->sample->client,
+            'items'           => $report->items,
+            'signatures'      => $report->signatures,
+            'qr_data_uri'     => null,
+            'verificationUrl' => null,
         ];
 
-        $binary = $this->coaPdf->render($view, $payload);
+        $binaryDraft = $this->coaPdf->render(
+            'reports.coa.individual',
+            $payload
+        );
 
-        // 🔐 HITUNG DOCUMENT HASH (SHA-256)
-        $documentHash = hash('sha256', $binary);
+        $hash = hash('sha256', $binaryDraft);
 
-        $path = $this->coaPdf->buildPath($report->report_no, $templateKey);
-        $this->coaPdf->store($path, $binary);
+        /**
+         * 2️⃣ Verification URL BERDASARKAN HASH FINAL
+         */
+        $verificationUrl = url('/api/v1/verify/coa/' . $hash);
 
-        // 🔒 SIMPAN SEKALI SAJA (SOURCE OF TRUTH)
-        $hash = hash('sha256', $binary);
+        /**
+         * 3️⃣ Generate QR (BASE64)
+         */
+        $qrPng = file_get_contents(
+            'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data='
+                . urlencode($verificationUrl)
+        );
 
-        $report->pdf_url = $path;
-        $report->document_hash = $hash;
-        $report->is_locked = true;
-        $report->save();
+        $payload['qr_data_uri'] = 'data:image/png;base64,' . base64_encode($qrPng);
+        $payload['verificationUrl'] = $verificationUrl;
 
-        return response($binary, 200, [
+        /**
+         * 4️⃣ Metadata (STEP 6.4)
+         */
+        $meta = [
+            'title'   => 'COA ' . $report->report_no,
+            'author'  => 'Laboratorium Biomolekuler UNSRAT',
+            'subject' => 'Certificate of Analysis',
+            'keywords' => implode(', ', [
+                'COA',
+                $report->report_no,
+                'BioTrace',
+                'UNSRAT',
+            ]),
+            'legal_marker' => implode(' | ', [
+                'BioTrace COA',
+                'ReportNo=' . $report->report_no,
+                'Hash=' . $hash,
+                'Verify=' . $verificationUrl,
+            ]),
+        ];
+
+        /**
+         * 5️⃣ FINAL RENDER (QR + METADATA)
+         */
+        $binaryFinal = $this->coaPdf->renderWithMetadata(
+            'reports.coa.individual',
+            $payload,
+            $meta
+        );
+
+        /**
+         * 6️⃣ SIMPAN & LOCK
+         */
+        $path = $this->coaPdf->buildPath($report->report_no, 'individual');
+        $this->coaPdf->store($path, $binaryFinal);
+
+        $report->update([
+            'pdf_url'       => $path,
+            'document_hash' => $hash,
+            'is_locked'     => true,
+        ]);
+
+        return response($binaryFinal, 200, [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' =>
-            'inline; filename="' . ($report->report_no ?: 'coa') . '.pdf"',
+            'Content-Disposition' => 'inline; filename="coa.pdf"',
         ]);
     }
 }

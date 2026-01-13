@@ -48,4 +48,35 @@ class CoaPdfService
             ->margin(1)
             ->generate($url);
     }
+
+    public function renderWithMetadata(
+        string $view,
+        array $payload,
+        array $meta
+    ): string {
+        /** @var \Barryvdh\DomPDF\PDF $pdf */
+        $pdf = Pdf::loadView($view, $payload)->setPaper('a4', 'portrait');
+
+        $dompdf = $pdf->getDomPDF();
+
+        // ✅ METADATA RESMI
+        $dompdf->addInfo('Title', $meta['title'] ?? 'Certificate of Analysis');
+        $dompdf->addInfo('Author', $meta['author'] ?? 'BioTrace LIMS');
+        $dompdf->addInfo('Subject', $meta['subject'] ?? 'Laboratory Test Result');
+        $dompdf->addInfo('Keywords', $meta['keywords'] ?? '');
+
+        // 🧾 FORENSIC MARKER (HALUS)
+        if (!empty($meta['legal_marker'])) {
+            $pdf->getCanvas()->page_text(
+                20,
+                820,
+                $meta['legal_marker'],
+                null,
+                6,
+                [0.95, 0.95, 0.95]
+            );
+        }
+
+        return $pdf->output();
+    }
 }

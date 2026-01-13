@@ -283,25 +283,34 @@
 
     <table width="100%" style="margin-top: 20px;">
         <tr>
-            <td width="40%"></td> {{-- Spacer dikurangi --}}
+            <td width="40%"></td>
+
+            {{-- KOLOM TTD --}}
             <td width="60%" align="center">
-                <p style="font-weight: bold; margin-bottom: 50px;">
+
+                <p style="font-weight: bold; margin-bottom: 8px;">
                     KEPALA LABORATORIUM BIOMOLEKULER UNSRAT
                 </p>
 
-                {{-- STEP 5.3 QR CODE --}}
+                {{-- QR VERIFICATION (DI DALAM TTD) --}}
                 @if(!empty($qr_data_uri))
-                    <div class="qr-box">
-                        <img src="{{ $qr_data_uri }}">
+                    <div style="margin: 8px 0;">
+                        <img
+                            src="{{ $qr_data_uri }}"
+                            style="width:90px;height:90px;"
+                            alt="QR Verification"
+                        >
                     </div>
                 @endif
 
                 <p style="font-weight: bold; text-decoration: underline; margin-bottom: 0;">
                     Dr. dr. Janno B. B. Bernadus, M.Biomed, Sp.KKLP
                 </p>
+
                 <p style="margin-top: 2px;">
                     NIP. 197010262005011003
                 </p>
+
             </td>
         </tr>
     </table>
