@@ -19,7 +19,7 @@ class AuditLogExportTest extends TestCase
         // Setup role & staff
         // --------------------------------
         $role = Role::create([
-            'name' => 'Lab Head',
+            'name' => 'Laboratory Head',
         ]);
 
         $staff = Staff::factory()->create([

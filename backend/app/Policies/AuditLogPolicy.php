@@ -14,11 +14,9 @@ class AuditLogPolicy
      * - Operational Manager
      * - Laboratory Head
      */
-    public function viewAny(Staff $staff): bool
+    public function viewAny(Staff $user): bool
     {
-        $roleName = $staff->role?->name;
-
-        return in_array($roleName, [
+        return in_array($user->role?->name, [
             'Operational Manager',
             'Laboratory Head',
         ], true);
