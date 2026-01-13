@@ -8,6 +8,8 @@ use Illuminate\Http\JsonResponse;
 use App\Http\Requests\StoreClientRequest;
 use App\Http\Requests\UpdateClientRequest;
 use App\Support\ApiResponse;
+use App\Support\AuditLogger;
+use App\Enums\AuditAction;
 
 class ClientController extends Controller
 {
@@ -90,7 +92,34 @@ class ClientController extends Controller
     {
         $this->authorize('delete', $client);
 
-        $client->delete(); // soft delete sudah diatur di model + migration
+        /** @var \App\Models\Staff|null $staff */
+        $staff = \Illuminate\Support\Facades\Auth::user();
+
+        if (!$staff) {
+            // ApiResponse::error BUTUH 3 ARGUMENT POSITIONAL
+            return ApiResponse::error(
+                'Authenticated staff not found.',
+                500,
+                'AUTH_STAFF_NOT_FOUND'
+            );
+        }
+
+        // 🔎 AUDIT LOG — WAJIB SEBELUM DELETE
+        AuditLogger::write(
+            action: AuditAction::CLIENT_DELETED->value,
+            staffId: $staff->staff_id,
+            entityName: 'clients',
+            entityId: $client->client_id,
+            oldValues: [
+                'name'      => $client->name,
+                'email'     => $client->email,
+                'is_active' => $client->is_active,
+            ],
+            newValues: null
+        );
+
+        // Soft delete / deactivate
+        $client->delete();
 
         return ApiResponse::success(
             data: null,

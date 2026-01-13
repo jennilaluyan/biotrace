@@ -215,7 +215,10 @@
 
     <table class="result-table">
         <tr style="background-color: #eee;">
-            <th rowspan="2" width="30%">Kode Sampel Pelanggan<br><span class="small-text">Customer Sample ID</span></th>
+            <th rowspan="2" width="30%">
+                Kode Sampel Lab<br>
+                <span class="small-text">Customer Sample ID</span>
+            </th>
             <th colspan="3">Gen Target (Targeted Gene)</th>
             <th rowspan="2" width="25%">Hasil Pengujian<br><span class="small-text">Result</span></th>
         </tr>
@@ -295,11 +298,7 @@
                 {{-- QR VERIFICATION (DI DALAM TTD) --}}
                 @if(!empty($qr_data_uri))
                     <div style="margin: 8px 0;">
-                        <img
-                            src="{{ $qr_data_uri }}"
-                            style="width:90px;height:90px;"
-                            alt="QR Verification"
-                        >
+                        <img src="{{ $qr_data_uri }}" style="width:90px;height:90px;" alt="QR Verification">
                     </div>
                 @endif
 
