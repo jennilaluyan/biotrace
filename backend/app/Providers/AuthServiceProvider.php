@@ -25,6 +25,7 @@ class AuthServiceProvider extends ServiceProvider
         \App\Models\Reagent::class   => \App\Policies\ReagentPolicy::class,
         \App\Models\SampleTest::class => \App\Policies\SampleTestPolicy::class,
         ReagentCalcRule::class => ReagentCalcRulePolicy::class,
+        \App\Models\AuditLog::class => \App\Policies\AuditLogPolicy::class,
     ];
 
     public function boot(): void
