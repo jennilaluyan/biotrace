@@ -13,6 +13,88 @@ use RuntimeException;
 class ReportController extends Controller
 {
     /**
+     * GET /api/v1/reports
+     * List reports (QA / Lab Head).
+     */
+    public function index(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        // QA (Operational Manager) or Lab Head only
+        if (!in_array((int) ($user->role_id ?? 0), [5, 6])) {
+            // 5 = OM / QA, 6 = Lab Head
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
+
+        $perPage = max(1, (int) $request->query('per_page', 10));
+        $q = trim((string) $request->query('q', ''));
+        $date = $request->query('date');
+
+        /**
+         * BASE QUERY
+         * - join samples + clients agar search client_name WORK
+         * - select minimal fields (performance-safe)
+         */
+        $query = DB::table('reports')
+            ->join('samples', 'samples.sample_id', '=', 'reports.sample_id')
+            ->join('clients', 'clients.client_id', '=', 'samples.client_id')
+            ->select(
+                'reports.report_id',
+                'reports.report_no',
+                'reports.sample_id',
+                'clients.name as client_name',
+                'reports.generated_at',
+                'reports.is_locked'
+            )
+            ->orderByDesc('reports.generated_at');
+
+        /**
+         * SEARCH FILTER
+         * q → report_no OR client_name OR sample_id
+         */
+        if ($q !== '') {
+            $qLower = mb_strtolower($q);
+
+            $query->where(function ($sub) use ($qLower) {
+                $sub->whereRaw('LOWER(reports.report_no) LIKE ?', ["%{$qLower}%"])
+                    ->orWhereRaw('LOWER(clients.name) LIKE ?', ["%{$qLower}%"])
+                    ->orWhereRaw('CAST(reports.sample_id AS CHAR) LIKE ?', ["%{$qLower}%"]);
+            });
+        }
+
+        /**
+         * DATE FILTER
+         */
+        if ($date) {
+            match ($date) {
+                'today' => $query->whereDate('reports.generated_at', now()),
+                '7d'    => $query->where('reports.generated_at', '>=', now()->subDays(7)),
+                '30d'   => $query->where('reports.generated_at', '>=', now()->subDays(30)),
+                default => null,
+            };
+        }
+
+        /**
+         * PAGINATION
+         */
+        $reports = $query->paginate($perPage);
+
+        /**
+         * RESPONSE FORMAT — TETAP SAMA (LOCKED)
+         */
+        return response()->json([
+            'current_page' => $reports->currentPage(),
+            'data'         => $reports->items(),
+            'per_page'     => $reports->perPage(),
+            'total'        => $reports->total(),
+            'last_page'    => $reports->lastPage(),
+        ], 200);
+    }
+
+    /**
      * POST /api/v1/samples/{id}/reports
      * Generate report for sample (MVP infra).
      */

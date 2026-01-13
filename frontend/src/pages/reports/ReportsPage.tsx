@@ -1,18 +1,10 @@
 // src/pages/reports/ReportsPage.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
+import { fetchReports, ReportRow, Paginator } from "../../services/reports";
 
 type DateFilter = "all" | "today" | "7d" | "30d";
-
-type ReportRow = {
-    report_id: number;
-    report_no: string;
-    client_name: string;
-    sample_code: string;
-    generated_at: string;
-    status: "draft" | "locked";
-};
 
 const PAGE_SIZE = 10;
 
@@ -26,8 +18,8 @@ export const ReportsPage = () => {
         roleId === ROLE_ID.OPERATIONAL_MANAGER ||
         roleId === ROLE_ID.LAB_HEAD;
 
-    // --- UI states ---
-    const [reports, setReports] = useState<ReportRow[]>([]);
+    // ---- state ----
+    const [pager, setPager] = useState<Paginator<ReportRow> | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -36,41 +28,56 @@ export const ReportsPage = () => {
     const [dateFilter, setDateFilter] = useState<DateFilter>("all");
     const [currentPage, setCurrentPage] = useState(1);
 
-    /**
-     * STEP 2:
-     * Belum fetch API.
-     * Dummy empty state agar UI & routing valid.
-     */
+    // ---- fetch ----
+    const loadReports = async (opts?: { keepPage?: boolean }) => {
+        try {
+            setLoading(true);
+            setError(null);
+
+            const page = opts?.keepPage ? currentPage : 1;
+
+            const data = await fetchReports({
+                page,
+                per_page: PAGE_SIZE,
+                q: searchTerm.trim() || undefined,
+                date: dateFilter !== "all" ? dateFilter : undefined,
+            });
+
+            // 🔍 VALIDASI STRUKTUR RESPONSE
+            if (!data || !Array.isArray(data.data)) {
+                console.warn("Unexpected reports response", data);
+            }
+            setPager(data);
+
+            if (!opts?.keepPage) setCurrentPage(1);
+        } catch (err: any) {
+            const msg =
+                err?.data?.message ??
+                err?.message ??
+                "Failed to load reports.";
+            setError(msg);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // initial + pagination
     useEffect(() => {
         if (!canViewReports) return;
-        setLoading(false);
-        setReports([]);
-    }, [canViewReports]);
+        loadReports({ keepPage: true });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [canViewReports, currentPage]);
 
     useEffect(() => {
+        if (!canViewReports) return;
         setCurrentPage(1);
-    }, [searchTerm, dateFilter, reports.length]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchTerm, dateFilter]);
 
-    // --- Filtering (future-proof) ---
-    const filteredReports = useMemo(() => {
-        if (!searchTerm.trim()) return reports;
-
-        const term = searchTerm.toLowerCase();
-        return reports.filter((r) =>
-            [r.report_no, r.client_name, r.sample_code]
-                .join(" ")
-                .toLowerCase()
-                .includes(term)
-        );
-    }, [reports, searchTerm]);
-
-    const totalReports = filteredReports.length;
-    const totalPages = Math.max(1, Math.ceil(totalReports / PAGE_SIZE));
-
-    const paginatedReports = useMemo(() => {
-        const start = (currentPage - 1) * PAGE_SIZE;
-        return filteredReports.slice(start, start + PAGE_SIZE);
-    }, [filteredReports, currentPage]);
+    // ---- derived ----
+    const items: ReportRow[] = pager?.data ?? [];
+    const totalReports = pager?.total ?? 0;
+    const totalPages = pager?.last_page ?? 1;
 
     const handlePageChange = (page: number) => {
         if (page < 1 || page > totalPages) return;
@@ -85,8 +92,8 @@ export const ReportsPage = () => {
                 </h1>
                 <p className="text-sm text-gray-600">
                     Your role{" "}
-                    <span className="font-semibold">({roleLabel})</span> is not allowed to
-                    access reports.
+                    <span className="font-semibold">({roleLabel})</span> is not
+                    allowed to access reports.
                 </p>
             </div>
         );
@@ -94,7 +101,7 @@ export const ReportsPage = () => {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Page header */}
+            {/* Header */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <h1 className="text-lg md:text-xl font-bold text-gray-900">
                     Reports
@@ -128,7 +135,9 @@ export const ReportsPage = () => {
                                 id="report-search"
                                 type="text"
                                 value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
+                                onChange={(e) =>
+                                    setSearchTerm(e.target.value)
+                                }
                                 placeholder="Search by report no, client, sample…"
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
@@ -136,14 +145,19 @@ export const ReportsPage = () => {
                     </div>
 
                     <div className="w-full md:w-48">
-                        <label className="sr-only" htmlFor="report-date-filter">
+                        <label
+                            className="sr-only"
+                            htmlFor="report-date-filter"
+                        >
                             Date filter
                         </label>
                         <select
                             id="report-date-filter"
                             value={dateFilter}
                             onChange={(e) =>
-                                setDateFilter(e.target.value as DateFilter)
+                                setDateFilter(
+                                    e.target.value as DateFilter
+                                )
                             }
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
@@ -153,6 +167,15 @@ export const ReportsPage = () => {
                             <option value="30d">Last 30 days</option>
                         </select>
                     </div>
+
+                    <button
+                        type="button"
+                        className="lims-btn-primary"
+                        onClick={() => loadReports({ keepPage: false })}
+                        disabled={loading}
+                    >
+                        Apply
+                    </button>
                 </div>
 
                 {/* Content */}
@@ -171,7 +194,7 @@ export const ReportsPage = () => {
 
                     {!loading && !error && (
                         <>
-                            {filteredReports.length === 0 ? (
+                            {items.length === 0 ? (
                                 <div className="text-sm text-gray-600">
                                     No reports found.
                                 </div>
@@ -180,15 +203,25 @@ export const ReportsPage = () => {
                                     <table className="min-w-full text-sm">
                                         <thead className="bg-gray-50">
                                             <tr className="text-xs text-gray-500 uppercase tracking-wide">
-                                                <th className="px-4 py-3 text-left">Report No</th>
-                                                <th className="px-4 py-3 text-left">Client</th>
-                                                <th className="px-4 py-3 text-left">Sample</th>
-                                                <th className="px-4 py-3 text-left">Generated At</th>
-                                                <th className="px-4 py-3 text-right">Actions</th>
+                                                <th className="px-4 py-3 text-left">
+                                                    Report No
+                                                </th>
+                                                <th className="px-4 py-3 text-left">
+                                                    Client
+                                                </th>
+                                                <th className="px-4 py-3 text-left">
+                                                    Sample
+                                                </th>
+                                                <th className="px-4 py-3 text-left">
+                                                    Generated At
+                                                </th>
+                                                <th className="px-4 py-3 text-right">
+                                                    Actions
+                                                </th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {paginatedReports.map((r) => (
+                                            {items.map((r) => (
                                                 <tr
                                                     key={r.report_id}
                                                     className="border-t border-gray-100 hover:bg-gray-50/60"
@@ -200,10 +233,10 @@ export const ReportsPage = () => {
                                                         {r.client_name}
                                                     </td>
                                                     <td className="px-4 py-3 text-gray-700">
-                                                        {r.sample_code}
+                                                        #{r.sample_id}
                                                     </td>
                                                     <td className="px-4 py-3 text-gray-700">
-                                                        {r.generated_at}
+                                                        {new Date(r.generated_at).toLocaleString()}
                                                     </td>
                                                     <td className="px-4 py-3 text-right">
                                                         <button
@@ -221,7 +254,11 @@ export const ReportsPage = () => {
                                                                 strokeLinejoin="round"
                                                             >
                                                                 <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
-                                                                <circle cx="12" cy="12" r="3" />
+                                                                <circle
+                                                                    cx="12"
+                                                                    cy="12"
+                                                                    r="3"
+                                                                />
                                                             </svg>
                                                         </button>
                                                     </td>
@@ -237,7 +274,9 @@ export const ReportsPage = () => {
                                             <span className="font-semibold">
                                                 {totalReports === 0
                                                     ? 0
-                                                    : (currentPage - 1) * PAGE_SIZE + 1}
+                                                    : (currentPage - 1) *
+                                                    PAGE_SIZE +
+                                                    1}
                                             </span>{" "}
                                             –{" "}
                                             <span className="font-semibold">
@@ -257,7 +296,9 @@ export const ReportsPage = () => {
                                             <button
                                                 type="button"
                                                 onClick={() =>
-                                                    handlePageChange(currentPage - 1)
+                                                    handlePageChange(
+                                                        currentPage - 1
+                                                    )
                                                 }
                                                 disabled={currentPage === 1}
                                                 className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
@@ -272,7 +313,9 @@ export const ReportsPage = () => {
                                                 <button
                                                     key={page}
                                                     type="button"
-                                                    onClick={() => handlePageChange(page)}
+                                                    onClick={() =>
+                                                        handlePageChange(page)
+                                                    }
                                                     className={`px-3 py-1 rounded-full text-xs border ${page === currentPage
                                                         ? "bg-primary text-white border-primary"
                                                         : "bg-white text-gray-700 hover:bg-gray-50"
@@ -285,9 +328,13 @@ export const ReportsPage = () => {
                                             <button
                                                 type="button"
                                                 onClick={() =>
-                                                    handlePageChange(currentPage + 1)
+                                                    handlePageChange(
+                                                        currentPage + 1
+                                                    )
                                                 }
-                                                disabled={currentPage === totalPages}
+                                                disabled={
+                                                    currentPage === totalPages
+                                                }
                                                 className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
                                             >
                                                 Next
