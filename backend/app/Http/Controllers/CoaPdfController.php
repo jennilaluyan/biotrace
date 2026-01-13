@@ -17,38 +17,54 @@ class CoaPdfController extends Controller
     public function downloadBySample(Request $request, int $sampleId)
     {
         $staff = $request->user();
-        if (!$staff || !$staff->staff_id) {
-            return response()->json(['message' => 'Unauthenticated.'], 401);
+
+        // ✅ HANYA ROLE SAH
+        if (
+            !$staff ||
+            !in_array((int) $staff->role_id, [
+                5, // Operational Manager
+                6, // Laboratory Head
+            ])
+        ) {
+            return response()->json(['message' => 'Forbidden.'], 403);
         }
 
-        $report = \App\Models\Report::where('sample_id', $sampleId)->firstOrFail();
+        $report = Report::where('sample_id', $sampleId)->firstOrFail();
         $disk = $this->coaPdf->disk();
 
         /**
-         * 🔒 IMMUTABLE MODE
+         * 🔒 IMMUTABLE MODE (SELF-HEALING)
          */
         if ($report->is_locked && $report->pdf_url) {
-            $binary = Storage::disk($disk)->get($report->pdf_url);
 
-            if (hash('sha256', $binary) !== $report->document_hash) {
-                abort(409, 'Document integrity check failed.');
+            if (Storage::disk($disk)->exists($report->pdf_url)) {
+                $binary = Storage::disk($disk)->get($report->pdf_url);
+
+                if (hash('sha256', $binary) === $report->document_hash) {
+                    return response($binary, 200, [
+                        'Content-Type' => 'application/pdf',
+                        'Content-Disposition' => 'inline; filename="coa.pdf"',
+                    ]);
+                }
             }
 
-            return response($binary, 200, [
-                'Content-Type' => 'application/pdf',
-                'Content-Disposition' => 'inline; filename="coa.pdf"',
+            // ❌ FILE HILANG / HASH RUSAK → RESET
+            $report->update([
+                'pdf_url'       => null,
+                'document_hash' => null,
+                'is_locked'     => false,
             ]);
         }
 
         /**
-         * 🔓 GENERATE MODE (ONCE ONLY)
+         * 🔓 GENERATE MODE (ONCE)
          */
         $report->loadMissing(['sample.client', 'items', 'signatures']);
 
-        // 1️⃣ Verification URL placeholder
+        // 1️⃣ Placeholder URL
         $verificationUrl = '__HASH__';
 
-        // 2️⃣ Payload FINAL (QR BELUM ADA)
+        // 2️⃣ Payload (BERSIH)
         $payload = [
             'report'          => $report,
             'sample'          => $report->sample,
@@ -59,7 +75,7 @@ class CoaPdfController extends Controller
             'qr_data_uri'     => null,
         ];
 
-        // 3️⃣ Render FINAL SEKALI SAJA
+        // 3️⃣ Render TANPA QR
         $binary = $this->coaPdf->renderWithMetadata(
             'reports.coa.individual',
             $payload,
@@ -70,7 +86,7 @@ class CoaPdfController extends Controller
             ]
         );
 
-        // 4️⃣ HASH DARI PDF FINAL
+        // 4️⃣ HASH FINAL
         $hash = hash('sha256', $binary);
 
         // 5️⃣ Verification URL FINAL
@@ -82,7 +98,7 @@ class CoaPdfController extends Controller
                 urlencode($verificationUrl)
         );
 
-        // 7️⃣ Render ULANG SEKALI (FINAL + QR)
+        // 7️⃣ Render FINAL + QR
         $payload['verificationUrl'] = $verificationUrl;
         $payload['qr_data_uri'] = 'data:image/png;base64,' . base64_encode($qrPng);
 
@@ -102,7 +118,7 @@ class CoaPdfController extends Controller
             ]
         );
 
-        // 8️⃣ SIMPAN PDF FINAL (INI YANG DIHASH)
+        // 8️⃣ SIMPAN & LOCK
         $path = $this->coaPdf->buildPath($report->report_no, 'individual');
         $this->coaPdf->store($path, $binaryFinal);
 
@@ -120,7 +136,10 @@ class CoaPdfController extends Controller
 
     public function downloadByReport(int $reportId, Request $request)
     {
-        $report = DB::table('reports')->where('report_id', $reportId)->firstOrFail();
+        $report = DB::table('reports')
+            ->where('report_id', $reportId)
+            ->firstOrFail();
+
         return $this->downloadBySample($request, (int) $report->sample_id);
     }
 }
