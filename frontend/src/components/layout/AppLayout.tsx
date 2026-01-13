@@ -52,6 +52,15 @@ export const AppLayout = () => {
         ]
         : [];
 
+    // Reports menu (QA / Lab Head only)
+    const canSeeReports =
+        roleId === ROLE_ID.OPERATIONAL_MANAGER ||
+        roleId === ROLE_ID.LAB_HEAD;
+
+    const reportItems: NavItem[] = canSeeReports
+        ? [{ label: "Reports", path: "/reports", icon: "check" }]
+        : [];
+
     // ✅ Step 6: Audit Logs menu item
     const auditItems: NavItem[] = canSeeAuditLogs
         ? [{ label: "Audit Logs", path: "/audit-logs", icon: "check" }]
@@ -61,6 +70,7 @@ export const AppLayout = () => {
     const navItems: NavItem[] = [
         ...baseItems,
         ...qaItems,
+        ...reportItems,
         ...auditItems,
         ...adminItems,
         ...labHeadItems,
