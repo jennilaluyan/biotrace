@@ -5,6 +5,8 @@ namespace App\Support;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Request as RequestFacade;
 use Illuminate\Support\Carbon;
+use App\Enums\AuditAction;
+use App\Support\AuditDiffBuilder;
 
 class AuditLogger
 {
@@ -20,18 +22,28 @@ class AuditLogger
         ?array $newValues = null
     ): void {
 
-        // Kalau staff_id atau entity_id null → jangan log
+        // Jangan log kalau actor atau entity tidak ada
         if (is_null($staffId) || is_null($entityId)) {
             return;
         }
 
         $req = RequestFacade::instance();
 
+        // normalize action
+        $normalizedAction = strtoupper($action);
+
+        foreach (AuditAction::cases() as $case) {
+            if ($case->value === $normalizedAction) {
+                $normalizedAction = $case->value;
+                break;
+            }
+        }
+
         DB::table('audit_logs')->insert([
             'staff_id'    => $staffId,
             'entity_name' => $entityName,
             'entity_id'   => $entityId,
-            'action'      => strtoupper($action),
+            'action'      => $normalizedAction,
             'timestamp'   => Carbon::now('UTC'),
             'ip_address'  => $req->ip(),
             'old_values'  => $oldValues ? json_encode($oldValues) : null,
@@ -94,17 +106,27 @@ class AuditLogger
         string $newStatus,
         ?string $note = null
     ): void {
+        // Build normalized diff (ISO-friendly)
+        $diff = AuditDiffBuilder::fromArrays(
+            ['status' => $oldStatus],
+            ['status' => $newStatus]
+        );
+
+        // Tambahkan metadata tambahan kalau ada (tidak mengubah diff utama)
+        if ($note !== null) {
+            $diff['_meta'] = [
+                'note' => $note,
+                'client_id' => $clientId,
+            ];
+        }
+
         self::write(
             action: 'SAMPLE_STATUS_CHANGED',
             staffId: $staffId,
             entityName: 'samples',
             entityId: $sampleId,
-            oldValues: ['status' => $oldStatus],
-            newValues: [
-                'status' => $newStatus,
-                'client_id' => $clientId,
-                'note' => $note,
-            ]
+            oldValues: $diff,
+            newValues: null
         );
     }
 }
