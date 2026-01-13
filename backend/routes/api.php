@@ -172,6 +172,7 @@ Route::prefix('v1')->group(function () {
 
         Route::get('/audit-logs', [AuditLogController::class, 'index']);
         Route::get('/audit-logs/export', [AuditLogController::class, 'exportCsv']);
+        Route::get('/audit-logs/export/pdf', [AuditLogController::class, 'exportPdf']);
 
         Route::post('/samples/{id}/reports', [ReportController::class, 'store']);  // generate
         Route::get('/reports/{id}', [ReportController::class, 'show']);           // detail

@@ -8,21 +8,27 @@ use App\Models\Staff;
 class AuditLogPolicy
 {
     /**
-     * Only Operational Manager & Lab Head can view audit logs.
+     * Audit logs adalah data sensitif ISO 17025.
+     *
+     * HANYA:
+     * - Operational Manager
+     * - Laboratory Head
      */
     public function viewAny(Staff $staff): bool
     {
-        if (!$staff->relationLoaded('role')) {
-            $staff->load('role');
-        }
+        $roleName = $staff->role?->name;
 
-        if (!$staff->role) {
-            return false;
-        }
-
-        return in_array($staff->role->name, [
+        return in_array($roleName, [
             'Operational Manager',
-            'Lab Head',
+            'Laboratory Head',
         ], true);
+    }
+
+    /**
+     * Detail audit log mengikuti aturan yang sama.
+     */
+    public function view(Staff $staff, AuditLog $log): bool
+    {
+        return $this->viewAny($staff);
     }
 }
