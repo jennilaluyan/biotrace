@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Request as RequestFacade;
 use Illuminate\Support\Carbon;
 use App\Enums\AuditAction;
+use App\Support\AuditDiffBuilder;
 
 class AuditLogger
 {
@@ -105,17 +106,27 @@ class AuditLogger
         string $newStatus,
         ?string $note = null
     ): void {
+        // Build normalized diff (ISO-friendly)
+        $diff = AuditDiffBuilder::fromArrays(
+            ['status' => $oldStatus],
+            ['status' => $newStatus]
+        );
+
+        // Tambahkan metadata tambahan kalau ada (tidak mengubah diff utama)
+        if ($note !== null) {
+            $diff['_meta'] = [
+                'note' => $note,
+                'client_id' => $clientId,
+            ];
+        }
+
         self::write(
             action: 'SAMPLE_STATUS_CHANGED',
             staffId: $staffId,
             entityName: 'samples',
             entityId: $sampleId,
-            oldValues: ['status' => $oldStatus],
-            newValues: [
-                'status' => $newStatus,
-                'client_id' => $clientId,
-                'note' => $note,
-            ]
+            oldValues: $diff,
+            newValues: null
         );
     }
 }
