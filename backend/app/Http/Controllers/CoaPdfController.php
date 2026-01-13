@@ -2,16 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Report;
 use App\Services\CoaPdfService;
-use App\Services\ReportGenerationService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage; // ✅ FIX INTELEPHENSE
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class CoaPdfController extends Controller
 {
     public function __construct(
-        private readonly ReportGenerationService $reportGeneration,
-        private readonly CoaPdfService $coaPdf,
+        private readonly CoaPdfService $coaPdf
     ) {}
 
     public function downloadBySample(Request $request, int $sampleId)
@@ -28,10 +28,6 @@ class CoaPdfController extends Controller
          * 🔒 IMMUTABLE MODE
          */
         if ($report->is_locked && $report->pdf_url) {
-            if (!Storage::disk($disk)->exists($report->pdf_url)) {
-                abort(500, 'Locked PDF missing.');
-            }
-
             $binary = Storage::disk($disk)->get($report->pdf_url);
 
             if (hash('sha256', $binary) !== $report->document_hash) {
@@ -45,85 +41,74 @@ class CoaPdfController extends Controller
         }
 
         /**
-         * 🔓 GENERATE MODE (ONCE)
+         * 🔓 GENERATE MODE (ONCE ONLY)
          */
         $report->loadMissing(['sample.client', 'items', 'signatures']);
 
-        /**
-         * 1️⃣ Render FINAL TANPA QR → dapatkan HASH
-         */
+        // 1️⃣ Verification URL placeholder
+        $verificationUrl = '__HASH__';
+
+        // 2️⃣ Payload FINAL (QR BELUM ADA)
         $payload = [
             'report'          => $report,
             'sample'          => $report->sample,
             'client'          => $report->sample->client,
             'items'           => $report->items,
             'signatures'      => $report->signatures,
+            'verificationUrl' => $verificationUrl,
             'qr_data_uri'     => null,
-            'verificationUrl' => null,
         ];
 
-        $binaryDraft = $this->coaPdf->render(
+        // 3️⃣ Render FINAL SEKALI SAJA
+        $binary = $this->coaPdf->renderWithMetadata(
             'reports.coa.individual',
-            $payload
+            $payload,
+            [
+                'title'   => 'COA ' . $report->report_no,
+                'author'  => 'Laboratorium Biomolekuler UNSRAT',
+                'subject' => 'Certificate of Analysis',
+            ]
         );
 
-        $hash = hash('sha256', $binaryDraft);
+        // 4️⃣ HASH DARI PDF FINAL
+        $hash = hash('sha256', $binary);
 
-        /**
-         * 2️⃣ Verification URL BERDASARKAN HASH FINAL
-         */
+        // 5️⃣ Verification URL FINAL
         $verificationUrl = url('/api/v1/verify/coa/' . $hash);
 
-        /**
-         * 3️⃣ Generate QR (BASE64)
-         */
+        // 6️⃣ QR CODE
         $qrPng = file_get_contents(
-            'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data='
-                . urlencode($verificationUrl)
+            'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' .
+                urlencode($verificationUrl)
         );
 
-        $payload['qr_data_uri'] = 'data:image/png;base64,' . base64_encode($qrPng);
+        // 7️⃣ Render ULANG SEKALI (FINAL + QR)
         $payload['verificationUrl'] = $verificationUrl;
+        $payload['qr_data_uri'] = 'data:image/png;base64,' . base64_encode($qrPng);
 
-        /**
-         * 4️⃣ Metadata (STEP 6.4)
-         */
-        $meta = [
-            'title'   => 'COA ' . $report->report_no,
-            'author'  => 'Laboratorium Biomolekuler UNSRAT',
-            'subject' => 'Certificate of Analysis',
-            'keywords' => implode(', ', [
-                'COA',
-                $report->report_no,
-                'BioTrace',
-                'UNSRAT',
-            ]),
-            'legal_marker' => implode(' | ', [
-                'BioTrace COA',
-                'ReportNo=' . $report->report_no,
-                'Hash=' . $hash,
-                'Verify=' . $verificationUrl,
-            ]),
-        ];
-
-        /**
-         * 5️⃣ FINAL RENDER (QR + METADATA)
-         */
         $binaryFinal = $this->coaPdf->renderWithMetadata(
             'reports.coa.individual',
             $payload,
-            $meta
+            [
+                'title'   => 'COA ' . $report->report_no,
+                'author'  => 'Laboratorium Biomolekuler UNSRAT',
+                'subject' => 'Certificate of Analysis',
+                'legal_marker' => implode(' | ', [
+                    'BioTrace COA',
+                    'ReportNo=' . $report->report_no,
+                    'Hash=' . $hash,
+                    'Verify=' . $verificationUrl,
+                ]),
+            ]
         );
 
-        /**
-         * 6️⃣ SIMPAN & LOCK
-         */
+        // 8️⃣ SIMPAN PDF FINAL (INI YANG DIHASH)
         $path = $this->coaPdf->buildPath($report->report_no, 'individual');
         $this->coaPdf->store($path, $binaryFinal);
 
         $report->update([
             'pdf_url'       => $path,
-            'document_hash' => $hash,
+            'document_hash' => hash('sha256', $binaryFinal),
             'is_locked'     => true,
         ]);
 
@@ -131,5 +116,11 @@ class CoaPdfController extends Controller
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="coa.pdf"',
         ]);
+    }
+
+    public function downloadByReport(int $reportId, Request $request)
+    {
+        $report = DB::table('reports')->where('report_id', $reportId)->firstOrFail();
+        return $this->downloadBySample($request, (int) $report->sample_id);
     }
 }

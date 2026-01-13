@@ -181,10 +181,11 @@ Route::prefix('v1')->group(function () {
 
         Route::get('/reports', [ReportController::class, 'index']);
         Route::get('/reports/{id}', [ReportController::class, 'show']);
-        Route::get('/reports/{id}/pdf', [ReportController::class, 'pdf']);
         Route::post('/reports/{id}/sign', [ReportSignatureController::class, 'sign']);
+        Route::post('/reports/{id}/finalize', [ReportController::class, 'finalize']);
 
-        Route::get('/samples/{id}/coa', [CoaPdfController::class, 'downloadBySample']);
+        Route::get('/reports/{reportId}/pdf', [CoaPdfController::class, 'downloadByReport']);
+        Route::get('/samples/{sampleId}/coa', [CoaPdfController::class, 'downloadBySample']);
     });
 
     Route::get('/verify/coa/{hash}', [

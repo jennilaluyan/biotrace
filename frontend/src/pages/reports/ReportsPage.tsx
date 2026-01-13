@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import { fetchReports, ReportRow, Paginator } from "../../services/reports";
+import { ReportPreviewModal } from "../../components/reports/ReportPreviewModal";
 
 type DateFilter = "all" | "today" | "7d" | "30d";
 
@@ -27,6 +28,8 @@ export const ReportsPage = () => {
     const [searchTerm, setSearchTerm] = useState("");
     const [dateFilter, setDateFilter] = useState<DateFilter>("all");
     const [currentPage, setCurrentPage] = useState(1);
+
+    const [previewReportId, setPreviewReportId] = useState<number | null>(null);
 
     // ---- fetch ----
     const loadReports = async (opts?: { keepPage?: boolean }) => {
@@ -242,6 +245,7 @@ export const ReportsPage = () => {
                                                         <button
                                                             type="button"
                                                             className="lims-icon-button text-gray-600"
+                                                            onClick={() => setPreviewReportId(r.report_id)}
                                                             aria-label="View report"
                                                         >
                                                             <svg
@@ -347,6 +351,12 @@ export const ReportsPage = () => {
                     )}
                 </div>
             </div>
+            <ReportPreviewModal
+                open={previewReportId !== null}
+                reportId={previewReportId}
+                onClose={() => setPreviewReportId(null)}
+            />
+
         </div>
     );
 };
