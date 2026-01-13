@@ -24,6 +24,7 @@ import { QAParametersPage } from "../pages/qa/QAParametersPage";
 import { QAMethodsPage } from "../pages/qa/QAMethodsPage";
 
 import { AuditLogsPage } from "../pages/audit/AuditLogsPage";
+import { ReportsPage } from "../pages/reports/ReportsPage";
 
 export const AppRouter = () => {
     return (
@@ -134,6 +135,21 @@ export const AppRouter = () => {
                     />
 
                     <Route path="/audit-logs" element={<AuditLogsPage />} />
+
+                    <Route
+                        path="/reports"
+                        element={
+                            <RoleGuard
+                                allowedRoleIds={[
+                                    ROLE_ID.OPERATIONAL_MANAGER,
+                                    ROLE_ID.LAB_HEAD,
+                                ]}
+                            >
+                                <ReportsPage />
+                            </RoleGuard>
+                        }
+                    />
+
                 </Route>
             </Route>
 
