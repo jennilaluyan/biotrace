@@ -31,6 +31,7 @@ use App\Http\Controllers\CoaPdfController;
 use App\Http\Controllers\PublicCoaVerificationController;
 use App\Http\Controllers\SampleRequestStatusController;
 use App\Http\Controllers\SampleRequestQueueController;
+use App\Http\Controllers\ClientSampleRequestController; // ✅ ADD THIS
 
 /*
 |--------------------------------------------------------------------------
@@ -87,6 +88,21 @@ Route::prefix('v1')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/auth/me', [AuthController::class, 'me']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
+
+        // =========================
+        // CLIENT PORTAL - SAMPLE REQUEST (Step 2.5) ✅ NEW
+        // =========================
+        Route::prefix('client')->group(function () {
+            Route::get('samples', [ClientSampleRequestController::class, 'index']);
+
+            Route::post('samples', [ClientSampleRequestController::class, 'store']);
+
+            Route::get('samples/{sample}', [ClientSampleRequestController::class, 'show'])
+                ->whereNumber('sample');
+
+            Route::post('samples/{sample}/submit', [ClientSampleRequestController::class, 'submit'])
+                ->whereNumber('sample');
+        });
 
         Route::get('/parameters', [ParameterController::class, 'index']);
         Route::post('/parameters', [ParameterController::class, 'store']);
@@ -176,7 +192,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/audit-logs/export/pdf', [AuditLogController::class, 'exportPdf']);
 
         // =========================
-        // REPORTS 
+        // REPORTS
         // =========================
 
         // Generate report by sample
@@ -204,7 +220,6 @@ Route::prefix('v1')->group(function () {
 
         Route::get('/samples/{sample}/coa', [CoaPdfController::class, 'downloadBySample'])
             ->whereNumber('sample');
-
 
         // =========================
         // SAMPLES (static route first + numeric binding)

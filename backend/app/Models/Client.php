@@ -4,10 +4,12 @@ namespace App\Models;
 
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
 
 class Client extends Authenticatable
 {
+    use HasApiTokens, Notifiable, SoftDeletes;
 
     protected $primaryKey = 'client_id';
     public $incrementing = true;
