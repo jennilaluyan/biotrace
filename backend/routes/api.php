@@ -30,6 +30,7 @@ use App\Http\Controllers\ReportSignatureController;
 use App\Http\Controllers\CoaPdfController;
 use App\Http\Controllers\PublicCoaVerificationController;
 use App\Http\Controllers\SampleRequestStatusController;
+use App\Http\Controllers\SampleRequestQueueController;
 
 /*
 |--------------------------------------------------------------------------
@@ -108,7 +109,6 @@ Route::prefix('v1')->group(function () {
         Route::get('clients/{client}/samples', [ClientController::class, 'samples']);
 
         Route::get('samples', [SampleController::class, 'index']);
-        Route::get('samples/{sample}', [SampleController::class, 'show']);
         Route::post('samples', [SampleController::class, 'store']);
         Route::post('samples/{sample}/status', [SampleController::class, 'updateStatus']);
         Route::get('samples/{sample}/status-history', [SampleStatusHistoryController::class, 'index']);
@@ -188,7 +188,12 @@ Route::prefix('v1')->group(function () {
         Route::get('/reports/{reportId}/pdf', [CoaPdfController::class, 'downloadByReport']);
         Route::get('/samples/{sampleId}/coa', [CoaPdfController::class, 'downloadBySample']);
 
-        Route::post('samples/{sample}/request-status', [SampleRequestStatusController::class, 'update']);
+        Route::get('samples/requests', [SampleRequestQueueController::class, 'index']);
+
+        Route::get('samples/{sample}', [SampleController::class, 'show']);
+        Route::post('samples', [SampleController::class, 'store']);
+        Route::post('samples/{sample}/status', [SampleController::class, 'updateStatus']);
+        Route::get('samples/{sample}/status-history', [SampleStatusHistoryController::class, 'index']);
     });
 
     Route::get('/verify/coa/{hash}', [
