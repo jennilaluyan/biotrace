@@ -29,6 +29,7 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ReportSignatureController;
 use App\Http\Controllers\CoaPdfController;
 use App\Http\Controllers\PublicCoaVerificationController;
+use App\Http\Controllers\SampleRequestStatusController;
 
 /*
 |--------------------------------------------------------------------------
@@ -186,6 +187,8 @@ Route::prefix('v1')->group(function () {
 
         Route::get('/reports/{reportId}/pdf', [CoaPdfController::class, 'downloadByReport']);
         Route::get('/samples/{sampleId}/coa', [CoaPdfController::class, 'downloadBySample']);
+
+        Route::post('samples/{sample}/request-status', [SampleRequestStatusController::class, 'update']);
     });
 
     Route::get('/verify/coa/{hash}', [
