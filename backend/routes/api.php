@@ -175,25 +175,62 @@ Route::prefix('v1')->group(function () {
         Route::get('/audit-logs/export', [AuditLogController::class, 'exportCsv']);
         Route::get('/audit-logs/export/pdf', [AuditLogController::class, 'exportPdf']);
 
-        Route::post('/samples/{id}/reports', [ReportController::class, 'store']);  // generate
-        Route::get('/reports/{id}', [ReportController::class, 'show']);           // detail
-        Route::post('/reports/{id}/sign', [ReportSignatureController::class, 'sign']); // sign
-        Route::post('/reports/{id}/finalize', [ReportController::class, 'finalize']);
+        // =========================
+        // REPORTS 
+        // =========================
 
+        // Generate report by sample
+        Route::post('/samples/{sample}/reports', [ReportController::class, 'store'])
+            ->whereNumber('sample');
+
+        // List reports
         Route::get('/reports', [ReportController::class, 'index']);
-        Route::get('/reports/{id}', [ReportController::class, 'show']);
-        Route::post('/reports/{id}/sign', [ReportSignatureController::class, 'sign']);
-        Route::post('/reports/{id}/finalize', [ReportController::class, 'finalize']);
 
-        Route::get('/reports/{reportId}/pdf', [CoaPdfController::class, 'downloadByReport']);
-        Route::get('/samples/{sampleId}/coa', [CoaPdfController::class, 'downloadBySample']);
+        // Report detail
+        Route::get('/reports/{report}', [ReportController::class, 'show'])
+            ->whereNumber('report');
 
+        // Sign report
+        Route::post('/reports/{report}/sign', [ReportSignatureController::class, 'sign'])
+            ->whereNumber('report');
+
+        // Finalize report
+        Route::post('/reports/{report}/finalize', [ReportController::class, 'finalize'])
+            ->whereNumber('report');
+
+        // Download COA PDF
+        Route::get('/reports/{report}/pdf', [CoaPdfController::class, 'downloadByReport'])
+            ->whereNumber('report');
+
+        Route::get('/samples/{sample}/coa', [CoaPdfController::class, 'downloadBySample'])
+            ->whereNumber('sample');
+
+
+        // =========================
+        // SAMPLES (static route first + numeric binding)
+        // =========================
+
+        // ✅ static route MUST be before dynamic {sample}
         Route::get('samples/requests', [SampleRequestQueueController::class, 'index']);
 
-        Route::get('samples/{sample}', [SampleController::class, 'show']);
+        // ✅ IMPORTANT: request-status endpoint (yang dipakai SampleRequestStatusApiTest)
+        Route::post('samples/{sample}/request-status', [SampleRequestStatusController::class, 'update'])
+            ->whereNumber('sample');
+
+        // Sample detail
+        Route::get('samples/{sample}', [SampleController::class, 'show'])
+            ->whereNumber('sample');
+
+        // Create sample
         Route::post('samples', [SampleController::class, 'store']);
-        Route::post('samples/{sample}/status', [SampleController::class, 'updateStatus']);
-        Route::get('samples/{sample}/status-history', [SampleStatusHistoryController::class, 'index']);
+
+        // Update sample status (lab workflow)
+        Route::post('samples/{sample}/status', [SampleController::class, 'updateStatus'])
+            ->whereNumber('sample');
+
+        // Status history
+        Route::get('samples/{sample}/status-history', [SampleStatusHistoryController::class, 'index'])
+            ->whereNumber('sample');
     });
 
     Route::get('/verify/coa/{hash}', [

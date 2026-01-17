@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Support\AuditLogger;
 use App\Enums\SampleHighLevelStatus;
+use Illuminate\Support\Facades\Schema;
 
 class SampleController extends Controller
 {
@@ -145,6 +146,19 @@ class SampleController extends Controller
      */
     public function updateStatus(SampleStatusUpdateRequest $request, Sample $sample): JsonResponse
     {
+        // ✅ Gate: sebelum lab workflow jalan, sample harus sudah physically_received
+        // (cuma jalankan kalau kolom request_status memang ada)
+        if (Schema::hasColumn('samples', 'request_status')) {
+            if (($sample->request_status ?? null) !== 'physically_received') {
+                return response()->json([
+                    'message' => 'Sample belum diterima fisik oleh lab. Tidak boleh masuk lab workflow.',
+                    'errors'  => [
+                        'request_status' => [$sample->request_status ?? null],
+                    ],
+                ], 422);
+            }
+        }
+
         /** @var Staff $staff */
         $staff        = Auth::user();
         $targetStatus = $request->input('target_status');
