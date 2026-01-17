@@ -145,7 +145,13 @@ class SampleTestVerifyValidateTest extends TestCase
         if (str_contains($c, 'phone') || str_contains($c, 'tel')) return '081234567890';
         if (str_contains($c, 'address')) return 'Test Address';
         if (str_contains($c, 'type')) return 'individual';
-        if (str_contains($c, 'status')) return 'Active';
+
+        // ✅ FIX: request_status (workflow intake) harus pakai vocab yang valid (sesuai CHECK constraint)
+        if ($c === 'request_status') return 'physically_received';
+
+        // ✅ FIX: "Active/Inactive" hanya untuk kolom yang namanya PERSIS "status"
+        if ($c === 'status') return 'Active';
+
         if (str_contains($c, 'active')) return true;
         if (str_contains($c, 'verified')) return now();
         if (str_contains($c, 'password')) return bcrypt('password');
