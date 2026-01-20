@@ -1,12 +1,10 @@
 import axios, { AxiosRequestConfig, AxiosError } from "axios";
 
 const API_URL = import.meta.env.VITE_API_URL;
-
 if (!API_URL) {
     console.error("VITE_API_URL is not set");
 }
 
-// Buat 1 Axios instance pusat
 export const http = axios.create({
     baseURL: API_URL,
     withCredentials: true,
@@ -15,15 +13,34 @@ export const http = axios.create({
     },
 });
 
-// Helper untuk samakan perilaku dengan handleResponse lama
-function normalizeData(data: any) {
-    if (data === "" || data === undefined) {
-        return null;
+const AUTH_TOKEN_KEY = "biotrace_auth_token";
+
+export function setAuthToken(token: string | null) {
+    if (token && token.trim() !== "") {
+        localStorage.setItem(AUTH_TOKEN_KEY, token);
+        http.defaults.headers.common.Authorization = `Bearer ${token}`;
+    } else {
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        delete http.defaults.headers.common.Authorization;
     }
+}
+
+export function getAuthToken() {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+// bootstrap token on app load (so refresh still logged-in)
+const bootToken = getAuthToken();
+if (bootToken) {
+    http.defaults.headers.common.Authorization = `Bearer ${bootToken}`;
+}
+
+// Helper normalize
+function normalizeData(data: any) {
+    if (data === "" || data === undefined) return null;
     return data;
 }
 
-// Helper untuk bungkus Axios promise → bentuk {status, data} seperti sebelumnya
 async function handleAxios<T>(promise: Promise<any>): Promise<T> {
     try {
         const res = await promise;
@@ -37,46 +54,26 @@ async function handleAxios<T>(promise: Promise<any>): Promise<T> {
                 data: normalizeData(error.response.data),
             };
         }
-
         throw err;
     }
 }
 
-/**
- * Normalize path supaya tidak double "/api" ketika:
- * - baseURL = ".../api"
- * - path   = "/api/v1/...."
- *
- * Maka hasilnya: "/v1/...." (jadi request final tetap ".../api/v1/....")
- */
 function normalizePath(path: string) {
     let p = path.startsWith("/") ? path : `/${path}`;
-
-    const base = (http.defaults.baseURL ?? "").replace(/\/+$/, ""); // trim trailing "/"
+    const base = (http.defaults.baseURL ?? "").replace(/\/+$/, "");
     const baseHasApiSuffix = base.endsWith("/api");
 
     if (baseHasApiSuffix) {
-        // kalau path mulai dengan "/api" → buang prefix "/api"
         if (p === "/api") return "/";
         if (p.startsWith("/api/")) p = p.replace(/^\/api/, "");
     }
-
     return p;
 }
 
-// ----------------------------
-// GET (versi Axios)
-// ----------------------------
-export async function apiGet<T = any>(
-    path: string,
-    options?: AxiosRequestConfig
-) {
+export async function apiGet<T = any>(path: string, options?: AxiosRequestConfig) {
     return handleAxios<T>(http.get(normalizePath(path), options));
 }
 
-// ----------------------------
-// POST (versi Axios)
-// ----------------------------
 export async function apiPost<T = any>(
     path: string,
     body?: unknown,
@@ -94,9 +91,6 @@ export async function apiPost<T = any>(
     );
 }
 
-// ----------------------------
-// PATCH (versi Axios)
-// ----------------------------
 export async function apiPatch<T = any>(
     path: string,
     body?: unknown,
@@ -114,16 +108,13 @@ export async function apiPatch<T = any>(
     );
 }
 
-// ----------------------------
-// PUT (versi Axios)
-// ----------------------------
 export async function apiPut<T = any>(
     path: string,
     body?: unknown,
     options?: AxiosRequestConfig
 ) {
     return handleAxios<T>(
-        http.put(path, body, {
+        http.put(normalizePath(path), body, {
             headers: {
                 "Content-Type": "application/json",
                 Accept: "application/json",
@@ -134,12 +125,6 @@ export async function apiPut<T = any>(
     );
 }
 
-// ----------------------------
-// DELETE (versi Axios)
-// ----------------------------
-export async function apiDelete<T = any>(
-    path: string,
-    options?: AxiosRequestConfig
-) {
-    return handleAxios<T>(http.delete(path, options));
+export async function apiDelete<T = any>(path: string, options?: AxiosRequestConfig) {
+    return handleAxios<T>(http.delete(normalizePath(path), options));
 }

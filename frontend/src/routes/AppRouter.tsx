@@ -1,13 +1,12 @@
-// frontend/src/routes/AppRouter.tsx
 import { Routes, Route, Navigate } from "react-router-dom";
 
-// Clients
+// Auth pages
 import { LoginPage } from "../pages/auth/LoginPage";
 import { RegisterPage } from "../pages/auth/RegisterPage";
+
+// Staff pages
 import { ClientsPage } from "../pages/clients/ClientsPage";
 import { ClientDetailPage } from "../pages/clients/ClientDetailPage";
-
-// Samples
 import { SamplesPage } from "../pages/samples/SamplesPage";
 import { SampleDetailPage } from "../pages/samples/SampleDetailPage";
 
@@ -19,12 +18,18 @@ import { ROLE_ID } from "../utils/roles";
 
 import { StaffApprovalsPage } from "../pages/staff/StaffApprovalsPage";
 import { ClientApprovalsPage } from "../pages/clients/ClientApprovalsPage";
-
 import { QAParametersPage } from "../pages/qa/QAParametersPage";
 import { QAMethodsPage } from "../pages/qa/QAMethodsPage";
-
 import { AuditLogsPage } from "../pages/audit/AuditLogsPage";
 import { ReportsPage } from "../pages/reports/ReportsPage";
+import SampleRequestsQueuePage from "../pages/samples/SampleRequestsQueuePage";
+
+// Portal pages
+import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
+import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
+import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
+import { PortalLayout } from "../components/layout/PortalLayout";
+import { ClientProtectedRoute } from "../guards/ClientProtectedRoute";
 
 export const AppRouter = () => {
     return (
@@ -33,9 +38,11 @@ export const AppRouter = () => {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
 
+            {/* =========================
+                STAFF (BACKOFFICE)
+            ========================= */}
             <Route element={<ProtectedRoute />}>
                 <Route element={<AppLayout />}>
-                    {/* ✅ CLIENT APPROVALS harus di atas /clients/:slug */}
                     <Route
                         path="/clients/approvals"
                         element={
@@ -109,7 +116,6 @@ export const AppRouter = () => {
                         }
                     />
 
-                    {/* ✅ Staff approvals satu aja, konsisten */}
                     <Route
                         path="/staff/approvals"
                         element={
@@ -119,22 +125,52 @@ export const AppRouter = () => {
                         }
                     />
 
-                    {/* QA modules */}
-                    <Route path="/qa/parameters" element={<QAParametersPage />} />
-                    <Route path="/qa/methods" element={<QAMethodsPage />} />
+                    <Route
+                        path="/qa/parameters"
+                        element={
+                            <RoleGuard
+                                allowedRoleIds={[
+                                    ROLE_ID.ANALYST,
+                                    ROLE_ID.OPERATIONAL_MANAGER,
+                                    ROLE_ID.LAB_HEAD,
+                                ]}
+                            >
+                                <QAParametersPage />
+                            </RoleGuard>
+                        }
+                    />
 
                     <Route
                         path="/qa/methods"
                         element={
                             <RoleGuard
-                                allowedRoleIds={[ROLE_ID.ANALYST, ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}
+                                allowedRoleIds={[
+                                    ROLE_ID.ANALYST,
+                                    ROLE_ID.OPERATIONAL_MANAGER,
+                                    ROLE_ID.LAB_HEAD,
+                                ]}
                             >
                                 <QAMethodsPage />
                             </RoleGuard>
                         }
                     />
 
-                    <Route path="/audit-logs" element={<AuditLogsPage />} />
+                    <Route
+                        path="/audit-logs"
+                        element={
+                            <RoleGuard
+                                allowedRoleIds={[
+                                    ROLE_ID.ADMIN,
+                                    ROLE_ID.SAMPLE_COLLECTOR,
+                                    ROLE_ID.ANALYST,
+                                    ROLE_ID.OPERATIONAL_MANAGER,
+                                    ROLE_ID.LAB_HEAD,
+                                ]}
+                            >
+                                <AuditLogsPage />
+                            </RoleGuard>
+                        }
+                    />
 
                     <Route
                         path="/reports"
@@ -150,6 +186,25 @@ export const AppRouter = () => {
                         }
                     />
 
+                    <Route
+                        path="/samples/requests"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN]}>
+                                <SampleRequestsQueuePage />
+                            </RoleGuard>
+                        }
+                    />
+                </Route>
+            </Route>
+
+            {/* =========================
+                CLIENT (PORTAL)
+            ========================= */}
+            <Route element={<ClientProtectedRoute />}>
+                <Route element={<PortalLayout />}>
+                    <Route path="/portal" element={<ClientDashboardPage />} />
+                    <Route path="/portal/requests" element={<ClientRequestsPage />} />
+                    <Route path="/portal/requests/:id" element={<ClientRequestDetailPage />} />
                 </Route>
             </Route>
 

@@ -21,7 +21,6 @@ export const AppLayout = () => {
         roleId === ROLE_ID.LAB_HEAD ||
         roleId === ROLE_ID.OPERATIONAL_MANAGER;
 
-    // ✅ Step 6: for now ALL STAFF ROLES can see audit logs page
     const canSeeAuditLogs =
         roleId === ROLE_ID.ADMIN ||
         roleId === ROLE_ID.SAMPLE_COLLECTOR ||
@@ -29,14 +28,30 @@ export const AppLayout = () => {
         roleId === ROLE_ID.OPERATIONAL_MANAGER ||
         roleId === ROLE_ID.LAB_HEAD;
 
-    const baseItems: NavItem[] = [
-        { label: "Clients", path: "/clients", icon: "users" },
-        { label: "Samples", path: "/samples", icon: "flask" },
-    ];
+    const canSeeReports =
+        roleId === ROLE_ID.OPERATIONAL_MANAGER ||
+        roleId === ROLE_ID.LAB_HEAD;
+
+    const isClient = roleId === ROLE_ID.CLIENT;
+    const isStaff = !!roleId && roleId !== ROLE_ID.CLIENT;
+
+    const baseItems: NavItem[] = isStaff
+        ? [
+            { label: "Clients", path: "/clients", icon: "users" },
+            { label: "Samples", path: "/samples", icon: "flask" },
+        ]
+        : [];
+
+    const portalItems: NavItem[] = isClient
+        ? [{ label: "My Requests", path: "/portal/requests", icon: "flask" }]
+        : [];
 
     const adminItems: NavItem[] =
         roleId === ROLE_ID.ADMIN
-            ? [{ label: "Client Approvals", path: "/clients/approvals", icon: "check" }]
+            ? [
+                { label: "Client Approvals", path: "/clients/approvals", icon: "check" },
+                { label: "Request Queue", path: "/samples/requests", icon: "check" },
+            ]
             : [];
 
     const labHeadItems: NavItem[] =
@@ -51,22 +66,16 @@ export const AppLayout = () => {
         ]
         : [];
 
-    // Reports menu (QA / Lab Head only)
-    const canSeeReports =
-        roleId === ROLE_ID.OPERATIONAL_MANAGER ||
-        roleId === ROLE_ID.LAB_HEAD;
-
     const reportItems: NavItem[] = canSeeReports
         ? [{ label: "Reports", path: "/reports", icon: "check" }]
         : [];
 
-    // ✅ Step 6: Audit Logs menu item
     const auditItems: NavItem[] = canSeeAuditLogs
         ? [{ label: "Audit Logs", path: "/audit-logs", icon: "check" }]
         : [];
 
-    // ✅ include auditItems
     const navItems: NavItem[] = [
+        ...portalItems,
         ...baseItems,
         ...qaItems,
         ...reportItems,
@@ -76,7 +85,6 @@ export const AppLayout = () => {
     ];
 
     const renderIcon = (icon?: NavItem["icon"]) => {
-        // simple: beda icon sedikit biar gak semua “users”
         if (icon === "flask") {
             return (
                 <svg
@@ -111,7 +119,6 @@ export const AppLayout = () => {
             );
         }
 
-        // default users
         return (
             <svg
                 viewBox="0 0 24 24"
@@ -153,7 +160,6 @@ export const AppLayout = () => {
 
     return (
         <div className="min-h-screen bg-cream flex">
-            {/* Sidebar desktop */}
             <aside className="hidden lg:flex lg:flex-col lg:w-64 bg-primary text-white min-h-screen">
                 <div className="px-6 py-5 border-b border-black/10 flex items-center">
                     <img src={BiotraceLogo} alt="Biotrace" className="h-10 w-auto" />
@@ -164,7 +170,6 @@ export const AppLayout = () => {
                 </nav>
             </aside>
 
-            {/* Mobile overlay */}
             {sidebarOpen && (
                 <div
                     className="fixed inset-0 z-30 bg-black/40 lg:hidden"
@@ -172,7 +177,6 @@ export const AppLayout = () => {
                 />
             )}
 
-            {/* Sidebar mobile */}
             <aside
                 className={`fixed z-40 inset-y-0 left-0 w-64 bg-primary text-white transform transition-transform duration-200 lg:hidden ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
                     }`}
@@ -192,7 +196,6 @@ export const AppLayout = () => {
                 </nav>
             </aside>
 
-            {/* Main content */}
             <div className="flex-1 flex flex-col min-h-screen">
                 <Topbar onOpenNav={() => setSidebarOpen(true)} />
 
