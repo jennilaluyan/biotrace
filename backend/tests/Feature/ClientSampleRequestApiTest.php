@@ -14,190 +14,36 @@ class ClientSampleRequestApiTest extends TestCase
 {
     use RefreshDatabase;
 
-    private ?int $baselineRoleId = null;
-    private ?int $baselineStaffId = null;
+    private ?int $fallbackStaffId = null;
 
-    protected function setUp(): void
-    {
-        parent::setUp();
-        $this->seedBaselineRoleAndStaff(); // cegah FK hardcode role_id=1 / staff_id=1
-    }
-
-    /**
-     * Postgres-only: setelah insert manual PK (mis: staff_id=1),
-     * sequence sering "ketinggalan" dan masih mau generate 1 lagi.
-     * Ini yang bikin duplicate key staffs_pkey.
-     */
-    private function syncPgSequence(string $table, string $column): void
-    {
-        try {
-            // Dapatkan nama sequence yang dipakai kolom ini (kalau serial/identity)
-            $row = DB::selectOne("select pg_get_serial_sequence(?, ?) as seq", [$table, $column]);
-            $seq = $row->seq ?? null;
-
-            if (!$seq) return;
-
-            // Set sequence ke max(column) biar nextval aman (max+1)
-            DB::statement("select setval(?, (select coalesce(max($column), 1) from $table), true)", [$seq]);
-        } catch (\Throwable $e) {
-            // kalau bukan PG / tidak ada serial sequence, ignore
-        }
-    }
-
-    /**
-     * Baseline safety:
-     * - Pastikan roles punya row role_id=1
-     * - Pastikan staffs punya row staff_id=1 (role_id=1)
-     *
-     * Plus: sinkronkan sequence supaya insert berikutnya tidak bentrok.
-     */
-    protected function seedBaselineRoleAndStaff(): void
-    {
-        // --- Roles ---
-        if (Schema::hasTable('roles')) {
-            $rolePk = Schema::hasColumn('roles', 'role_id')
-                ? 'role_id'
-                : (Schema::hasColumn('roles', 'id') ? 'id' : null);
-
-            if ($rolePk) {
-                $exists = DB::table('roles')->where($rolePk, 1)->exists();
-
-                if (!$exists) {
-                    $payload = [
-                        $rolePk       => 1,
-                        'name'        => 'ADMIN',
-                        'description' => 'Baseline role for tests',
-                        'created_at'  => now(),
-                        'updated_at'  => now(),
-                    ];
-
-                    $cols = array_flip(Schema::getColumnListing('roles'));
-                    $insert = array_intersect_key($payload, $cols);
-
-                    if (!isset($insert['name']) && isset($cols['name'])) {
-                        $insert['name'] = 'ADMIN';
-                    }
-
-                    DB::table('roles')->insert($insert);
-                }
-
-                $this->baselineRoleId = 1;
-
-                // penting: sync sequence kalau rolePk adalah serial (role_id)
-                if ($rolePk === 'role_id') {
-                    $this->syncPgSequence('roles', 'role_id');
-                }
-            }
-        }
-
-        // --- Staffs ---
-        if (Schema::hasTable('staffs')) {
-            $staffPk = Schema::hasColumn('staffs', 'staff_id')
-                ? 'staff_id'
-                : (Schema::hasColumn('staffs', 'id') ? 'id' : null);
-
-            if ($staffPk) {
-                $exists = DB::table('staffs')->where($staffPk, 1)->exists();
-
-                if (!$exists) {
-                    $payload = [
-                        $staffPk        => 1,
-                        'name'          => 'Baseline Staff',
-                        'email'         => 'baseline_staff@test.local',
-                        'password_hash' => bcrypt('secret'),
-                        'password'      => bcrypt('secret'),
-                        'role_id'       => 1,
-                        'is_active'     => true,
-                        'created_at'    => now(),
-                        'updated_at'    => now(),
-                    ];
-
-                    $cols = array_flip(Schema::getColumnListing('staffs'));
-                    $insert = array_intersect_key($payload, $cols);
-
-                    if (isset($cols['role_id']) && !isset($insert['role_id'])) $insert['role_id'] = 1;
-                    if (isset($cols['is_active']) && !isset($insert['is_active'])) $insert['is_active'] = true;
-                    if (isset($cols['password_hash']) && !isset($insert['password_hash'])) $insert['password_hash'] = bcrypt('secret');
-                    if (isset($cols['created_at']) && !isset($insert['created_at'])) $insert['created_at'] = now();
-                    if (isset($cols['updated_at']) && !isset($insert['updated_at'])) $insert['updated_at'] = now();
-
-                    DB::table('staffs')->insert($insert);
-                }
-
-                $this->baselineStaffId = 1;
-
-                // INI KUNCI: sync sequence supaya insert staff berikutnya tidak pakai 1 lagi
-                if ($staffPk === 'staff_id') {
-                    $this->syncPgSequence('staffs', 'staff_id');
-                }
-            }
-        }
-    }
-
-    /**
-     * Helper: ensure role row exists (by name), returns role_id.
-     */
     private function ensureRole(string $name): int
     {
-        if (!Schema::hasTable('roles')) {
-            $this->fail('roles table not found.');
-        }
+        if (!Schema::hasTable('roles')) return 1;
 
-        $rolePk = Schema::hasColumn('roles', 'role_id')
-            ? 'role_id'
-            : (Schema::hasColumn('roles', 'id') ? 'id' : null);
-
-        if (!$rolePk) {
-            $this->fail('Expected roles PK column not found (role_id/id).');
-        }
-
-        $existing = DB::table('roles')->where('name', $name)->value($rolePk);
+        $existing = DB::table('roles')->where('name', $name)->value('role_id');
         if ($existing) return (int) $existing;
 
         $payload = [
-            'name'        => $name,
+            'name' => $name,
             'description' => 'Auto role for tests',
-            'created_at'  => now(),
-            'updated_at'  => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
         ];
 
         $cols = array_flip(Schema::getColumnListing('roles'));
         $insert = array_intersect_key($payload, $cols);
 
-        $id = DB::table('roles')->insertGetId($insert, $rolePk);
-
-        // jaga-jaga sequence roles juga rapi
-        if ($rolePk === 'role_id') {
-            $this->syncPgSequence('roles', 'role_id');
-        }
-
-        return (int) $id;
+        return (int) DB::table('roles')->insertGetId($insert, 'role_id');
     }
 
-    /**
-     * Helper: create Staff manually (schema-safe).
-     */
     private function createStaff(string $roleName, string $email): Staff
     {
-        if (!Schema::hasTable('staffs')) {
-            $this->fail('staffs table not found.');
-        }
-
-        $staffPk = Schema::hasColumn('staffs', 'staff_id')
-            ? 'staff_id'
-            : (Schema::hasColumn('staffs', 'id') ? 'id' : null);
-
-        if (!$staffPk) {
-            $this->fail('Expected staffs PK column not found (staff_id/id).');
-        }
-
         $roleId = $this->ensureRole($roleName);
 
         $payload = [
             'name'          => $roleName . ' User',
             'email'         => $email,
             'password_hash' => bcrypt('password'),
-            'password'      => bcrypt('password'),
             'role_id'       => $roleId,
             'is_active'     => true,
             'created_at'    => now(),
@@ -207,181 +53,95 @@ class ClientSampleRequestApiTest extends TestCase
         $cols = array_flip(Schema::getColumnListing('staffs'));
         $insert = array_intersect_key($payload, $cols);
 
+        if (isset($cols['password']) && !isset($insert['password'])) {
+            $insert['password'] = $insert['password_hash'];
+        }
+
         DB::table('staffs')->insert($insert);
 
-        // jaga-jaga sequence staff tetap sehat
-        if ($staffPk === 'staff_id') {
-            $this->syncPgSequence('staffs', 'staff_id');
-        }
-
-        $staffId = (int) DB::table('staffs')->where('email', $email)->value($staffPk);
-        return Staff::query()->findOrFail($staffId);
+        $id = (int) DB::table('staffs')->where('email', $email)->value('staff_id');
+        return Staff::query()->findOrFail($id);
     }
 
-    private function guessValueForColumn(string $column, string $dataType, string $baseEmail)
+    private function ensureFallbackStaffId(): int
     {
-        $c = strtolower($column);
-        $t = strtolower($dataType);
+        if ($this->fallbackStaffId !== null) return $this->fallbackStaffId;
 
-        if ($c === 'created_by' || str_ends_with($c, '_by') || $c === 'assigned_to') {
-            return $this->baselineStaffId ?? 1;
+        if (!Schema::hasTable('staffs')) {
+            $this->fallbackStaffId = 1;
+            return 1;
         }
 
-        if ($c === 'current_status') return 'received';
-        if ($c === 'request_status') return 'draft';
-        if ($c === 'sample_type') return 'individual';
+        $staff = $this->createStaff('ADMIN', 'fallback_' . uniqid() . '@test.local');
+        $this->fallbackStaffId = (int) ($staff->staff_id ?? $staff->getKey());
 
-        if (str_contains($c, 'email')) return $baseEmail;
-        if (str_contains($c, 'name')) return 'Test ' . ucfirst($column);
-        if (str_contains($c, 'phone') || str_contains($c, 'tel')) return '081234567890';
-        if (str_contains($c, 'address')) return 'Test Address';
-
-        if ($c === 'status' || str_contains($c, 'status')) return 'active';
-
-        if (str_contains($c, 'active')) return true;
-        if (str_contains($c, 'password')) return bcrypt('password');
-        if (str_contains($c, 'code')) return strtoupper(substr($column, 0, 1)) . '-' . uniqid();
-
-        if (str_contains($t, 'boolean')) return false;
-        if (str_contains($t, 'timestamp') || str_contains($t, 'date') || str_contains($t, 'time')) return now();
-        if (str_contains($t, 'int') || str_contains($t, 'numeric') || str_contains($t, 'double') || str_contains($t, 'real') || str_contains($t, 'decimal')) return 0;
-
-        return 'test';
+        return $this->fallbackStaffId;
     }
 
     private function createClient(string $email): Client
     {
-        if (!Schema::hasTable('clients')) {
-            $this->fail('clients table not found.');
-        }
-
-        $pk = Schema::hasColumn('clients', 'client_id')
-            ? 'client_id'
-            : (Schema::hasColumn('clients', 'id') ? 'id' : null);
-
-        if (!$pk) {
-            $this->fail('Expected clients PK column not found (client_id/id).');
-        }
-
         $payload = [
-            'client_code'      => 'C-' . uniqid(),
-            'name'             => 'Test Client ' . uniqid(),
-            'email'            => $email,
-            'phone'            => '081234567890',
-            'type'             => 'individual',
-            'institution_name' => 'Test Institution',
-            'is_active'        => true,
-            'staff_id'         => $this->baselineStaffId ?? 1,
-            'password_hash'    => bcrypt('password'),
-            'password'         => bcrypt('password'),
-            'created_at'       => now(),
-            'updated_at'       => now(),
+            'type'          => 'individual',
+            'name'          => 'Test Client',
+            'email'         => $email,
+            'phone'         => '081234567890',
+            'password_hash' => bcrypt('password'),
+            'is_active'     => true,
+            'created_at'    => now(),
+            'updated_at'    => now(),
         ];
 
         $cols = array_flip(Schema::getColumnListing('clients'));
-        $insert = array_intersect_key($payload, $cols);
+        DB::table('clients')->insert(array_intersect_key($payload, $cols));
 
-        try {
-            $required = DB::table('information_schema.columns')
-                ->select('column_name', 'data_type')
-                ->where('table_schema', 'public')
-                ->where('table_name', 'clients')
-                ->where('is_nullable', 'NO')
-                ->get();
+        $pk = Schema::hasColumn('clients', 'client_id') ? 'client_id' : 'id';
+        $id = (int) DB::table('clients')->orderByDesc($pk)->value($pk);
 
-            foreach ($required as $col) {
-                $name = (string) $col->column_name;
-                if ($name === $pk) continue;
-
-                if (!array_key_exists($name, $insert) || $insert[$name] === null) {
-                    $insert[$name] = $this->guessValueForColumn($name, (string) $col->data_type, $email);
-                }
-            }
-
-            $insert = array_intersect_key($insert, $cols);
-        } catch (\Throwable $e) {
-            // ignore
-        }
-
-        DB::table('clients')->insert($insert);
-
-        $clientId = (int) DB::table('clients')->orderByDesc($pk)->value($pk);
-        return Client::query()->findOrFail($clientId);
+        return Client::query()->findOrFail($id);
     }
 
-    private function createSampleForClient(int $clientId, string $requestStatus): int
+    private function createSampleForClient(int $clientId, string $requestStatus, array $overrides = []): int
     {
-        if (!Schema::hasTable('samples')) {
-            $this->fail('samples table not found.');
-        }
-
-        $samplePk = Schema::hasColumn('samples', 'sample_id')
-            ? 'sample_id'
-            : (Schema::hasColumn('samples', 'id') ? 'id' : null);
-
-        if (!$samplePk) {
-            $this->fail('Expected samples PK column not found (sample_id/id).');
-        }
-
         $cols = array_flip(Schema::getColumnListing('samples'));
-        $baseEmail = 'sample_' . uniqid() . '@test.local';
 
-        $insert = [
+        $payload = array_merge([
             'client_id'      => $clientId,
             'request_status' => $requestStatus,
             'created_at'     => now(),
             'updated_at'     => now(),
-        ];
+        ], $overrides);
 
-        if (isset($cols['sample_code'])) {
-            $insert['sample_code'] = 'REQ-' . now()->format('YmdHis') . '-' . uniqid();
+        // FK staff (kalau ada)
+        if (isset($cols['created_by']) && (empty($payload['created_by']) || $payload['created_by'] === null)) {
+            $payload['created_by'] = $this->ensureFallbackStaffId();
         }
-        if (isset($cols['sample_type'])) $insert['sample_type'] = 'individual';
-        if (isset($cols['current_status'])) $insert['current_status'] = 'received';
-        if (isset($cols['priority'])) $insert['priority'] = 0;
-        if ($requestStatus === 'submitted' && isset($cols['submitted_at'])) {
-            $insert['submitted_at'] = now();
+        if (isset($cols['assigned_to']) && (empty($payload['assigned_to']) || $payload['assigned_to'] === null)) {
+            $payload['assigned_to'] = $this->ensureFallbackStaffId();
         }
 
-        if (isset($cols['created_by'])) $insert['created_by'] = $this->baselineStaffId ?? 1;
-        if (isset($cols['assigned_to'])) $insert['assigned_to'] = $this->baselineStaffId ?? 1;
+        // minimal fields supaya record valid (hindari NOT NULL violation)
+        if (isset($cols['current_status']) && (empty($payload['current_status']) || $payload['current_status'] === null)) {
+            $payload['current_status'] = 'received';
+        }
+        if (isset($cols['priority']) && !array_key_exists('priority', $payload)) {
+            $payload['priority'] = 0;
+        }
 
-        try {
-            $required = DB::table('information_schema.columns')
-                ->select('column_name', 'data_type')
-                ->where('table_schema', 'public')
-                ->where('table_name', 'samples')
-                ->where('is_nullable', 'NO')
-                ->get();
-
-            foreach ($required as $col) {
-                $name = (string) $col->column_name;
-                if ($name === $samplePk) continue;
-
-                if (!array_key_exists($name, $insert) || $insert[$name] === null) {
-                    if ($name === 'request_status') {
-                        $insert[$name] = $requestStatus;
-                        continue;
-                    }
-
-                    if (str_ends_with(strtolower($name), '_by') || $name === 'assigned_to') {
-                        $insert[$name] = $this->baselineStaffId ?? 1;
-                        continue;
-                    }
-
-                    $insert[$name] = $this->guessValueForColumn($name, (string) $col->data_type, $baseEmail);
-                }
+        // IMPORTANT: jangan pernah biarkan sample_type/received_at null kalau kolom ada (schema kamu NOT NULL)
+        if (isset($cols['sample_type'])) {
+            if (!array_key_exists('sample_type', $payload) || $payload['sample_type'] === null) {
+                $payload['sample_type'] = 'routine';
             }
-
-            $insert = array_intersect_key($insert, $cols);
-        } catch (\Throwable $e) {
-            // ignore
+        }
+        if (isset($cols['received_at'])) {
+            if (!array_key_exists('received_at', $payload) || $payload['received_at'] === null) {
+                $payload['received_at'] = now()->toDateTimeString();
+            }
         }
 
-        $insert = array_intersect_key($insert, $cols);
-        DB::table('samples')->insert($insert);
+        DB::table('samples')->insert(array_intersect_key($payload, $cols));
 
-        return (int) DB::table('samples')->orderByDesc($samplePk)->value($samplePk);
+        return (int) DB::table('samples')->orderByDesc('sample_id')->value('sample_id');
     }
 
     public function test_client_can_create_draft_request(): void
@@ -390,16 +150,14 @@ class ClientSampleRequestApiTest extends TestCase
         Sanctum::actingAs($client, ['*']);
 
         $res = $this->postJson('/api/v1/client/samples', [
+            'sample_type' => 'routine',
             'notes' => 'please test this sample',
         ]);
 
         $res->assertStatus(201);
 
-        $json = $res->json('data');
-        $this->assertNotEmpty($json, 'Expected response data payload.');
-
-        $sampleId = (int) ($json['sample_id'] ?? $json['id'] ?? 0);
-        $this->assertTrue($sampleId > 0, 'Expected sample_id in response.');
+        $sampleId = (int) ($res->json('data.sample_id') ?? 0);
+        $this->assertTrue($sampleId > 0);
 
         $this->assertDatabaseHas('samples', [
             'sample_id'      => $sampleId,
@@ -408,7 +166,7 @@ class ClientSampleRequestApiTest extends TestCase
         ]);
     }
 
-    public function test_client_can_submit_draft_request(): void
+    public function test_client_can_update_draft_request(): void
     {
         $client = $this->createClient('client_' . uniqid() . '@test.local');
         Sanctum::actingAs($client, ['*']);
@@ -416,7 +174,55 @@ class ClientSampleRequestApiTest extends TestCase
         $clientId = (int) ($client->client_id ?? $client->getKey());
         $sampleId = $this->createSampleForClient($clientId, 'draft');
 
-        $res = $this->postJson("/api/v1/client/samples/{$sampleId}/submit", []);
+        $res = $this->patchJson("/api/v1/client/samples/{$sampleId}", [
+            'sample_type' => 'nasopharyngeal swab',
+            'received_at' => now()->toDateTimeString(),
+        ]);
+
+        $res->assertStatus(200);
+
+        $this->assertDatabaseHas('samples', [
+            'sample_id'   => $sampleId,
+            'sample_type' => 'nasopharyngeal swab',
+        ]);
+    }
+
+    public function test_client_cannot_submit_without_required_fields(): void
+    {
+        $client = $this->createClient('client_' . uniqid() . '@test.local');
+        Sanctum::actingAs($client, ['*']);
+
+        $clientId = (int) ($client->client_id ?? $client->getKey());
+
+        // record VALID (hindari DB crash). yang kita test adalah validasi SubmitRequest (422)
+        $sampleId = $this->createSampleForClient($clientId, 'draft', [
+            'sample_type' => 'routine',
+            'received_at' => now()->toDateTimeString(),
+        ]);
+
+        $res = $this->postJson("/api/v1/client/samples/{$sampleId}/submit", [
+            // kosong -> harus fail 422 (SubmitRequest require sample_type + received_at)
+        ]);
+
+        $res->assertStatus(422);
+    }
+
+    public function test_client_can_submit_draft_request(): void
+    {
+        $client = $this->createClient('client_' . uniqid() . '@test.local');
+        Sanctum::actingAs($client, ['*']);
+
+        $clientId = (int) ($client->client_id ?? $client->getKey());
+        $sampleId = $this->createSampleForClient($clientId, 'draft', [
+            'sample_type' => 'routine',
+            'received_at' => now()->toDateTimeString(),
+        ]);
+
+        $res = $this->postJson("/api/v1/client/samples/{$sampleId}/submit", [
+            'sample_type' => 'routine',
+            'received_at' => now()->toDateTimeString(),
+        ]);
+
         $res->assertStatus(200);
 
         $this->assertDatabaseHas('samples', [
@@ -425,11 +231,40 @@ class ClientSampleRequestApiTest extends TestCase
         ]);
 
         if (Schema::hasColumn('samples', 'submitted_at')) {
-            $this->assertNotNull(
-                DB::table('samples')->where('sample_id', $sampleId)->value('submitted_at'),
-                'Expected submitted_at to be set.'
-            );
+            $this->assertNotNull(DB::table('samples')->where('sample_id', $sampleId)->value('submitted_at'));
         }
+    }
+
+    public function test_client_can_resubmit_after_returned(): void
+    {
+        $client = $this->createClient('client_' . uniqid() . '@test.local');
+        Sanctum::actingAs($client, ['*']);
+
+        $clientId = (int) ($client->client_id ?? $client->getKey());
+
+        // returned tapi record tetap valid (hindari NOT NULL crash)
+        $sampleId = $this->createSampleForClient($clientId, 'returned', [
+            'sample_type' => 'routine',
+            'received_at' => now()->toDateTimeString(),
+        ]);
+
+        // revise (update)
+        $this->patchJson("/api/v1/client/samples/{$sampleId}", [
+            'notes'       => 'revised after returned',
+            'sample_type' => 'routine',
+            'received_at' => now()->toDateTimeString(),
+        ])->assertStatus(200);
+
+        // resubmit
+        $this->postJson("/api/v1/client/samples/{$sampleId}/submit", [
+            'sample_type' => 'routine',
+            'received_at' => now()->toDateTimeString(),
+        ])->assertStatus(200);
+
+        $this->assertDatabaseHas('samples', [
+            'sample_id'      => $sampleId,
+            'request_status' => 'submitted',
+        ]);
     }
 
     public function test_client_cannot_submit_other_clients_sample(): void
@@ -442,17 +277,19 @@ class ClientSampleRequestApiTest extends TestCase
 
         Sanctum::actingAs($clientA, ['*']);
 
-        $this->postJson("/api/v1/client/samples/{$sampleId}/submit", [])
-            ->assertStatus(403);
+        $this->postJson("/api/v1/client/samples/{$sampleId}/submit", [
+            'sample_type' => 'routine',
+            'received_at' => now()->toDateTimeString(),
+        ])->assertStatus(403);
     }
 
     public function test_staff_forbidden_on_client_endpoints(): void
     {
-        // ini sekarang aman: staff baru tidak bakal bentrok staff_id=1 karena sequence sudah disync
         $staff = $this->createStaff('ADMIN', 'admin_' . uniqid() . '@test.local');
         Sanctum::actingAs($staff, ['*']);
 
         $this->postJson('/api/v1/client/samples', [
+            'sample_type' => 'routine',
             'notes' => 'should be forbidden',
         ])->assertStatus(403);
 

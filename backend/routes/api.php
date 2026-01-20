@@ -31,7 +31,7 @@ use App\Http\Controllers\CoaPdfController;
 use App\Http\Controllers\PublicCoaVerificationController;
 use App\Http\Controllers\SampleRequestStatusController;
 use App\Http\Controllers\SampleRequestQueueController;
-use App\Http\Controllers\ClientSampleRequestController; // ✅ ADD THIS
+use App\Http\Controllers\ClientSampleRequestController;
 
 /*
 |--------------------------------------------------------------------------
@@ -90,7 +90,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
 
         // =========================
-        // CLIENT PORTAL - SAMPLE REQUEST (Step 2.5) ✅ NEW
+        // CLIENT PORTAL - SAMPLE REQUEST
         // =========================
         Route::prefix('client')->group(function () {
             Route::get('samples', [ClientSampleRequestController::class, 'index']);
@@ -98,6 +98,9 @@ Route::prefix('v1')->group(function () {
             Route::post('samples', [ClientSampleRequestController::class, 'store']);
 
             Route::get('samples/{sample}', [ClientSampleRequestController::class, 'show'])
+                ->whereNumber('sample');
+
+            Route::patch('samples/{sample}', [ClientSampleRequestController::class, 'update'])
                 ->whereNumber('sample');
 
             Route::post('samples/{sample}/submit', [ClientSampleRequestController::class, 'submit'])
@@ -225,10 +228,8 @@ Route::prefix('v1')->group(function () {
         // SAMPLES (static route first + numeric binding)
         // =========================
 
-        // ✅ static route MUST be before dynamic {sample}
         Route::get('samples/requests', [SampleRequestQueueController::class, 'index']);
 
-        // ✅ IMPORTANT: request-status endpoint (yang dipakai SampleRequestStatusApiTest)
         Route::post('samples/{sample}/request-status', [SampleRequestStatusController::class, 'update'])
             ->whereNumber('sample');
 
