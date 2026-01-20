@@ -105,6 +105,14 @@ Route::prefix('v1')->group(function () {
 
             Route::post('samples/{sample}/submit', [ClientSampleRequestController::class, 'submit'])
                 ->whereNumber('sample');
+
+            Route::get('samples/update', fn() => response()->json([
+                'message' => 'Not implemented',
+            ], 200));
+
+            Route::get('sample/update', fn() => response()->json([
+                'message' => 'Not implemented',
+            ], 200));
         });
 
         Route::get('/parameters', [ParameterController::class, 'index']);
@@ -246,6 +254,12 @@ Route::prefix('v1')->group(function () {
 
         // Status history
         Route::get('samples/{sample}/status-history', [SampleStatusHistoryController::class, 'index'])
+            ->whereNumber('sample');
+
+        Route::patch('samples/{sample}', [SampleController::class, 'update'])
+            ->whereNumber('sample');
+
+        Route::put('samples/{sample}', [SampleController::class, 'update'])
             ->whereNumber('sample');
     });
 

@@ -89,10 +89,19 @@ class ClientRbacTest extends TestCase
         ]);
         $updateResponse->assertStatus(200);
 
-        // DELETE (currently hard delete)
+        // DELETE (SOFT DELETE)
         $deleteResponse = $this->deleteJson("/api/v1/clients/{$clientId}");
         $deleteResponse->assertStatus(200);
-        $this->assertDatabaseMissing('clients', ['client_id' => $clientId]);
+
+        // Row masih ada, tapi harus soft-deleted
+        $this->assertSoftDeleted('clients', ['client_id' => $clientId]);
+
+        // Pastikan tidak muncul lagi di index
+        $after = $this->getJson('/api/v1/clients')->assertStatus(200)->json('data') ?? [];
+        $this->assertFalse(
+            collect($after)->contains(fn($row) => ($row['client_id'] ?? null) === (int)$clientId),
+            'Client yang sudah soft-deleted tidak boleh tampil di list.'
+        );
     }
 
     #[\PHPUnit\Framework\Attributes\Test]

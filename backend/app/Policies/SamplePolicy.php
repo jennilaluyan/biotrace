@@ -84,4 +84,13 @@ class SamplePolicy
             'Laboratory Head',
         ]);
     }
+
+    public function update(Staff $user, Sample $sample): bool
+    {
+        // Untuk lulus RBACTest: admin boleh, analyst tidak boleh
+        return $this->hasRoleName($user, [
+            'Administrator',
+            'Laboratory Head', // optional; kalau mau ketat, hapus ini
+        ]);
+    }
 }
