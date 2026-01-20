@@ -73,14 +73,6 @@ class SampleRequestStatusController extends Controller
                 $sample->physically_received_at = now();
             }
 
-            // optional: generate lab_sample_code kalau kolom ada
-            if (Schema::hasColumn('samples', 'lab_sample_code')) {
-                if ($to === 'physically_received' && empty($sample->lab_sample_code)) {
-                    $sample->lab_sample_code =
-                        'LAB-' . now()->format('Ymd') . '-' . str_pad((string) $sample->sample_id, 5, '0', STR_PAD_LEFT);
-                }
-            }
-
             $sample->save();
 
             // =========================
