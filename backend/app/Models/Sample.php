@@ -96,4 +96,9 @@ class Sample extends Model
     {
         return $this->hasOne(\App\Models\Report::class, 'sample_id', 'sample_id');
     }
+
+    public function intakeChecklist()
+    {
+        return $this->hasOne(\App\Models\SampleIntakeChecklist::class, 'sample_id', 'sample_id');
+    }
 }

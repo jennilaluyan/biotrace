@@ -32,6 +32,7 @@ use App\Http\Controllers\PublicCoaVerificationController;
 use App\Http\Controllers\SampleRequestStatusController;
 use App\Http\Controllers\SampleRequestQueueController;
 use App\Http\Controllers\ClientSampleRequestController;
+use App\Http\Controllers\SampleIntakeChecklistController;
 
 /*
 |--------------------------------------------------------------------------
@@ -260,6 +261,9 @@ Route::prefix('v1')->group(function () {
             ->whereNumber('sample');
 
         Route::put('samples/{sample}', [SampleController::class, 'update'])
+            ->whereNumber('sample');
+
+        Route::post('samples/{sample}/intake-checklist', [SampleIntakeChecklistController::class, 'store'])
             ->whereNumber('sample');
     });
 
