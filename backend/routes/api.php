@@ -191,6 +191,11 @@ Route::prefix('v1')->group(function () {
         Route::patch('/samples/{sample}/reagent-calculation', [ReagentCalculationController::class, 'update']);
         Route::post('/samples/{sample}/reagent-calculation/om-approve', [ReagentCalculationController::class, 'omApprove']);
 
+        Route::get('/verify/coa/{hash}', [
+            PublicCoaVerificationController::class,
+            'verify'
+        ]);
+
         Route::get('units', [UnitController::class, 'index']);
         Route::get('samples/{sample}/sample-tests', [SampleTestController::class, 'indexBySample']);
 
@@ -271,8 +276,15 @@ Route::prefix('v1')->group(function () {
             ->whereNumber('sample');
     });
 
-    Route::get('/verify/coa/{hash}', [
-        PublicCoaVerificationController::class,
-        'verify'
-    ]);
+    // staff auth
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::post('/samples/{sampleId}/loa', [\App\Http\Controllers\LetterOfOrderController::class, 'generate']);
+        Route::post('/loa/{loaId}/sign', [\App\Http\Controllers\LetterOfOrderController::class, 'signInternal']);
+        Route::post('/loa/{loaId}/send', [\App\Http\Controllers\LetterOfOrderController::class, 'sendToClient']);
+    });
+
+    // client auth (kalau kamu punya guard/middleware client)
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::post('/client/loa/{loaId}/sign', [\App\Http\Controllers\ClientLoaController::class, 'sign']);
+    });
 });
