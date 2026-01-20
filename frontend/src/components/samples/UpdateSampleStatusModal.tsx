@@ -1,4 +1,3 @@
-// src/components/samples/UpdateSampleStatusModal.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { Sample, SampleStatus, SampleComment } from "../../services/samples";
 import { sampleService } from "../../services/samples";

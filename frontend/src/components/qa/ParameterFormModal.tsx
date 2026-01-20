@@ -1,4 +1,3 @@
-// frontend/src/components/qa/ParameterFormModal.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { ParameterPayload, ParameterRow } from "../../services/parameters";
 

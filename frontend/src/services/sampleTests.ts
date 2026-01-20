@@ -1,4 +1,3 @@
-// frontend/src/services/sampleTests.ts
 import { apiGet, apiPost, apiPatch } from "./api";
 
 const RAW_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");

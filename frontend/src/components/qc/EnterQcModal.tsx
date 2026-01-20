@@ -1,4 +1,3 @@
-// frontend/src/components/qc/EnterQcModal.tsx
 import { useEffect, useMemo, useState } from "react";
 import { createQcRun, listQcControls, type QcControl } from "../../services/qc";
 

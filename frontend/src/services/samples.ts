@@ -1,4 +1,3 @@
-// src/services/samples.ts
 import { apiGet, apiPost } from "./api";
 
 // --- backend detail statuses (current_status)
@@ -14,6 +13,18 @@ export type SampleStatus =
 export type SampleStatusEnum = "registered" | "testing" | "reported";
 
 export type ContactHistory = "ada" | "tidak" | "tidak_tahu" | null;
+
+/**
+ * Request/Intake workflow status (baru dari backend)
+ * Kita bikin union, tapi tetap toleran: string juga boleh supaya FE tidak brittle kalau backend nambah nilai baru.
+ */
+export type SampleRequestStatus =
+    | "draft"
+    | "submitted"
+    | "returned"
+    | "ready_for_delivery"
+    | "physically_received"
+    | (string & {});
 
 export interface SampleClient {
     client_id: number;
@@ -34,21 +45,31 @@ export interface Sample {
     sample_id: number;
     client_id: number;
 
-    received_at: string;
-    sample_type: string;
+    // ⚠️ nullable untuk request workflow (sebelum diterima fisik / sebelum intake validate)
+    received_at: string | null;
 
+    sample_type: string;
     examination_purpose: string | null;
     contact_history: ContactHistory;
-
     priority: number;
     current_status: SampleStatus;
-
     additional_notes: string | null;
+
     created_by: number;
     assigned_to: number | null;
 
     // appended by backend model
     status_enum?: SampleStatusEnum;
+
+    // ===== Request/Intake fields (baru) =====
+    request_status?: SampleRequestStatus | null;
+    submitted_at?: string | null;
+    reviewed_at?: string | null;
+    ready_at?: string | null;
+    physically_received_at?: string | null;
+
+    // Lab sample code (BML-001)
+    lab_sample_code?: string | null;
 
     // eager-loaded relations from backend
     client?: SampleClient;
@@ -88,7 +109,6 @@ export type CreateSamplePayload = {
     client_id: number;
     received_at: string;
     sample_type: string;
-
     examination_purpose?: string | null;
     contact_history?: ContactHistory;
     priority?: number;

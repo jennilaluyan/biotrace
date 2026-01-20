@@ -1,4 +1,3 @@
-// frontend/src/pages/qa/QAMethodsPage.tsx
 import { useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "../../hooks/useAuth";

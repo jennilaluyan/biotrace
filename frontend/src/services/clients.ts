@@ -1,4 +1,3 @@
-// src/services/clients.ts
 import { apiGet, apiPost } from "./api";
 
 export type ClientType = "individual" | "institution";

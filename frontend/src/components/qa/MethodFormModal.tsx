@@ -1,4 +1,3 @@
-// frontend/src/components/qa/MethodFormModal.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { MethodPayload, MethodRow } from "../../services/methods";
 

@@ -1,4 +1,3 @@
-// src/services/reports.ts
 import { apiGet } from "./api";
 
 export type ReportRow = {

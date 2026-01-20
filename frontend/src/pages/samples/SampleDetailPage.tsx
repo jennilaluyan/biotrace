@@ -1,4 +1,3 @@
-// frontend/src/pages/samples/SampleDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";

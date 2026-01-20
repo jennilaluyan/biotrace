@@ -1,5 +1,3 @@
-// frontend/src/utils/roles.ts
-
 // Mapping role_id sesuai seed database kamu
 export const ROLE_ID = {
     CLIENT: 1,

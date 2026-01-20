@@ -1,4 +1,3 @@
-// src/services/auth.ts
 import { apiGet, apiPost } from "./api";
 
 // STAFF

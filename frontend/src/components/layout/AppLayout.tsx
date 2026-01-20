@@ -1,4 +1,3 @@
-// src/components/layout/AppLayout.tsx
 import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import BiotraceLogo from "../../assets/biotrace-logo.png";

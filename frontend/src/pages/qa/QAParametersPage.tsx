@@ -1,4 +1,3 @@
-// frontend/src/pages/qa/QAParametersPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";

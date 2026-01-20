@@ -1,4 +1,3 @@
-// frontend/src/components/samples/SampleTestsTab.tsx
 import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "../../services/api";
 import { formatDateTimeLocal } from "../../utils/date";
