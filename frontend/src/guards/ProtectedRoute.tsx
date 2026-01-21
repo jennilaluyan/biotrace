@@ -8,7 +8,7 @@ export const ProtectedRoute = () => {
     if (loading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-cream">
-                <div className="text-sm text-gray-600">Loading session...</div>
+                <div className="text-sm text-gray-600">Loading session.</div>
             </div>
         );
     }

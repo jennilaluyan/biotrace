@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { loginRequest, logoutRequest, fetchProfile } from "../services/auth";
-import { getAuthToken } from "../services/api";
+import { getTenant } from "../utils/tenant";
 
 type UserRole = { id: number; name: string } | null;
 
@@ -19,6 +19,7 @@ type AuthContextType = {
     loading: boolean;
     login: (email: string, password: string) => Promise<void>;
     logout: () => Promise<void>;
+    refresh: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -29,6 +30,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const isAuthenticated = !!user;
 
+    const refresh = async () => {
+        try {
+            const profile = await fetchProfile();
+            setUser(profile as any);
+        } catch (err: any) {
+            if (err?.status === 401 || err?.status === 419) {
+                setUser(null);
+                return;
+            }
+            console.error("Failed to refresh session:", err);
+            setUser(null);
+        }
+    };
+
     useEffect(() => {
         let cancelled = false;
 
@@ -36,8 +51,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             try {
                 setLoading(true);
 
-                const token = getAuthToken();
-                if (!token) {
+                // IMPORTANT:
+                // Only try staff /me on backoffice.
+                // Portal uses ClientAuthContext and client /me
+                if (getTenant() !== "backoffice") {
                     if (!cancelled) setUser(null);
                     return;
                 }
@@ -45,11 +62,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 const profile = await fetchProfile();
                 if (!cancelled) setUser(profile as any);
             } catch (err: any) {
-                if (err?.status === 401) {
-                    if (!cancelled) setUser(null);
-                } else {
-                    console.error("Failed to load session:", err);
-                    if (!cancelled) setUser(null);
+                if (!cancelled) {
+                    if (err?.status === 401 || err?.status === 419) {
+                        setUser(null);
+                    } else {
+                        console.error("Failed to load session:", err);
+                        setUser(null);
+                    }
                 }
             } finally {
                 if (!cancelled) setLoading(false);
@@ -66,7 +85,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setLoading(true);
         try {
             const u = await loginRequest(email, password);
-            setUser(u as any);
+            if (u) setUser(u as any);
+            else await refresh();
         } finally {
             setLoading(false);
         }
@@ -83,7 +103,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     return (
-        <AuthContext.Provider value={{ user, isAuthenticated, loading, login, logout }}>
+        <AuthContext.Provider value={{ user, isAuthenticated, loading, login, logout, refresh }}>
             {children}
         </AuthContext.Provider>
     );

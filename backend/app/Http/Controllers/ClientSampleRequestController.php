@@ -7,7 +7,6 @@ use App\Http\Requests\ClientSampleDraftUpdateRequest;
 use App\Http\Requests\ClientSampleSubmitRequest;
 use App\Models\Client;
 use App\Models\Sample;
-use App\Models\Staff;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -18,15 +17,10 @@ class ClientSampleRequestController extends Controller
 {
     private function currentClientOr403(): Client
     {
-        $actor = Auth::user();
-
-        // Staff forbidden
-        if ($actor instanceof Staff) {
-            abort(403, 'Forbidden.');
-        }
+        $actor = Auth::guard('client_api')->user();
 
         if (!$actor instanceof Client) {
-            abort(403, 'Forbidden.');
+            abort(401, 'Unauthenticated');
         }
 
         return $actor;
@@ -77,22 +71,18 @@ class ClientSampleRequestController extends Controller
         $sample = new Sample();
         $sample->client_id = $clientId;
 
-        // draft status
         if (Schema::hasColumn('samples', 'request_status')) {
             $sample->request_status = 'draft';
         }
 
-        // sample_type wajib (karena schema kamu NOT NULL)
         if (Schema::hasColumn('samples', 'sample_type')) {
             $sample->sample_type = $data['sample_type'];
         }
 
-        // received_at: kalau dikirim pakai, kalau tidak dikirim tapi kolom ada, set default now() (aman untuk NOT NULL)
         if (Schema::hasColumn('samples', 'received_at')) {
             $sample->received_at = $data['received_at'] ?? now();
         }
 
-        // optional fields (schema-safe)
         if (Schema::hasColumn('samples', 'examination_purpose') && array_key_exists('examination_purpose', $data)) {
             $sample->examination_purpose = $data['examination_purpose'];
         }
@@ -105,7 +95,6 @@ class ClientSampleRequestController extends Controller
             $sample->priority = 0;
         }
 
-        // notes / additional_notes mapping
         if (array_key_exists('notes', $data)) {
             if (Schema::hasColumn('samples', 'notes')) {
                 $sample->notes = $data['notes'];
@@ -117,12 +106,10 @@ class ClientSampleRequestController extends Controller
             $sample->additional_notes = $data['additional_notes'];
         }
 
-        // current_status minimal untuk workflow
         if (Schema::hasColumn('samples', 'current_status') && empty($sample->current_status)) {
             $sample->current_status = 'received';
         }
 
-        // created_by / assigned_to jika mandatory
         $systemStaffId = $this->ensureSystemStaffId();
         if (Schema::hasColumn('samples', 'created_by') && empty($sample->created_by)) {
             $sample->created_by = $systemStaffId;
@@ -157,14 +144,12 @@ class ClientSampleRequestController extends Controller
 
         $data = $request->validated();
 
-        // apply patch (schema-safe)
         foreach ($data as $k => $v) {
             if (Schema::hasColumn('samples', $k)) {
                 $sample->{$k} = $v;
                 continue;
             }
 
-            // mapping notes -> additional_notes jika kolom notes tidak ada
             if ($k === 'notes' && Schema::hasColumn('samples', 'additional_notes')) {
                 $sample->additional_notes = $v;
             }
@@ -179,7 +164,6 @@ class ClientSampleRequestController extends Controller
 
     /**
      * POST /api/v1/client/samples/{sample}/submit
-     * submit request (must pass required fields)
      */
     public function submit(ClientSampleSubmitRequest $request, Sample $sample): JsonResponse
     {
@@ -196,7 +180,6 @@ class ClientSampleRequestController extends Controller
 
         $data = $request->validated();
 
-        // Simpan field submit (schema-safe)
         foreach ($data as $k => $v) {
             if (Schema::hasColumn('samples', $k)) {
                 $sample->{$k} = $v;
@@ -216,7 +199,6 @@ class ClientSampleRequestController extends Controller
                 $sample->submitted_at = now();
             }
 
-            // Pastikan FK staff tidak kosong jika schema menuntut
             $systemStaffId = $this->ensureSystemStaffId();
             if (Schema::hasColumn('samples', 'created_by') && empty($sample->created_by)) {
                 $sample->created_by = $systemStaffId;
@@ -227,7 +209,6 @@ class ClientSampleRequestController extends Controller
 
             $sample->save();
 
-            // Audit log (FIX: staff_id NOT NULL)
             if (Schema::hasTable('audit_logs')) {
                 $cols = array_flip(Schema::getColumnListing('audit_logs'));
 
@@ -254,12 +235,8 @@ class ClientSampleRequestController extends Controller
         ], 200);
     }
 
-    /**
-     * Create/get system staff to satisfy FK samples.created_by / assigned_to (kalau mandatory)
-     */
     private function ensureSystemStaffId(): int
     {
-        // kalau tidak ada kebutuhan FK staff di samples, gak perlu bikin staff
         if (!Schema::hasColumn('samples', 'created_by') && !Schema::hasColumn('samples', 'assigned_to')) {
             return 1;
         }
@@ -270,7 +247,6 @@ class ClientSampleRequestController extends Controller
 
         $email = 'system_staff@lims.local';
 
-        // Pastikan role ada (schema-safe)
         $roleId = 1;
         if (Schema::hasTable('roles')) {
             $roleName = 'ADMIN';
@@ -291,13 +267,11 @@ class ClientSampleRequestController extends Controller
             }
         }
 
-        // Kalau staff sudah ada, pakai
         $existing = DB::table('staffs')->where('email', $email)->value('staff_id');
         if ($existing) {
             return (int) $existing;
         }
 
-        // Insert staff schema-safe
         $payload = [
             'name'          => 'System Staff',
             'email'         => $email,
@@ -311,7 +285,6 @@ class ClientSampleRequestController extends Controller
         $cols = array_flip(Schema::getColumnListing('staffs'));
         $insert = array_intersect_key($payload, $cols);
 
-        // fallback jika schema masih pakai "password"
         if (isset($cols['password']) && !isset($insert['password'])) {
             $insert['password'] = $insert['password_hash'] ?? bcrypt('secret');
         }

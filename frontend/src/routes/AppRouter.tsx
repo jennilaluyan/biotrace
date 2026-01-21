@@ -1,35 +1,38 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 
-// Auth pages
 import { LoginPage } from "../pages/auth/LoginPage";
 import { RegisterPage } from "../pages/auth/RegisterPage";
 
-// Staff pages
-import { ClientsPage } from "../pages/clients/ClientsPage";
-import { ClientDetailPage } from "../pages/clients/ClientDetailPage";
-import { SamplesPage } from "../pages/samples/SamplesPage";
-import { SampleDetailPage } from "../pages/samples/SampleDetailPage";
-
 import { NotFoundPage } from "../pages/NotFoundPage";
+
 import { ProtectedRoute } from "../guards/ProtectedRoute";
+import { ClientProtectedRoute } from "../guards/ClientProtectedRoute";
+
 import { AppLayout } from "../components/layout/AppLayout";
+import { PortalLayout } from "../components/layout/PortalLayout";
+
 import { RoleGuard } from "../guards/RoleGuard";
 import { ROLE_ID } from "../utils/roles";
 
-import { StaffApprovalsPage } from "../pages/staff/StaffApprovalsPage";
+import { ClientsPage } from "../pages/clients/ClientsPage";
+import { ClientDetailPage } from "../pages/clients/ClientDetailPage";
 import { ClientApprovalsPage } from "../pages/clients/ClientApprovalsPage";
-import { QAParametersPage } from "../pages/qa/QAParametersPage";
-import { QAMethodsPage } from "../pages/qa/QAMethodsPage";
-import { AuditLogsPage } from "../pages/audit/AuditLogsPage";
-import { ReportsPage } from "../pages/reports/ReportsPage";
+
+import { SamplesPage } from "../pages/samples/SamplesPage";
+import { SampleDetailPage } from "../pages/samples/SampleDetailPage";
 import SampleRequestsQueuePage from "../pages/samples/SampleRequestsQueuePage";
 
-// Portal pages
+import { StaffApprovalsPage } from "../pages/staff/StaffApprovalsPage";
+
+import { QAParametersPage } from "../pages/qa/QAParametersPage";
+import { QAMethodsPage } from "../pages/qa/QAMethodsPage";
+
+import { AuditLogsPage } from "../pages/audit/AuditLogsPage";
+import { ReportsPage } from "../pages/reports/ReportsPage";
+
+import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
 import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
 import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
-import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
-import { PortalLayout } from "../components/layout/PortalLayout";
-import { ClientProtectedRoute } from "../guards/ClientProtectedRoute";
 
 export const AppRouter = () => {
     return (
@@ -38,9 +41,7 @@ export const AppRouter = () => {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
 
-            {/* =========================
-                STAFF (BACKOFFICE)
-            ========================= */}
+            {/* STAFF / BACKOFFICE */}
             <Route element={<ProtectedRoute />}>
                 <Route element={<AppLayout />}>
                     <Route
@@ -55,13 +56,7 @@ export const AppRouter = () => {
                     <Route
                         path="/clients"
                         element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ADMIN,
-                                    ROLE_ID.LAB_HEAD,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                ]}
-                            >
+                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN, ROLE_ID.LAB_HEAD, ROLE_ID.OPERATIONAL_MANAGER]}>
                                 <ClientsPage />
                             </RoleGuard>
                         }
@@ -70,13 +65,7 @@ export const AppRouter = () => {
                     <Route
                         path="/clients/:slug"
                         element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ADMIN,
-                                    ROLE_ID.LAB_HEAD,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                ]}
-                            >
+                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN, ROLE_ID.LAB_HEAD, ROLE_ID.OPERATIONAL_MANAGER]}>
                                 <ClientDetailPage />
                             </RoleGuard>
                         }
@@ -85,15 +74,7 @@ export const AppRouter = () => {
                     <Route
                         path="/samples"
                         element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ADMIN,
-                                    ROLE_ID.LAB_HEAD,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                    ROLE_ID.ANALYST,
-                                    ROLE_ID.SAMPLE_COLLECTOR,
-                                ]}
-                            >
+                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN, ROLE_ID.LAB_HEAD, ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.ANALYST, ROLE_ID.SAMPLE_COLLECTOR]}>
                                 <SamplesPage />
                             </RoleGuard>
                         }
@@ -102,15 +83,7 @@ export const AppRouter = () => {
                     <Route
                         path="/samples/:id"
                         element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ADMIN,
-                                    ROLE_ID.LAB_HEAD,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                    ROLE_ID.ANALYST,
-                                    ROLE_ID.SAMPLE_COLLECTOR,
-                                ]}
-                            >
+                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN, ROLE_ID.LAB_HEAD, ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.ANALYST, ROLE_ID.SAMPLE_COLLECTOR]}>
                                 <SampleDetailPage />
                             </RoleGuard>
                         }
@@ -128,13 +101,7 @@ export const AppRouter = () => {
                     <Route
                         path="/qa/parameters"
                         element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ANALYST,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                    ROLE_ID.LAB_HEAD,
-                                ]}
-                            >
+                            <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST, ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
                                 <QAParametersPage />
                             </RoleGuard>
                         }
@@ -143,13 +110,7 @@ export const AppRouter = () => {
                     <Route
                         path="/qa/methods"
                         element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ANALYST,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                    ROLE_ID.LAB_HEAD,
-                                ]}
-                            >
+                            <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST, ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
                                 <QAMethodsPage />
                             </RoleGuard>
                         }
@@ -158,15 +119,7 @@ export const AppRouter = () => {
                     <Route
                         path="/audit-logs"
                         element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ADMIN,
-                                    ROLE_ID.SAMPLE_COLLECTOR,
-                                    ROLE_ID.ANALYST,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                    ROLE_ID.LAB_HEAD,
-                                ]}
-                            >
+                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN, ROLE_ID.SAMPLE_COLLECTOR, ROLE_ID.ANALYST, ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
                                 <AuditLogsPage />
                             </RoleGuard>
                         }
@@ -175,12 +128,7 @@ export const AppRouter = () => {
                     <Route
                         path="/reports"
                         element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                    ROLE_ID.LAB_HEAD,
-                                ]}
-                            >
+                            <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
                                 <ReportsPage />
                             </RoleGuard>
                         }
@@ -197,9 +145,7 @@ export const AppRouter = () => {
                 </Route>
             </Route>
 
-            {/* =========================
-                CLIENT (PORTAL)
-            ========================= */}
+            {/* CLIENT / PORTAL */}
             <Route element={<ClientProtectedRoute />}>
                 <Route element={<PortalLayout />}>
                     <Route path="/portal" element={<ClientDashboardPage />} />

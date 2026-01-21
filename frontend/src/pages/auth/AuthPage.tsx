@@ -1,10 +1,13 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\auth\AuthPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+
 import { useAuth } from "../../hooks/useAuth";
 import { useClientAuth } from "../../hooks/useClientAuth";
 import { getTenant } from "../../utils/tenant";
 import { ROLE_ID } from "../../utils/roles";
+
 import { registerStaffRequest, clientRegisterRequest } from "../../services/auth";
 
 import LabHero from "../../assets/lab-login-hero.png";
@@ -30,10 +33,12 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
 
     const [showLoginPassword, setShowLoginPassword] = useState(false);
     const [showRegPassword, setShowRegPassword] = useState(false);
-    const [showRegPasswordConfirmation, setShowRegPasswordConfirmation] = useState(false);
+    const [showRegPasswordConfirmation, setShowRegPasswordConfirmation] =
+        useState(false);
 
     const { login } = useAuth();
-    const { loginClient } = useClientAuth();
+    const clientAuth = useClientAuth() as any;
+
     const navigate = useNavigate();
 
     const headingLogin = isPortal ? "Client sign in" : "Staff sign in";
@@ -53,13 +58,11 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         return () => window.removeEventListener("resize", check);
     }, []);
 
-    // LOGIN STATE
     const [loginEmail, setLoginEmail] = useState("");
     const [loginPassword, setLoginPassword] = useState("");
     const [loginError, setLoginError] = useState<string | null>(null);
     const [loginLoading, setLoginLoading] = useState(false);
 
-    // REGISTER (shared base) STATE
     const [regName, setRegName] = useState("");
     const [regEmail, setRegEmail] = useState("");
     const [regPassword, setRegPassword] = useState("");
@@ -68,21 +71,17 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const [regLoading, setRegLoading] = useState(false);
     const [regSuccess, setRegSuccess] = useState<string | null>(null);
 
-    // REGISTER (staff only)
     const [regRoleId, setRegRoleId] = useState<number>(ROLE_ID.ANALYST);
 
-    // REGISTER (client only)
     const [regClientType, setRegClientType] = useState<ClientType>("individual");
     const [regPhone, setRegPhone] = useState("");
 
-    // individual fields
     const [regNationalId, setRegNationalId] = useState("");
     const [regDob, setRegDob] = useState("");
     const [regGender, setRegGender] = useState<Gender>("female");
     const [regAddressKtp, setRegAddressKtp] = useState("");
     const [regAddressDomicile, setRegAddressDomicile] = useState("");
 
-    // institution fields
     const [regInstitutionName, setRegInstitutionName] = useState("");
     const [regInstitutionAddress, setRegInstitutionAddress] = useState("");
     const [regContactPersonName, setRegContactPersonName] = useState("");
@@ -99,6 +98,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         []
     );
 
+    // ✅ FIXED: portal login should NOT call staff login afterwards.
     const handleLoginSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoginError(null);
@@ -111,20 +111,24 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         try {
             setLoginLoading(true);
 
-            const currentTenant: Tenant = (tenant ?? getTenant()) as Tenant;
+            const currentTenant = (tenant ?? getTenant()) as Tenant;
 
             if (currentTenant === "portal") {
-                await loginClient(loginEmail, loginPassword);
-                navigate("/portal");
+                // ✅ Client login only
+                await clientAuth.loginClient(loginEmail, loginPassword);
+                navigate("/portal", { replace: true });
                 return;
             }
 
+            // ✅ Staff login only
             await login(loginEmail, loginPassword);
-            navigate("/clients");
+            navigate("/clients", { replace: true });
         } catch (err: any) {
+            // ✅ FIXED: axios errors are usually in err.response.data
             const msg =
-                err?.data?.message ??
-                err?.data?.error ??
+                err?.response?.data?.message ??
+                err?.response?.data?.error ??
+                err?.message ??
                 "Login failed. Please check your credentials.";
             setLoginError(msg);
         } finally {
@@ -217,8 +221,9 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             setTimeout(() => navigate("/login"), 800);
         } catch (err: any) {
             const msg =
-                err?.data?.message ??
-                err?.data?.error ??
+                err?.response?.data?.message ??
+                err?.response?.data?.error ??
+                err?.message ??
                 "Registration failed. Please review your data.";
             setRegError(msg);
         } finally {
@@ -263,7 +268,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
 
                 <div className="relative">
                     <label className={labelClass}>Password</label>
-
                     <input
                         type={showLoginPassword ? "text" : "password"}
                         value={loginPassword}
@@ -542,7 +546,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
 
                 <div className="relative">
                     <label className={labelClass}>Password</label>
-
                     <input
                         type={showRegPassword ? "text" : "password"}
                         value={regPassword}
@@ -563,7 +566,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
 
                 <div className="relative">
                     <label className={labelClass}>Confirm password</label>
-
                     <input
                         type={showRegPasswordConfirmation ? "text" : "password"}
                         value={regPasswordConfirmation}

@@ -1,26 +1,35 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import BiotraceLogo from "../../assets/biotrace-logo.png";
+import { clientLogoutRequest } from "../../services/auth";
 import { useClientAuth } from "../../hooks/useClientAuth";
 
 type NavItem = {
     label: string;
     path: string;
-    icon?: "home" | "file";
+    icon?: "home" | "flask";
 };
 
 export const PortalLayout = () => {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const navigate = useNavigate();
-    const { client, logoutClient } = useClientAuth();
+    const { client, loading, isClientAuthenticated } = useClientAuth() as any;
+
+    // ✅ HARD GUARD: kalau tidak login, jangan biarkan portal render & fetch data
+    useEffect(() => {
+        if (loading) return;
+        if (!isClientAuthenticated) {
+            navigate("/login", { replace: true });
+        }
+    }, [loading, isClientAuthenticated, navigate]);
 
     const navItems: NavItem[] = [
         { label: "Dashboard", path: "/portal", icon: "home" },
-        { label: "Sample Requests", path: "/portal/requests", icon: "file" },
+        { label: "Sample Requests", path: "/portal/requests", icon: "flask" },
     ];
 
     const renderIcon = (icon?: NavItem["icon"]) => {
-        if (icon === "home") {
+        if (icon === "flask") {
             return (
                 <svg
                     viewBox="0 0 24 24"
@@ -31,30 +40,26 @@ export const PortalLayout = () => {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                 >
-                    <path d="M3 10.5L12 3l9 7.5" />
-                    <path d="M5 9.5V21h14V9.5" />
+                    <path d="M10 2v6l-5 9a3 3 0 0 0 2.6 4.5h8.8A3 3 0 0 0 19 17l-5-9V2" />
+                    <path d="M8 8h8" />
                 </svg>
             );
         }
 
-        if (icon === "file") {
-            return (
-                <svg
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                >
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <path d="M14 2v6h6" />
-                </svg>
-            );
-        }
-
-        return null;
+        return (
+            <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            >
+                <path d="M3 10.5L12 3l9 7.5" />
+                <path d="M5 9.5V21h14V9.5" />
+            </svg>
+        );
     };
 
     const renderNavItem = (item: NavItem, closeOnClick = false) => (
@@ -65,26 +70,24 @@ export const PortalLayout = () => {
             className={({ isActive }) =>
                 [
                     "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition",
-                    isActive
-                        ? "bg-white/10 text-white"
-                        : "text-white/80 hover:bg-white/10 hover:text-white",
+                    isActive ? "bg-white/10 text-white" : "text-white/80 hover:bg-white/10 hover:text-white",
                 ].join(" ")
             }
         >
-            <span className="inline-flex h-5 w-5 items-center justify-center">
-                {renderIcon(item.icon)}
-            </span>
+            <span className="inline-flex h-5 w-5 items-center justify-center">{renderIcon(item.icon)}</span>
             <span>{item.label}</span>
         </NavLink>
     );
 
     const handleLogout = async () => {
         try {
-            await logoutClient();
+            await clientLogoutRequest();
         } finally {
-            navigate("/login");
+            navigate("/login", { replace: true });
         }
     };
+
+    const displayName = client?.name ?? client?.email ?? "Client";
 
     return (
         <div className="min-h-screen bg-cream flex">
@@ -106,10 +109,7 @@ export const PortalLayout = () => {
             </aside>
 
             {sidebarOpen && (
-                <div
-                    className="fixed inset-0 z-30 bg-black/40 lg:hidden"
-                    onClick={() => setSidebarOpen(false)}
-                />
+                <div className="fixed inset-0 z-30 bg-black/40 lg:hidden" onClick={() => setSidebarOpen(false)} />
             )}
 
             <aside
@@ -118,10 +118,7 @@ export const PortalLayout = () => {
             >
                 <div className="px-6 py-5 border-b border-black/10 flex items-center justify-between">
                     <img src={BiotraceLogo} alt="Biotrace" className="h-8 w-auto" />
-                    <button
-                        className="text-white text-xl leading-none"
-                        onClick={() => setSidebarOpen(false)}
-                    >
+                    <button className="text-white text-xl leading-none" onClick={() => setSidebarOpen(false)}>
                         ✕
                     </button>
                 </div>
@@ -139,23 +136,51 @@ export const PortalLayout = () => {
             </aside>
 
             <div className="flex-1 flex flex-col min-h-screen">
-                <div className="sticky top-0 z-20 bg-cream">
-                    <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-black/5">
-                        <div className="flex items-center gap-3">
-                            <button
-                                className="lg:hidden rounded-lg px-3 py-2 text-sm font-medium bg-white shadow-sm"
-                                onClick={() => setSidebarOpen(true)}
-                            >
-                                Menu
-                            </button>
-                            <div className="text-sm text-gray-600">Client Portal</div>
+                <header className="flex items-center justify-between px-4 md:px-6 py-6 border-b border-black/5 bg-cream">
+                    <button
+                        type="button"
+                        className="lg:hidden"
+                        onClick={() => setSidebarOpen(true)}
+                        aria-label="Open navigation"
+                    >
+                        <div className="space-y-1.5">
+                            <span className="block h-0.5 w-5 rounded-full bg-gray-900" />
+                            <span className="block h-0.5 w-5 rounded-full bg-gray-900" />
+                            <span className="block h-0.5 w-5 rounded-full bg-gray-900" />
                         </div>
+                    </button>
 
-                        <div className="text-xs text-gray-500">
-                            {client?.name ? `Signed in as ${client.name}` : ""}
+                    <div className="hidden lg:block" />
+
+                    <div className="flex items-center gap-4 ml-auto">
+                        <button type="button" className="lims-icon-button text-gray-700" aria-label="Notifications">
+                            <svg
+                                viewBox="0 0 24 24"
+                                className="h-5 w-5"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            >
+                                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+                                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                            </svg>
+                        </button>
+
+                        <div className="flex items-center gap-2">
+                            <div className="h-8 w-8 rounded-full bg-gray-300" />
+                            <div className="hidden sm:flex flex-col items-start">
+                                <span className="text-xs font-semibold text-gray-900">{displayName}</span>
+                                <span className="text-[11px] text-gray-500">Client</span>
+                            </div>
+
+                            <button type="button" className="lims-btn" onClick={handleLogout}>
+                                Logout
+                            </button>
                         </div>
                     </div>
-                </div>
+                </header>
 
                 <main className="flex-1 px-4 md:px-6 pb-6 pt-4">
                     <Outlet />

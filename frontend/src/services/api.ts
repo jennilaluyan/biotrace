@@ -1,3 +1,4 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\services\api.ts
 import axios, { AxiosRequestConfig, AxiosError } from "axios";
 
 const API_URL = import.meta.env.VITE_API_URL;
@@ -7,33 +8,143 @@ if (!API_URL) {
 
 export const http = axios.create({
     baseURL: API_URL,
-    withCredentials: true,
+    withCredentials: true, // default true (staff/backoffice). Client requests will override to false.
     headers: {
         Accept: "application/json",
     },
 });
 
+/**
+ * Separate staff vs client tokens.
+ */
+const STAFF_TOKEN_KEY = "biotrace_staff_token";
+const CLIENT_TOKEN_KEY = "biotrace_client_token";
+
+/**
+ * Backward compatible legacy key (staff only).
+ */
 const AUTH_TOKEN_KEY = "biotrace_auth_token";
 
+function normalizeUrlForCheck(url?: string) {
+    return (url ?? "").toLowerCase();
+}
+
+function isClientPath(url?: string) {
+    const u = normalizeUrlForCheck(url);
+
+    return (
+        u.includes("/v1/client/") ||
+        u.includes("/v1/clients/") ||
+        u.includes("/api/v1/client/") ||
+        u.includes("/api/v1/clients/")
+    );
+}
+
+function sanitizeToken(raw: string | null | undefined) {
+    if (!raw) return null;
+    const t = String(raw).trim();
+    if (!t) return null;
+    if (t === "null" || t === "undefined") return null;
+    return t;
+}
+
+export function setStaffAuthToken(token: string | null) {
+    const t = sanitizeToken(token);
+    if (t) localStorage.setItem(STAFF_TOKEN_KEY, t);
+    else localStorage.removeItem(STAFF_TOKEN_KEY);
+}
+
+export function getStaffAuthToken() {
+    return sanitizeToken(localStorage.getItem(STAFF_TOKEN_KEY));
+}
+
+export function setClientAuthToken(token: string | null) {
+    const t = sanitizeToken(token);
+    if (t) localStorage.setItem(CLIENT_TOKEN_KEY, t);
+    else localStorage.removeItem(CLIENT_TOKEN_KEY);
+}
+
+export function getClientAuthToken() {
+    return sanitizeToken(localStorage.getItem(CLIENT_TOKEN_KEY));
+}
+
+/**
+ * Backward compatible (STAFF only).
+ * Jangan dipakai untuk client portal.
+ */
 export function setAuthToken(token: string | null) {
-    if (token && token.trim() !== "") {
-        localStorage.setItem(AUTH_TOKEN_KEY, token);
-        http.defaults.headers.common.Authorization = `Bearer ${token}`;
+    const t = sanitizeToken(token);
+    if (t) {
+        localStorage.setItem(AUTH_TOKEN_KEY, t);
+        setStaffAuthToken(t);
     } else {
         localStorage.removeItem(AUTH_TOKEN_KEY);
-        delete http.defaults.headers.common.Authorization;
+        setStaffAuthToken(null);
     }
 }
 
 export function getAuthToken() {
-    return localStorage.getItem(AUTH_TOKEN_KEY);
+    return getStaffAuthToken() ?? sanitizeToken(localStorage.getItem(AUTH_TOKEN_KEY));
 }
 
-// bootstrap token on app load (so refresh still logged-in)
-const bootToken = getAuthToken();
-if (bootToken) {
-    http.defaults.headers.common.Authorization = `Bearer ${bootToken}`;
+/**
+ * Token rules:
+ * - Client endpoints MUST use client token ONLY (no legacy fallback!)
+ * - Staff endpoints use staff token, fallback legacy staff token
+ */
+function resolveTokenForRequest(url?: string) {
+    if (isClientPath(url)) {
+        return getClientAuthToken(); // 🔥 penting: STOP fallback ke legacy
+    }
+    return getStaffAuthToken() ?? sanitizeToken(localStorage.getItem(AUTH_TOKEN_KEY)) ?? null;
 }
+
+http.interceptors.request.use((config) => {
+    const url = config.url ?? "";
+    const clientReq = isClientPath(url);
+
+    // 🔥 FIX UTAMA:
+    // Client endpoint tidak boleh mengirim cookie staff (session),
+    // supaya backend tidak membaca actorRole=Administrator dan memblokir (CLIENT_ONLY).
+    if (clientReq) {
+        config.withCredentials = false;
+    } else {
+        config.withCredentials = true;
+    }
+
+    const token = resolveTokenForRequest(url);
+
+    if (token) {
+        config.headers = config.headers ?? {};
+        (config.headers as any).Authorization = `Bearer ${token}`;
+    } else if (config.headers && "Authorization" in config.headers) {
+        delete (config.headers as any).Authorization;
+    }
+
+    return config;
+});
+
+http.interceptors.response.use(
+    (res) => res,
+    (err) => {
+        const error = err as AxiosError;
+        const status = error?.response?.status;
+        const url = (error as any)?.config?.url ?? "";
+
+        // Avoid cross-clearing
+        if (status === 401) {
+            if (isClientPath(url)) {
+                setClientAuthToken(null);
+                // jangan hapus legacy staff key di sini
+            } else {
+                setStaffAuthToken(null);
+                localStorage.removeItem(AUTH_TOKEN_KEY);
+            }
+        }
+
+        return Promise.reject(err);
+    }
+);
 
 // Helper normalize
 function normalizeData(data: any) {
@@ -67,6 +178,7 @@ function normalizePath(path: string) {
         if (p === "/api") return "/";
         if (p.startsWith("/api/")) p = p.replace(/^\/api/, "");
     }
+
     return p;
 }
 
@@ -74,11 +186,7 @@ export async function apiGet<T = any>(path: string, options?: AxiosRequestConfig
     return handleAxios<T>(http.get(normalizePath(path), options));
 }
 
-export async function apiPost<T = any>(
-    path: string,
-    body?: unknown,
-    options?: AxiosRequestConfig
-) {
+export async function apiPost<T = any>(path: string, body?: unknown, options?: AxiosRequestConfig) {
     return handleAxios<T>(
         http.post(normalizePath(path), body, {
             headers: {
@@ -91,11 +199,7 @@ export async function apiPost<T = any>(
     );
 }
 
-export async function apiPatch<T = any>(
-    path: string,
-    body?: unknown,
-    options?: AxiosRequestConfig
-) {
+export async function apiPatch<T = any>(path: string, body?: unknown, options?: AxiosRequestConfig) {
     return handleAxios<T>(
         http.patch(normalizePath(path), body, {
             headers: {
@@ -108,11 +212,7 @@ export async function apiPatch<T = any>(
     );
 }
 
-export async function apiPut<T = any>(
-    path: string,
-    body?: unknown,
-    options?: AxiosRequestConfig
-) {
+export async function apiPut<T = any>(path: string, body?: unknown, options?: AxiosRequestConfig) {
     return handleAxios<T>(
         http.put(normalizePath(path), body, {
             headers: {

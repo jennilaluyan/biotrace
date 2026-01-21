@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { clientLoginRequest, clientFetchProfile, clientLogoutRequest } from "../services/auth";
+import { getClientAuthToken } from "../services/api";
+import { getTenant } from "../utils/tenant";
 
 export type ClientUser = {
     id: number;
@@ -11,6 +13,7 @@ export type ClientUser = {
 type ClientAuthContextType = {
     client: ClientUser | null;
     isClientAuthenticated: boolean;
+    isAuthenticated: boolean; // alias
     loading: boolean;
     loginClient: (email: string, password: string) => Promise<void>;
     logoutClient: () => Promise<void>;
@@ -62,6 +65,14 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
     const isClientAuthenticated = !!client;
 
     const refreshClient = async () => {
+        // 🔥 jangan spam call /me kalau memang belum ada token
+        const token = getClientAuthToken();
+        if (!token) {
+            setClient(null);
+            storeClient(null);
+            return;
+        }
+
         try {
             const res = await clientFetchProfile();
             const normalized = normalizeClient(res);
@@ -85,6 +96,10 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
         (async () => {
             try {
                 setLoading(true);
+
+                // ✅ portal only. Backoffice jangan ikut-ikutan refresh client.
+                if (getTenant() !== "portal") return;
+
                 await refreshClient();
             } finally {
                 if (!cancelled) setLoading(false);
@@ -101,11 +116,11 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
         setLoading(true);
         try {
             const res = await clientLoginRequest(email, password);
+
             const normalized = normalizeClient(res);
             setClient(normalized);
             storeClient(normalized);
 
-            // fallback kalau backend cuma set cookie
             if (!normalized) {
                 await refreshClient();
             }
@@ -127,7 +142,15 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
 
     return (
         <ClientAuthContext.Provider
-            value={{ client, isClientAuthenticated, loading, loginClient, logoutClient, refreshClient }}
+            value={{
+                client,
+                isClientAuthenticated,
+                isAuthenticated: isClientAuthenticated,
+                loading,
+                loginClient,
+                logoutClient,
+                refreshClient,
+            }}
         >
             {children}
         </ClientAuthContext.Provider>
