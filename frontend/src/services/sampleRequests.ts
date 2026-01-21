@@ -5,17 +5,25 @@ export type ClientSampleListParams = {
     page?: number;
     per_page?: number;
     from?: string; // YYYY-MM-DD
-    to?: string;   // YYYY-MM-DD
+    to?: string; // YYYY-MM-DD
     status?: string; // request_status filter (optional, backend may ignore)
+    q?: string; // free search (optional)
 };
 
 export type ClientSampleDraftPayload = {
-    // Draft fields (sesuai workflow request)
+    // Required
     sample_type: string;
+
+    // Optional fields (backend may accept / ignore depending on impl)
+    received_at?: string | null; // ISO or backend-friendly datetime
+    priority?: number | null;
+    contact_history?: ContactHistory | string | null;
     examination_purpose?: string | null;
-    contact_history?: ContactHistory;
-    priority?: number;
     additional_notes?: string | null;
+
+    // Some backends use title or name (keep both to be safe)
+    title?: string | null;
+    name?: string | null;
 };
 
 function unwrapData<T>(res: any): T {
@@ -28,16 +36,30 @@ function unwrapPaginatedFlexible<T>(res: any): PaginatedResponse<T> {
     if (res && typeof res === "object" && "data" in res && "meta" in res) {
         return res as PaginatedResponse<T>;
     }
+
     // Some endpoints might return ApiResponse { data: { data, meta } }
     const inner = unwrapData<any>(res);
     if (inner && typeof inner === "object" && "data" in inner && "meta" in inner) {
         return inner as PaginatedResponse<T>;
     }
+
     // Fallback: array
     if (Array.isArray(inner)) {
-        return { data: inner as T[], meta: { current_page: 1, last_page: 1, per_page: inner.length, total: inner.length } };
+        return {
+            data: inner as T[],
+            meta: {
+                current_page: 1,
+                last_page: 1,
+                per_page: inner.length,
+                total: inner.length,
+            },
+        };
     }
-    return { data: [], meta: { current_page: 1, last_page: 1, per_page: 10, total: 0 } };
+
+    return {
+        data: [],
+        meta: { current_page: 1, last_page: 1, per_page: 10, total: 0 },
+    };
 }
 
 export const clientSampleRequestService = {
@@ -49,6 +71,7 @@ export const clientSampleRequestService = {
         if (params.from) qs.set("from", params.from);
         if (params.to) qs.set("to", params.to);
         if (params.status) qs.set("status", params.status);
+        if (params.q) qs.set("q", params.q);
 
         const url = `/v1/client/samples${qs.toString() ? `?${qs.toString()}` : ""}`;
         const res = await apiGet<any>(url);

@@ -21,7 +21,10 @@ export type IntakeChecklistPayload = {
     note?: string | null;
 };
 
-export async function submitIntakeChecklist(sampleId: number, payload: IntakeChecklistPayload) {
+export async function submitIntakeChecklist(
+    sampleId: number,
+    payload: IntakeChecklistPayload
+) {
     return apiPost<any>(`/v1/samples/${sampleId}/intake-checklist`, payload);
 }
 

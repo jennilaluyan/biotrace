@@ -1,3 +1,4 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -24,8 +25,8 @@ import { EnterQcModal } from "../../components/qc/EnterQcModal";
 
 import { BulkVerifyValidateBar } from "../../components/sampleTests/BulkVerifyValidateBar";
 
-/** ✅ Step 6 */
-import { IntakeChecklistModal } from "../../components/intake/IntakeChecklistModal";
+// ✅ Step 7 service
+import { validateIntake } from "../../services/intake";
 
 /* ----------------------------- Types (ringan) ----------------------------- */
 type StaffLite = {
@@ -126,11 +127,13 @@ function StatusPill({ value }: { value?: string | null }) {
         verified: "bg-purple-50 text-purple-700 border-purple-200",
         validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
 
-        // request_status tones (Step 6-friendly)
+        // request/intake-ish (biar enak dibaca, backend tetap source of truth)
         submitted: "bg-blue-50 text-blue-700 border-blue-200",
         returned: "bg-amber-50 text-amber-800 border-amber-200",
-        ready_for_delivery: "bg-indigo-50 text-indigo-700 border-indigo-200",
+        ready_for_delivery: "bg-slate-50 text-slate-700 border-slate-200",
         physically_received: "bg-emerald-50 text-emerald-700 border-emerald-200",
+        intake_checklist_passed: "bg-emerald-50 text-emerald-700 border-emerald-200",
+        intake_validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
     };
     const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
 
@@ -289,8 +292,10 @@ export const SampleDetailPage = () => {
         );
     }, [roleId]);
 
-    /** ✅ Step 6 state */
-    const [openIntakeChecklist, setOpenIntakeChecklist] = useState(false);
+    // ✅ Step 7 UI state
+    const [intakeValidating, setIntakeValidating] = useState(false);
+    const [intakeError, setIntakeError] = useState<string | null>(null);
+    const [intakeSuccess, setIntakeSuccess] = useState<string | null>(null);
 
     const loadSample = async (opts?: { silent?: boolean }) => {
         if (!canViewSamples) {
@@ -529,6 +534,47 @@ export const SampleDetailPage = () => {
     }
     /* ================================================================================================= */
 
+    // ✅ Step 7 derived
+    const requestStatus = String((sample as any)?.request_status ?? "");
+    const labSampleCode = String((sample as any)?.lab_sample_code ?? "");
+
+    const canValidateIntake = useMemo(() => {
+        if (roleId !== ROLE_ID.LAB_HEAD) return false;
+        // Jangan terlalu ketat — backend yang enforce.
+        // Tapi jangan tampilkan kalau sudah validated dan code sudah ada.
+        const st = requestStatus.toLowerCase();
+        if (!st) return true;
+        if (st === "intake_validated") return false;
+        if (st === "validated") return false;
+        return true;
+    }, [roleId, requestStatus]);
+
+    const doValidateIntake = async () => {
+        if (!sampleId || Number.isNaN(sampleId)) return;
+
+        try {
+            setIntakeValidating(true);
+            setIntakeError(null);
+            setIntakeSuccess(null);
+
+            await validateIntake(sampleId);
+
+            await loadSample({ silent: true });
+            await loadHistory();
+
+            setIntakeSuccess("Intake validated successfully. Lab workflow should be active now.");
+        } catch (err: any) {
+            const msg =
+                err?.data?.message ??
+                err?.data?.error ??
+                err?.message ??
+                "Failed to validate intake.";
+            setIntakeError(msg);
+        } finally {
+            setIntakeValidating(false);
+        }
+    };
+
     if (!canViewSamples) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
@@ -569,15 +615,6 @@ export const SampleDetailPage = () => {
             : qcIsPass
                 ? "All good."
                 : "No QC summary yet (or QC has not been entered).";
-
-    /** ✅ Step 6 gating */
-    const requestStatus = (sample as any)?.request_status ?? (sample as any)?.requestStatus ?? null;
-    const isSampleCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
-
-    const canOpenChecklist =
-        isSampleCollector &&
-        !!sample &&
-        (String(requestStatus || "").toLowerCase() === "physically_received");
 
     return (
         <div className="min-h-[60vh]">
@@ -635,6 +672,16 @@ export const SampleDetailPage = () => {
                                     <span className="font-mono text-xs">
                                         {sample.status_enum ?? "-"}
                                     </span>
+                                    {requestStatus ? (
+                                        <>
+                                            {" · "}request: <span className="font-mono text-xs">{requestStatus}</span>
+                                        </>
+                                    ) : null}
+                                    {labSampleCode ? (
+                                        <>
+                                            {" · "}BML: <span className="font-mono text-xs">{labSampleCode}</span>
+                                        </>
+                                    ) : null}
                                 </div>
                             </div>
 
@@ -696,67 +743,71 @@ export const SampleDetailPage = () => {
                             <div className="px-5 py-5">
                                 {tab === "overview" && (
                                     <div className="space-y-6">
-                                        {/* ✅ Step 6: Request / Intake block */}
-                                        <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
-                                            <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+                                        {/* ✅ Step 7: Request/Intake panel */}
+                                        <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
+                                            <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
                                                 <div>
-                                                    <div className="text-sm font-semibold text-gray-900">
-                                                        Request / Intake
-                                                    </div>
+                                                    <div className="text-sm font-bold text-gray-900">Request / Intake</div>
                                                     <div className="text-xs text-gray-500 mt-1">
-                                                        Intake checklist only appears for Sample Collector when request is physically received.
+                                                        Lab Head validates intake after checklist pass. Backend enforces rules; UI just guides.
                                                     </div>
                                                 </div>
 
-                                                <div className="flex items-center gap-2">
-                                                    {canOpenChecklist ? (
-                                                        <SmallPrimaryButton
-                                                            type="button"
-                                                            onClick={() => setOpenIntakeChecklist(true)}
-                                                            title="Fill intake checklist"
-                                                        >
-                                                            Intake Checklist
-                                                        </SmallPrimaryButton>
-                                                    ) : (
-                                                        <span className="text-xs text-gray-400">
-                                                            {isSampleCollector
-                                                                ? "Checklist locked until request_status=physically_received."
-                                                                : "Only Sample Collector can fill checklist."}
-                                                        </span>
-                                                    )}
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    {requestStatus ? (
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xs text-gray-500">Request status</span>
+                                                            <StatusPill value={requestStatus} />
+                                                        </div>
+                                                    ) : null}
+
+                                                    {labSampleCode ? (
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xs text-gray-500">Lab code</span>
+                                                            <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
+                                                                {labSampleCode}
+                                                            </span>
+                                                        </div>
+                                                    ) : null}
                                                 </div>
                                             </div>
 
-                                            <div className="px-4 py-4">
-                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-                                                    <div>
-                                                        <div className="lims-detail-label">request_status</div>
-                                                        <div className="mt-1">
-                                                            <StatusPill value={requestStatus ?? "-"} />
-                                                        </div>
-                                                    </div>
-
-                                                    <div>
-                                                        <div className="lims-detail-label">lab_sample_code</div>
-                                                        <div className="lims-detail-value">
-                                                            {(sample as any)?.lab_sample_code ?? "-"}
-                                                        </div>
-                                                    </div>
-
-                                                    <div>
-                                                        <div className="lims-detail-label">received_at</div>
-                                                        <div className="lims-detail-value">
-                                                            {formatDate((sample as any)?.received_at)}
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                {!canOpenChecklist && isSampleCollector && (
-                                                    <div className="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-                                                        Backend tetap source of truth. Kalau kamu merasa sudah “physically received” tapi tombol belum muncul,
-                                                        berarti request_status di sample belum sesuai.
+                                            <div className="px-5 py-4">
+                                                {intakeError && (
+                                                    <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-3">
+                                                        {intakeError}
                                                     </div>
                                                 )}
+
+                                                {intakeSuccess && (
+                                                    <div className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-xl mb-3">
+                                                        {intakeSuccess}
+                                                    </div>
+                                                )}
+
+                                                <div className="flex items-start justify-between gap-3 flex-wrap">
+                                                    <div className="text-sm text-gray-700">
+                                                        <div className="font-semibold text-gray-900 mb-1">Validate Intake</div>
+                                                        <div className="text-xs text-gray-600">
+                                                            This should assign a lab sample code (BML) and unlock the lab workflow — if the backend rules are satisfied.
+                                                        </div>
+                                                    </div>
+
+                                                    {canValidateIntake ? (
+                                                        <SmallPrimaryButton
+                                                            type="button"
+                                                            onClick={doValidateIntake}
+                                                            disabled={intakeValidating}
+                                                            title="Validate intake (Lab Head)"
+                                                        >
+                                                            {intakeValidating ? "Validating..." : "Validate Intake"}
+                                                        </SmallPrimaryButton>
+                                                    ) : (
+                                                        <div className="text-xs text-gray-500 italic">
+                                                            Validate Intake is only available for Lab Head (or already validated).
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
 
@@ -1297,19 +1348,6 @@ export const SampleDetailPage = () => {
                             sampleId={sampleId}
                             onClose={() => setOpenQcModal(false)}
                             onSubmitted={loadQc}
-                        />
-
-                        {/* ✅ Step 6 modal */}
-                        <IntakeChecklistModal
-                            open={openIntakeChecklist}
-                            sampleId={sampleId}
-                            requestStatus={requestStatus}
-                            onClose={() => setOpenIntakeChecklist(false)}
-                            onSubmitted={async () => {
-                                // After checklist submit: refresh sample + history (backend may update request_status)
-                                await loadSample({ silent: true });
-                                await loadHistory();
-                            }}
                         />
                     </div>
                 )}
