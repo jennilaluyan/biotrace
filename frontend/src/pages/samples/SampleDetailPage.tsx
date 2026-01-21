@@ -24,6 +24,9 @@ import { EnterQcModal } from "../../components/qc/EnterQcModal";
 
 import { BulkVerifyValidateBar } from "../../components/sampleTests/BulkVerifyValidateBar";
 
+/** ✅ Step 6 */
+import { IntakeChecklistModal } from "../../components/intake/IntakeChecklistModal";
+
 /* ----------------------------- Types (ringan) ----------------------------- */
 type StaffLite = {
     staff_id: number;
@@ -122,6 +125,12 @@ function StatusPill({ value }: { value?: string | null }) {
         failed: "bg-red-50 text-red-700 border-red-200",
         verified: "bg-purple-50 text-purple-700 border-purple-200",
         validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
+
+        // request_status tones (Step 6-friendly)
+        submitted: "bg-blue-50 text-blue-700 border-blue-200",
+        returned: "bg-amber-50 text-amber-800 border-amber-200",
+        ready_for_delivery: "bg-indigo-50 text-indigo-700 border-indigo-200",
+        physically_received: "bg-emerald-50 text-emerald-700 border-emerald-200",
     };
     const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
 
@@ -279,6 +288,9 @@ export const SampleDetailPage = () => {
             roleId === ROLE_ID.LAB_HEAD
         );
     }, [roleId]);
+
+    /** ✅ Step 6 state */
+    const [openIntakeChecklist, setOpenIntakeChecklist] = useState(false);
 
     const loadSample = async (opts?: { silent?: boolean }) => {
         if (!canViewSamples) {
@@ -558,6 +570,15 @@ export const SampleDetailPage = () => {
                 ? "All good."
                 : "No QC summary yet (or QC has not been entered).";
 
+    /** ✅ Step 6 gating */
+    const requestStatus = (sample as any)?.request_status ?? (sample as any)?.requestStatus ?? null;
+    const isSampleCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
+
+    const canOpenChecklist =
+        isSampleCollector &&
+        !!sample &&
+        (String(requestStatus || "").toLowerCase() === "physically_received");
+
     return (
         <div className="min-h-[60vh]">
             {/* Breadcrumb */}
@@ -675,9 +696,69 @@ export const SampleDetailPage = () => {
                             <div className="px-5 py-5">
                                 {tab === "overview" && (
                                     <div className="space-y-6">
-                                        {/* ... (bagian overview kamu aman, aku biarin sama) */}
-                                        {/* History block tetap sama seperti punya kamu */}
-                                        {/* (aku tidak ubah konten, hanya fixing errors) */}
+                                        {/* ✅ Step 6: Request / Intake block */}
+                                        <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+                                            <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+                                                <div>
+                                                    <div className="text-sm font-semibold text-gray-900">
+                                                        Request / Intake
+                                                    </div>
+                                                    <div className="text-xs text-gray-500 mt-1">
+                                                        Intake checklist only appears for Sample Collector when request is physically received.
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-2">
+                                                    {canOpenChecklist ? (
+                                                        <SmallPrimaryButton
+                                                            type="button"
+                                                            onClick={() => setOpenIntakeChecklist(true)}
+                                                            title="Fill intake checklist"
+                                                        >
+                                                            Intake Checklist
+                                                        </SmallPrimaryButton>
+                                                    ) : (
+                                                        <span className="text-xs text-gray-400">
+                                                            {isSampleCollector
+                                                                ? "Checklist locked until request_status=physically_received."
+                                                                : "Only Sample Collector can fill checklist."}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="px-4 py-4">
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                                                    <div>
+                                                        <div className="lims-detail-label">request_status</div>
+                                                        <div className="mt-1">
+                                                            <StatusPill value={requestStatus ?? "-"} />
+                                                        </div>
+                                                    </div>
+
+                                                    <div>
+                                                        <div className="lims-detail-label">lab_sample_code</div>
+                                                        <div className="lims-detail-value">
+                                                            {(sample as any)?.lab_sample_code ?? "-"}
+                                                        </div>
+                                                    </div>
+
+                                                    <div>
+                                                        <div className="lims-detail-label">received_at</div>
+                                                        <div className="lims-detail-value">
+                                                            {formatDate((sample as any)?.received_at)}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {!canOpenChecklist && isSampleCollector && (
+                                                    <div className="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                                                        Backend tetap source of truth. Kalau kamu merasa sudah “physically received” tapi tombol belum muncul,
+                                                        berarti request_status di sample belum sesuai.
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
 
                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                             <div>
@@ -1216,6 +1297,19 @@ export const SampleDetailPage = () => {
                             sampleId={sampleId}
                             onClose={() => setOpenQcModal(false)}
                             onSubmitted={loadQc}
+                        />
+
+                        {/* ✅ Step 6 modal */}
+                        <IntakeChecklistModal
+                            open={openIntakeChecklist}
+                            sampleId={sampleId}
+                            requestStatus={requestStatus}
+                            onClose={() => setOpenIntakeChecklist(false)}
+                            onSubmitted={async () => {
+                                // After checklist submit: refresh sample + history (backend may update request_status)
+                                await loadSample({ silent: true });
+                                await loadHistory();
+                            }}
                         />
                     </div>
                 )}
