@@ -24,9 +24,8 @@ import { getQcSummary, type QcSummaryResponse } from "../../services/qc";
 import { EnterQcModal } from "../../components/qc/EnterQcModal";
 
 import { BulkVerifyValidateBar } from "../../components/sampleTests/BulkVerifyValidateBar";
-
-// ✅ Step 7 service
 import { validateIntake } from "../../services/intake";
+import { LoaPanelStaff } from "../../components/loa/LoaPanelStaff";
 
 /* ----------------------------- Types (ringan) ----------------------------- */
 type StaffLite = {
@@ -743,7 +742,6 @@ export const SampleDetailPage = () => {
                             <div className="px-5 py-5">
                                 {tab === "overview" && (
                                     <div className="space-y-6">
-                                        {/* ✅ Step 7: Request/Intake panel */}
                                         <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                                             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
                                                 <div>
@@ -971,6 +969,17 @@ export const SampleDetailPage = () => {
                                         </div>
                                     </div>
                                 )}
+
+                                <LoaPanelStaff
+                                    sampleId={sampleId}
+                                    roleId={roleId}
+                                    samplePayload={sample}
+                                    onChanged={async () => {
+                                        // keep it consistent with your refresh patterns
+                                        await loadSample({ silent: true });
+                                        await loadHistory();
+                                    }}
+                                />
 
                                 {tab === "tests" && (
                                     <div className="space-y-4">

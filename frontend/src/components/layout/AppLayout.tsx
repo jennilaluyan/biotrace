@@ -137,26 +137,42 @@ export const AppLayout = () => {
         );
     };
 
-    const renderNavItem = (item: NavItem, closeOnClick = false) => (
-        <NavLink
-            key={item.path}
-            to={item.path}
-            onClick={closeOnClick ? () => setSidebarOpen(false) : undefined}
-            className={({ isActive }) =>
-                [
-                    "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition",
-                    isActive
-                        ? "bg-white/10 text-white"
-                        : "text-white/80 hover:bg-white/10 hover:text-white",
-                ].join(" ")
-            }
-        >
-            <span className="inline-flex h-5 w-5 items-center justify-center">
-                {renderIcon(item.icon)}
-            </span>
-            <span>{item.label}</span>
-        </NavLink>
-    );
+    const renderNavItem = (item: NavItem, closeOnClick = false) => {
+        const end =
+            item.path === "/samples" ||
+            item.path === "/clients" ||
+            item.path === "/portal" ||
+            item.path === "/qa/parameters" ||
+            item.path === "/qa/methods" ||
+            item.path === "/reports" ||
+            item.path === "/audit-logs" ||
+            item.path === "/clients/approvals" ||
+            item.path === "/samples/requests" ||
+            item.path === "/staff/approvals" ||
+            item.path === "/portal/requests";
+
+        return (
+            <NavLink
+                key={item.path}
+                to={item.path}
+                end={end}
+                onClick={closeOnClick ? () => setSidebarOpen(false) : undefined}
+                className={({ isActive }) =>
+                    [
+                        "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition",
+                        isActive
+                            ? "bg-white/10 text-white"
+                            : "text-white/80 hover:bg-white/10 hover:text-white",
+                    ].join(" ")
+                }
+            >
+                <span className="inline-flex h-5 w-5 items-center justify-center">
+                    {renderIcon(item.icon)}
+                </span>
+                <span>{item.label}</span>
+            </NavLink>
+        );
+    };
 
     return (
         <div className="min-h-screen bg-cream flex">

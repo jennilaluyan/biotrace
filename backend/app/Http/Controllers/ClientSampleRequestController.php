@@ -237,6 +237,7 @@ class ClientSampleRequestController extends Controller
 
     private function ensureSystemStaffId(): int
     {
+        // If the schema doesn't support these fields, no need to create system staff.
         if (!Schema::hasColumn('samples', 'created_by') && !Schema::hasColumn('samples', 'assigned_to')) {
             return 1;
         }
@@ -247,11 +248,26 @@ class ClientSampleRequestController extends Controller
 
         $email = 'system_staff@lims.local';
 
+        // If system staff already exists, return it fast.
+        $existing = DB::table('staffs')->where('email', $email)->value('staff_id');
+        if ($existing) {
+            return (int) $existing;
+        }
+
+        // Ensure role exists in an idempotent way (no duplicate key explosions).
         $roleId = 1;
+
         if (Schema::hasTable('roles')) {
             $roleName = 'ADMIN';
-            $roleId = (int) (DB::table('roles')->where('name', $roleName)->value('role_id') ?: 0);
 
+            // 1) Case-insensitive read first (avoid "Admin" vs "ADMIN" mismatch)
+            $roleId = (int) (
+                DB::table('roles')
+                ->whereRaw('LOWER(name) = ?', [strtolower($roleName)])
+                ->value('role_id') ?: 0
+            );
+
+            // 2) If missing, try to ensure it exists (idempotent)
             if ($roleId <= 0) {
                 $rolePayload = [
                     'name'        => $roleName,
@@ -260,18 +276,46 @@ class ClientSampleRequestController extends Controller
                     'updated_at'  => now(),
                 ];
 
-                $roleCols = array_flip(Schema::getColumnListing('roles'));
+                $roleCols   = array_flip(Schema::getColumnListing('roles'));
                 $roleInsert = array_intersect_key($rolePayload, $roleCols);
 
-                $roleId = (int) DB::table('roles')->insertGetId($roleInsert, 'role_id');
+                try {
+                    // Prefer updateOrInsert by name (requires/assumes roles.name is UNIQUE for perfect safety)
+                    DB::table('roles')->updateOrInsert(
+                        ['name' => $roleName],
+                        array_diff_key($roleInsert, ['name' => true]) // update fields except key
+                    );
+                } catch (\Throwable $e) {
+                    // Fallback if roles.name isn't unique (or other constraint issues).
+                    // Only insert if still missing in a case-insensitive way.
+                    $exists = (int) (
+                        DB::table('roles')
+                        ->whereRaw('LOWER(name) = ?', [strtolower($roleName)])
+                        ->count()
+                    );
+
+                    if ($exists === 0) {
+                        // Last-resort insert without specifying role_id.
+                        // If sequences are fixed (setval), this won't collide.
+                        DB::table('roles')->insert($roleInsert);
+                    }
+                }
+
+                // 3) Re-read role_id after ensuring existence
+                $roleId = (int) (
+                    DB::table('roles')
+                    ->whereRaw('LOWER(name) = ?', [strtolower($roleName)])
+                    ->value('role_id') ?: 0
+                );
+
+                // 4) Hard fallback: pick the first available role (better than crashing)
+                if ($roleId <= 0) {
+                    $roleId = (int) (DB::table('roles')->orderBy('role_id')->value('role_id') ?: 1);
+                }
             }
         }
 
-        $existing = DB::table('staffs')->where('email', $email)->value('staff_id');
-        if ($existing) {
-            return (int) $existing;
-        }
-
+        // Create system staff if it doesn't exist (idempotent).
         $payload = [
             'name'          => 'System Staff',
             'email'         => $email,
@@ -285,12 +329,17 @@ class ClientSampleRequestController extends Controller
         $cols = array_flip(Schema::getColumnListing('staffs'));
         $insert = array_intersect_key($payload, $cols);
 
+        // Backward compatibility: some schemas use "password" instead of "password_hash"
         if (isset($cols['password']) && !isset($insert['password'])) {
             $insert['password'] = $insert['password_hash'] ?? bcrypt('secret');
         }
 
-        DB::table('staffs')->insert($insert);
+        // Make staff creation idempotent too (needs UNIQUE on email, which is a reasonable assumption).
+        DB::table('staffs')->updateOrInsert(
+            ['email' => $email],
+            array_diff_key($insert, ['email' => true])
+        );
 
-        return (int) DB::table('staffs')->where('email', $email)->value('staff_id');
+        return (int) (DB::table('staffs')->where('email', $email)->value('staff_id') ?: 1);
     }
 }

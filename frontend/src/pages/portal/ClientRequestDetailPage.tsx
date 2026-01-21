@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { clientPortal, ClientSample } from "../../services/clientPortal";
+import { LoaPanelClient } from "../../components/loa/LoaPanelClient";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -321,6 +322,13 @@ export default function ClientRequestDetailPage() {
                     )}
                 </div>
             </div>
+
+            <LoaPanelClient
+                requestPayload={data}
+                onChanged={async () => {
+                    await load();
+                }}
+            />
 
             {/* Debug (keep but make it staff-ish, not ugly) */}
             <div className="mt-4 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
