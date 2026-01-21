@@ -1,20 +1,31 @@
 import { apiPost } from "./api";
-import type { Sample } from "./samples";
 
 export type UpdateRequestStatusPayload = {
-    target_status: string; // "returned" | "ready_for_delivery" | "physically_received" etc
+    status: string;
     note?: string | null;
 };
 
-function unwrapData<T>(res: any): T {
-    if (res && typeof res === "object" && "data" in res) return res.data as T;
-    return res as T;
-}
-
-export const sampleRequestStatusService = {
-    // POST /v1/samples/:id/request-status
-    async update(sampleId: number, payload: UpdateRequestStatusPayload): Promise<Sample> {
-        const res = await apiPost<any>(`/v1/samples/${sampleId}/request-status`, payload);
-        return unwrapData<Sample>(res);
-    },
+export type UpdateRequestStatusResponse = {
+    success?: boolean;
+    message?: string;
+    data?: any;
 };
+
+export async function updateRequestStatus(
+    sampleId: number,
+    status: string,
+    note?: string | null
+): Promise<UpdateRequestStatusResponse> {
+    const payload: UpdateRequestStatusPayload = {
+        status,
+        note: note ?? null,
+    };
+
+    // apiPost biasanya return data langsung (bukan AxiosResponse)
+    const res = await apiPost<UpdateRequestStatusResponse>(
+        `/v1/samples/${sampleId}/request-status`,
+        payload
+    );
+
+    return res as any;
+}

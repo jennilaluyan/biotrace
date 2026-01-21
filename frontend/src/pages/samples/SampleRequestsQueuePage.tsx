@@ -7,6 +7,8 @@ import {
     type Paginator,
     type SampleRequestQueueRow,
 } from "../../services/sampleRequestQueue";
+import { updateRequestStatus } from "../../services/sampleRequestStatus";
+import { UpdateRequestStatusModal } from "../../components/samples/UpdateRequestStatusModal";
 
 type DateFilter = "all" | "today" | "7d" | "30d";
 
@@ -49,6 +51,29 @@ function StatusPill({ value }: { value?: string | null }) {
     );
 }
 
+type ApiError = {
+    data?: {
+        message?: string;
+        error?: string;
+        details?: Record<string, string[] | string>;
+    };
+};
+
+const getErrorMessage = (err: unknown, fallback: string) => {
+    const e = err as ApiError;
+    const details = e?.data?.details;
+
+    if (details && typeof details === "object") {
+        const firstKey = Object.keys(details)[0];
+        const firstVal = firstKey ? details[firstKey] : undefined;
+
+        if (Array.isArray(firstVal) && firstVal[0]) return String(firstVal[0]);
+        if (typeof firstVal === "string" && firstVal) return firstVal;
+    }
+
+    return e?.data?.message ?? e?.data?.error ?? fallback;
+};
+
 export default function SampleRequestsQueuePage() {
     const { user } = useAuth();
     const navigate = useNavigate();
@@ -65,9 +90,18 @@ export default function SampleRequestsQueuePage() {
 
     // filters
     const [searchTerm, setSearchTerm] = useState("");
-    const [statusFilter, setStatusFilter] = useState<string>(""); // request_status
+    const [statusFilter, setStatusFilter] = useState<string>("");
     const [dateFilter, setDateFilter] = useState<DateFilter>("all");
     const [currentPage, setCurrentPage] = useState(1);
+
+    // action state
+    const [actionBusyId, setActionBusyId] = useState<number | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
+
+    // return modal
+    const [returnOpen, setReturnOpen] = useState(false);
+    const [returnSampleId, setReturnSampleId] = useState<number | null>(null);
+    const [returnCurrentStatus, setReturnCurrentStatus] = useState<string | null>(null);
 
     const loadQueue = async (opts?: { keepPage?: boolean }) => {
         try {
@@ -105,7 +139,7 @@ export default function SampleRequestsQueuePage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [canView, currentPage]);
 
-    // reset to page 1 when filters change (like ReportsPage)
+    // reset to page 1 when filters change
     useEffect(() => {
         if (!canView) return;
         setCurrentPage(1);
@@ -127,6 +161,34 @@ export default function SampleRequestsQueuePage() {
         setDateFilter("all");
         setCurrentPage(1);
         loadQueue({ keepPage: false });
+    };
+
+    const openReturn = (sampleId: number, currentStatus?: string | null) => {
+        setReturnSampleId(sampleId);
+        setReturnCurrentStatus(currentStatus ?? null);
+        setReturnOpen(true);
+    };
+
+    const closeReturn = () => {
+        setReturnOpen(false);
+        setReturnSampleId(null);
+        setReturnCurrentStatus(null);
+    };
+
+    const doQuickStatus = async (sampleId: number, nextStatus: "ready_for_delivery" | "physically_received") => {
+        try {
+            setActionBusyId(sampleId);
+            setActionError(null);
+
+            await updateRequestStatus(sampleId, nextStatus, null);
+
+            // reload list, keep current page (biar UX enak)
+            await loadQueue({ keepPage: true });
+        } catch (err: unknown) {
+            setActionError(getErrorMessage(err, "Failed to update request status."));
+        } finally {
+            setActionBusyId(null);
+        }
     };
 
     if (!canView) {
@@ -271,6 +333,12 @@ export default function SampleRequestsQueuePage() {
                         </div>
                     )}
 
+                    {actionError && !loading && (
+                        <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded mb-4">
+                            {actionError}
+                        </div>
+                    )}
+
                     {!loading && !error && (
                         <>
                             {items.length === 0 ? (
@@ -300,8 +368,15 @@ export default function SampleRequestsQueuePage() {
                                                 const displayTitle = (r.title ?? r.name ?? "").trim();
                                                 const client = (r.client_name ?? "").trim();
                                                 const sampleType = (r.sample_type ?? "-").trim();
-                                                const code = (r.lab_sample_code ?? r.code ?? "-").trim();
-                                                const status = r.request_status ?? "-";
+                                                const code = String(r.lab_sample_code ?? r.code ?? "-").trim();
+                                                const status = String(r.request_status ?? "-");
+
+                                                const busy = !!id && actionBusyId === id;
+
+                                                // gating rules (simple & masuk akal)
+                                                const canReturn = !!id && status !== "physically_received";
+                                                const canApprove = !!id && (status === "submitted" || status === "returned");
+                                                const canReceive = !!id && status === "ready_for_delivery";
 
                                                 return (
                                                     <tr
@@ -340,29 +415,92 @@ export default function SampleRequestsQueuePage() {
                                                         </td>
 
                                                         <td className="px-4 py-3 text-right">
-                                                            {id ? (
-                                                                <Link
-                                                                    to={`/samples/${id}`}
-                                                                    className="lims-icon-button text-gray-600 inline-flex items-center justify-center"
-                                                                    aria-label="Open sample detail"
-                                                                    title="Open detail"
-                                                                >
-                                                                    <svg
-                                                                        viewBox="0 0 24 24"
-                                                                        className="h-4 w-4"
-                                                                        fill="none"
-                                                                        stroke="currentColor"
-                                                                        strokeWidth="1.8"
-                                                                        strokeLinecap="round"
-                                                                        strokeLinejoin="round"
+                                                            <div className="flex justify-end items-center gap-2 flex-wrap">
+                                                                {/* View detail */}
+                                                                {id ? (
+                                                                    <Link
+                                                                        to={`/samples/${id}`}
+                                                                        className="lims-icon-button text-gray-600 inline-flex items-center justify-center"
+                                                                        aria-label="Open sample detail"
+                                                                        title="Open detail"
                                                                     >
-                                                                        <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
-                                                                        <circle cx="12" cy="12" r="3" />
-                                                                    </svg>
-                                                                </Link>
-                                                            ) : (
-                                                                <span className="text-xs text-gray-400">-</span>
-                                                            )}
+                                                                        <svg
+                                                                            viewBox="0 0 24 24"
+                                                                            className="h-4 w-4"
+                                                                            fill="none"
+                                                                            stroke="currentColor"
+                                                                            strokeWidth="1.8"
+                                                                            strokeLinecap="round"
+                                                                            strokeLinejoin="round"
+                                                                        >
+                                                                            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                                                                            <circle cx="12" cy="12" r="3" />
+                                                                        </svg>
+                                                                    </Link>
+                                                                ) : (
+                                                                    <span className="text-xs text-gray-400">-</span>
+                                                                )}
+
+                                                                {/* Return */}
+                                                                <button
+                                                                    type="button"
+                                                                    className={cx(
+                                                                        "px-3 py-1 rounded-full text-xs border",
+                                                                        canReturn
+                                                                            ? "bg-white text-red-700 border-red-200 hover:bg-red-50"
+                                                                            : "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
+                                                                    )}
+                                                                    disabled={!canReturn || busy}
+                                                                    onClick={() => id && openReturn(id, status)}
+                                                                    title={
+                                                                        canReturn
+                                                                            ? "Return to client (requires note)"
+                                                                            : "Return disabled"
+                                                                    }
+                                                                >
+                                                                    {busy ? "..." : "Return"}
+                                                                </button>
+
+                                                                {/* Approve -> ready_for_delivery */}
+                                                                <button
+                                                                    type="button"
+                                                                    className={cx(
+                                                                        "px-3 py-1 rounded-full text-xs border",
+                                                                        canApprove
+                                                                            ? "bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                                                                            : "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
+                                                                    )}
+                                                                    disabled={!canApprove || busy}
+                                                                    onClick={() => id && doQuickStatus(id, "ready_for_delivery")}
+                                                                    title={
+                                                                        canApprove
+                                                                            ? "Approve -> ready_for_delivery"
+                                                                            : "Approve only when submitted/returned"
+                                                                    }
+                                                                >
+                                                                    {busy ? "Saving..." : "Approve"}
+                                                                </button>
+
+                                                                {/* Mark physically_received */}
+                                                                <button
+                                                                    type="button"
+                                                                    className={cx(
+                                                                        "px-3 py-1 rounded-full text-xs border",
+                                                                        canReceive
+                                                                            ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700"
+                                                                            : "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
+                                                                    )}
+                                                                    disabled={!canReceive || busy}
+                                                                    onClick={() => id && doQuickStatus(id, "physically_received")}
+                                                                    title={
+                                                                        canReceive
+                                                                            ? "Mark physically received"
+                                                                            : "Only available when ready_for_delivery"
+                                                                    }
+                                                                >
+                                                                    {busy ? "Saving..." : "Received"}
+                                                                </button>
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 );
@@ -428,6 +566,18 @@ export default function SampleRequestsQueuePage() {
                     )}
                 </div>
             </div>
+
+            {/* Return modal */}
+            <UpdateRequestStatusModal
+                open={returnOpen}
+                sampleId={returnSampleId}
+                action="return"
+                currentStatus={returnCurrentStatus}
+                onClose={closeReturn}
+                onUpdated={async () => {
+                    await loadQueue({ keepPage: true });
+                }}
+            />
         </div>
     );
 }
