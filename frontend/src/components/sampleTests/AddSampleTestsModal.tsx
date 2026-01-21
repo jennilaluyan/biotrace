@@ -1,6 +1,7 @@
 // frontend/src/components/sampleTests/AddSampleTestsModal.tsx
 import { useEffect, useState } from "react";
 import { apiGet, apiPost } from "../../services/api";
+import { isLoaLockError } from "../../utils/loaGate";
 
 /* ----------------------------- Types (ringan) ----------------------------- */
 type ParameterLite = {
@@ -41,6 +42,19 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
+type Props = {
+    open: boolean;
+    onClose: () => void;
+    sampleId: number;
+    defaultAssignedTo: number | null;
+    onCreated: () => void;
+    canSubmit?: boolean;
+
+    // Step 9 gate
+    assignmentBlocked?: boolean;
+    assignmentBlockMessage?: string;
+};
+
 export function AddSampleTestsModal({
     open,
     onClose,
@@ -48,14 +62,9 @@ export function AddSampleTestsModal({
     defaultAssignedTo,
     onCreated,
     canSubmit = true,
-}: {
-    open: boolean;
-    onClose: () => void;
-    sampleId: number;
-    defaultAssignedTo: number | null;
-    onCreated: () => void;
-    canSubmit?: boolean;
-}) {
+    assignmentBlocked = false,
+    assignmentBlockMessage,
+}: Props) {
     const [paramSearch, setParamSearch] = useState("");
     const [paramPage, setParamPage] = useState(1);
     const [paramLoading, setParamLoading] = useState(false);
@@ -168,6 +177,15 @@ export function AddSampleTestsModal({
     };
 
     const submit = async () => {
+        // Step 9 gate: stop early (even before RBAC)
+        if (assignmentBlocked) {
+            setSubmitError(
+                assignmentBlockMessage ??
+                "Assignment ditolak karena LoA belum locked. Selesaikan workflow LoA sampai locked."
+            );
+            return;
+        }
+
         if (!canSubmit) {
             setSubmitError("You don’t have permission to bulk create sample tests.");
             return;
@@ -209,6 +227,15 @@ export function AddSampleTestsModal({
             onCreated();
             // biarkan modal tetap open biar user bisa lihat summary
         } catch (err: any) {
+            // Step 9 fallback: backend gate (403/422) for LoA not locked
+            if (isLoaLockError(err)) {
+                const msg =
+                    assignmentBlockMessage ??
+                    "Assignment ditolak karena LoA belum locked. Selesaikan workflow LoA (generate → sign internal → send → client sign) sampai LoA = locked.";
+                setSubmitError(msg);
+                return;
+            }
+
             const msg =
                 err?.data?.message ??
                 err?.data?.error ??
@@ -224,6 +251,13 @@ export function AddSampleTestsModal({
     const paramRows = parameters?.data ?? [];
     const methodRows = methods?.data ?? [];
     const selectedCount = selectedParamIds.size;
+
+    const hardDisabled =
+        assignmentBlocked ||
+        !canSubmit ||
+        submitting ||
+        !methodId ||
+        selectedParamIds.size === 0;
 
     return (
         <div className="fixed inset-0 z-80 bg-black/40 flex items-center justify-center px-3">
@@ -243,6 +277,17 @@ export function AddSampleTestsModal({
 
                 {/* body */}
                 <div className="p-5">
+                    {/* Step 9 notice */}
+                    {assignmentBlocked && (
+                        <div className="text-sm text-amber-900 bg-amber-50 border border-amber-100 px-3 py-2 rounded-xl mb-4">
+                            <div className="font-semibold">Tidak bisa assign test dulu</div>
+                            <div className="mt-1 text-amber-900/80">
+                                {assignmentBlockMessage ??
+                                    "LoA belum locked. Selesaikan workflow LoA sampai locked."}
+                            </div>
+                        </div>
+                    )}
+
                     {submitError && (
                         <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-4">
                             {submitError}
@@ -280,6 +325,8 @@ export function AddSampleTestsModal({
                                     className="text-xs text-gray-600 hover:text-gray-800"
                                     type="button"
                                     onClick={clearAll}
+                                    disabled={assignmentBlocked}
+                                    title={assignmentBlocked ? assignmentBlockMessage : undefined}
                                 >
                                     Clear
                                 </button>
@@ -292,6 +339,7 @@ export function AddSampleTestsModal({
                                         placeholder="Search parameter..."
                                         value={paramSearch}
                                         onChange={(e) => setParamSearch(e.target.value)}
+                                        disabled={assignmentBlocked}
                                     />
                                 </div>
 
@@ -324,7 +372,8 @@ export function AddSampleTestsModal({
                                                         "flex items-start gap-3 p-3 rounded-2xl border cursor-pointer",
                                                         checked
                                                             ? "border-primary/30 bg-primary/5"
-                                                            : "border-gray-100 hover:bg-gray-50"
+                                                            : "border-gray-100 hover:bg-gray-50",
+                                                        assignmentBlocked && "opacity-60 cursor-not-allowed"
                                                     )}
                                                 >
                                                     <input
@@ -332,6 +381,7 @@ export function AddSampleTestsModal({
                                                         checked={checked}
                                                         onChange={() => toggleParam(p.parameter_id)}
                                                         className="mt-1"
+                                                        disabled={assignmentBlocked}
                                                     />
                                                     <div className="min-w-0">
                                                         <div className="text-sm font-semibold text-gray-900">
@@ -361,7 +411,7 @@ export function AddSampleTestsModal({
                                         <button
                                             className="lims-btn"
                                             type="button"
-                                            disabled={paramPage <= 1}
+                                            disabled={assignmentBlocked || paramPage <= 1}
                                             onClick={() =>
                                                 setParamPage((p) => Math.max(1, p - 1))
                                             }
@@ -381,7 +431,10 @@ export function AddSampleTestsModal({
                                         <button
                                             className="lims-btn"
                                             type="button"
-                                            disabled={(parameters.last_page ?? 1) <= paramPage}
+                                            disabled={
+                                                assignmentBlocked ||
+                                                (parameters.last_page ?? 1) <= paramPage
+                                            }
                                             onClick={() => setParamPage((p) => p + 1)}
                                         >
                                             Next
@@ -417,7 +470,7 @@ export function AddSampleTestsModal({
                                             const v = e.target.value;
                                             setMethodId(v ? Number(v) : "");
                                         }}
-                                        disabled={methodLoading}
+                                        disabled={methodLoading || assignmentBlocked}
                                     >
                                         <option value="">Select method...</option>
                                         {methodRows.map((m) => (
@@ -442,6 +495,7 @@ export function AddSampleTestsModal({
                                         placeholder="staff_id"
                                         value={assignedTo}
                                         onChange={(e) => setAssignedTo(e.target.value)}
+                                        disabled={assignmentBlocked}
                                     />
                                     <div className="text-[11px] text-gray-500 mt-1">
                                         Kosongkan jika tidak mau set assignee.
@@ -452,19 +506,12 @@ export function AddSampleTestsModal({
                                     <button
                                         className={cx(
                                             "w-full lims-btn-primary",
-                                            (submitting ||
-                                                !methodId ||
-                                                selectedParamIds.size === 0) &&
-                                            "opacity-60 cursor-not-allowed"
+                                            hardDisabled && "opacity-60 cursor-not-allowed"
                                         )}
                                         type="button"
-                                        disabled={
-                                            !canSubmit ||
-                                            submitting ||
-                                            !methodId ||
-                                            selectedParamIds.size === 0
-                                        }
+                                        disabled={hardDisabled}
                                         onClick={submit}
+                                        title={assignmentBlocked ? assignmentBlockMessage : undefined}
                                     >
                                         {submitting ? "Submitting..." : "Submit Bulk Create"}
                                     </button>
@@ -476,6 +523,12 @@ export function AddSampleTestsModal({
                                         </span>
                                     </div>
                                 </div>
+
+                                {!canSubmit && (
+                                    <div className="text-xs text-red-600">
+                                        You don’t have permission to create sample tests.
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -484,8 +537,7 @@ export function AddSampleTestsModal({
                 {/* footer */}
                 <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between">
                     <div className="text-xs text-gray-500">
-                        Tip: kalau list masih kosong, pastikan backend sudah ada tests (bulk
-                        create dulu).
+                        Tip: kalau list masih kosong, klik Add Tests untuk bulk create (LoA harus locked).
                     </div>
                     <button className="lims-btn" onClick={onClose} type="button">
                         Done

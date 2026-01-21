@@ -1,6 +1,9 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\SampleTestsTab.tsx
 import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "../../services/api";
 import { formatDateTimeLocal } from "../../utils/date";
+import { AddSampleTestsModal } from "../sampleTests/AddSampleTestsModal";
+import { getLoaAssignmentGate } from "../../utils/loaGate";
 
 type ApiResponse<T> = {
     timestamp?: string;
@@ -103,9 +106,36 @@ function statusChipClass(status?: string | null) {
 
 type Props = {
     sampleId: number;
+
+    /**
+     * Optional: pass the sample detail object from SampleDetailPage
+     * so LoA gate becomes "smart" (disable + banner).
+     */
+    sample?: any;
+
+    /**
+     * Optional: default assignee for bulk create (staff_id).
+     */
+    defaultAssignedTo?: number | null;
+
+    /**
+     * Optional: permission gate (RBAC). Default true.
+     */
+    canBulkCreate?: boolean;
+
+    /**
+     * Optional: hide Add button if you don't want it on some screens.
+     */
+    showAddButton?: boolean;
 };
 
-export const SampleTestsTab = ({ sampleId }: Props) => {
+export const SampleTestsTab = ({
+    sampleId,
+    sample,
+    defaultAssignedTo = null,
+    canBulkCreate = true,
+    showAddButton = true,
+}: Props) => {
     const [items, setItems] = useState<SampleTestItem[]>([]);
     const [meta, setMeta] = useState<Pagination<SampleTestItem> | null>(null);
 
@@ -116,7 +146,20 @@ export const SampleTestsTab = ({ sampleId }: Props) => {
     const [perPage] = useState(50);
     const [statusFilter, setStatusFilter] = useState<string>("all");
 
+    const [showAddModal, setShowAddModal] = useState(false);
+
     const totalPages = meta?.last_page ?? 1;
+
+    // Step 9 — LoA lock gate (if sample is provided)
+    const loaGate = useMemo(() => {
+        if (!sample) return null;
+        return getLoaAssignmentGate(sample);
+    }, [sample]);
+
+    const assignBlocked = loaGate?.blocked ?? false;
+    const assignBlockMessage =
+        loaGate?.message ??
+        "Test assignment dikunci sampai LoA berstatus locked. Selesaikan workflow LoA dulu.";
 
     const fetchTests = async () => {
         try {
@@ -196,8 +239,28 @@ export const SampleTestsTab = ({ sampleId }: Props) => {
                     >
                         Refresh
                     </button>
+
+                    {showAddButton && (
+                        <button
+                            type="button"
+                            onClick={() => setShowAddModal(true)}
+                            className="rounded-xl bg-primary text-white px-3 py-2 text-sm hover:opacity-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={assignBlocked}
+                            title={assignBlocked ? assignBlockMessage : undefined}
+                        >
+                            Add Tests
+                        </button>
+                    )}
                 </div>
             </div>
+
+            {/* Step 9 Banner */}
+            {loaGate?.blocked && (
+                <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
+                    <div className="font-semibold text-amber-900">Test assignment terkunci</div>
+                    <div className="text-amber-900/80 mt-1">{loaGate.message}</div>
+                </div>
+            )}
 
             <div className="mt-4">
                 {loading && <div className="text-sm text-gray-600">Loading tests...</div>}
@@ -210,7 +273,7 @@ export const SampleTestsTab = ({ sampleId }: Props) => {
 
                 {!loading && !error && items.length === 0 && (
                     <div className="text-sm text-gray-600">
-                        No tests yet. (Step 4 nanti akan ada modal “Add Tests”.)
+                        No tests yet. You can add tests using <span className="font-semibold">Add Tests</span> (if LoA is locked).
                     </div>
                 )}
 
@@ -329,6 +392,18 @@ export const SampleTestsTab = ({ sampleId }: Props) => {
                     </div>
                 )}
             </div>
+
+            {/* Add Tests Modal */}
+            <AddSampleTestsModal
+                open={showAddModal}
+                onClose={() => setShowAddModal(false)}
+                sampleId={sampleId}
+                defaultAssignedTo={defaultAssignedTo}
+                onCreated={() => fetchTests()}
+                canSubmit={canBulkCreate}
+                assignmentBlocked={assignBlocked}
+                assignmentBlockMessage={assignBlockMessage}
+            />
         </div>
     );
 };
