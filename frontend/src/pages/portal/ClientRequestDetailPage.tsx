@@ -37,7 +37,12 @@ const statusTone = (raw?: string | null) => {
 export default function ClientRequestDetailPage() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const numericId = Number(id);
+
+    // kuatkan parsing id supaya ga nyasar ke /undefined
+    const numericId = useMemo(() => {
+        const n = Number(id);
+        return Number.isFinite(n) && n > 0 ? n : NaN;
+    }, [id]);
 
     const [data, setData] = useState<ClientSample | null>(null);
     const [loading, setLoading] = useState(true);
@@ -55,8 +60,8 @@ export default function ClientRequestDetailPage() {
     const [description, setDescription] = useState("");
 
     const effectiveStatus = useMemo(
-        () => data?.request_status ?? data?.status,
-        [data?.request_status, data?.status]
+        () => (data as any)?.request_status ?? (data as any)?.status,
+        [data]
     );
 
     const canEdit = useMemo(() => {
@@ -65,14 +70,14 @@ export default function ClientRequestDetailPage() {
     }, [effectiveStatus]);
 
     const hydrateForm = (s: ClientSample) => {
-        setSampleType(String(s.sample_type ?? ""));
-        setTitle(String(s.title ?? s.name ?? ""));
+        setSampleType(String((s as any).sample_type ?? ""));
+        setTitle(String((s as any).title ?? (s as any).name ?? ""));
         setNotes(String((s as any).notes ?? ""));
         setDescription(String((s as any).description ?? ""));
     };
 
     const load = async () => {
-        if (!numericId || Number.isNaN(numericId)) {
+        if (!Number.isFinite(numericId) || Number.isNaN(numericId)) {
             setError("Invalid request id.");
             setLoading(false);
             return;
@@ -124,7 +129,7 @@ export default function ClientRequestDetailPage() {
     };
 
     const saveDraft = async () => {
-        if (!numericId) return;
+        if (!Number.isFinite(numericId) || Number.isNaN(numericId)) return;
 
         if (!sampleType.trim()) {
             setError("Sample type is required.");
@@ -148,7 +153,7 @@ export default function ClientRequestDetailPage() {
     };
 
     const submit = async () => {
-        if (!numericId) return;
+        if (!Number.isFinite(numericId) || Number.isNaN(numericId)) return;
 
         if (!sampleType.trim()) {
             setError("Sample type is required.");
@@ -200,13 +205,12 @@ export default function ClientRequestDetailPage() {
         );
     }
 
-    const code = data.sample_code ?? data.code ?? "-";
-    const updated = fmtDate(data.updated_at ?? data.created_at);
+    const code = (data as any).sample_code ?? (data as any).code ?? "-";
+    const updated = fmtDate((data as any).updated_at ?? (data as any).created_at);
     const statusLabel = effectiveStatus ?? "Unknown";
 
     return (
         <div className="min-h-[60vh]">
-            {/* Header (match staff detail pages vibe) */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
                     <button type="button" className="lims-btn" onClick={() => navigate("/portal/requests")}>
@@ -214,7 +218,9 @@ export default function ClientRequestDetailPage() {
                     </button>
 
                     <div className="mt-3 flex items-center gap-2">
-                        <h1 className="text-lg md:text-xl font-bold text-gray-900">Request #{data.id}</h1>
+                        <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                            Request #{(data as any).id ?? numericId}
+                        </h1>
                         <span
                             className={cx(
                                 "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
@@ -255,9 +261,12 @@ export default function ClientRequestDetailPage() {
             </div>
 
             {error && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
-            {info && <div className="text-sm text-green-800 bg-green-100 border border-green-200 px-3 py-2 rounded mb-4">{info}</div>}
+            {info && (
+                <div className="text-sm text-green-800 bg-green-100 border border-green-200 px-3 py-2 rounded mb-4">
+                    {info}
+                </div>
+            )}
 
-            {/* Card (same as staff card) */}
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white">
                     <div className="text-sm font-semibold text-gray-900">Request details</div>
@@ -330,7 +339,6 @@ export default function ClientRequestDetailPage() {
                 }}
             />
 
-            {/* Debug (keep but make it staff-ish, not ugly) */}
             <div className="mt-4 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white">
                     <div className="text-sm font-semibold text-gray-900">Raw snapshot</div>

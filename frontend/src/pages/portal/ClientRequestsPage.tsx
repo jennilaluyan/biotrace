@@ -12,10 +12,14 @@ type StatusTone = { label: string; cls: string };
 
 const statusTone = (raw?: string | null): StatusTone => {
     const s = (raw ?? "").toLowerCase();
-    if (s === "draft" || s === "pending") return { label: raw ?? "Draft", cls: "bg-gray-100 text-gray-700" };
-    if (s === "submitted" || s === "requested") return { label: raw ?? "Submitted", cls: "bg-primary-soft/10 text-primary-soft" };
-    if (s === "returned" || s === "rejected") return { label: raw ?? "Returned", cls: "bg-red-100 text-red-700" };
-    if (s === "approved" || s === "accepted") return { label: raw ?? "Approved", cls: "bg-green-100 text-green-800" };
+    if (s === "draft" || s === "pending")
+        return { label: raw ?? "Draft", cls: "bg-gray-100 text-gray-700" };
+    if (s === "submitted" || s === "requested")
+        return { label: raw ?? "Submitted", cls: "bg-primary-soft/10 text-primary-soft" };
+    if (s === "returned" || s === "rejected")
+        return { label: raw ?? "Returned", cls: "bg-red-100 text-red-700" };
+    if (s === "approved" || s === "accepted")
+        return { label: raw ?? "Approved", cls: "bg-green-100 text-green-800" };
     return { label: raw ?? "Unknown", cls: "bg-gray-100 text-gray-700" };
 };
 
@@ -32,6 +36,16 @@ const getErrMsg = (e: any) =>
     (typeof e?.message === "string" ? e.message : null) ??
     "Failed to load sample requests.";
 
+function getRequestId(it: any): number | null {
+    const raw = it?.id ?? it?.sample_id ?? it?.request_id;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function stableKey(it: any, idx: number) {
+    return String(it?.id ?? it?.sample_id ?? it?.code ?? it?.sample_code ?? idx);
+}
+
 export default function ClientRequestsPage() {
     const navigate = useNavigate();
     const { loading: authLoading, isClientAuthenticated } = useClientAuth() as any;
@@ -47,22 +61,27 @@ export default function ClientRequestsPage() {
     const filtered = useMemo(() => {
         let list = items;
         const sf = statusFilter.toLowerCase();
-        if (sf !== "all") list = list.filter((it) => ((it.request_status ?? it.status ?? "") as string).toLowerCase() === sf);
+        if (sf !== "all") {
+            list = list.filter(
+                (it) =>
+                    ((it.request_status ?? (it as any).status ?? "") as string).toLowerCase() === sf
+            );
+        }
 
         const term = searchTerm.trim().toLowerCase();
         if (!term) return list;
 
         return list.filter((it) => {
             const hay = [
-                String(it.id ?? ""),
-                it.sample_code,
-                it.code,
-                it.request_status ?? it.status,
-                it.sample_type,
-                it.title,
-                it.name,
-                it.description,
-                it.notes,
+                String((it as any).id ?? ""),
+                (it as any).sample_code,
+                (it as any).code,
+                (it as any).request_status ?? (it as any).status,
+                (it as any).sample_type,
+                (it as any).title,
+                (it as any).name,
+                (it as any).description,
+                (it as any).notes,
             ]
                 .filter(Boolean)
                 .join(" ")
@@ -82,9 +101,19 @@ export default function ClientRequestsPage() {
         } catch (e: any) {
             const msg = getErrMsg(e);
             const lower = String(msg ?? "").toLowerCase();
+            const code = e?.data?.code;
 
-            if (e?.status === 401 || lower.includes("unauthenticated") || lower.includes("unauthorized")) {
-                setError("Unauthenticated. Please login again.");
+            // 401/403 client-only → balik ke login portal
+            if (
+                e?.status === 401 ||
+                e?.status === 419 ||
+                e?.status === 403 ||
+                lower.includes("unauthenticated") ||
+                lower.includes("unauthorized") ||
+                lower.includes("client authentication required") ||
+                code === "CLIENT_ONLY"
+            ) {
+                setError("Client authentication required. Please login again.");
                 navigate("/login", { replace: true });
                 return;
             }
@@ -99,10 +128,8 @@ export default function ClientRequestsPage() {
     useEffect(() => {
         let cancelled = false;
 
-        // tunggu auth context selesai boot
         if (authLoading) return;
 
-        // kalau belum login client, jangan load samples
         if (!isClientAuthenticated) {
             navigate("/login", { replace: true });
             return;
@@ -117,7 +144,8 @@ export default function ClientRequestsPage() {
         return () => {
             cancelled = true;
         };
-    }, [authLoading, isClientAuthenticated]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [authLoading, isClientAuthenticated, navigate]);
 
     return (
         <div className="min-h-[60vh]">
@@ -129,7 +157,11 @@ export default function ClientRequestsPage() {
                     </p>
                 </div>
 
-                <button type="button" onClick={() => setCreateOpen(true)} className="lims-btn-primary self-start md:self-auto">
+                <button
+                    type="button"
+                    onClick={() => setCreateOpen(true)}
+                    className="lims-btn-primary self-start md:self-auto"
+                >
                     + New request
                 </button>
             </div>
@@ -137,10 +169,20 @@ export default function ClientRequestsPage() {
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     <div className="flex-1">
-                        <label className="sr-only" htmlFor="request-search">Search requests</label>
+                        <label className="sr-only" htmlFor="request-search">
+                            Search requests
+                        </label>
                         <div className="relative">
                             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
-                                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    className="h-4 w-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                >
                                     <circle cx="11" cy="11" r="6" />
                                     <line x1="16" y1="16" x2="21" y2="21" />
                                 </svg>
@@ -157,7 +199,9 @@ export default function ClientRequestsPage() {
                     </div>
 
                     <div className="w-full md:w-56">
-                        <label className="sr-only" htmlFor="request-status-filter">Status</label>
+                        <label className="sr-only" htmlFor="request-status-filter">
+                            Status
+                        </label>
                         <select
                             id="request-status-filter"
                             value={statusFilter}
@@ -174,7 +218,11 @@ export default function ClientRequestsPage() {
                         </select>
                     </div>
 
-                    <button type="button" onClick={load} className="w-full md:w-auto rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                    <button
+                        type="button"
+                        onClick={load}
+                        className="w-full md:w-auto rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    >
                         Refresh
                     </button>
 
@@ -194,7 +242,9 @@ export default function ClientRequestsPage() {
                     {loading && <div className="text-sm text-gray-600">Loading requests...</div>}
 
                     {error && !loading && (
-                        <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
+                        <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">
+                            {error}
+                        </div>
                     )}
 
                     {!loading && !error && (
@@ -206,7 +256,11 @@ export default function ClientRequestsPage() {
                                         Create your first request to start the workflow.
                                     </div>
 
-                                    <button type="button" className="lims-btn-primary mt-4" onClick={() => setCreateOpen(true)}>
+                                    <button
+                                        type="button"
+                                        className="lims-btn-primary mt-4"
+                                        onClick={() => setCreateOpen(true)}
+                                    >
                                         + Create request
                                     </button>
                                 </div>
@@ -225,16 +279,22 @@ export default function ClientRequestsPage() {
                                         </thead>
 
                                         <tbody>
-                                            {filtered.map((it) => {
+                                            {filtered.map((it: any, idx: number) => {
                                                 const st = statusTone(it.request_status ?? it.status);
                                                 const code = it.sample_code ?? it.code ?? "-";
                                                 const title = it.title ?? it.name ?? "-";
                                                 const updated = fmtDate(it.updated_at ?? it.created_at);
+                                                const rid = getRequestId(it);
 
                                                 return (
-                                                    <tr key={it.id} className="border-t border-gray-100 hover:bg-gray-50/60">
+                                                    <tr
+                                                        key={stableKey(it, idx)}
+                                                        className="border-t border-gray-100 hover:bg-gray-50/60"
+                                                    >
                                                         <td className="px-4 py-3">
-                                                            <div className="font-medium text-gray-900">#{it.id}</div>
+                                                            <div className="font-medium text-gray-900">
+                                                                #{rid ?? "-"}
+                                                            </div>
                                                             <div className="text-[11px] text-gray-500">{title}</div>
                                                         </td>
 
@@ -242,7 +302,12 @@ export default function ClientRequestsPage() {
                                                         <td className="px-4 py-3 text-gray-700">{code}</td>
 
                                                         <td className="px-4 py-3">
-                                                            <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", st.cls)}>
+                                                            <span
+                                                                className={cx(
+                                                                    "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
+                                                                    st.cls
+                                                                )}
+                                                            >
                                                                 {st.label}
                                                             </span>
                                                         </td>
@@ -253,11 +318,29 @@ export default function ClientRequestsPage() {
                                                             <div className="inline-flex gap-1.5">
                                                                 <button
                                                                     type="button"
-                                                                    className="lims-icon-button text-gray-600"
+                                                                    className={cx(
+                                                                        "lims-icon-button text-gray-600",
+                                                                        !rid && "opacity-40 cursor-not-allowed"
+                                                                    )}
                                                                     aria-label="View request"
-                                                                    onClick={() => navigate(`/portal/requests/${it.id}`)}
+                                                                    disabled={!rid}
+                                                                    onClick={() => {
+                                                                        if (!rid) {
+                                                                            setError("Invalid request id.");
+                                                                            return;
+                                                                        }
+                                                                        navigate(`/portal/requests/${rid}`);
+                                                                    }}
                                                                 >
-                                                                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                                                    <svg
+                                                                        viewBox="0 0 24 24"
+                                                                        className="h-4 w-4"
+                                                                        fill="none"
+                                                                        stroke="currentColor"
+                                                                        strokeWidth="1.8"
+                                                                        strokeLinecap="round"
+                                                                        strokeLinejoin="round"
+                                                                    >
                                                                         <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
                                                                         <circle cx="12" cy="12" r="3" />
                                                                     </svg>
@@ -279,7 +362,15 @@ export default function ClientRequestsPage() {
             <ClientRequestFormModal
                 open={createOpen}
                 onClose={() => setCreateOpen(false)}
-                onCreated={(created) => navigate(`/portal/requests/${created.id}`)}
+                onCreated={(created: any) => {
+                    const rid = getRequestId(created);
+                    if (!rid) {
+                        // jangan sampai navigate ke /undefined
+                        load();
+                        return;
+                    }
+                    navigate(`/portal/requests/${rid}`);
+                }}
             />
         </div>
     );

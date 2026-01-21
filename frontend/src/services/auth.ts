@@ -1,10 +1,6 @@
 // L:\Campus\Final Countdown\biotrace\frontend\src\services\auth.ts
-import axios from "axios";
 import { apiGet, apiPost } from "./api";
-import {
-    setStaffAuthToken,
-    setClientAuthToken,
-} from "./api";
+import { setStaffAuthToken, setClientAuthToken } from "./api";
 
 type StaffLoginResponse = {
     user?: any;
@@ -16,44 +12,39 @@ type ClientLoginResponse = {
     token?: string;
 };
 
-const API_URL = import.meta.env.VITE_API_URL;
+/**
+ * CATATAN PENTING (biar stabil portal + backoffice):
+ * Jangan pernah logout staff session ketika client login.
+ *
+ * Dulu ada hack forceClearStaffSessionCookie() untuk menghapus cookie staff,
+ * tapi itu bikin portal/backoffice tidak bisa login bersamaan (saling tendang).
+ *
+ * Pemisahan yang benar harus dilakukan di layer API (services/api.ts):
+ * - request client (/v1/clients/* dan /v1/client/*) harus withCredentials=false
+ * - token client disimpan terpisah dari token staff
+ */
 
-// axios instance TANPA interceptor auth (biar tidak ikut nambah Authorization staff token)
-const httpNoAuth = axios.create({
-    baseURL: API_URL,
-    withCredentials: true, // perlu untuk kirim cookie session staff agar bisa dilogout
-    headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-    },
-});
+// =======================
+// STAFF / BACKOFFICE
+// =======================
 
-// Normalisasi path biar aman kalau API_URL sudah mengandung /api
-function normalizePathForBaseUrl(path: string) {
-    let p = path.startsWith("/") ? path : `/${path}`;
-    const base = (API_URL ?? "").replace(/\/+$/, "");
-    const baseHasApiSuffix = base.endsWith("/api");
+export async function loginRequest(email: string, password: string) {
+    // Staff login (biasanya pakai cookie session)
+    const res = await apiPost<StaffLoginResponse>("/v1/auth/login", {
+        email,
+        password,
+    });
 
-    if (baseHasApiSuffix) {
-        if (p === "/api") return "/";
-        if (p.startsWith("/api/")) p = p.replace(/^\/api/, "");
-    }
+    // Jika backend mengembalikan token (opsional), simpan token staff
+    if (res?.token) setStaffAuthToken(res.token);
 
-    return p;
+    return res?.user ?? null;
 }
 
-/**
- * IMPORTANT:
- * Kalau user pernah login staff, cookie session staff bisa membuat Sanctum/auth membaca request client sebagai "Administrator".
- * Jadi: setelah client login berhasil, kita paksa logout staff session agar cookie staff hilang.
- */
-async function forceClearStaffSessionCookie() {
+export async function logoutRequest() {
     try {
-        await httpNoAuth.post(normalizePathForBaseUrl("/v1/auth/logout"), {});
-    } catch {
-        // kalau tidak ada session staff, biasanya 401/419, itu aman di-skip
+        await apiPost<void>("/v1/auth/logout", {});
     } finally {
-        // bersihkan token staff di localStorage juga supaya tidak “nempel”
         setStaffAuthToken(null);
         // legacy key (kalau masih ada)
         try {
@@ -64,40 +55,13 @@ async function forceClearStaffSessionCookie() {
     }
 }
 
-export async function loginRequest(email: string, password: string) {
-    // staff login (cookie session for browser; token only if backend returns one)
-    const res = await apiPost<StaffLoginResponse>("/v1/auth/login", {
-        email,
-        password,
-        // IMPORTANT: don't send device_name for browser SPA unless you truly want tokens
-    });
-
-    // If backend returns token, store it (Postman mode). Otherwise cookie session handles it.
-    if (res?.token) setStaffAuthToken(res.token);
-    return res?.user ?? null;
-}
-
-export async function logoutRequest() {
-    try {
-        await apiPost<void>("/v1/auth/logout", {});
-    } finally {
-        setStaffAuthToken(null);
-        try {
-            localStorage.removeItem("biotrace_auth_token");
-        } catch {
-            // ignore
-        }
-    }
-}
-
 export async function fetchProfile() {
-    // staff profile
     const res = await apiGet<any>("/v1/auth/me");
     return res?.user ?? res;
 }
 
 // =======================
-// CLIENT / PORTAL (token)
+// CLIENT / PORTAL
 // =======================
 
 export async function clientLoginRequest(email: string, password: string) {
@@ -107,19 +71,16 @@ export async function clientLoginRequest(email: string, password: string) {
         device_name: "web", // optional; backend supports it
     });
 
-    // 🔥 REQUIRED: store token where api.ts expects it
+    // REQUIRED: simpan token client di tempat yang api.ts pakai untuk attach Authorization client
     if (res?.token) setClientAuthToken(res.token);
 
-    // 🔥 FIX PENTING:
-    // Hapus session staff cookie supaya request ke /v1/client/* tidak kebaca Administrator lagi.
-    await forceClearStaffSessionCookie();
-
+    // ❌ JANGAN logout staff di sini.
+    // Portal dan backoffice harus bisa berjalan bersamaan.
     return res;
 }
 
 export async function clientFetchProfile() {
-    const res = await apiGet<any>("/v1/clients/me");
-    return res;
+    return apiGet<any>("/v1/clients/me");
 }
 
 export async function clientLogoutRequest() {

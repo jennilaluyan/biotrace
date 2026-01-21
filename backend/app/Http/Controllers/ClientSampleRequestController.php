@@ -59,6 +59,22 @@ class ClientSampleRequestController extends Controller
     }
 
     /**
+     * GET /api/v1/client/samples/{sample}
+     * detail
+     *
+     * FIX: sebelumnya route memanggil show() tapi method tidak ada → 500 BadMethodCallException
+     */
+    public function show(Request $request, Sample $sample): JsonResponse
+    {
+        $client = $this->currentClientOr403();
+        $this->assertOwnedByClient($client, $sample);
+
+        return response()->json([
+            'data' => $sample->fresh(),
+        ], 200);
+    }
+
+    /**
      * POST /api/v1/client/samples
      * create draft
      */
