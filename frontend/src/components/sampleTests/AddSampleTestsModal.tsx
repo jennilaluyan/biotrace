@@ -1,7 +1,9 @@
 // frontend/src/components/sampleTests/AddSampleTestsModal.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "../../services/api";
 import { isLoaLockError } from "../../utils/loaGate";
+import { getErrorMessage } from "../../utils/errors";
+import { useDebouncedValue } from "../../utils/useDebouncedValue";
 
 /* ----------------------------- Types (ringan) ----------------------------- */
 type ParameterLite = {
@@ -66,6 +68,8 @@ export function AddSampleTestsModal({
     assignmentBlockMessage,
 }: Props) {
     const [paramSearch, setParamSearch] = useState("");
+    const debouncedParamSearch = useDebouncedValue(paramSearch, 350);
+
     const [paramPage, setParamPage] = useState(1);
     const [paramLoading, setParamLoading] = useState(false);
     const [paramError, setParamError] = useState<string | null>(null);
@@ -90,59 +94,76 @@ export function AddSampleTestsModal({
         skipped_parameter_ids?: number[];
     } | null>(null);
 
+    // Step 10: prevent out-of-order overwrites
+    const paramSeq = useRef(0);
+    const methodSeq = useRef(0);
+
+    // Step 10: cache methods for the session (don’t refetch every open)
+    const methodsLoadedOnce = useRef(false);
+
     // reset ringan saat buka
     useEffect(() => {
         if (!open) return;
         setSubmitError(null);
         setSubmitSummary(null);
-        // keep selections & method by default (biar enak). Kalau mau reset total:
-        // setSelectedParamIds(new Set());
-        // setMethodId("");
-        // setAssignedTo(defaultAssignedTo ? String(defaultAssignedTo) : "");
+        setParamError(null);
+        setMethodError(null);
+        // keep selections by default
     }, [open]);
 
     const loadParameters = async () => {
+        const seq = ++paramSeq.current;
         try {
             setParamLoading(true);
             setParamError(null);
 
-            // IMPORTANT: pakai /v1 karena VITE_API_URL=/api
             const res = await apiGet<any>(
                 `/v1/parameters?page=${paramPage}&per_page=12&search=${encodeURIComponent(
-                    paramSearch
+                    debouncedParamSearch
                 )}`
             );
+
+            if (seq !== paramSeq.current) return;
 
             const pager: Paginator<ParameterLite> = res?.data;
             setParameters(pager);
         } catch (err: any) {
-            const msg =
-                err?.data?.message ?? err?.data?.error ?? "Failed to load parameters.";
-            setParamError(msg);
+            if (seq !== paramSeq.current) return;
+            setParamError(getErrorMessage(err, "Failed to load parameters."));
         } finally {
+            if (seq !== paramSeq.current) return;
             setParamLoading(false);
         }
     };
 
     const loadMethods = async () => {
+        const seq = ++methodSeq.current;
         try {
             setMethodLoading(true);
             setMethodError(null);
 
             const res = await apiGet<any>(`/v1/methods?page=1&per_page=100`);
+            if (seq !== methodSeq.current) return;
+
             const pager: Paginator<MethodLite> = res?.data;
             setMethods(pager);
+            methodsLoadedOnce.current = true;
         } catch (err: any) {
-            const msg = err?.data?.message ?? err?.data?.error ?? "Failed to load methods.";
-            setMethodError(msg);
+            if (seq !== methodSeq.current) return;
+            setMethodError(getErrorMessage(err, "Failed to load methods."));
         } finally {
+            if (seq !== methodSeq.current) return;
             setMethodLoading(false);
         }
     };
 
     useEffect(() => {
         if (!open) return;
-        loadMethods();
+
+        // Step 10: cache methods
+        if (!methodsLoadedOnce.current) {
+            loadMethods();
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open]);
 
@@ -150,18 +171,13 @@ export function AddSampleTestsModal({
         if (!open) return;
         loadParameters();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, paramPage]);
+    }, [open, paramPage, debouncedParamSearch]);
 
-    // debounce search
+    // Step 10: reset to page 1 when search changes (debounced already)
     useEffect(() => {
         if (!open) return;
-        const t = setTimeout(() => {
-            setParamPage(1);
-            loadParameters();
-        }, 350);
-        return () => clearTimeout(t);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [paramSearch, open]);
+        setParamPage(1);
+    }, [debouncedParamSearch, open]);
 
     const toggleParam = (id: number) => {
         setSelectedParamIds((prev) => {
@@ -176,8 +192,15 @@ export function AddSampleTestsModal({
         setSelectedParamIds(new Set());
     };
 
+    const hardDisabled =
+        assignmentBlocked ||
+        !canSubmit ||
+        submitting ||
+        !methodId ||
+        selectedParamIds.size === 0;
+
     const submit = async () => {
-        // Step 9 gate: stop early (even before RBAC)
+        // Step 9 gate: stop early
         if (assignmentBlocked) {
             setSubmitError(
                 assignmentBlockMessage ??
@@ -225,22 +248,15 @@ export function AddSampleTestsModal({
             });
 
             onCreated();
-            // biarkan modal tetap open biar user bisa lihat summary
         } catch (err: any) {
-            // Step 9 fallback: backend gate (403/422) for LoA not locked
             if (isLoaLockError(err)) {
-                const msg =
+                setSubmitError(
                     assignmentBlockMessage ??
-                    "Assignment ditolak karena LoA belum locked. Selesaikan workflow LoA (generate → sign internal → send → client sign) sampai LoA = locked.";
-                setSubmitError(msg);
+                    "Assignment ditolak karena LoA belum locked. Selesaikan workflow LoA (generate → sign internal → send → client sign) sampai LoA = locked."
+                );
                 return;
             }
-
-            const msg =
-                err?.data?.message ??
-                err?.data?.error ??
-                "Failed to bulk create sample tests.";
-            setSubmitError(msg);
+            setSubmitError(getErrorMessage(err, "Failed to bulk create sample tests."));
         } finally {
             setSubmitting(false);
         }
@@ -251,13 +267,6 @@ export function AddSampleTestsModal({
     const paramRows = parameters?.data ?? [];
     const methodRows = methods?.data ?? [];
     const selectedCount = selectedParamIds.size;
-
-    const hardDisabled =
-        assignmentBlocked ||
-        !canSubmit ||
-        submitting ||
-        !methodId ||
-        selectedParamIds.size === 0;
 
     return (
         <div className="fixed inset-0 z-80 bg-black/40 flex items-center justify-center px-3">
@@ -277,7 +286,6 @@ export function AddSampleTestsModal({
 
                 {/* body */}
                 <div className="p-5">
-                    {/* Step 9 notice */}
                     {assignmentBlocked && (
                         <div className="text-sm text-amber-900 bg-amber-50 border border-amber-100 px-3 py-2 rounded-xl mb-4">
                             <div className="font-semibold">Tidak bisa assign test dulu</div>
@@ -326,7 +334,6 @@ export function AddSampleTestsModal({
                                     type="button"
                                     onClick={clearAll}
                                     disabled={assignmentBlocked}
-                                    title={assignmentBlocked ? assignmentBlockMessage : undefined}
                                 >
                                     Clear
                                 </button>
@@ -537,7 +544,7 @@ export function AddSampleTestsModal({
                 {/* footer */}
                 <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between">
                     <div className="text-xs text-gray-500">
-                        Tip: kalau list masih kosong, klik Add Tests untuk bulk create (LoA harus locked).
+                        Tip: LoA harus locked sebelum bisa bulk assign tests.
                     </div>
                     <button className="lims-btn" onClick={onClose} type="button">
                         Done
