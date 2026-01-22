@@ -1,4 +1,3 @@
-// frontend/src/hooks/useSampleTests.ts
 import { useCallback, useEffect, useState } from "react";
 import { sampleTestService, type SampleTest, type Paginated } from "../services/sampleTests";
 

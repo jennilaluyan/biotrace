@@ -1,7 +1,10 @@
-// frontend/src/components/samples/SampleTestsTab.tsx
-import { useEffect, useMemo, useState } from "react";
+// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\SampleTestsTab.tsx
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet } from "../../services/api";
 import { formatDateTimeLocal } from "../../utils/date";
+import { AddSampleTestsModal } from "../sampleTests/AddSampleTestsModal";
+import { getLoaAssignmentGate } from "../../utils/loaGate";
+import { getErrorMessage } from "../../utils/errors";
 
 type ApiResponse<T> = {
     timestamp?: string;
@@ -104,9 +107,22 @@ function statusChipClass(status?: string | null) {
 
 type Props = {
     sampleId: number;
+
+    // Step 9 gate: pass sample object from SampleDetailPage if available
+    sample?: any;
+
+    defaultAssignedTo?: number | null;
+    canBulkCreate?: boolean;
+    showAddButton?: boolean;
 };
 
-export const SampleTestsTab = ({ sampleId }: Props) => {
+export const SampleTestsTab = ({
+    sampleId,
+    sample,
+    defaultAssignedTo = null,
+    canBulkCreate = true,
+    showAddButton = true,
+}: Props) => {
     const [items, setItems] = useState<SampleTestItem[]>([]);
     const [meta, setMeta] = useState<Pagination<SampleTestItem> | null>(null);
 
@@ -114,20 +130,35 @@ export const SampleTestsTab = ({ sampleId }: Props) => {
     const [error, setError] = useState<string | null>(null);
 
     const [page, setPage] = useState(1);
-    const [perPage] = useState(50);
+    const perPage = 50; // Step 10: keep stable (not state)
     const [statusFilter, setStatusFilter] = useState<string>("all");
+
+    const [showAddModal, setShowAddModal] = useState(false);
 
     const totalPages = meta?.last_page ?? 1;
 
-    const fetchTests = async () => {
+    // Step 9 — LoA lock gate
+    const loaGate = useMemo(() => {
+        if (!sample) return null;
+        return getLoaAssignmentGate(sample);
+    }, [sample]);
+
+    const assignBlocked = loaGate?.blocked ?? false;
+    const assignBlockMessage =
+        loaGate?.message ??
+        "Test assignment dikunci sampai LoA berstatus locked. Selesaikan workflow LoA dulu.";
+
+    // Step 10: prevent out-of-order responses from overwriting newest state
+    const fetchSeq = useRef(0);
+
+    const fetchTests = useCallback(async () => {
+        const seq = ++fetchSeq.current;
+
         try {
             setLoading(true);
             setError(null);
 
-            const params: Record<string, any> = {
-                page,
-                per_page: perPage,
-            };
+            const params: Record<string, any> = { page, per_page: perPage };
             if (statusFilter !== "all") params.status = statusFilter;
 
             const res = await apiGet<ApiResponse<Pagination<SampleTestItem>>>(
@@ -135,25 +166,24 @@ export const SampleTestsTab = ({ sampleId }: Props) => {
                 { params }
             );
 
+            // ignore if a newer fetch finished first
+            if (seq !== fetchSeq.current) return;
+
             setItems(res.data?.data ?? []);
             setMeta(res.data ?? null);
         } catch (err: any) {
-            const msg =
-                err?.data?.message ??
-                err?.data?.error ??
-                err?.message ??
-                "Failed to load sample tests.";
-            setError(msg);
+            if (seq !== fetchSeq.current) return;
+            setError(getErrorMessage(err, "Failed to load sample tests."));
         } finally {
+            if (seq !== fetchSeq.current) return;
             setLoading(false);
         }
-    };
+    }, [page, perPage, sampleId, statusFilter]);
 
     useEffect(() => {
         if (!sampleId || Number.isNaN(sampleId)) return;
         fetchTests();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sampleId, page, statusFilter]);
+    }, [sampleId, page, statusFilter, fetchTests]);
 
     // reset page kalau filter berubah
     useEffect(() => {
@@ -197,8 +227,28 @@ export const SampleTestsTab = ({ sampleId }: Props) => {
                     >
                         Refresh
                     </button>
+
+                    {showAddButton && (
+                        <button
+                            type="button"
+                            onClick={() => setShowAddModal(true)}
+                            className="rounded-xl bg-primary text-white px-3 py-2 text-sm hover:opacity-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={assignBlocked}
+                            title={assignBlocked ? assignBlockMessage : undefined}
+                        >
+                            Add Tests
+                        </button>
+                    )}
                 </div>
             </div>
+
+            {/* Step 9 Banner */}
+            {loaGate?.blocked && (
+                <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
+                    <div className="font-semibold text-amber-900">Test assignment terkunci</div>
+                    <div className="text-amber-900/80 mt-1">{loaGate.message}</div>
+                </div>
+            )}
 
             <div className="mt-4">
                 {loading && <div className="text-sm text-gray-600">Loading tests...</div>}
@@ -211,7 +261,7 @@ export const SampleTestsTab = ({ sampleId }: Props) => {
 
                 {!loading && !error && items.length === 0 && (
                     <div className="text-sm text-gray-600">
-                        No tests yet. (Step 4 nanti akan ada modal “Add Tests”.)
+                        No tests yet. Use <span className="font-semibold">Add Tests</span> (LoA must be locked).
                     </div>
                 )}
 
@@ -330,6 +380,17 @@ export const SampleTestsTab = ({ sampleId }: Props) => {
                     </div>
                 )}
             </div>
+
+            <AddSampleTestsModal
+                open={showAddModal}
+                onClose={() => setShowAddModal(false)}
+                sampleId={sampleId}
+                defaultAssignedTo={defaultAssignedTo}
+                onCreated={() => fetchTests()}
+                canSubmit={canBulkCreate}
+                assignmentBlocked={assignBlocked}
+                assignmentBlockMessage={assignBlockMessage}
+            />
         </div>
     );
 };

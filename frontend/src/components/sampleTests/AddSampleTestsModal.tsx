@@ -1,6 +1,9 @@
 // frontend/src/components/sampleTests/AddSampleTestsModal.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "../../services/api";
+import { isLoaLockError } from "../../utils/loaGate";
+import { getErrorMessage } from "../../utils/errors";
+import { useDebouncedValue } from "../../utils/useDebouncedValue";
 
 /* ----------------------------- Types (ringan) ----------------------------- */
 type ParameterLite = {
@@ -41,6 +44,19 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
+type Props = {
+    open: boolean;
+    onClose: () => void;
+    sampleId: number;
+    defaultAssignedTo: number | null;
+    onCreated: () => void;
+    canSubmit?: boolean;
+
+    // Step 9 gate
+    assignmentBlocked?: boolean;
+    assignmentBlockMessage?: string;
+};
+
 export function AddSampleTestsModal({
     open,
     onClose,
@@ -48,15 +64,12 @@ export function AddSampleTestsModal({
     defaultAssignedTo,
     onCreated,
     canSubmit = true,
-}: {
-    open: boolean;
-    onClose: () => void;
-    sampleId: number;
-    defaultAssignedTo: number | null;
-    onCreated: () => void;
-    canSubmit?: boolean;
-}) {
+    assignmentBlocked = false,
+    assignmentBlockMessage,
+}: Props) {
     const [paramSearch, setParamSearch] = useState("");
+    const debouncedParamSearch = useDebouncedValue(paramSearch, 350);
+
     const [paramPage, setParamPage] = useState(1);
     const [paramLoading, setParamLoading] = useState(false);
     const [paramError, setParamError] = useState<string | null>(null);
@@ -81,59 +94,76 @@ export function AddSampleTestsModal({
         skipped_parameter_ids?: number[];
     } | null>(null);
 
+    // Step 10: prevent out-of-order overwrites
+    const paramSeq = useRef(0);
+    const methodSeq = useRef(0);
+
+    // Step 10: cache methods for the session (don’t refetch every open)
+    const methodsLoadedOnce = useRef(false);
+
     // reset ringan saat buka
     useEffect(() => {
         if (!open) return;
         setSubmitError(null);
         setSubmitSummary(null);
-        // keep selections & method by default (biar enak). Kalau mau reset total:
-        // setSelectedParamIds(new Set());
-        // setMethodId("");
-        // setAssignedTo(defaultAssignedTo ? String(defaultAssignedTo) : "");
+        setParamError(null);
+        setMethodError(null);
+        // keep selections by default
     }, [open]);
 
     const loadParameters = async () => {
+        const seq = ++paramSeq.current;
         try {
             setParamLoading(true);
             setParamError(null);
 
-            // IMPORTANT: pakai /v1 karena VITE_API_URL=/api
             const res = await apiGet<any>(
                 `/v1/parameters?page=${paramPage}&per_page=12&search=${encodeURIComponent(
-                    paramSearch
+                    debouncedParamSearch
                 )}`
             );
+
+            if (seq !== paramSeq.current) return;
 
             const pager: Paginator<ParameterLite> = res?.data;
             setParameters(pager);
         } catch (err: any) {
-            const msg =
-                err?.data?.message ?? err?.data?.error ?? "Failed to load parameters.";
-            setParamError(msg);
+            if (seq !== paramSeq.current) return;
+            setParamError(getErrorMessage(err, "Failed to load parameters."));
         } finally {
+            if (seq !== paramSeq.current) return;
             setParamLoading(false);
         }
     };
 
     const loadMethods = async () => {
+        const seq = ++methodSeq.current;
         try {
             setMethodLoading(true);
             setMethodError(null);
 
             const res = await apiGet<any>(`/v1/methods?page=1&per_page=100`);
+            if (seq !== methodSeq.current) return;
+
             const pager: Paginator<MethodLite> = res?.data;
             setMethods(pager);
+            methodsLoadedOnce.current = true;
         } catch (err: any) {
-            const msg = err?.data?.message ?? err?.data?.error ?? "Failed to load methods.";
-            setMethodError(msg);
+            if (seq !== methodSeq.current) return;
+            setMethodError(getErrorMessage(err, "Failed to load methods."));
         } finally {
+            if (seq !== methodSeq.current) return;
             setMethodLoading(false);
         }
     };
 
     useEffect(() => {
         if (!open) return;
-        loadMethods();
+
+        // Step 10: cache methods
+        if (!methodsLoadedOnce.current) {
+            loadMethods();
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open]);
 
@@ -141,18 +171,13 @@ export function AddSampleTestsModal({
         if (!open) return;
         loadParameters();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, paramPage]);
+    }, [open, paramPage, debouncedParamSearch]);
 
-    // debounce search
+    // Step 10: reset to page 1 when search changes (debounced already)
     useEffect(() => {
         if (!open) return;
-        const t = setTimeout(() => {
-            setParamPage(1);
-            loadParameters();
-        }, 350);
-        return () => clearTimeout(t);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [paramSearch, open]);
+        setParamPage(1);
+    }, [debouncedParamSearch, open]);
 
     const toggleParam = (id: number) => {
         setSelectedParamIds((prev) => {
@@ -167,7 +192,23 @@ export function AddSampleTestsModal({
         setSelectedParamIds(new Set());
     };
 
+    const hardDisabled =
+        assignmentBlocked ||
+        !canSubmit ||
+        submitting ||
+        !methodId ||
+        selectedParamIds.size === 0;
+
     const submit = async () => {
+        // Step 9 gate: stop early
+        if (assignmentBlocked) {
+            setSubmitError(
+                assignmentBlockMessage ??
+                "Assignment ditolak karena LoA belum locked. Selesaikan workflow LoA sampai locked."
+            );
+            return;
+        }
+
         if (!canSubmit) {
             setSubmitError("You don’t have permission to bulk create sample tests.");
             return;
@@ -207,13 +248,15 @@ export function AddSampleTestsModal({
             });
 
             onCreated();
-            // biarkan modal tetap open biar user bisa lihat summary
         } catch (err: any) {
-            const msg =
-                err?.data?.message ??
-                err?.data?.error ??
-                "Failed to bulk create sample tests.";
-            setSubmitError(msg);
+            if (isLoaLockError(err)) {
+                setSubmitError(
+                    assignmentBlockMessage ??
+                    "Assignment ditolak karena LoA belum locked. Selesaikan workflow LoA (generate → sign internal → send → client sign) sampai LoA = locked."
+                );
+                return;
+            }
+            setSubmitError(getErrorMessage(err, "Failed to bulk create sample tests."));
         } finally {
             setSubmitting(false);
         }
@@ -243,6 +286,16 @@ export function AddSampleTestsModal({
 
                 {/* body */}
                 <div className="p-5">
+                    {assignmentBlocked && (
+                        <div className="text-sm text-amber-900 bg-amber-50 border border-amber-100 px-3 py-2 rounded-xl mb-4">
+                            <div className="font-semibold">Tidak bisa assign test dulu</div>
+                            <div className="mt-1 text-amber-900/80">
+                                {assignmentBlockMessage ??
+                                    "LoA belum locked. Selesaikan workflow LoA sampai locked."}
+                            </div>
+                        </div>
+                    )}
+
                     {submitError && (
                         <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-4">
                             {submitError}
@@ -280,6 +333,7 @@ export function AddSampleTestsModal({
                                     className="text-xs text-gray-600 hover:text-gray-800"
                                     type="button"
                                     onClick={clearAll}
+                                    disabled={assignmentBlocked}
                                 >
                                     Clear
                                 </button>
@@ -292,6 +346,7 @@ export function AddSampleTestsModal({
                                         placeholder="Search parameter..."
                                         value={paramSearch}
                                         onChange={(e) => setParamSearch(e.target.value)}
+                                        disabled={assignmentBlocked}
                                     />
                                 </div>
 
@@ -324,7 +379,8 @@ export function AddSampleTestsModal({
                                                         "flex items-start gap-3 p-3 rounded-2xl border cursor-pointer",
                                                         checked
                                                             ? "border-primary/30 bg-primary/5"
-                                                            : "border-gray-100 hover:bg-gray-50"
+                                                            : "border-gray-100 hover:bg-gray-50",
+                                                        assignmentBlocked && "opacity-60 cursor-not-allowed"
                                                     )}
                                                 >
                                                     <input
@@ -332,6 +388,7 @@ export function AddSampleTestsModal({
                                                         checked={checked}
                                                         onChange={() => toggleParam(p.parameter_id)}
                                                         className="mt-1"
+                                                        disabled={assignmentBlocked}
                                                     />
                                                     <div className="min-w-0">
                                                         <div className="text-sm font-semibold text-gray-900">
@@ -361,7 +418,7 @@ export function AddSampleTestsModal({
                                         <button
                                             className="lims-btn"
                                             type="button"
-                                            disabled={paramPage <= 1}
+                                            disabled={assignmentBlocked || paramPage <= 1}
                                             onClick={() =>
                                                 setParamPage((p) => Math.max(1, p - 1))
                                             }
@@ -381,7 +438,10 @@ export function AddSampleTestsModal({
                                         <button
                                             className="lims-btn"
                                             type="button"
-                                            disabled={(parameters.last_page ?? 1) <= paramPage}
+                                            disabled={
+                                                assignmentBlocked ||
+                                                (parameters.last_page ?? 1) <= paramPage
+                                            }
                                             onClick={() => setParamPage((p) => p + 1)}
                                         >
                                             Next
@@ -417,7 +477,7 @@ export function AddSampleTestsModal({
                                             const v = e.target.value;
                                             setMethodId(v ? Number(v) : "");
                                         }}
-                                        disabled={methodLoading}
+                                        disabled={methodLoading || assignmentBlocked}
                                     >
                                         <option value="">Select method...</option>
                                         {methodRows.map((m) => (
@@ -442,6 +502,7 @@ export function AddSampleTestsModal({
                                         placeholder="staff_id"
                                         value={assignedTo}
                                         onChange={(e) => setAssignedTo(e.target.value)}
+                                        disabled={assignmentBlocked}
                                     />
                                     <div className="text-[11px] text-gray-500 mt-1">
                                         Kosongkan jika tidak mau set assignee.
@@ -452,19 +513,12 @@ export function AddSampleTestsModal({
                                     <button
                                         className={cx(
                                             "w-full lims-btn-primary",
-                                            (submitting ||
-                                                !methodId ||
-                                                selectedParamIds.size === 0) &&
-                                            "opacity-60 cursor-not-allowed"
+                                            hardDisabled && "opacity-60 cursor-not-allowed"
                                         )}
                                         type="button"
-                                        disabled={
-                                            !canSubmit ||
-                                            submitting ||
-                                            !methodId ||
-                                            selectedParamIds.size === 0
-                                        }
+                                        disabled={hardDisabled}
                                         onClick={submit}
+                                        title={assignmentBlocked ? assignmentBlockMessage : undefined}
                                     >
                                         {submitting ? "Submitting..." : "Submit Bulk Create"}
                                     </button>
@@ -476,6 +530,12 @@ export function AddSampleTestsModal({
                                         </span>
                                     </div>
                                 </div>
+
+                                {!canSubmit && (
+                                    <div className="text-xs text-red-600">
+                                        You don’t have permission to create sample tests.
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -484,8 +544,7 @@ export function AddSampleTestsModal({
                 {/* footer */}
                 <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between">
                     <div className="text-xs text-gray-500">
-                        Tip: kalau list masih kosong, pastikan backend sudah ada tests (bulk
-                        create dulu).
+                        Tip: LoA harus locked sebelum bisa bulk assign tests.
                     </div>
                     <button className="lims-btn" onClick={onClose} type="button">
                         Done

@@ -1,4 +1,3 @@
-// src/services/clientApprovals.ts
 import { apiPost } from "./api";
 import { clientService, type Client } from "./clients";
 

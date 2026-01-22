@@ -36,20 +36,25 @@ return [
     */
 
     'guards' => [
+        // Staff session (optional, mostly for web)
         'web' => [
             'driver' => 'session',
             'provider' => 'staffs',
         ],
+
+        // Staff API token (Sanctum)
         'api' => [
             'driver' => 'sanctum',
-            'provider' => 'staffs'
+            'provider' => 'staffs',
         ],
-        // Guard untuk Backoffice (yang Anda perbaiki sebelumnya)
+
+        // Client API token (Sanctum)  ✅ INI YANG DIPAKAI PORTAL API
         'client_api' => [
-            'driver' => 'session',
+            'driver' => 'sanctum',
             'provider' => 'clients',
         ],
-        // Tambahkan kembali Guard untuk Client login
+
+        // Client session (optional; tidak dipakai oleh /api)
         'client' => [
             'driver' => 'session',
             'provider' => 'clients',

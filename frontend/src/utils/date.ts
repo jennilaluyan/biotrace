@@ -1,5 +1,3 @@
-// src/utils/date.ts
-
 const LAB_TZ = "Asia/Makassar"; // ganti ke "Asia/Jakarta" kalau lab kamu WIB
 
 function normalizeIsoLike(input: string): string {

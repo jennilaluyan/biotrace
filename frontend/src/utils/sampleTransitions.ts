@@ -1,4 +1,3 @@
-// src/utils/sampleTransitions.ts
 import type { SampleStatus } from "../services/samples";
 import { ROLE_ID } from "./roles";
 

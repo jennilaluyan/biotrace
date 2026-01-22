@@ -1,4 +1,3 @@
-// src/components/samples/UpdateSampleStatusModal.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { Sample, SampleStatus, SampleComment } from "../../services/samples";
 import { sampleService } from "../../services/samples";
@@ -209,7 +208,7 @@ export const UpdateSampleStatusModal = ({
                                 </div>
 
                                 {/* small badge count */}
-                                <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-700">
+                                <span className="inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-700">
                                     {commentsLoading ? "…" : comments.length}
                                 </span>
                             </div>
@@ -238,7 +237,7 @@ export const UpdateSampleStatusModal = ({
                             </div>
                         )}
 
-                        <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50/40 p-3 max-h-[160px] overflow-y-auto">
+                        <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50/40 p-3 max-h-40 overflow-y-auto">
                             {commentsLoading ? (
                                 <div className="text-xs text-gray-600">Loading comments...</div>
                             ) : comments.length === 0 ? (
@@ -348,7 +347,7 @@ export const UpdateSampleStatusModal = ({
                                 onChange={(e) => setNote(e.target.value)}
                                 maxLength={500}
                                 disabled={submitting}
-                                className="w-full min-h-[96px] rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50"
+                                className="w-full min-h-24 rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50"
                                 placeholder="Reason / note for this change..."
                             />
                             <div className="mt-1 text-xs text-gray-400">{note.length}/500</div>

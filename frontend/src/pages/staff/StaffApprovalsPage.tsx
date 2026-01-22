@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\staff\StaffApprovalsPage.tsx
 import { useEffect, useState } from "react";
 import {
     approveStaff,

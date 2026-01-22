@@ -1,14 +1,14 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\auth\AuthPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+
 import { useAuth } from "../../hooks/useAuth";
+import { useClientAuth } from "../../hooks/useClientAuth";
 import { getTenant } from "../../utils/tenant";
 import { ROLE_ID } from "../../utils/roles";
-import {
-    registerStaffRequest,
-    clientLoginRequest,
-    clientRegisterRequest,
-} from "../../services/auth";
+
+import { registerStaffRequest, clientRegisterRequest } from "../../services/auth";
 
 import LabHero from "../../assets/lab-login-hero.png";
 import BiotraceLogo from "../../assets/biotrace-logo.png";
@@ -31,12 +31,14 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const [mode, setMode] = useState<Mode>(initialMode);
     const [isMobile, setIsMobile] = useState(false);
 
-    // password visibility
     const [showLoginPassword, setShowLoginPassword] = useState(false);
     const [showRegPassword, setShowRegPassword] = useState(false);
-    const [showRegPasswordConfirmation, setShowRegPasswordConfirmation] = useState(false);
+    const [showRegPasswordConfirmation, setShowRegPasswordConfirmation] =
+        useState(false);
 
     const { login } = useAuth();
+    const clientAuth = useClientAuth() as any;
+
     const navigate = useNavigate();
 
     const headingLogin = isPortal ? "Client sign in" : "Staff sign in";
@@ -49,7 +51,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         ? "Register as a client. Your account will be verified by admin."
         : "Register as staff. Your account will be verified by Laboratory Head.";
 
-    // Responsive detection
     useEffect(() => {
         const check = () => setIsMobile(window.innerWidth <= 768);
         check();
@@ -57,13 +58,11 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         return () => window.removeEventListener("resize", check);
     }, []);
 
-    // LOGIN STATE
     const [loginEmail, setLoginEmail] = useState("");
     const [loginPassword, setLoginPassword] = useState("");
     const [loginError, setLoginError] = useState<string | null>(null);
     const [loginLoading, setLoginLoading] = useState(false);
 
-    // REGISTER (shared base) STATE
     const [regName, setRegName] = useState("");
     const [regEmail, setRegEmail] = useState("");
     const [regPassword, setRegPassword] = useState("");
@@ -72,21 +71,17 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const [regLoading, setRegLoading] = useState(false);
     const [regSuccess, setRegSuccess] = useState<string | null>(null);
 
-    // REGISTER (staff only)
     const [regRoleId, setRegRoleId] = useState<number>(ROLE_ID.ANALYST);
 
-    // REGISTER (client only) ✅
     const [regClientType, setRegClientType] = useState<ClientType>("individual");
     const [regPhone, setRegPhone] = useState("");
 
-    // individual fields
     const [regNationalId, setRegNationalId] = useState("");
-    const [regDob, setRegDob] = useState(""); // yyyy-mm-dd
+    const [regDob, setRegDob] = useState("");
     const [regGender, setRegGender] = useState<Gender>("female");
     const [regAddressKtp, setRegAddressKtp] = useState("");
     const [regAddressDomicile, setRegAddressDomicile] = useState("");
 
-    // institution fields
     const [regInstitutionName, setRegInstitutionName] = useState("");
     const [regInstitutionAddress, setRegInstitutionAddress] = useState("");
     const [regContactPersonName, setRegContactPersonName] = useState("");
@@ -99,12 +94,11 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             { id: ROLE_ID.SAMPLE_COLLECTOR, label: "Sample Collector" },
             { id: ROLE_ID.ANALYST, label: "Analyst" },
             { id: ROLE_ID.OPERATIONAL_MANAGER, label: "Operational Manager" },
-            // ❌ LAB_HEAD tidak ada
-            // ❌ CLIENT tidak ada
         ],
         []
     );
 
+    // ✅ FIXED: portal login should NOT call staff login afterwards.
     const handleLoginSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoginError(null);
@@ -117,22 +111,24 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         try {
             setLoginLoading(true);
 
-            const currentTenant: Tenant = (tenant ?? getTenant()) as Tenant;
+            const currentTenant = (tenant ?? getTenant()) as Tenant;
 
             if (currentTenant === "portal") {
-                // ✅ client login (portal)
-                await clientLoginRequest(loginEmail, loginPassword);
-                navigate("/portal");
+                // ✅ Client login only
+                await clientAuth.loginClient(loginEmail, loginPassword);
+                navigate("/portal", { replace: true });
                 return;
             }
 
-            // ✅ staff login (backoffice)
+            // ✅ Staff login only
             await login(loginEmail, loginPassword);
-            navigate("/clients");
+            navigate("/clients", { replace: true });
         } catch (err: any) {
+            // ✅ FIXED: axios errors are usually in err.response.data
             const msg =
-                err?.data?.message ??
-                err?.data?.error ??
+                err?.response?.data?.message ??
+                err?.response?.data?.error ??
+                err?.message ??
                 "Login failed. Please check your credentials.";
             setLoginError(msg);
         } finally {
@@ -159,7 +155,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             setRegLoading(true);
 
             if (isPortal) {
-                // ✅ CLIENT REGISTER VALIDATION (minimal)
                 if (!regClientType) {
                     setRegError("Client type is required.");
                     return;
@@ -169,7 +164,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                     return;
                 }
 
-                // Untuk institution, kalau user gak isi regName, isi otomatis pakai institution_name
                 const safeName =
                     regName?.trim() ||
                     (regClientType === "institution" ? regInstitutionName?.trim() : "") ||
@@ -180,7 +174,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                     return;
                 }
 
-                // Build payload sesuai backend (yang kamu test di Postman)
                 const payload: any = {
                     type: regClientType,
                     name: safeName,
@@ -191,7 +184,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                 };
 
                 if (regClientType === "individual") {
-                    // OPTIONAL — isi kalau ada (backend kamu nampaknya menerima nullable)
                     payload.national_id = regNationalId || null;
                     payload.date_of_birth = regDob || null;
                     payload.gender = regGender || null;
@@ -212,7 +204,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                 return;
             }
 
-            // ✅ STAFF REGISTER
             if (!regName) {
                 setRegError("Full name is required.");
                 return;
@@ -230,8 +221,9 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             setTimeout(() => navigate("/login"), 800);
         } catch (err: any) {
             const msg =
-                err?.data?.message ??
-                err?.data?.error ??
+                err?.response?.data?.message ??
+                err?.response?.data?.error ??
+                err?.message ??
                 "Registration failed. Please review your data.";
             setRegError(msg);
         } finally {
@@ -249,10 +241,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         "flex flex-col items-stretch justify-center w-full max-w-md mx-auto px-4 md:px-10 py-10";
 
     const loginForm = (
-        <form
-            onSubmit={handleLoginSubmit}
-            className={formBaseClass}
-        >
+        <form onSubmit={handleLoginSubmit} className={formBaseClass}>
             <img src={BiotraceLogo} alt="Biotrace logo" className="w-20 mb-6" />
 
             <h1 className="text-2xl font-semibold text-primary mb-2">{headingLogin}</h1>
@@ -279,7 +268,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
 
                 <div className="relative">
                     <label className={labelClass}>Password</label>
-
                     <input
                         type={showLoginPassword ? "text" : "password"}
                         value={loginPassword}
@@ -321,7 +309,9 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             </div>
 
             <div>
-                <label className={labelClass}>{regClientType === "institution" ? "Client/Institution name" : "Full name"}</label>
+                <label className={labelClass}>
+                    {regClientType === "institution" ? "Client/Institution name" : "Full name"}
+                </label>
                 <input
                     type="text"
                     value={regName}
@@ -475,10 +465,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     );
 
     const registerForm = (
-        <form
-            onSubmit={handleRegisterSubmit}
-            className={formBaseClass}
-        >
+        <form onSubmit={handleRegisterSubmit} className={formBaseClass}>
             <img src={BiotraceLogo} alt="Biotrace logo" className="w-20 mb-4 mt-2" />
 
             <h1 className="text-2xl font-semibold text-primary mb-2">{headingRegister}</h1>
@@ -499,7 +486,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             <div className="space-y-3">
                 {isPortal ? (
                     <>
-                        {/* PORTAL (CLIENT) FIELDS */}
                         {portalClientFields}
 
                         <div>
@@ -515,7 +501,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                     </>
                 ) : (
                     <>
-                        {/* BACKOFFICE (STAFF) FIELDS */}
                         <div>
                             <label className={labelClass}>Full name</label>
                             <input
@@ -561,7 +546,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
 
                 <div className="relative">
                     <label className={labelClass}>Password</label>
-
                     <input
                         type={showRegPassword ? "text" : "password"}
                         value={regPassword}
@@ -582,7 +566,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
 
                 <div className="relative">
                     <label className={labelClass}>Confirm password</label>
-
                     <input
                         type={showRegPasswordConfirmation ? "text" : "password"}
                         value={regPasswordConfirmation}
@@ -600,7 +583,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                         {showRegPasswordConfirmation ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
                 </div>
-
             </div>
 
             <button type="submit" disabled={regLoading} className="mt-6 self-start lims-btn-primary">
@@ -609,7 +591,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         </form>
     );
 
-    // Mobile: 1 page = 1 form
     if (isMobile) {
         const isLoginPage = initialMode === "login";
 
@@ -646,21 +627,17 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         );
     }
 
-    // Desktop: double slider
     return (
         <div className="min-h-screen w-full flex items-center justify-center bg-cream px-4 py-10">
             <div className={containerClass + (mode === "register" ? " lims-right-active" : "")}>
-                {/* SIGN UP desktop */}
                 <div className="lims-auth-form-container lims-sign-up flex items-start justify-center overflow-y-auto">
                     {registerForm}
                 </div>
 
-                {/* SIGN IN desktop */}
                 <div className="lims-auth-form-container lims-sign-in lims-auth-center flex items-center justify-center overflow-y-auto">
                     {loginForm}
                 </div>
 
-                {/* OVERLAY */}
                 <div className="lims-overlay-container">
                     <div
                         className="lims-overlay"

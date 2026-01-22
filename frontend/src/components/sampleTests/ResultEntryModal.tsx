@@ -1,4 +1,3 @@
-// frontend/src/components/sampleTests/ResultEntryModal.tsx
 import { useEffect, useMemo, useState } from "react";
 import {
     createSampleTestResult,

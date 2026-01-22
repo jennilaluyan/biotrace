@@ -1,4 +1,3 @@
-// src/utils/slug.ts
 import type { Client } from "../services/clients";
 
 export function toClientSlug(client: Client): string {

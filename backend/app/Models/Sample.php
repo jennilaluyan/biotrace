@@ -24,6 +24,12 @@ class Sample extends Model
         'contact_history',
         'priority',
         'current_status',
+        'request_status',
+        'submitted_at',
+        'reviewed_at',
+        'ready_at',
+        'physically_received_at',
+        'lab_sample_code',
         'additional_notes',
         'created_by',
         'assigned_to'
@@ -31,6 +37,10 @@ class Sample extends Model
 
     protected $casts = [
         'received_at' => 'datetime',
+        'submitted_at' => 'datetime',
+        'reviewed_at' => 'datetime',
+        'ready_at' => 'datetime',
+        'physically_received_at' => 'datetime',
         'priority'    => 'integer',
     ];
 
@@ -85,5 +95,10 @@ class Sample extends Model
     public function report()
     {
         return $this->hasOne(\App\Models\Report::class, 'sample_id', 'sample_id');
+    }
+
+    public function intakeChecklist()
+    {
+        return $this->hasOne(\App\Models\SampleIntakeChecklist::class, 'sample_id', 'sample_id');
     }
 }

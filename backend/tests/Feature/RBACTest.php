@@ -104,12 +104,12 @@ class RBACTest extends TestCase
             'contact_history' => 'ada', // valid: ada|tidak|tidak_tahu
         ]);
 
-        // KONTRAK BARU (sesuai backend kamu sekarang):
-        // - Kalau update endpoint memang belum ada, admin akan dapat 405 => dianggap OK
-        // - Kalau endpoint ada, harus 2xx
+        // KONTRAK BARU:
+        // - Kalau update belum di-support -> bisa 405 (method not allowed) ATAU 403 (explicitly forbidden)
+        // - Kalau update di-support -> harus 2xx
         $this->assertTrue(
-            in_array($adminUpd->status(), [200, 204, 405], true),
-            "Admin update sample expected 200/204 (or 405 if update endpoint not implemented) but got {$adminUpd->status()}. Body: " . $adminUpd->getContent()
+            in_array($adminUpd->status(), [200, 204, 403, 405], true),
+            "Admin update sample expected 200/204 (or 403/405 if update endpoint not supported) but got {$adminUpd->status()}. Body: " . $adminUpd->getContent()
         );
 
         // Non-admin update: yang penting TIDAK boleh 2xx

@@ -12,7 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use App\Services\ReagentCalcService;
+use App\Models\LetterOfOrder;
 
 class SampleTestBulkController extends Controller
 {
@@ -22,6 +22,12 @@ class SampleTestBulkController extends Controller
         $this->authorize('bulkCreate', [SampleTest::class, $sample]);
 
         $items = $request->validated()['tests'];
+
+        // 1.5) ✅ Business gate: assignment hanya boleh jika LoA locked
+        $block = $this->checkLoaLockedGate($sample);
+        if ($block !== null) {
+            return $block;
+        }
 
         // 2) Normalisasi + unikkan parameter_id dalam request (biar gak dobel di 1 request)
         $parameterIds = collect($items)->pluck('parameter_id')->filter()->unique()->values();
@@ -164,6 +170,53 @@ class SampleTestBulkController extends Controller
                 'skipped_parameter_ids' => $skippedParameterIds,
             ],
         ], 200);
+    }
+
+    private function checkLoaLockedGate(Sample $sample): ?JsonResponse
+    {
+        try {
+            // kalau tabel LoA belum ada (misal di env tertentu), jangan blok
+            if (!Schema::hasTable('letters_of_order')) {
+                return null;
+            }
+
+            // harus ada LoA untuk sample ini
+            $loa = \App\Models\LetterOfOrder::query()
+                ->where('sample_id', $sample->getAttribute('sample_id'))
+                ->orderByDesc('lo_id')
+                ->first();
+
+            if (!$loa) {
+                return response()->json([
+                    'status' => 422,
+                    'message' => 'Letter of Order is required before assigning sample tests.',
+                    'errors' => [
+                        'loa' => ['missing'],
+                    ],
+                ], 422);
+            }
+
+            // harus locked
+            if (($loa->loa_status ?? null) !== 'locked') {
+                return response()->json([
+                    'status' => 422,
+                    'message' => 'Letter of Order must be locked before assigning sample tests.',
+                    'errors' => [
+                        'loa_status' => [$loa->loa_status],
+                    ],
+                ], 422);
+            }
+
+            return null;
+        } catch (\Throwable $e) {
+            // fail-open: jangan bikin bulk create error karena gate check
+            logger()->warning('LoA lock gate check failed (fail-open)', [
+                'sample_id' => $sample->getAttribute('sample_id'),
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 
     private function tryAuditBulkCreated(int $sampleId, array $createdRows, array $skippedPids): void

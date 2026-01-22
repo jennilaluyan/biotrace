@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Client;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use App\Support\AuditLogger;
 
@@ -37,7 +36,6 @@ class ClientAuthController extends Controller
             'contact_person_email' => ['nullable', 'email', 'max:150'],
         ]);
 
-        // enforce rules by type (biar data ga “campur”)
         if ($data['type'] === 'institution' && empty($data['institution_name'])) {
             return response()->json([
                 'message' => 'institution_name is required when type=institution'
@@ -46,9 +44,9 @@ class ClientAuthController extends Controller
 
         $client = Client::create([
             ...collect($data)->except(['password', 'password_confirmation'])->all(),
-            'staff_id' => null, // belum ada PIC
+            'staff_id' => null,
             'password_hash' => Hash::make($data['password']),
-            'is_active' => false, // nunggu admin verify
+            'is_active' => false,
         ]);
 
         AuditLogger::write(
@@ -77,6 +75,7 @@ class ClientAuthController extends Controller
         $data = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
+            'device_name' => ['nullable', 'string'],
         ]);
 
         $client = Client::where('email', $data['email'])->first();
@@ -97,18 +96,19 @@ class ClientAuthController extends Controller
             return response()->json(['message' => 'Account inactive'], 403);
         }
 
-        // session login
-        if ($request->hasSession()) {
-            Auth::guard('client')->login($client);
-            $request->session()->regenerate();
-        }
+        // Optional: bersihkan token lama biar tidak numpuk
+        $client->tokens()->delete();
+
+        $device = $data['device_name'] ?? 'web';
+        $token = $client->createToken($device)->plainTextToken;
 
         AuditLogger::write('CLIENT_LOGIN_SUCCESS', null, 'clients', $client->getKey(), null, [
             'email' => $client->email,
-            'via' => 'browser_session',
+            'via' => 'sanctum_token',
         ]);
 
         return response()->json([
+            'token' => $token,
             'client' => [
                 'id' => $client->client_id,
                 'name' => $client->name,
@@ -117,10 +117,10 @@ class ClientAuthController extends Controller
         ], 200);
     }
 
-    // GET /api/v1/clients/me
+    // GET /api/v1/clients/me  (protected by auth:client_api in routes)
     public function me(Request $request)
     {
-        $client = Auth::guard('client')->user();
+        $client = $request->user('client_api');
 
         if (!$client) {
             return response()->json(['message' => 'Unauthenticated'], 401);
@@ -135,21 +135,18 @@ class ClientAuthController extends Controller
         ], 200);
     }
 
-    // POST /api/v1/clients/logout
+    // POST /api/v1/clients/logout (protected by auth:client_api in routes)
     public function logout(Request $request)
     {
-        $client = Auth::guard('client')->user();
+        $client = $request->user('client_api');
 
         AuditLogger::write('CLIENT_LOGOUT', null, 'clients', $client?->client_id, null, [
             'email' => $client?->email,
-            'via' => 'browser_session',
+            'via' => 'sanctum_token',
         ]);
 
-        Auth::guard('client')->logout();
-
-        if ($request->hasSession()) {
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
+        if ($client) {
+            $client->currentAccessToken()?->delete();
         }
 
         return response()->noContent();

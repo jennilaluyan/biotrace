@@ -1,11 +1,10 @@
-// src/guards/RoleGuard.tsx
 import { ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { getUserRoleId, getUserRoleLabel } from "../utils/roles";
 
 interface RoleGuardProps {
-    allowedRoleIds: number[];   // pakai role_id angka
+    allowedRoleIds: number[];
     children: ReactNode;
     redirectTo?: string;
 }

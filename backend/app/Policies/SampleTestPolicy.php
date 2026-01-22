@@ -4,6 +4,9 @@ namespace App\Policies;
 
 use App\Models\Staff;
 use App\Models\SampleTest;
+use App\Models\LetterOfOrder;
+use App\Models\Sample;
+use Illuminate\Support\Facades\Schema;
 
 class SampleTestPolicy
 {
@@ -12,9 +15,23 @@ class SampleTestPolicy
         return $user?->role?->name;
     }
 
-    public function bulkCreate(Staff $user, \App\Models\Sample $sample): bool
+    public function bulkCreate(Staff $user, Sample $sample): bool
     {
-        return $this->role($user) === 'Analyst';
+        if ($this->role($user) !== 'Analyst') {
+            return false;
+        }
+
+        // Kalau LoA table belum ada (env tertentu), jangan blok
+        if (!Schema::hasTable('letters_of_order')) {
+            return true;
+        }
+
+        $loaStatus = \App\Models\LetterOfOrder::query()
+            ->where('sample_id', $sample->getAttribute('sample_id'))
+            ->orderByDesc('lo_id')
+            ->value('loa_status');
+
+        return $loaStatus === 'locked';
     }
 
     public function updateStatusAsAnalyst(Staff $user, SampleTest $test): bool

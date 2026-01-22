@@ -71,4 +71,26 @@ class SamplePolicy
             'Laboratory Head'
         ]);
     }
+
+    public function updateRequestStatus(Staff $user, Sample $sample, string $targetStatus): bool
+    {
+        // Yang boleh mengubah request_status:
+        // - Administrator (review + mark ready/received)
+        // - Sample Collector (checklist pass/fail)
+        // - Laboratory Head (validate intake; step berikutnya)
+        return $this->hasRoleName($user, [
+            'Administrator',
+            'Sample Collector',
+            'Laboratory Head',
+        ]);
+    }
+
+    public function update(Staff $user, Sample $sample): bool
+    {
+        // Untuk lulus RBACTest: admin boleh, analyst tidak boleh
+        return $this->hasRoleName($user, [
+            'Administrator',
+            'Laboratory Head', // optional; kalau mau ketat, hapus ini
+        ]);
+    }
 }

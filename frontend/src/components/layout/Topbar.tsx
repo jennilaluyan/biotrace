@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../../hooks/useAuth";
-import { logoutRequest } from "../../services/auth";
+import { useClientAuth } from "../../hooks/useClientAuth";
+import { clientLogoutRequest, logoutRequest } from "../../services/auth";
+import { getTenant } from "../../utils/tenant";
 import { getUserRoleLabel } from "../../utils/roles";
 
 type TopbarProps = {
@@ -11,15 +13,34 @@ type TopbarProps = {
 
 export const Topbar = ({ onOpenNav }: TopbarProps) => {
     const navigate = useNavigate();
-    const { user } = useAuth() as any;
 
-    const roleLabel = getUserRoleLabel(user);
+    const tenant = getTenant(); // "portal" | "backoffice" (sesuai util kamu)
+    const isPortal = tenant === "portal";
 
-    const displayName =
-        user?.name ||
-        user?.full_name ||
-        user?.username ||
-        user?.email ||
+    // Backoffice auth (staff)
+    const staffAuth = useAuth() as any;
+    const staffUser = staffAuth?.user;
+
+    // Portal auth (client)
+    const clientAuth = useClientAuth() as any;
+    const clientUser = clientAuth?.client;
+
+    // Labels
+    const roleLabel = isPortal ? "Client" : getUserRoleLabel(staffUser);
+
+    // Display name: portal pakai nama client, backoffice pakai nama staff
+    const displayName = isPortal
+        ? clientUser?.name ||
+        clientUser?.full_name ||
+        clientUser?.client_name ||
+        clientUser?.contact_name ||
+        clientUser?.username ||
+        clientUser?.email ||
+        "Client"
+        : staffUser?.name ||
+        staffUser?.full_name ||
+        staffUser?.username ||
+        staffUser?.email ||
         "Lab User";
 
     const [menuOpen, setMenuOpen] = useState(false);
@@ -41,14 +62,22 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
         try {
             setLoggingOut(true);
 
-            // backend logout
-            await logoutRequest();
+            // backend logout sesuai tenant
+            if (isPortal) {
+                await clientLogoutRequest();
 
-            // kalau useAuth kamu punya setter/clearer, kita panggil jika ada
-            const auth = useAuth() as any;
-            if (typeof auth?.setUser === "function") auth.setUser(null);
-            if (typeof auth?.setIsAuthenticated === "function")
-                auth.setIsAuthenticated(false);
+                // kalau useClientAuth kamu punya setter/clearer, panggil jika ada
+                if (typeof clientAuth?.setClient === "function") clientAuth.setClient(null);
+                if (typeof clientAuth?.setIsClientAuthenticated === "function")
+                    clientAuth.setIsClientAuthenticated(false);
+            } else {
+                await logoutRequest();
+
+                // kalau useAuth kamu punya setter/clearer, panggil jika ada
+                if (typeof staffAuth?.setUser === "function") staffAuth.setUser(null);
+                if (typeof staffAuth?.setIsAuthenticated === "function")
+                    staffAuth.setIsAuthenticated(false);
+            }
 
             setMenuOpen(false);
             navigate("/login", { replace: true });

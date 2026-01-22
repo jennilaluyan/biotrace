@@ -129,4 +129,34 @@ class AuditLogger
             newValues: null
         );
     }
+
+    public static function logSampleRequestStatusChanged(
+        int $staffId,
+        int $sampleId,
+        int $clientId,
+        string $oldStatus,
+        string $newStatus,
+        ?string $note = null
+    ): void {
+        $diff = AuditDiffBuilder::fromArrays(
+            ['request_status' => $oldStatus],
+            ['request_status' => $newStatus]
+        );
+
+        if ($note !== null) {
+            $diff['_meta'] = [
+                'note' => $note,
+                'client_id' => $clientId,
+            ];
+        }
+
+        self::write(
+            action: 'SAMPLE_REQUEST_STATUS_CHANGED',
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: $diff,
+            newValues: null
+        );
+    }
 }
