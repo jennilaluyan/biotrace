@@ -6,13 +6,28 @@ use App\Models\Client;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use App\Support\AuditLogger;
+use Illuminate\Database\QueryException;
+use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Schema;
 
 class ClientAuthController extends Controller
 {
     // POST /api/v1/clients/register
     public function register(Request $request)
     {
-        $data = $request->validate([
+        // normalize email
+        $email = $request->input('email');
+        if (is_string($email)) {
+            $email = trim($email);
+            $request->merge(['email' => $email]);
+        }
+
+        // kalau kolom email_ci ada, isi
+        if (Schema::hasColumn('clients', 'email_ci') && is_string($email) && $email !== '') {
+            $request->merge(['email_ci' => mb_strtolower($email)]);
+        }
+
+        $rules = [
             'type' => ['required', 'in:individual,institution'],
             'name' => ['required', 'string', 'max:150'],
             'phone' => ['nullable', 'string', 'max:30'],
@@ -34,6 +49,23 @@ class ClientAuthController extends Controller
             'contact_person_name' => ['nullable', 'string', 'max:150'],
             'contact_person_phone' => ['nullable', 'string', 'max:30'],
             'contact_person_email' => ['nullable', 'email', 'max:150'],
+        ];
+
+        // Unique validation: email_ci jika ada, fallback email jika tidak ada
+        if (Schema::hasColumn('clients', 'email_ci')) {
+            $rules['email_ci'] = [
+                'required',
+                'string',
+                'max:150',
+                Rule::unique('clients', 'email_ci')->whereNull('deleted_at'),
+            ];
+        } else {
+            $rules['email'][] = Rule::unique('clients', 'email')->whereNull('deleted_at');
+        }
+
+        $data = $request->validate($rules, [
+            'email.unique' => 'Email sudah terdaftar. Silakan gunakan email lain atau login.',
+            'email_ci.unique' => 'Email sudah terdaftar. Silakan gunakan email lain atau login.',
         ]);
 
         if ($data['type'] === 'institution' && empty($data['institution_name'])) {
@@ -42,12 +74,33 @@ class ClientAuthController extends Controller
             ], 422);
         }
 
-        $client = Client::create([
-            ...collect($data)->except(['password', 'password_confirmation'])->all(),
-            'staff_id' => null,
-            'password_hash' => Hash::make($data['password']),
-            'is_active' => false,
-        ]);
+        try {
+            $createPayload = [
+                ...collect($data)->except(['password', 'password_confirmation'])->all(),
+                'staff_id' => null,
+                'password_hash' => Hash::make($data['password']),
+                'is_active' => false,
+            ];
+
+            // SAFETY: kalau kolom email_ci tidak ada, jangan ikut diinsert
+            if (!Schema::hasColumn('clients', 'email_ci')) {
+                unset($createPayload['email_ci']);
+            }
+
+            $client = Client::create($createPayload);
+        } catch (QueryException $e) {
+            // PostgreSQL unique violation: 23505
+            $sqlState = $e->errorInfo[0] ?? null;
+            if ($sqlState === '23505') {
+                return response()->json([
+                    'message' => 'Validation error.',
+                    'errors' => [
+                        'email' => ['Email sudah terdaftar. Silakan gunakan email lain atau login.'],
+                    ],
+                ], 422);
+            }
+            throw $e;
+        }
 
         AuditLogger::write(
             'CLIENT_REGISTER_SUBMITTED',
@@ -78,7 +131,14 @@ class ClientAuthController extends Controller
             'device_name' => ['nullable', 'string'],
         ]);
 
-        $client = Client::where('email', $data['email'])->first();
+        $email = trim($data['email']);
+
+        // login: pakai email_ci kalau ada, fallback ke email
+        if (Schema::hasColumn('clients', 'email_ci')) {
+            $client = Client::where('email_ci', mb_strtolower($email))->first();
+        } else {
+            $client = Client::where('email', $email)->first();
+        }
 
         if (!$client || !Hash::check($data['password'], $client->getAuthPassword())) {
             AuditLogger::write('CLIENT_LOGIN_FAILURE', null, 'clients', null, null, [
@@ -90,13 +150,12 @@ class ClientAuthController extends Controller
 
         if (!$client->is_active) {
             AuditLogger::write('CLIENT_LOGIN_FAILURE', null, 'clients', $client->getKey(), null, [
-                'email' => $data['email'],
+                'email' => $client->email,
                 'reason' => 'ACCOUNT_INACTIVE',
             ]);
             return response()->json(['message' => 'Account inactive'], 403);
         }
 
-        // Optional: bersihkan token lama biar tidak numpuk
         $client->tokens()->delete();
 
         $device = $data['device_name'] ?? 'web';
@@ -117,7 +176,6 @@ class ClientAuthController extends Controller
         ], 200);
     }
 
-    // GET /api/v1/clients/me  (protected by auth:client_api in routes)
     public function me(Request $request)
     {
         $client = $request->user('client_api');
@@ -135,7 +193,6 @@ class ClientAuthController extends Controller
         ], 200);
     }
 
-    // POST /api/v1/clients/logout (protected by auth:client_api in routes)
     public function logout(Request $request)
     {
         $client = $request->user('client_api');

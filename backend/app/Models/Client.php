@@ -23,6 +23,9 @@ class Client extends Authenticatable
         'phone',
         'email',
 
+        // optional (only if column exists)
+        'email_ci',
+
         // Individual
         'national_id',
         'date_of_birth',
@@ -51,7 +54,6 @@ class Client extends Authenticatable
         'date_of_birth' => 'date',
     ];
 
-    // IMPORTANT: supaya guard/session provider bisa baca password
     public function getAuthPassword(): string
     {
         return (string) $this->password_hash;
