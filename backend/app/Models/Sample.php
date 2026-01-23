@@ -60,22 +60,6 @@ class Sample extends Model
         return $this->belongsTo(Staff::class, 'created_by', 'staff_id');
     }
 
-    /**
-     * Status high-level (registered/testing/reported) yang dihitung dari current_status.
-     */
-    public function getStatusEnumAttribute(): ?string
-    {
-        if (!$this->current_status) {
-            return null;
-        }
-
-        // Gunakan enum untuk mapping detail → high-level
-        $enum = SampleHighLevelStatus::fromCurrentStatus($this->current_status);
-
-        // Di JSON, kita kirim value string lower-case: registered/testing/reported
-        return $enum->value;
-    }
-
     public function comments()
     {
         return $this->hasMany(\App\Models\SampleComment::class, 'sample_id', 'sample_id')
@@ -100,5 +84,18 @@ class Sample extends Model
     public function intakeChecklist()
     {
         return $this->hasOne(\App\Models\SampleIntakeChecklist::class, 'sample_id', 'sample_id');
+    }
+
+    /**
+     * Status high-level (registered/testing/reported) yang dihitung dari current_status.
+     */
+    public function getStatusEnumAttribute(): ?string
+    {
+        if (!$this->current_status) {
+            return null;
+        }
+
+        $enum = SampleHighLevelStatus::fromCurrentStatus($this->current_status);
+        return $enum->value;
     }
 }
