@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { sampleService, type ContactHistory } from "../../services/samples";
 import type { Client } from "../../services/clients";
+import { datetimeLocalToApi, nowDatetimeLocal } from "../../utils/date";
 
 type Props = {
     open: boolean;
@@ -9,18 +10,6 @@ type Props = {
     clients: Client[];
     clientsLoading?: boolean;
 };
-
-const LAB_OFFSET = "";
-
-function toBackendDateTime(datetimeLocal: string) {
-    if (!datetimeLocal) return "";
-    const [d, t] = datetimeLocal.split("T");
-    if (!d || !t) return datetimeLocal;
-
-    // hasil: 2025-12-23T14:23:00+08:00  (tanpa .000 juga boleh)
-    return `${d}T${t}:00${LAB_OFFSET}`;
-}
-
 
 export const CreateSampleModal = ({
     open,
@@ -48,15 +37,8 @@ export const CreateSampleModal = ({
     useEffect(() => {
         if (!open) return;
 
-        // default receivedAt -> now (datetime-local, without seconds)
-        const now = new Date();
-        const pad = (n: number) => String(n).padStart(2, "0");
-        const v = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(
-            now.getDate()
-        )}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
-
         setClientId("");
-        setReceivedAt(v);
+        setReceivedAt(nowDatetimeLocal()); // ✅ konsisten timezone lab
         setSampleType("");
         setPriority(1);
         setContactHistory(null);
@@ -82,7 +64,8 @@ export const CreateSampleModal = ({
 
             const payload = {
                 client_id: Number(clientId),
-                received_at: toBackendDateTime(receivedAt),
+                // ✅ selalu kirim dengan offset (+08:00 / +07:00)
+                received_at: datetimeLocalToApi(receivedAt),
                 sample_type: sampleType.trim(),
                 priority,
                 contact_history: contactHistory,
@@ -176,7 +159,10 @@ export const CreateSampleModal = ({
                                     </option>
                                 ) : (
                                     (clients ?? []).map((c) => (
-                                        <option key={c.client_id} value={String(c.client_id)}>
+                                        <option
+                                            key={c.client_id}
+                                            value={String(c.client_id)}
+                                        >
                                             {c.name}
                                         </option>
                                     ))
@@ -187,7 +173,8 @@ export const CreateSampleModal = ({
                         {/* received_at */}
                         <div>
                             <label className="block text-xs font-medium text-gray-600 mb-1">
-                                Received at <span className="text-red-600">*</span>
+                                Received at{" "}
+                                <span className="text-red-600">*</span>
                             </label>
                             <input
                                 type="datetime-local"
@@ -204,7 +191,9 @@ export const CreateSampleModal = ({
                             </label>
                             <select
                                 value={priority}
-                                onChange={(e) => setPriority(Number(e.target.value))}
+                                onChange={(e) =>
+                                    setPriority(Number(e.target.value))
+                                }
                                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             >
                                 <option value={1}>1 (Normal)</option>
@@ -218,7 +207,8 @@ export const CreateSampleModal = ({
                         {/* sample_type */}
                         <div className="md:col-span-2">
                             <label className="block text-xs font-medium text-gray-600 mb-1">
-                                Sample type <span className="text-red-600">*</span>
+                                Sample type{" "}
+                                <span className="text-red-600">*</span>
                             </label>
                             <input
                                 value={sampleType}
@@ -257,7 +247,9 @@ export const CreateSampleModal = ({
                             </label>
                             <textarea
                                 value={examinationPurpose}
-                                onChange={(e) => setExaminationPurpose(e.target.value)}
+                                onChange={(e) =>
+                                    setExaminationPurpose(e.target.value)
+                                }
                                 rows={2}
                                 placeholder="Purpose / diagnosis request…"
                                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
@@ -271,7 +263,9 @@ export const CreateSampleModal = ({
                             </label>
                             <textarea
                                 value={additionalNotes}
-                                onChange={(e) => setAdditionalNotes(e.target.value)}
+                                onChange={(e) =>
+                                    setAdditionalNotes(e.target.value)
+                                }
                                 rows={3}
                                 placeholder="Additional notes…"
                                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
