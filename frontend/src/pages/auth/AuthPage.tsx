@@ -580,7 +580,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             ) : (
                 <>
                     <div>
-                        <label className={labelClass}>Institution name (optional)</label>
+                        <label className={labelClass}>Institution name</label>
                         <input
                             type="text"
                             value={regInstitutionName}
@@ -626,17 +626,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                                     className={inputClass}
                                     placeholder="+62 812 5555 1234"
                                     inputMode="tel"
-                                />
-                            </div>
-
-                            <div>
-                                <label className={labelClass}>Email</label>
-                                <input
-                                    type="email"
-                                    value={regContactPersonEmail}
-                                    onChange={(e) => setRegContactPersonEmail(e.target.value)}
-                                    className={inputClass}
-                                    placeholder="contact@example.com"
                                 />
                             </div>
                         </div>
@@ -691,17 +680,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                                 onChange={(e) => setRegName(e.target.value)}
                                 className={inputClass}
                                 placeholder="Your full name"
-                            />
-                        </div>
-
-                        <div>
-                            <label className={labelClass}>Email</label>
-                            <input
-                                type="email"
-                                value={regEmail}
-                                onChange={(e) => setRegEmail(e.target.value)}
-                                className={inputClass}
-                                placeholder="Enter your email"
                             />
                         </div>
 
