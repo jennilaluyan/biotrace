@@ -19,10 +19,15 @@ class Sample extends Model
     protected $fillable = [
         'client_id',
         'received_at',
+
+        // ✅ Portal field (replacing received_at for request stage)
+        'scheduled_delivery_at',
+
         'sample_type',
         'examination_purpose',
-        'contact_history',
-        'priority',
+
+        // ❌ removed from flow: contact_history, priority
+
         'current_status',
         'request_status',
         'submitted_at',
@@ -32,16 +37,16 @@ class Sample extends Model
         'lab_sample_code',
         'additional_notes',
         'created_by',
-        'assigned_to'
+        'assigned_to',
     ];
 
     protected $casts = [
         'received_at' => 'datetime',
+        'scheduled_delivery_at' => 'datetime',
         'submitted_at' => 'datetime',
         'reviewed_at' => 'datetime',
         'ready_at' => 'datetime',
         'physically_received_at' => 'datetime',
-        'priority'    => 'integer',
     ];
 
     protected $appends = [
@@ -87,6 +92,19 @@ class Sample extends Model
     }
 
     /**
+     * ✅ Requested parameters for request/intake (pivot)
+     */
+    public function requestedParameters()
+    {
+        return $this->belongsToMany(
+            \App\Models\Parameter::class,
+            'sample_requested_parameters',
+            'sample_id',
+            'parameter_id'
+        )->withTimestamps();
+    }
+
+    /**
      * Status high-level (registered/testing/reported) yang dihitung dari current_status.
      */
     public function getStatusEnumAttribute(): ?string
@@ -94,7 +112,6 @@ class Sample extends Model
         if (!$this->current_status) {
             return null;
         }
-
         $enum = SampleHighLevelStatus::fromCurrentStatus($this->current_status);
         return $enum->value;
     }

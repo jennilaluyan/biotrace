@@ -18,11 +18,9 @@ class ClientSampleRequestController extends Controller
     private function currentClientOr403(): Client
     {
         $actor = Auth::guard('client_api')->user();
-
         if (!$actor instanceof Client) {
             abort(401, 'Unauthenticated');
         }
-
         return $actor;
     }
 
@@ -34,40 +32,79 @@ class ClientSampleRequestController extends Controller
         }
     }
 
+    private function syncRequestedParameters(Sample $sample, ?array $parameterIds): void
+    {
+        if (!Schema::hasTable('sample_requested_parameters')) return;
+        if (!method_exists($sample, 'requestedParameters')) return;
+
+        if ($parameterIds === null) return; // no change
+        $ids = array_values(array_unique(array_map('intval', $parameterIds)));
+
+        $sample->requestedParameters()->sync($ids);
+    }
+
     /**
      * GET /api/v1/client/samples
+     * Supports:
+     * - status=request_status
+     * - from/to (date filter on submitted_at)
+     * - q (search)
      */
     public function index(Request $request): JsonResponse
     {
         $client = $this->currentClientOr403();
         $clientId = (int) ($client->client_id ?? $client->getKey());
 
-        $rows = Sample::query()
+        $query = Sample::query()
             ->where('client_id', $clientId)
-            ->orderByDesc('sample_id')
-            ->paginate(15);
+            ->with(['requestedParameters']);
+
+        if ($request->filled('status')) {
+            $query->where('request_status', $request->string('status')->toString());
+        }
+
+        if ($request->filled('from')) {
+            $query->whereDate('submitted_at', '>=', $request->get('from'));
+        }
+
+        if ($request->filled('to')) {
+            $query->whereDate('submitted_at', '<=', $request->get('to'));
+        }
+
+        if ($request->filled('q')) {
+            $q = trim((string) $request->get('q'));
+            if ($q !== '') {
+                $query->where(function ($w) use ($q) {
+                    $w->where('sample_type', 'ILIKE', "%{$q}%")
+                        ->orWhere('additional_notes', 'ILIKE', "%{$q}%")
+                        ->orWhere('request_status', 'ILIKE', "%{$q}%")
+                        ->orWhere('lab_sample_code', 'ILIKE', "%{$q}%");
+                });
+            }
+        }
+
+        $rows = $query->orderByDesc('sample_id')->paginate(15);
 
         return response()->json([
             'data' => $rows->items(),
             'meta' => [
                 'current_page' => $rows->currentPage(),
-                'last_page'    => $rows->lastPage(),
-                'per_page'     => $rows->perPage(),
-                'total'        => $rows->total(),
+                'last_page' => $rows->lastPage(),
+                'per_page' => $rows->perPage(),
+                'total' => $rows->total(),
             ],
         ]);
     }
 
     /**
      * GET /api/v1/client/samples/{sample}
-     * detail
-     *
-     * FIX: sebelumnya route memanggil show() tapi method tidak ada → 500 BadMethodCallException
      */
     public function show(Request $request, Sample $sample): JsonResponse
     {
         $client = $this->currentClientOr403();
         $this->assertOwnedByClient($client, $sample);
+
+        $sample->load(['requestedParameters']);
 
         return response()->json([
             'data' => $sample->fresh(),
@@ -91,38 +128,22 @@ class ClientSampleRequestController extends Controller
             $sample->request_status = 'draft';
         }
 
-        if (Schema::hasColumn('samples', 'sample_type')) {
-            $sample->sample_type = $data['sample_type'];
-        }
+        $sample->sample_type = $data['sample_type'];
 
-        if (Schema::hasColumn('samples', 'received_at')) {
-            $sample->received_at = $data['received_at'] ?? now();
+        if (Schema::hasColumn('samples', 'scheduled_delivery_at') && array_key_exists('scheduled_delivery_at', $data)) {
+            $sample->scheduled_delivery_at = $data['scheduled_delivery_at'];
         }
 
         if (Schema::hasColumn('samples', 'examination_purpose') && array_key_exists('examination_purpose', $data)) {
             $sample->examination_purpose = $data['examination_purpose'];
         }
-        if (Schema::hasColumn('samples', 'contact_history') && array_key_exists('contact_history', $data)) {
-            $sample->contact_history = $data['contact_history'];
-        }
-        if (Schema::hasColumn('samples', 'priority') && array_key_exists('priority', $data)) {
-            $sample->priority = $data['priority'];
-        } elseif (Schema::hasColumn('samples', 'priority') && $sample->priority === null) {
-            $sample->priority = 0;
-        }
 
-        if (array_key_exists('notes', $data)) {
-            if (Schema::hasColumn('samples', 'notes')) {
-                $sample->notes = $data['notes'];
-            } elseif (Schema::hasColumn('samples', 'additional_notes')) {
-                $sample->additional_notes = $data['notes'];
-            }
-        }
         if (Schema::hasColumn('samples', 'additional_notes') && array_key_exists('additional_notes', $data)) {
             $sample->additional_notes = $data['additional_notes'];
         }
 
         if (Schema::hasColumn('samples', 'current_status') && empty($sample->current_status)) {
+            // keep legacy lab workflow constraint happy
             $sample->current_status = 'received';
         }
 
@@ -135,6 +156,10 @@ class ClientSampleRequestController extends Controller
         }
 
         $sample->save();
+
+        $this->syncRequestedParameters($sample, $data['parameter_ids'] ?? null);
+
+        $sample->load(['requestedParameters']);
 
         return response()->json([
             'data' => $sample->fresh(),
@@ -161,17 +186,17 @@ class ClientSampleRequestController extends Controller
         $data = $request->validated();
 
         foreach ($data as $k => $v) {
+            if ($k === 'parameter_ids') continue;
             if (Schema::hasColumn('samples', $k)) {
                 $sample->{$k} = $v;
-                continue;
-            }
-
-            if ($k === 'notes' && Schema::hasColumn('samples', 'additional_notes')) {
-                $sample->additional_notes = $v;
             }
         }
 
         $sample->save();
+
+        $this->syncRequestedParameters($sample, $data['parameter_ids'] ?? null);
+
+        $sample->load(['requestedParameters']);
 
         return response()->json([
             'data' => $sample->fresh(),
@@ -196,21 +221,23 @@ class ClientSampleRequestController extends Controller
 
         $data = $request->validated();
 
-        foreach ($data as $k => $v) {
-            if (Schema::hasColumn('samples', $k)) {
-                $sample->{$k} = $v;
-                continue;
-            }
-            if ($k === 'notes' && Schema::hasColumn('samples', 'additional_notes')) {
-                $sample->additional_notes = $v;
-            }
-        }
+        DB::transaction(function () use ($sample, $from, $data) {
+            // update fields before submit
+            $sample->sample_type = $data['sample_type'];
 
-        DB::transaction(function () use ($sample, $from) {
+            if (Schema::hasColumn('samples', 'scheduled_delivery_at')) {
+                $sample->scheduled_delivery_at = $data['scheduled_delivery_at'];
+            }
+            if (Schema::hasColumn('samples', 'examination_purpose')) {
+                $sample->examination_purpose = $data['examination_purpose'] ?? null;
+            }
+            if (Schema::hasColumn('samples', 'additional_notes')) {
+                $sample->additional_notes = $data['additional_notes'] ?? null;
+            }
+
             if (Schema::hasColumn('samples', 'request_status')) {
                 $sample->request_status = 'submitted';
             }
-
             if (Schema::hasColumn('samples', 'submitted_at') && empty($sample->submitted_at)) {
                 $sample->submitted_at = now();
             }
@@ -225,26 +252,28 @@ class ClientSampleRequestController extends Controller
 
             $sample->save();
 
+            $this->syncRequestedParameters($sample, $data['parameter_ids'] ?? []);
+
+            // optional audit log (schema-safe)
             if (Schema::hasTable('audit_logs')) {
                 $cols = array_flip(Schema::getColumnListing('audit_logs'));
-
                 $payload = [
                     'entity_name' => 'samples',
-                    'entity_id'   => $sample->sample_id,
-                    'action'      => 'CLIENT_SAMPLE_REQUEST_SUBMITTED',
-                    'old_values'  => json_encode(['request_status' => $from]),
-                    'new_values'  => json_encode(['request_status' => 'submitted']),
-                    'created_at'  => now(),
-                    'updated_at'  => now(),
+                    'entity_id' => $sample->sample_id,
+                    'action' => 'CLIENT_SAMPLE_REQUEST_SUBMITTED',
+                    'old_values' => json_encode(['request_status' => $from]),
+                    'new_values' => json_encode(['request_status' => 'submitted']),
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ];
-
                 if (isset($cols['staff_id'])) {
                     $payload['staff_id'] = $this->ensureSystemStaffId();
                 }
-
                 DB::table('audit_logs')->insert(array_intersect_key($payload, $cols));
             }
         });
+
+        $sample->load(['requestedParameters']);
 
         return response()->json([
             'data' => $sample->fresh(),
@@ -253,104 +282,82 @@ class ClientSampleRequestController extends Controller
 
     private function ensureSystemStaffId(): int
     {
-        // If the schema doesn't support these fields, no need to create system staff.
         if (!Schema::hasColumn('samples', 'created_by') && !Schema::hasColumn('samples', 'assigned_to')) {
             return 1;
         }
-
         if (!Schema::hasTable('staffs')) {
             return 1;
         }
 
         $email = 'system_staff@lims.local';
-
-        // If system staff already exists, return it fast.
         $existing = DB::table('staffs')->where('email', $email)->value('staff_id');
         if ($existing) {
             return (int) $existing;
         }
 
-        // Ensure role exists in an idempotent way (no duplicate key explosions).
         $roleId = 1;
-
         if (Schema::hasTable('roles')) {
             $roleName = 'ADMIN';
-
-            // 1) Case-insensitive read first (avoid "Admin" vs "ADMIN" mismatch)
             $roleId = (int) (
                 DB::table('roles')
                 ->whereRaw('LOWER(name) = ?', [strtolower($roleName)])
                 ->value('role_id') ?: 0
             );
 
-            // 2) If missing, try to ensure it exists (idempotent)
             if ($roleId <= 0) {
                 $rolePayload = [
-                    'name'        => $roleName,
+                    'name' => $roleName,
                     'description' => 'System role',
-                    'created_at'  => now(),
-                    'updated_at'  => now(),
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ];
-
-                $roleCols   = array_flip(Schema::getColumnListing('roles'));
+                $roleCols = array_flip(Schema::getColumnListing('roles'));
                 $roleInsert = array_intersect_key($rolePayload, $roleCols);
 
                 try {
-                    // Prefer updateOrInsert by name (requires/assumes roles.name is UNIQUE for perfect safety)
                     DB::table('roles')->updateOrInsert(
                         ['name' => $roleName],
-                        array_diff_key($roleInsert, ['name' => true]) // update fields except key
+                        array_diff_key($roleInsert, ['name' => true])
                     );
                 } catch (\Throwable $e) {
-                    // Fallback if roles.name isn't unique (or other constraint issues).
-                    // Only insert if still missing in a case-insensitive way.
                     $exists = (int) (
                         DB::table('roles')
                         ->whereRaw('LOWER(name) = ?', [strtolower($roleName)])
                         ->count()
                     );
-
                     if ($exists === 0) {
-                        // Last-resort insert without specifying role_id.
-                        // If sequences are fixed (setval), this won't collide.
                         DB::table('roles')->insert($roleInsert);
                     }
                 }
 
-                // 3) Re-read role_id after ensuring existence
                 $roleId = (int) (
                     DB::table('roles')
                     ->whereRaw('LOWER(name) = ?', [strtolower($roleName)])
                     ->value('role_id') ?: 0
                 );
 
-                // 4) Hard fallback: pick the first available role (better than crashing)
                 if ($roleId <= 0) {
                     $roleId = (int) (DB::table('roles')->orderBy('role_id')->value('role_id') ?: 1);
                 }
             }
         }
 
-        // Create system staff if it doesn't exist (idempotent).
         $payload = [
-            'name'          => 'System Staff',
-            'email'         => $email,
+            'name' => 'System Staff',
+            'email' => $email,
             'password_hash' => bcrypt('secret'),
-            'role_id'       => $roleId,
-            'is_active'     => true,
-            'created_at'    => now(),
-            'updated_at'    => now(),
+            'role_id' => $roleId,
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
         ];
-
         $cols = array_flip(Schema::getColumnListing('staffs'));
         $insert = array_intersect_key($payload, $cols);
 
-        // Backward compatibility: some schemas use "password" instead of "password_hash"
         if (isset($cols['password']) && !isset($insert['password'])) {
             $insert['password'] = $insert['password_hash'] ?? bcrypt('secret');
         }
 
-        // Make staff creation idempotent too (needs UNIQUE on email, which is a reasonable assumption).
         DB::table('staffs')->updateOrInsert(
             ['email' => $email],
             array_diff_key($insert, ['email' => true])

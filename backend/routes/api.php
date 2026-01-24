@@ -143,6 +143,9 @@ Route::prefix('v1')->group(function () {
 
             // Client LOA sign (portal)
             Route::post('loa/{loaId}/sign', [ClientLoaController::class, 'sign']);
+
+            // parameters for clients
+            Route::get('parameters', [\App\Http\Controllers\ParameterController::class, 'index']);
         });
 
     /*
