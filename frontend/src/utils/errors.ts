@@ -1,4 +1,3 @@
-// frontend/src/utils/errors.ts
 export function getErrorMessage(err: any, fallback = "Something went wrong.") {
     return (
         err?.data?.message ??

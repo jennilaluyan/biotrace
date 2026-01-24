@@ -30,14 +30,18 @@ class ClientAuthController extends Controller
         $rules = [
             'type' => ['required', 'in:individual,institution'],
             'name' => ['required', 'string', 'max:150'],
-            'phone' => ['nullable', 'string', 'max:30'],
+
+            // A3: required +62 + min 10 digits
+            'phone' => ['required', 'string', 'max:30', 'regex:/^\+62\d{10,13}$/'],
+
             'email' => ['required', 'email', 'max:150'],
 
             'password' => ['required', 'string', 'min:8'],
             'password_confirmation' => ['required', 'same:password'],
 
-            // optional: individual fields
-            'national_id' => ['nullable', 'string', 'max:50'],
+            // A2: required for individual, exactly 16 digits
+            'national_id' => ['required_if:type,individual', 'digits:16'],
+
             'date_of_birth' => ['nullable', 'date'],
             'gender' => ['nullable', 'string', 'max:10'],
             'address_ktp' => ['nullable', 'string', 'max:255'],
@@ -47,7 +51,7 @@ class ClientAuthController extends Controller
             'institution_name' => ['nullable', 'string', 'max:200'],
             'institution_address' => ['nullable', 'string', 'max:255'],
             'contact_person_name' => ['nullable', 'string', 'max:150'],
-            'contact_person_phone' => ['nullable', 'string', 'max:30'],
+            'contact_person_phone' => ['nullable', 'string', 'max:30', 'regex:/^\+62\d{10,13}$/'],
             'contact_person_email' => ['nullable', 'email', 'max:150'],
         ];
 
@@ -63,14 +67,40 @@ class ClientAuthController extends Controller
             $rules['email'][] = Rule::unique('clients', 'email')->whereNull('deleted_at');
         }
 
-        $data = $request->validate($rules, [
-            'email.unique' => 'Email sudah terdaftar. Silakan gunakan email lain atau login.',
-            'email_ci.unique' => 'Email sudah terdaftar. Silakan gunakan email lain atau login.',
-        ]);
+        $messages = [
+            'type.required' => 'Client type is required.',
+            'type.in' => 'Client type must be individual or institution.',
+
+            'name.required' => 'Name is required.',
+
+            'phone.required' => 'Phone is required.',
+            'phone.regex' => 'Phone number is incomplete. Please enter at least 10 digits after +62.',
+
+            'email.required' => 'Email is required.',
+            'email.email' => 'Email format is invalid.',
+            'email.unique' => 'Account already exists. Please login instead.',
+            'email_ci.unique' => 'Account already exists. Please login instead.',
+
+            'password.required' => 'Password is required.',
+            'password.min' => 'Password must be at least 8 characters.',
+            'password_confirmation.required' => 'Confirm password is required.',
+            'password_confirmation.same' => 'Password confirmation does not match.',
+
+            'national_id.required_if' => 'National ID (NIK) is required for individual clients.',
+            'national_id.digits' => 'National ID (NIK) must be exactly 16 digits.',
+
+            'contact_person_phone.regex' => 'Contact person phone is incomplete. Please enter at least 10 digits after +62.',
+            'contact_person_email.email' => 'Contact person email format is invalid.',
+        ];
+
+        $data = $request->validate($rules, $messages);
 
         if ($data['type'] === 'institution' && empty($data['institution_name'])) {
             return response()->json([
-                'message' => 'institution_name is required when type=institution'
+                'message' => 'Validation error.',
+                'errors' => [
+                    'institution_name' => ['Institution name is required for institution clients.'],
+                ],
             ], 422);
         }
 
@@ -95,7 +125,7 @@ class ClientAuthController extends Controller
                 return response()->json([
                     'message' => 'Validation error.',
                     'errors' => [
-                        'email' => ['Email sudah terdaftar. Silakan gunakan email lain atau login.'],
+                        'email' => ['Account already exists. Please login instead.'],
                     ],
                 ], 422);
             }
@@ -129,6 +159,10 @@ class ClientAuthController extends Controller
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
             'device_name' => ['nullable', 'string'],
+        ], [
+            'email.required' => 'Email is required.',
+            'email.email' => 'Email format is invalid.',
+            'password.required' => 'Password is required.',
         ]);
 
         $email = trim($data['email']);
@@ -145,15 +179,19 @@ class ClientAuthController extends Controller
                 'email' => $data['email'],
                 'reason' => 'INVALID_CREDENTIALS',
             ]);
-            return response()->json(['message' => 'Invalid credentials'], 401);
+            return response()->json(['message' => 'Invalid email or password.'], 401);
         }
 
         if (!$client->is_active) {
             AuditLogger::write('CLIENT_LOGIN_FAILURE', null, 'clients', $client->getKey(), null, [
                 'email' => $client->email,
-                'reason' => 'ACCOUNT_INACTIVE',
+                'reason' => 'ACCOUNT_NOT_VERIFIED',
             ]);
-            return response()->json(['message' => 'Account inactive'], 403);
+
+            // A4: jelas
+            return response()->json([
+                'message' => 'Your account is not verified yet. Please wait for admin verification.'
+            ], 403);
         }
 
         $client->tokens()->delete();

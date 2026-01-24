@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\services\auth.ts
 import { apiGet, apiPost } from "./api";
 import { setStaffAuthToken, setClientAuthToken } from "./api";
 
