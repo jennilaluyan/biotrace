@@ -93,4 +93,35 @@ class SamplePolicy
             'Laboratory Head', // optional; kalau mau ketat, hapus ini
         ]);
     }
+
+    public function updatePhysicalWorkflow(Staff $user, Sample $sample, string $action): bool
+    {
+        $role = (string) ($user->role?->name ?? '');
+
+        $adminRoles = ['Administrator', 'Laboratory Head'];
+        $collectorRoles = ['Sample Collector'];
+
+        $adminActions = [
+            'admin_received_from_client',
+            'admin_brought_to_collector',
+            'admin_received_from_collector',
+            'client_picked_up',
+        ];
+
+        $collectorActions = [
+            'collector_received',
+            'collector_intake_completed',
+            'collector_returned_to_admin',
+        ];
+
+        if (in_array($action, $adminActions, true)) {
+            return in_array($role, $adminRoles, true);
+        }
+
+        if (in_array($action, $collectorActions, true)) {
+            return in_array($role, $collectorRoles, true);
+        }
+
+        return false;
+    }
 }

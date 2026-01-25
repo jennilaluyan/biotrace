@@ -20,13 +20,10 @@ class Sample extends Model
         'client_id',
         'received_at',
 
-        // ✅ Portal field (replacing received_at for request stage)
         'scheduled_delivery_at',
 
         'sample_type',
         'examination_purpose',
-
-        // ❌ removed from flow: contact_history, priority
 
         'current_status',
         'request_status',
@@ -38,15 +35,30 @@ class Sample extends Model
         'additional_notes',
         'created_by',
         'assigned_to',
+
+        'admin_received_from_client_at',
+        'admin_brought_to_collector_at',
+        'collector_received_at',
+        'collector_intake_completed_at',
+        'collector_returned_to_admin_at',
+        'admin_received_from_collector_at',
+        'client_picked_up_at',
     ];
 
     protected $casts = [
         'received_at' => 'datetime',
-        'scheduled_delivery_at' => 'datetime',
         'submitted_at' => 'datetime',
         'reviewed_at' => 'datetime',
         'ready_at' => 'datetime',
         'physically_received_at' => 'datetime',
+
+        'admin_received_from_client_at' => 'datetime',
+        'admin_brought_to_collector_at' => 'datetime',
+        'collector_received_at' => 'datetime',
+        'collector_intake_completed_at' => 'datetime',
+        'collector_returned_to_admin_at' => 'datetime',
+        'admin_received_from_collector_at' => 'datetime',
+        'client_picked_up_at' => 'datetime',
     ];
 
     protected $appends = [
