@@ -831,7 +831,6 @@ export const SampleDetailPage = () => {
                                     }}
                                 />
 
-                                {/* ✅ Tests: pindah ke 1 component saja */}
                                 {tab === "tests" && (
                                     <SampleTestsTab
                                         sampleId={sampleId}

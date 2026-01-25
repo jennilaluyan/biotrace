@@ -206,7 +206,6 @@ export const sampleService = {
         return (res?.data ?? res) as Sample;
     },
 
-    // ✅ Status history (typed)
     async getStatusHistory(sampleId: number): Promise<SampleStatusHistoryItem[]> {
         const res = await apiGet<any>(`/v1/samples/${sampleId}/status-history`);
         return (res?.data ?? res) as SampleStatusHistoryItem[];
