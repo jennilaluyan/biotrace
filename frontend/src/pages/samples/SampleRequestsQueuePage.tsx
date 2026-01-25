@@ -11,7 +11,6 @@ import { updateRequestStatus } from "../../services/sampleRequestStatus";
 import { UpdateRequestStatusModal } from "../../components/samples/UpdateRequestStatusModal";
 
 type DateFilter = "all" | "today" | "7d" | "30d";
-
 const PAGE_SIZE = 10;
 
 function cx(...arr: Array<string | false | null | undefined>) {
@@ -27,7 +26,6 @@ function formatMaybeDate(v?: string | null) {
 
 function StatusPill({ value }: { value?: string | null }) {
     const v = String(value ?? "-").toLowerCase();
-
     const tones: Record<string, string> = {
         draft: "bg-slate-100 text-slate-700 border-slate-200",
         submitted: "bg-blue-50 text-blue-700 border-blue-200",
@@ -35,9 +33,7 @@ function StatusPill({ value }: { value?: string | null }) {
         ready_for_delivery: "bg-indigo-50 text-indigo-700 border-indigo-200",
         physically_received: "bg-emerald-50 text-emerald-700 border-emerald-200",
     };
-
     const tone = tones[v] ?? "bg-gray-50 text-gray-600 border-gray-200";
-
     return (
         <span
             className={cx(
@@ -62,22 +58,18 @@ type ApiError = {
 const getErrorMessage = (err: unknown, fallback: string) => {
     const e = err as ApiError;
     const details = e?.data?.details;
-
     if (details && typeof details === "object") {
         const firstKey = Object.keys(details)[0];
         const firstVal = firstKey ? details[firstKey] : undefined;
-
         if (Array.isArray(firstVal) && firstVal[0]) return String(firstVal[0]);
         if (typeof firstVal === "string" && firstVal) return firstVal;
     }
-
     return e?.data?.message ?? e?.data?.error ?? fallback;
 };
 
 export default function SampleRequestsQueuePage() {
     const { user } = useAuth();
     const navigate = useNavigate();
-
     const roleId = getUserRoleId(user);
     const roleLabel = getUserRoleLabel(user);
 
@@ -114,7 +106,8 @@ export default function SampleRequestsQueuePage() {
                 page,
                 per_page: PAGE_SIZE,
                 q: searchTerm.trim() || undefined,
-                status: statusFilter || undefined,
+                // ✅ FIX: backend expects request_status, bukan "status"
+                request_status: statusFilter || undefined,
                 date: dateFilter !== "all" ? dateFilter : undefined,
             });
 
@@ -146,7 +139,17 @@ export default function SampleRequestsQueuePage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchTerm, statusFilter, dateFilter]);
 
-    const items = useMemo(() => pager?.data ?? [], [pager]);
+    const rawItems = useMemo(() => pager?.data ?? [], [pager]);
+
+    /**
+     * ✅ STEP 6 (F1):
+     * Queue = hanya request yang belum punya lab_sample_code.
+     * (defensive filter; backend juga harusnya sudah benar)
+     */
+    const items = useMemo(() => {
+        return rawItems.filter((r) => !r.lab_sample_code);
+    }, [rawItems]);
+
     const total = pager?.total ?? 0;
     const totalPages = pager?.last_page ?? 1;
 
@@ -175,13 +178,14 @@ export default function SampleRequestsQueuePage() {
         setReturnCurrentStatus(null);
     };
 
-    const doQuickStatus = async (sampleId: number, nextStatus: "ready_for_delivery" | "physically_received") => {
+    const doQuickStatus = async (
+        sampleId: number,
+        nextStatus: "ready_for_delivery" | "physically_received"
+    ) => {
         try {
             setActionBusyId(sampleId);
             setActionError(null);
-
             await updateRequestStatus(sampleId, nextStatus, null);
-
             // reload list, keep current page (biar UX enak)
             await loadQueue({ keepPage: true });
         } catch (err: unknown) {
@@ -222,11 +226,7 @@ export default function SampleRequestsQueuePage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                    <button
-                        type="button"
-                        className="lims-btn"
-                        onClick={() => navigate(-1)}
-                    >
+                    <button type="button" className="lims-btn" onClick={() => navigate(-1)}>
                         Back
                     </button>
                 </div>
@@ -260,7 +260,7 @@ export default function SampleRequestsQueuePage() {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="Search by request id, client, sample type, code…"
+                                placeholder="Search by request id, client, sample type…"
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
@@ -323,9 +323,7 @@ export default function SampleRequestsQueuePage() {
 
                 {/* Content */}
                 <div className="px-4 md:px-6 py-4">
-                    {loading && (
-                        <div className="text-sm text-gray-600">Loading queue...</div>
-                    )}
+                    {loading && <div className="text-sm text-gray-600">Loading queue...</div>}
 
                     {error && !loading && (
                         <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">
@@ -342,9 +340,7 @@ export default function SampleRequestsQueuePage() {
                     {!loading && !error && (
                         <>
                             {items.length === 0 ? (
-                                <div className="text-sm text-gray-600">
-                                    No requests found.
-                                </div>
+                                <div className="text-sm text-gray-600">No requests found.</div>
                             ) : (
                                 <div className="overflow-x-auto">
                                     <table className="min-w-full text-sm">
@@ -364,18 +360,17 @@ export default function SampleRequestsQueuePage() {
                                             {items.map((r, idx) => {
                                                 const id = r.sample_id ?? r.id;
                                                 const key = id ? `req-${id}` : `req-row-${idx}`;
-
                                                 const displayTitle = (r.title ?? r.name ?? "").trim();
                                                 const client = (r.client_name ?? "").trim();
                                                 const sampleType = (r.sample_type ?? "-").trim();
                                                 const code = String(r.lab_sample_code ?? r.code ?? "-").trim();
                                                 const status = String(r.request_status ?? "-");
-
                                                 const busy = !!id && actionBusyId === id;
 
                                                 // gating rules (simple & masuk akal)
                                                 const canReturn = !!id && status !== "physically_received";
-                                                const canApprove = !!id && (status === "submitted" || status === "returned");
+                                                const canApprove =
+                                                    !!id && (status === "submitted" || status === "returned");
                                                 const canReceive = !!id && status === "ready_for_delivery";
 
                                                 return (
@@ -519,9 +514,7 @@ export default function SampleRequestsQueuePage() {
                                             <span className="font-semibold">
                                                 {Math.min(currentPage * PAGE_SIZE, total)}
                                             </span>{" "}
-                                            of{" "}
-                                            <span className="font-semibold">{total}</span>{" "}
-                                            requests
+                                            of <span className="font-semibold">{total}</span> requests
                                         </div>
 
                                         <div className="flex items-center justify-end gap-1">

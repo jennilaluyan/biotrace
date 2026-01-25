@@ -1,23 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-
 import { useAuth } from "../../hooks/useAuth";
 import { useClients } from "../../hooks/useClients";
 import { useSamples } from "../../hooks/useSamples";
 import { CreateSampleModal } from "../../components/samples/CreateSampleModal";
-
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import { formatDate } from "../../utils/date";
 import type { Sample, SampleStatusEnum } from "../../services/samples";
-
 import { UpdateSampleStatusModal } from "../../components/samples/UpdateSampleStatusModal";
 
 type StatusFilter = "all" | SampleStatusEnum;
 
 export const SamplesPage = () => {
     const [dateFrom, setDateFrom] = useState<string>(""); // YYYY-MM-DD
-    const [dateTo, setDateTo] = useState<string>("");     // YYYY-MM-DD
-
+    const [dateTo, setDateTo] = useState<string>(""); // YYYY-MM-DD
     const navigate = useNavigate();
     const { user } = useAuth();
 
@@ -26,11 +22,9 @@ export const SamplesPage = () => {
     const roleLabel = getUserRoleLabel(user);
 
     const [createModalOpen, setCreateModalOpen] = useState(false);
-
     const [statusModalOpen, setStatusModalOpen] = useState(false);
     const [selectedSample, setSelectedSample] = useState<Sample | null>(null);
     const [reloadTick, setReloadTick] = useState(0);
-
     const [commentCounts, setCommentCounts] = useState<Record<number, number>>({});
 
     // Sesuai SamplePolicy::viewAny (backend)
@@ -75,14 +69,24 @@ export const SamplesPage = () => {
         setPage(1);
     }, [clientFilter, statusFilter, dateFrom, dateTo]);
 
+    /**
+     * ✅ STEP 6 (F1):
+     * SamplesPage = hanya "Lab Samples" (yang SUDAH punya lab_sample_code).
+     * Sample Requests harusnya ada di /samples/requests.
+     */
+    const labOnlyItems = useMemo(() => {
+        return (items ?? []).filter((s: Sample) => !!s.lab_sample_code);
+    }, [items]);
+
     // Search lokal (backend belum punya param search)
     const visibleItems = useMemo(() => {
         const term = searchTerm.trim().toLowerCase();
-        if (!term) return items;
+        if (!term) return labOnlyItems;
 
-        return items.filter((s: Sample) => {
+        return labOnlyItems.filter((s: Sample) => {
             const hay = [
                 String(s.sample_id),
+                s.lab_sample_code,
                 s.sample_type,
                 s.client?.name,
                 s.client?.email,
@@ -95,10 +99,9 @@ export const SamplesPage = () => {
 
             return hay.includes(term);
         });
-    }, [items, searchTerm]);
+    }, [labOnlyItems, searchTerm]);
 
     // ganti statusLabel/statusBadgeClass jadi begini:
-
     const statusBadgeClassByEnum = (statusEnum?: SampleStatusEnum) => {
         switch (statusEnum) {
             case "registered":
@@ -203,7 +206,7 @@ export const SamplesPage = () => {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="Search by sample type, client…"
+                                placeholder="Search by sample type, code, client…"
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
@@ -298,9 +301,7 @@ export const SamplesPage = () => {
 
                 {/* Content */}
                 <div className="px-4 md:px-6 py-4">
-                    {loading && (
-                        <div className="text-sm text-gray-600">Loading samples...</div>
-                    )}
+                    {loading && <div className="text-sm text-gray-600">Loading samples...</div>}
 
                     {error && !loading && (
                         <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">
@@ -312,7 +313,7 @@ export const SamplesPage = () => {
                         <>
                             {visibleItems.length === 0 ? (
                                 <div className="text-sm text-gray-600">
-                                    No samples found with current filters.
+                                    No lab samples found with current filters.
                                 </div>
                             ) : (
                                 <div className="overflow-x-auto">
@@ -328,7 +329,6 @@ export const SamplesPage = () => {
                                                 <th className="px-4 py-3 text-right">Actions</th>
                                             </tr>
                                         </thead>
-
                                         <tbody>
                                             {visibleItems.map((s) => (
                                                 <tr
@@ -336,8 +336,12 @@ export const SamplesPage = () => {
                                                     className="border-t border-gray-100 hover:bg-gray-50/60"
                                                 >
                                                     <td className="px-4 py-3">
-                                                        <div className="font-medium text-gray-900">#{s.sample_id}</div>
-                                                        <div className="text-[11px] text-gray-500">{s.current_status}</div>
+                                                        <div className="font-medium text-gray-900">
+                                                            #{s.sample_id}
+                                                        </div>
+                                                        <div className="text-[11px] text-gray-500">
+                                                            {s.lab_sample_code ? `Code: ${s.lab_sample_code}` : s.current_status}
+                                                        </div>
                                                     </td>
 
                                                     <td className="px-4 py-3">
@@ -345,7 +349,9 @@ export const SamplesPage = () => {
                                                             {s.client?.name ?? `Client #${s.client_id}`}
                                                         </div>
                                                         {s.client?.email && (
-                                                            <div className="text-[11px] text-gray-500">{s.client.email}</div>
+                                                            <div className="text-[11px] text-gray-500">
+                                                                {s.client.email}
+                                                            </div>
                                                         )}
                                                     </td>
 
@@ -355,13 +361,17 @@ export const SamplesPage = () => {
                                                             {s.assignee?.name ?? "—"}
                                                         </div>
                                                         {s.assignee?.email && (
-                                                            <div className="text-[11px] text-gray-500">{s.assignee.email}</div>
+                                                            <div className="text-[11px] text-gray-500">
+                                                                {s.assignee.email}
+                                                            </div>
                                                         )}
                                                     </td>
 
                                                     <td className="px-4 py-3 text-gray-700">{s.sample_type}</td>
 
-                                                    <td className="px-4 py-3 text-gray-700">{formatDate(s.received_at)}</td>
+                                                    <td className="px-4 py-3 text-gray-700">
+                                                        {formatDate(s.received_at)}
+                                                    </td>
 
                                                     <td className="px-4 py-3">
                                                         <span
@@ -430,14 +440,12 @@ export const SamplesPage = () => {
                                                 </tr>
                                             ))}
                                         </tbody>
-
                                     </table>
 
                                     {/* Pagination */}
                                     <div className="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-xs text-gray-600">
                                         <div>
-                                            Showing{" "}
-                                            <span className="font-semibold">{from}</span> –{" "}
+                                            Showing <span className="font-semibold">{from}</span> –{" "}
                                             <span className="font-semibold">{to}</span> of{" "}
                                             <span className="font-semibold">{total}</span> samples
                                         </div>
@@ -452,21 +460,19 @@ export const SamplesPage = () => {
                                                 Previous
                                             </button>
 
-                                            {Array.from({ length: totalPages }, (_, i) => i + 1).map(
-                                                (p) => (
-                                                    <button
-                                                        key={p}
-                                                        type="button"
-                                                        onClick={() => goToPage(p)}
-                                                        className={`px-3 py-1 rounded-full text-xs border ${p === page
-                                                            ? "bg-primary text-white border-primary"
-                                                            : "bg-white text-gray-700 hover:bg-gray-50"
-                                                            }`}
-                                                    >
-                                                        {p}
-                                                    </button>
-                                                )
-                                            )}
+                                            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                                                <button
+                                                    key={p}
+                                                    type="button"
+                                                    onClick={() => goToPage(p)}
+                                                    className={`px-3 py-1 rounded-full text-xs border ${p === page
+                                                        ? "bg-primary text-white border-primary"
+                                                        : "bg-white text-gray-700 hover:bg-gray-50"
+                                                        }`}
+                                                >
+                                                    {p}
+                                                </button>
+                                            ))}
 
                                             <button
                                                 type="button"
