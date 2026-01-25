@@ -65,6 +65,7 @@ class SamplePolicy
             'Laboratory Head',
         ]);
     }
+
     public function overrideAssigneeOnCreate(Staff $user): bool
     {
         return $this->hasRoleName($user, [
@@ -94,6 +95,9 @@ class SamplePolicy
         ]);
     }
 
+    /**
+     * Role-based guard for physical workflow actions.
+     */
     public function updatePhysicalWorkflow(Staff $user, Sample $sample, string $action): bool
     {
         $role = (string) ($user->role?->name ?? '');

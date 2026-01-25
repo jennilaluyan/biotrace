@@ -4,7 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class SamplePhysicalWorkflowUpdateRequest extends FormRequest
+class SampleCustodyEventRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -15,7 +15,7 @@ class SamplePhysicalWorkflowUpdateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'action' => [
+            'event_key' => [
                 'required',
                 'string',
                 'in:admin_received_from_client,admin_brought_to_collector,collector_received,collector_intake_completed,collector_returned_to_admin,admin_received_from_collector,client_picked_up',
@@ -27,8 +27,8 @@ class SamplePhysicalWorkflowUpdateRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'action.required' => 'Action is required.',
-            'action.in' => 'Invalid action.',
+            'event_key.required' => 'event_key is required.',
+            'event_key.in' => 'Invalid event_key.',
         ];
     }
 }

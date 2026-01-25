@@ -146,7 +146,7 @@ Route::prefix('v1')->group(function () {
             Route::post('loa/{loaId}/sign', [ClientLoaController::class, 'sign']);
 
             // parameters for clients
-            Route::get('parameters', [\App\Http\Controllers\ParameterController::class, 'index']);
+            Route::get('parameters', [ParameterController::class, 'index']);
         });
 
     /*
@@ -236,6 +236,10 @@ Route::prefix('v1')->group(function () {
         Route::patch('samples/{sample}', [SampleController::class, 'update'])->whereNumber('sample');
         Route::put('samples/{sample}', [SampleController::class, 'update'])->whereNumber('sample');
         Route::patch('samples/{sample}/physical-workflow', [SamplePhysicalWorkflowController::class, 'update'])
+            ->whereNumber('sample');
+        Route::patch('/samples/{sample}/physical-workflow', [SamplePhysicalWorkflowController::class, 'update'])
+            ->whereNumber('sample');
+        Route::post('/samples/{sample}/custody', [SamplePhysicalWorkflowController::class, 'store'])
             ->whereNumber('sample');
 
         // Sample status & history
