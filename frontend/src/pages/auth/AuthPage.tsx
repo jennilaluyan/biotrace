@@ -1,5 +1,5 @@
 // L:\Campus\Final Countdown\biotrace\frontend\src\pages\auth\AuthPage.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -24,6 +24,86 @@ interface AuthPageProps {
     tenant?: Tenant;
 }
 
+/** -------------------------
+ * Helpers (A1–A4)
+ * ------------------------*/
+function digitsOnly(s: string) {
+    return (s ?? "").replace(/\D+/g, "");
+}
+
+// A2: NIK display format: 3232 - 3232 - 3232 - 3232
+function formatNIK(input: string) {
+    const d = digitsOnly(input).slice(0, 16);
+    const groups = d.match(/.{1,4}/g) ?? [];
+    return groups.join(" - ");
+}
+function nikDigits(input: string) {
+    return digitsOnly(input).slice(0, 16);
+}
+function isValidNIK(input: string) {
+    return nikDigits(input).length === 16;
+}
+
+// A3: Phone display format: +62 812 5555 1234
+function formatPhoneDisplayPlus62(input: string) {
+    let d = digitsOnly(input);
+
+    // normalize common inputs
+    if (d.startsWith("0")) d = "62" + d.slice(1);
+    if (!d.startsWith("62")) d = "62" + d;
+
+    // local digits after +62
+    const local = d.slice(2).slice(0, 13); // max 13 digits after +62
+
+    // group local digits as 3-4-4-rest (example: 812 5555 1234)
+    const g1 = local.slice(0, 3);
+    const g2 = local.slice(3, 7);
+    const g3 = local.slice(7, 11);
+    const g4 = local.slice(11);
+
+    const parts = [g1, g2, g3, g4].filter(Boolean);
+
+    return "+62" + (parts.length ? " " + parts.join(" ") : "");
+}
+
+function phoneE164Plus62(displayPhone: string) {
+    const d = digitsOnly(displayPhone);
+    if (d.startsWith("62")) return "+62" + d.slice(2);
+    // if somehow not, treat as local digits
+    return "+62" + d;
+}
+
+function isValidPhonePlus62(displayPhone: string) {
+    const d = digitsOnly(displayPhone);
+    const local = d.startsWith("62") ? d.slice(2) : d;
+    return local.length >= 10 && local.length <= 13;
+}
+
+// A4: Extract clear message from backend (Laravel-ish):
+// - { message, errors: {field: [msg]} }
+function extractApiMessage(err: any, fallback: string) {
+    const data = err?.response?.data ?? err?.data;
+
+    if (data && typeof data === "object") {
+        if (data.errors && typeof data.errors === "object") {
+            const keys = Object.keys(data.errors);
+            for (const k of keys) {
+                const v = (data.errors as any)[k];
+                if (Array.isArray(v) && v.length > 0) return String(v[0]);
+                if (typeof v === "string") return v;
+            }
+        }
+
+        if (typeof data.message === "string" && data.message.trim()) return data.message;
+        if (typeof (data as any).error === "string" && (data as any).error.trim())
+            return (data as any).error;
+    }
+
+    if (typeof err?.message === "string" && err.message.trim()) return err.message;
+
+    return fallback;
+}
+
 export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const t = tenant ?? getTenant();
     const isPortal = t === "portal";
@@ -40,6 +120,10 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const clientAuth = useClientAuth() as any;
 
     const navigate = useNavigate();
+
+    // A1: scroll container refs (desktop has its own scroll container)
+    const signUpContainerRef = useRef<HTMLDivElement | null>(null);
+    const signInContainerRef = useRef<HTMLDivElement | null>(null);
 
     const headingLogin = isPortal ? "Client sign in" : "Staff sign in";
     const subtitleLogin = isPortal
@@ -74,7 +158,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const [regRoleId, setRegRoleId] = useState<number>(ROLE_ID.ANALYST);
 
     const [regClientType, setRegClientType] = useState<ClientType>("individual");
-    const [regPhone, setRegPhone] = useState("");
+    const [regPhone, setRegPhone] = useState("+62");
 
     const [regNationalId, setRegNationalId] = useState("");
     const [regDob, setRegDob] = useState("");
@@ -85,7 +169,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const [regInstitutionName, setRegInstitutionName] = useState("");
     const [regInstitutionAddress, setRegInstitutionAddress] = useState("");
     const [regContactPersonName, setRegContactPersonName] = useState("");
-    const [regContactPersonPhone, setRegContactPersonPhone] = useState("");
+    const [regContactPersonPhone, setRegContactPersonPhone] = useState("+62");
     const [regContactPersonEmail, setRegContactPersonEmail] = useState("");
 
     const STAFF_ROLE_OPTIONS = useMemo(
@@ -98,13 +182,62 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         []
     );
 
+    // A1: scroll correct container to top so alert is visible (success or error)
+    const scrollRegisterToTop = () => {
+        if (isMobile) {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            return;
+        }
+        signUpContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    const scrollLoginToTop = () => {
+        if (isMobile) {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            return;
+        }
+        signInContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    const clearRegisterAllFields = () => {
+        setRegName("");
+        setRegEmail("");
+        setRegPassword("");
+        setRegPasswordConfirmation("");
+        setRegError(null);
+
+        setRegClientType("individual");
+        setRegPhone("+62");
+
+        setRegNationalId("");
+        setRegDob("");
+        setRegGender("female");
+        setRegAddressKtp("");
+        setRegAddressDomicile("");
+
+        setRegInstitutionName("");
+        setRegInstitutionAddress("");
+        setRegContactPersonName("");
+        setRegContactPersonPhone("+62");
+        setRegContactPersonEmail("");
+    };
+
+    const clearRegisterPasswordsOnly = () => {
+        setRegPassword("");
+        setRegPasswordConfirmation("");
+    };
+
     // ✅ FIXED: portal login should NOT call staff login afterwards.
     const handleLoginSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoginError(null);
 
+        // A1: always show message at top
+        scrollLoginToTop();
+
         if (!loginEmail || !loginPassword) {
             setLoginError("Email and password are required.");
+            setLoginPassword(""); // privacy
             return;
         }
 
@@ -124,13 +257,13 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             await login(loginEmail, loginPassword);
             navigate("/clients", { replace: true });
         } catch (err: any) {
-            // ✅ FIXED: axios errors are usually in err.response.data
-            const msg =
-                err?.response?.data?.message ??
-                err?.response?.data?.error ??
-                err?.message ??
-                "Login failed. Please check your credentials.";
+            const msg = extractApiMessage(
+                err,
+                "Login failed. Please check your credentials."
+            );
             setLoginError(msg);
+            setLoginPassword(""); // privacy
+            scrollLoginToTop();
         } finally {
             setLoginLoading(false);
         }
@@ -141,13 +274,18 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         setRegError(null);
         setRegSuccess(null);
 
+        // A1: always show message at top
+        scrollRegisterToTop();
+
         if (!regEmail || !regPassword || !regPasswordConfirmation) {
             setRegError("Email and password are required.");
+            clearRegisterPasswordsOnly(); // privacy on error
             return;
         }
 
         if (regPassword !== regPasswordConfirmation) {
             setRegError("Password confirmation does not match.");
+            clearRegisterPasswordsOnly();
             return;
         }
 
@@ -157,10 +295,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             if (isPortal) {
                 if (!regClientType) {
                     setRegError("Client type is required.");
-                    return;
-                }
-                if (!regPhone) {
-                    setRegError("Phone is required.");
+                    clearRegisterPasswordsOnly();
                     return;
                 }
 
@@ -171,20 +306,43 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
 
                 if (!safeName) {
                     setRegError("Name is required.");
+                    clearRegisterPasswordsOnly();
                     return;
+                }
+
+                // A3: validate phone display and send as E.164
+                const displayPhone = formatPhoneDisplayPlus62(regPhone);
+                if (!isValidPhonePlus62(displayPhone)) {
+                    setRegError(
+                        "Phone number is incomplete. Please enter at least 10 digits after +62."
+                    );
+                    clearRegisterPasswordsOnly();
+                    scrollRegisterToTop();
+                    return;
+                }
+                const normalizedPhone = phoneE164Plus62(displayPhone);
+
+                // A2: NIK required for individual, exactly 16 digits
+                if (regClientType === "individual") {
+                    if (!isValidNIK(regNationalId)) {
+                        setRegError("National ID (NIK) must be exactly 16 digits.");
+                        clearRegisterPasswordsOnly();
+                        scrollRegisterToTop();
+                        return;
+                    }
                 }
 
                 const payload: any = {
                     type: regClientType,
                     name: safeName,
                     email: regEmail,
-                    phone: regPhone,
+                    phone: normalizedPhone,
                     password: regPassword,
                     password_confirmation: regPasswordConfirmation,
                 };
 
                 if (regClientType === "individual") {
-                    payload.national_id = regNationalId || null;
+                    payload.national_id = nikDigits(regNationalId);
                     payload.date_of_birth = regDob || null;
                     payload.gender = regGender || null;
                     payload.address_ktp = regAddressKtp || null;
@@ -193,19 +351,32 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                     payload.institution_name = regInstitutionName || null;
                     payload.institution_address = regInstitutionAddress || null;
                     payload.contact_person_name = regContactPersonName || null;
-                    payload.contact_person_phone = regContactPersonPhone || null;
+
+                    // contact person phone: send E.164 if filled beyond +62
+                    const cpDisplay = formatPhoneDisplayPlus62(regContactPersonPhone);
+                    const cpDigits = digitsOnly(cpDisplay);
+                    payload.contact_person_phone =
+                        cpDigits.length > 2 ? phoneE164Plus62(cpDisplay) : null;
+
                     payload.contact_person_email = regContactPersonEmail || null;
                 }
 
                 await clientRegisterRequest(payload);
 
+                // A1: success should be visible without manual scroll
                 setRegSuccess("Client registration submitted. Waiting for admin verification.");
+                scrollRegisterToTop();
+
+                // A1 privacy rule: success => clear all register fields
+                clearRegisterAllFields();
+
                 setTimeout(() => navigate("/login"), 800);
                 return;
             }
 
             if (!regName) {
                 setRegError("Full name is required.");
+                clearRegisterPasswordsOnly();
                 return;
             }
 
@@ -218,14 +389,20 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             });
 
             setRegSuccess("Staff registration submitted. Waiting for Laboratory Head approval.");
+            scrollRegisterToTop();
+            clearRegisterAllFields();
+
             setTimeout(() => navigate("/login"), 800);
         } catch (err: any) {
-            const msg =
-                err?.response?.data?.message ??
-                err?.response?.data?.error ??
-                err?.message ??
-                "Registration failed. Please review your data.";
+            const msg = extractApiMessage(
+                err,
+                "Registration failed. Please review your data."
+            );
             setRegError(msg);
+
+            // A1 privacy rule: error => clear passwords only
+            clearRegisterPasswordsOnly();
+            scrollRegisterToTop();
         } finally {
             setRegLoading(false);
         }
@@ -331,22 +508,25 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                 <input
                     type="tel"
                     value={regPhone}
-                    onChange={(e) => setRegPhone(e.target.value)}
+                    onChange={(e) => setRegPhone(formatPhoneDisplayPlus62(e.target.value))}
+                    onBlur={() => setRegPhone((v) => formatPhoneDisplayPlus62(v))}
                     className={inputClass}
-                    placeholder="e.g., +62-812-xxxx-xxxx"
+                    placeholder="e.g., +62 812 5555 1234"
+                    inputMode="tel"
                 />
             </div>
 
             {regClientType === "individual" ? (
                 <>
                     <div>
-                        <label className={labelClass}>National ID (optional)</label>
+                        <label className={labelClass}>National ID (NIK)</label>
                         <input
                             type="text"
                             value={regNationalId}
-                            onChange={(e) => setRegNationalId(e.target.value)}
+                            onChange={(e) => setRegNationalId(formatNIK(e.target.value))}
                             className={inputClass}
-                            placeholder="NIK / National ID"
+                            placeholder="3232 - 3232 - 3232 - 3232"
+                            inputMode="numeric"
                         />
                     </div>
 
@@ -400,7 +580,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             ) : (
                 <>
                     <div>
-                        <label className={labelClass}>Institution name (optional)</label>
+                        <label className={labelClass}>Institution name</label>
                         <input
                             type="text"
                             value={regInstitutionName}
@@ -441,20 +621,11 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                                 <input
                                     type="tel"
                                     value={regContactPersonPhone}
-                                    onChange={(e) => setRegContactPersonPhone(e.target.value)}
+                                    onChange={(e) => setRegContactPersonPhone(formatPhoneDisplayPlus62(e.target.value))}
+                                    onBlur={() => setRegContactPersonPhone((v) => formatPhoneDisplayPlus62(v))}
                                     className={inputClass}
-                                    placeholder="+62-..."
-                                />
-                            </div>
-
-                            <div>
-                                <label className={labelClass}>Email</label>
-                                <input
-                                    type="email"
-                                    value={regContactPersonEmail}
-                                    onChange={(e) => setRegContactPersonEmail(e.target.value)}
-                                    className={inputClass}
-                                    placeholder="contact@example.com"
+                                    placeholder="+62 812 5555 1234"
+                                    inputMode="tel"
                                 />
                             </div>
                         </div>
@@ -509,17 +680,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                                 onChange={(e) => setRegName(e.target.value)}
                                 className={inputClass}
                                 placeholder="Your full name"
-                            />
-                        </div>
-
-                        <div>
-                            <label className={labelClass}>Email</label>
-                            <input
-                                type="email"
-                                value={regEmail}
-                                onChange={(e) => setRegEmail(e.target.value)}
-                                className={inputClass}
-                                placeholder="Enter your email"
                             />
                         </div>
 
@@ -630,11 +790,17 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     return (
         <div className="min-h-screen w-full flex items-center justify-center bg-cream px-4 py-10">
             <div className={containerClass + (mode === "register" ? " lims-right-active" : "")}>
-                <div className="lims-auth-form-container lims-sign-up flex items-start justify-center overflow-y-auto">
+                <div
+                    ref={signUpContainerRef}
+                    className="lims-auth-form-container lims-sign-up flex items-start justify-center overflow-y-auto"
+                >
                     {registerForm}
                 </div>
 
-                <div className="lims-auth-form-container lims-sign-in lims-auth-center flex items-center justify-center overflow-y-auto">
+                <div
+                    ref={signInContainerRef}
+                    className="lims-auth-form-container lims-sign-in lims-auth-center flex items-center justify-center overflow-y-auto"
+                >
                     {loginForm}
                 </div>
 
@@ -656,7 +822,10 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                             </p>
                             <button
                                 type="button"
-                                onClick={() => setMode("login")}
+                                onClick={() => {
+                                    setMode("login");
+                                    setTimeout(() => scrollLoginToTop(), 0);
+                                }}
                                 className="rounded-full border px-8 py-2 text-xs font-semibold tracking-[0.15em] uppercase bg-transparent text-white"
                             >
                                 Sign in
@@ -674,7 +843,10 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                             </p>
                             <button
                                 type="button"
-                                onClick={() => setMode("register")}
+                                onClick={() => {
+                                    setMode("register");
+                                    setTimeout(() => scrollRegisterToTop(), 0);
+                                }}
                                 className="rounded-full border px-8 py-2 text-xs font-semibold tracking-[0.15em] uppercase bg-transparent text-white"
                             >
                                 Sign up

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { clientPortal, ClientSample } from "../../services/clientPortal";
+import { clientSampleRequestService } from "../../services/sampleRequests";
+import type { Sample } from "../../services/samples";
 import { useClientAuth } from "../../hooks/useClientAuth";
 
 const StatCard = ({ title, value, subtitle }: { title: string; value: string | number; subtitle?: string }) => (
@@ -15,24 +16,22 @@ export default function ClientDashboardPage() {
     const navigate = useNavigate();
     const { client, loading: authLoading, isClientAuthenticated } = useClientAuth() as any;
 
-    const [items, setItems] = useState<ClientSample[]>([]);
+    const [items, setItems] = useState<Sample[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         if (authLoading) return;
-
         if (!isClientAuthenticated) {
             navigate("/login", { replace: true });
             return;
         }
 
         let cancelled = false;
-
         const run = async () => {
             try {
                 setLoading(true);
-                const list = await clientPortal.listSamples();
-                if (!cancelled) setItems(list ?? []);
+                const res = await clientSampleRequestService.list({ page: 1, per_page: 100 });
+                if (!cancelled) setItems(res.data ?? []);
             } catch {
                 if (!cancelled) setItems([]);
             } finally {
@@ -49,13 +48,13 @@ export default function ClientDashboardPage() {
     const stats = useMemo(() => {
         const total = items.length;
         const byStatus = items.reduce<Record<string, number>>((acc, s) => {
-            const k = (s.request_status ?? s.status ?? "unknown").toLowerCase();
+            const k = String(s.request_status ?? "unknown").toLowerCase();
             acc[k] = (acc[k] ?? 0) + 1;
             return acc;
         }, {});
-        const drafts = (byStatus["draft"] ?? 0) + (byStatus["pending"] ?? 0);
-        const submitted = (byStatus["submitted"] ?? 0) + (byStatus["requested"] ?? 0);
-        const returned = (byStatus["returned"] ?? 0) + (byStatus["rejected"] ?? 0);
+        const drafts = byStatus["draft"] ?? 0;
+        const submitted = byStatus["submitted"] ?? 0;
+        const returned = (byStatus["returned"] ?? 0) + (byStatus["needs_revision"] ?? 0);
         return { total, drafts, submitted, returned };
     }, [items]);
 
@@ -66,12 +65,10 @@ export default function ClientDashboardPage() {
                 <p className="text-sm text-gray-600 mt-1">
                     Welcome{client?.name ? `, ${client.name}` : ""}. Create and track sample requests here.
                 </p>
-
                 <div className="mt-4 flex flex-wrap gap-3">
                     <button className="lims-btn-primary" onClick={() => navigate("/portal/requests")}>
                         Go to requests
                     </button>
-
                     <button className="lims-btn" onClick={() => navigate("/portal/requests")}>
                         Create new request
                     </button>
@@ -80,18 +77,17 @@ export default function ClientDashboardPage() {
 
             <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
                 <StatCard title="Total requests" value={loading ? "…" : stats.total} subtitle="All requests you’ve created." />
-                <StatCard title="Draft / in progress" value={loading ? "…" : stats.drafts} subtitle="Requests you can still edit." />
-                <StatCard title="Submitted / waiting review" value={loading ? "…" : stats.submitted} subtitle="Requests already sent to the lab." />
+                <StatCard title="Draft" value={loading ? "…" : stats.drafts} subtitle="Requests you can still edit." />
+                <StatCard title="Submitted" value={loading ? "…" : stats.submitted} subtitle="Waiting for admin review." />
             </div>
 
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
                     <div className="text-sm font-semibold text-gray-900">What happens next?</div>
                     <p className="text-sm text-gray-600 mt-2">
-                        Create a request → fill details → submit → admin review → request becomes an official sample.
+                        Create draft → fill required fields → submit → admin review → schedule delivery → physical receive.
                     </p>
                 </div>
-
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
                     <div className="text-sm font-semibold text-gray-900">Need to revise?</div>
                     <p className="text-sm text-gray-600 mt-2">

@@ -1,10 +1,5 @@
 import { apiPost } from "./api";
 
-export type UpdateRequestStatusPayload = {
-    status: string;
-    note?: string | null;
-};
-
 export type UpdateRequestStatusResponse = {
     success?: boolean;
     message?: string;
@@ -13,19 +8,13 @@ export type UpdateRequestStatusResponse = {
 
 export async function updateRequestStatus(
     sampleId: number,
-    status: string,
+    targetStatus: string,
     note?: string | null
 ): Promise<UpdateRequestStatusResponse> {
-    const payload: UpdateRequestStatusPayload = {
-        status,
+    const res = await apiPost<UpdateRequestStatusResponse>(`/v1/samples/${sampleId}/request-status`, {
+        target_status: targetStatus, // ✅ match backend
         note: note ?? null,
-    };
-
-    // apiPost biasanya return data langsung (bukan AxiosResponse)
-    const res = await apiPost<UpdateRequestStatusResponse>(
-        `/v1/samples/${sampleId}/request-status`,
-        payload
-    );
+    });
 
     return res as any;
 }

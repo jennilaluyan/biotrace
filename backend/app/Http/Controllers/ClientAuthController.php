@@ -3,9 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Client;
+use App\Models\ClientApplication;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use App\Support\AuditLogger;
 use Illuminate\Database\QueryException;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Schema;
@@ -22,72 +22,115 @@ class ClientAuthController extends Controller
             $request->merge(['email' => $email]);
         }
 
-        // kalau kolom email_ci ada, isi
-        if (Schema::hasColumn('clients', 'email_ci') && is_string($email) && $email !== '') {
+        // normalize email_ci on payload (we always store it in applications table)
+        if (is_string($email) && $email !== '') {
             $request->merge(['email_ci' => mb_strtolower($email)]);
         }
 
         $rules = [
             'type' => ['required', 'in:individual,institution'],
             'name' => ['required', 'string', 'max:150'],
-            'phone' => ['nullable', 'string', 'max:30'],
+
+            // A3: required +62 + min 10 digits
+            'phone' => ['required', 'string', 'max:30', 'regex:/^\+62\d{10,13}$/'],
+
             'email' => ['required', 'email', 'max:150'],
+            'email_ci' => ['required', 'string', 'max:150'],
 
             'password' => ['required', 'string', 'min:8'],
             'password_confirmation' => ['required', 'same:password'],
 
-            // optional: individual fields
-            'national_id' => ['nullable', 'string', 'max:50'],
+            // A2: required if individual, exactly 16 digits
+            'national_id' => ['required_if:type,individual', 'digits:16'],
+
             'date_of_birth' => ['nullable', 'date'],
             'gender' => ['nullable', 'string', 'max:10'],
             'address_ktp' => ['nullable', 'string', 'max:255'],
             'address_domicile' => ['nullable', 'string', 'max:255'],
 
-            // optional: institution fields
             'institution_name' => ['nullable', 'string', 'max:200'],
             'institution_address' => ['nullable', 'string', 'max:255'],
             'contact_person_name' => ['nullable', 'string', 'max:150'],
-            'contact_person_phone' => ['nullable', 'string', 'max:30'],
+            'contact_person_phone' => ['nullable', 'string', 'max:30', 'regex:/^\+62\d{10,13}$/'],
             'contact_person_email' => ['nullable', 'email', 'max:150'],
         ];
 
-        // Unique validation: email_ci jika ada, fallback email jika tidak ada
-        if (Schema::hasColumn('clients', 'email_ci')) {
-            $rules['email_ci'] = [
-                'required',
-                'string',
-                'max:150',
-                Rule::unique('clients', 'email_ci')->whereNull('deleted_at'),
-            ];
-        } else {
-            $rules['email'][] = Rule::unique('clients', 'email')->whereNull('deleted_at');
-        }
+        $messages = [
+            'type.required' => 'Client type is required.',
+            'type.in' => 'Client type must be individual or institution.',
+            'name.required' => 'Name is required.',
+            'phone.required' => 'Phone is required.',
+            'phone.regex' => 'Phone number is incomplete. Please enter at least 10 digits after +62.',
+            'email.required' => 'Email is required.',
+            'email.email' => 'Email format is invalid.',
+            'password.required' => 'Password is required.',
+            'password.min' => 'Password must be at least 8 characters.',
+            'password_confirmation.required' => 'Confirm password is required.',
+            'password_confirmation.same' => 'Password confirmation does not match.',
+            'national_id.required_if' => 'National ID (NIK) is required for individual clients.',
+            'national_id.digits' => 'National ID (NIK) must be exactly 16 digits.',
+            'contact_person_phone.regex' => 'Contact person phone is incomplete. Please enter at least 10 digits after +62.',
+            'contact_person_email.email' => 'Contact person email format is invalid.',
+        ];
 
-        $data = $request->validate($rules, [
-            'email.unique' => 'Email sudah terdaftar. Silakan gunakan email lain atau login.',
-            'email_ci.unique' => 'Email sudah terdaftar. Silakan gunakan email lain atau login.',
-        ]);
+        $data = $request->validate($rules, $messages);
 
         if ($data['type'] === 'institution' && empty($data['institution_name'])) {
             return response()->json([
-                'message' => 'institution_name is required when type=institution'
+                'message' => 'Validation error.',
+                'errors' => [
+                    'institution_name' => ['Institution name is required for institution clients.'],
+                ],
+            ], 422);
+        }
+
+        // 1) Block if already exists in approved clients
+        $emailKey = $data['email_ci'] ?? mb_strtolower($data['email']);
+        $clientExists = false;
+
+        if (Schema::hasColumn('clients', 'email_ci')) {
+            $clientExists = Client::where('email_ci', $emailKey)->whereNull('deleted_at')->exists();
+        } else {
+            // existing DB has unique index on LOWER(email) active; safe check:
+            $clientExists = Client::whereRaw('LOWER(email) = ?', [$emailKey])->whereNull('deleted_at')->exists();
+        }
+
+        if ($clientExists) {
+            return response()->json([
+                'message' => 'Validation error.',
+                'errors' => [
+                    'email' => ['Account already exists. Please login instead.'],
+                ],
+            ], 422);
+        }
+
+        // 2) Block if a pending application already exists
+        $pendingExists = ClientApplication::query()
+            ->whereNull('deleted_at')
+            ->where('status', 'pending')
+            ->where(function ($q) use ($emailKey) {
+                $q->where('email_ci', $emailKey)
+                    ->orWhereRaw('LOWER(email) = ?', [$emailKey]);
+            })
+            ->exists();
+
+        if ($pendingExists) {
+            return response()->json([
+                'message' => 'Validation error.',
+                'errors' => [
+                    'email' => ['Registration already submitted. Please wait for admin verification.'],
+                ],
             ], 422);
         }
 
         try {
             $createPayload = [
                 ...collect($data)->except(['password', 'password_confirmation'])->all(),
-                'staff_id' => null,
+                'status' => 'pending',
                 'password_hash' => Hash::make($data['password']),
-                'is_active' => false,
             ];
 
-            // SAFETY: kalau kolom email_ci tidak ada, jangan ikut diinsert
-            if (!Schema::hasColumn('clients', 'email_ci')) {
-                unset($createPayload['email_ci']);
-            }
-
-            $client = Client::create($createPayload);
+            $app = ClientApplication::create($createPayload);
         } catch (QueryException $e) {
             // PostgreSQL unique violation: 23505
             $sqlState = $e->errorInfo[0] ?? null;
@@ -95,29 +138,20 @@ class ClientAuthController extends Controller
                 return response()->json([
                     'message' => 'Validation error.',
                     'errors' => [
-                        'email' => ['Email sudah terdaftar. Silakan gunakan email lain atau login.'],
+                        'email' => ['Registration already submitted. Please wait for admin verification.'],
                     ],
                 ], 422);
             }
             throw $e;
         }
 
-        AuditLogger::write(
-            'CLIENT_REGISTER_SUBMITTED',
-            null,
-            'clients',
-            $client->getKey(),
-            null,
-            ['email' => $client->email, 'type' => $client->type]
-        );
-
         return response()->json([
             'message' => 'Client registration submitted. Waiting for admin verification.',
-            'client' => [
-                'id' => $client->client_id,
-                'name' => $client->name,
-                'email' => $client->email,
-                'is_active' => $client->is_active,
+            'application' => [
+                'id' => $app->client_application_id,
+                'name' => $app->name,
+                'email' => $app->email,
+                'status' => $app->status,
             ],
         ], 201);
     }
@@ -129,51 +163,65 @@ class ClientAuthController extends Controller
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
             'device_name' => ['nullable', 'string'],
+        ], [
+            'email.required' => 'Email is required.',
+            'email.email' => 'Email format is invalid.',
+            'password.required' => 'Password is required.',
         ]);
 
         $email = trim($data['email']);
+        $emailKey = mb_strtolower($email);
 
-        // login: pakai email_ci kalau ada, fallback ke email
+        // Approved clients only live in clients table
         if (Schema::hasColumn('clients', 'email_ci')) {
-            $client = Client::where('email_ci', mb_strtolower($email))->first();
+            $client = Client::where('email_ci', $emailKey)->whereNull('deleted_at')->first();
         } else {
-            $client = Client::where('email', $email)->first();
+            $client = Client::whereRaw('LOWER(email) = ?', [$emailKey])->whereNull('deleted_at')->first();
         }
 
-        if (!$client || !Hash::check($data['password'], $client->getAuthPassword())) {
-            AuditLogger::write('CLIENT_LOGIN_FAILURE', null, 'clients', null, null, [
-                'email' => $data['email'],
-                'reason' => 'INVALID_CREDENTIALS',
-            ]);
-            return response()->json(['message' => 'Invalid credentials'], 401);
+        if ($client) {
+            if (!Hash::check($data['password'], $client->getAuthPassword())) {
+                return response()->json(['message' => 'Invalid email or password.'], 401);
+            }
+
+            // Extra safety: if is_active exists and false, still block
+            if (Schema::hasColumn('clients', 'is_active') && !(bool) $client->is_active) {
+                return response()->json([
+                    'message' => 'Your account is not verified yet. Please wait for admin verification.',
+                ], 403);
+            }
+
+            $client->tokens()->delete();
+            $device = $data['device_name'] ?? 'web';
+            $token = $client->createToken($device)->plainTextToken;
+
+            return response()->json([
+                'token' => $token,
+                'client' => [
+                    'id' => $client->client_id,
+                    'name' => $client->name,
+                    'email' => $client->email,
+                ],
+            ], 200);
         }
 
-        if (!$client->is_active) {
-            AuditLogger::write('CLIENT_LOGIN_FAILURE', null, 'clients', $client->getKey(), null, [
-                'email' => $client->email,
-                'reason' => 'ACCOUNT_INACTIVE',
-            ]);
-            return response()->json(['message' => 'Account inactive'], 403);
+        // If not in clients, check pending application to give a clear message
+        $pending = ClientApplication::query()
+            ->whereNull('deleted_at')
+            ->where('status', 'pending')
+            ->where(function ($q) use ($emailKey) {
+                $q->where('email_ci', $emailKey)->orWhereRaw('LOWER(email) = ?', [$emailKey]);
+            })
+            ->first();
+
+        if ($pending) {
+            // Optional: you may verify password here, but better not leak info.
+            return response()->json([
+                'message' => 'Your registration is pending admin verification. Please wait for approval.',
+            ], 403);
         }
 
-        $client->tokens()->delete();
-
-        $device = $data['device_name'] ?? 'web';
-        $token = $client->createToken($device)->plainTextToken;
-
-        AuditLogger::write('CLIENT_LOGIN_SUCCESS', null, 'clients', $client->getKey(), null, [
-            'email' => $client->email,
-            'via' => 'sanctum_token',
-        ]);
-
-        return response()->json([
-            'token' => $token,
-            'client' => [
-                'id' => $client->client_id,
-                'name' => $client->name,
-                'email' => $client->email,
-            ],
-        ], 200);
+        return response()->json(['message' => 'Invalid email or password.'], 401);
     }
 
     public function me(Request $request)
@@ -196,11 +244,6 @@ class ClientAuthController extends Controller
     public function logout(Request $request)
     {
         $client = $request->user('client_api');
-
-        AuditLogger::write('CLIENT_LOGOUT', null, 'clients', $client?->client_id, null, [
-            'email' => $client?->email,
-            'via' => 'sanctum_token',
-        ]);
 
         if ($client) {
             $client->currentAccessToken()?->delete();

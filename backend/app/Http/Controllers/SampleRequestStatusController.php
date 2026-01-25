@@ -16,41 +16,38 @@ class SampleRequestStatusController extends Controller
      * POST /api/v1/samples/{sample}/request-status
      *
      * Body:
-     * - target_status: string (next request_status)
+     * - target_status: string
      * - note: nullable string
      */
     public function update(Request $request, Sample $sample): JsonResponse
     {
         $data = $request->validate([
             'target_status' => ['required', 'string', 'max:32'],
-            'note'          => ['nullable', 'string', 'max:255'],
+            'note' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $to   = (string) $data['target_status'];
+        $to = (string) $data['target_status'];
         $from = (string) ($sample->request_status ?? 'draft');
 
         /** @var mixed $actor */
         $actor = Auth::user();
 
-        // hanya staff yang boleh
         if (!$actor instanceof Staff) {
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
-        // role gate: toleran untuk variasi nama role
         $roleName = strtolower(trim((string) ($actor->role?->name ?? '')));
         $allowedRoleNames = ['admin', 'administrator'];
         if (!in_array($roleName, $allowedRoleNames, true)) {
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
-        // transition rule (step-by-step)
         $allowedTransitions = [
-            'draft'               => ['submitted'],
-            'returned'            => ['submitted'],
-            'needs_revision'      => ['submitted'],
-            'submitted'           => ['ready_for_delivery', 'needs_revision'],
-            'ready_for_delivery'  => ['physically_received'],
+            'draft' => ['submitted'],
+            'returned' => ['submitted'],
+            'needs_revision' => ['submitted'],
+            'submitted' => ['ready_for_delivery', 'needs_revision'],
+            'ready_for_delivery' => ['physically_received'],
             'physically_received' => [],
         ];
 
@@ -64,41 +61,41 @@ class SampleRequestStatusController extends Controller
         DB::transaction(function () use ($sample, $from, $to, $actor, $data) {
             $sample->request_status = $to;
 
-            // side effects timestamp
             if ($to === 'submitted' && empty($sample->submitted_at)) {
                 $sample->submitted_at = now();
             }
 
-            if ($to === 'physically_received' && empty($sample->physically_received_at)) {
-                $sample->physically_received_at = now();
+            if ($to === 'physically_received') {
+                if (Schema::hasColumn('samples', 'physically_received_at') && empty($sample->physically_received_at)) {
+                    $sample->physically_received_at = now();
+                }
+                // optional: set received_at if still null
+                if (Schema::hasColumn('samples', 'received_at') && empty($sample->received_at)) {
+                    $sample->received_at = now();
+                }
             }
 
             $sample->save();
 
-            // =========================
             // AUDIT LOG (schema-safe)
-            // =========================
             if (Schema::hasTable('audit_logs')) {
                 $cols = array_flip(Schema::getColumnListing('audit_logs'));
-
                 $audit = [
                     'entity_name' => 'samples',
-                    'entity_id'   => $sample->sample_id,
-                    'action'      => 'SAMPLE_REQUEST_STATUS_CHANGED',
-                    'old_values'  => json_encode(['request_status' => $from]),
-                    'new_values'  => json_encode(['request_status' => $to]),
-                    'created_at'  => now(),
-                    'updated_at'  => now(),
+                    'entity_id' => $sample->sample_id,
+                    'action' => 'SAMPLE_REQUEST_STATUS_CHANGED',
+                    'old_values' => json_encode(['request_status' => $from]),
+                    'new_values' => json_encode(['request_status' => $to]),
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ];
 
-                // note/notes (ikut schema yang ada)
                 if (isset($cols['notes'])) {
                     $audit['notes'] = $data['note'] ?? null;
                 } elseif (isset($cols['note'])) {
                     $audit['note'] = $data['note'] ?? null;
                 }
 
-                // actor column mapping (ikut schema yang ada)
                 $actorId = (int) ($actor->staff_id ?? $actor->getKey());
                 if (isset($cols['staff_id'])) {
                     $audit['staff_id'] = $actorId;
@@ -110,19 +107,20 @@ class SampleRequestStatusController extends Controller
                     $audit['created_by'] = $actorId;
                 }
 
-                // only insert columns that exist
-                $auditInsert = array_intersect_key($audit, $cols);
-                DB::table('audit_logs')->insert($auditInsert);
+                DB::table('audit_logs')->insert(array_intersect_key($audit, $cols));
             }
         });
 
+        $sample->load(['requestedParameters']);
+
         return response()->json([
             'data' => [
-                'sample_id'              => $sample->sample_id,
-                'request_status'         => $sample->request_status,
-                'submitted_at'           => $sample->submitted_at,
+                'sample_id' => $sample->sample_id,
+                'request_status' => $sample->request_status,
+                'submitted_at' => $sample->submitted_at,
                 'physically_received_at' => $sample->physically_received_at,
-                'lab_sample_code'        => $sample->lab_sample_code ?? null,
+                'lab_sample_code' => $sample->lab_sample_code ?? null,
+                'requested_parameters' => $sample->requestedParameters ?? [],
             ],
         ], 200);
     }

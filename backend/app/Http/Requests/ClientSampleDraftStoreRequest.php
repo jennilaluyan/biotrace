@@ -8,25 +8,26 @@ class ClientSampleDraftStoreRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true; // controller yang enforce "harus Client"
+        return true; // controller enforce "harus Client"
     }
 
     public function rules(): array
     {
-        // Draft: boleh minimal (contoh: notes). Field lain opsional dulu.
         return [
-            'notes'               => ['nullable', 'string', 'max:5000'],
+            // DB samples.sample_type masih NOT NULL -> tetap required
+            'sample_type' => ['required', 'string', 'max:80'],
 
-            // wajib karena DB NOT NULL
-            'sample_type'         => ['required', 'string', 'max:80'],
+            // ✅ portal uses scheduled_delivery_at (optional on draft)
+            'scheduled_delivery_at' => ['nullable', 'date'],
 
-            // kalau kolom received_at di DB juga NOT NULL, jadikan required juga
-            'received_at'         => ['nullable', 'date'],
+            'examination_purpose' => ['nullable', 'string', 'max:150'],
+            'additional_notes' => ['nullable', 'string', 'max:5000'],
 
-            'examination_purpose' => ['nullable', 'string', 'max:120'],
-            'contact_history'     => ['nullable', 'in:ada,tidak,tidak_tahu'],
-            'priority'            => ['nullable', 'integer', 'min:0', 'max:5'],
-            'additional_notes'    => ['nullable', 'string', 'max:5000'],
+            // ✅ requested parameters (optional on draft)
+            'parameter_ids' => ['nullable', 'array'],
+            'parameter_ids.*' => ['integer', 'exists:parameters,parameter_id'],
+
+            // ❌ removed: received_at, contact_history, priority, title/name, notes alias
         ];
     }
 }

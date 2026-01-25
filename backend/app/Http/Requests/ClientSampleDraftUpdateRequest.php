@@ -13,15 +13,14 @@ class ClientSampleDraftUpdateRequest extends FormRequest
 
     public function rules(): array
     {
-        // Update draft/returned: field opsional (patch).
         return [
-            'notes'             => ['sometimes', 'nullable', 'string', 'max:5000'],
-            'sample_type'       => ['sometimes', 'nullable', 'string', 'max:80'],
-            'received_at'       => ['sometimes', 'nullable', 'date'],
-            'examination_purpose' => ['sometimes', 'nullable', 'string', 'max:120'],
-            'contact_history'   => ['sometimes', 'nullable', 'in:ada,tidak,tidak_tahu'],
-            'priority'          => ['sometimes', 'nullable', 'integer', 'min:0', 'max:5'],
-            'additional_notes'  => ['sometimes', 'nullable', 'string', 'max:5000'],
+            'sample_type' => ['sometimes', 'required', 'string', 'max:80'],
+            'scheduled_delivery_at' => ['sometimes', 'nullable', 'date'],
+            'examination_purpose' => ['sometimes', 'nullable', 'string', 'max:150'],
+            'additional_notes' => ['sometimes', 'nullable', 'string', 'max:5000'],
+
+            'parameter_ids' => ['sometimes', 'nullable', 'array'],
+            'parameter_ids.*' => ['integer', 'exists:parameters,parameter_id'],
         ];
     }
 }

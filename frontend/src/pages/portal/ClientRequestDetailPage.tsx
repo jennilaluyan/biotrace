@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { clientPortal, ClientSample } from "../../services/clientPortal";
+import type { Sample } from "../../services/samples";
+import { clientSampleRequestService } from "../../services/sampleRequests";
+import { listParameters, type ParameterRow } from "../../services/parameters";
 import { LoaPanelClient } from "../../components/loa/LoaPanelClient";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
-const fmtDate = (iso?: string) => {
+const fmtDate = (iso?: string | null) => {
     if (!iso) return "-";
     const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
+    if (Number.isNaN(d.getTime())) return String(iso);
     return d.toLocaleString();
 };
 
@@ -27,24 +29,32 @@ const getValidationMessage = (e: any, fallback: string) => {
 
 const statusTone = (raw?: string | null) => {
     const s = (raw ?? "").toLowerCase();
-    if (s === "draft" || s === "pending") return "bg-gray-100 text-gray-700";
-    if (s === "submitted" || s === "requested") return "bg-primary-soft/10 text-primary-soft";
-    if (s === "returned" || s === "rejected") return "bg-red-100 text-red-700";
-    if (s === "approved" || s === "accepted") return "bg-green-100 text-green-800";
+    if (s === "draft") return "bg-gray-100 text-gray-700";
+    if (s === "submitted") return "bg-primary-soft/10 text-primary-soft";
+    if (s === "needs_revision" || s === "returned") return "bg-red-100 text-red-700";
+    if (s === "ready_for_delivery") return "bg-indigo-50 text-indigo-700";
+    if (s === "physically_received") return "bg-green-100 text-green-800";
     return "bg-gray-100 text-gray-700";
 };
+
+function datetimeLocalFromIso(iso?: string | null): string {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 export default function ClientRequestDetailPage() {
     const { id } = useParams();
     const navigate = useNavigate();
 
-    // kuatkan parsing id supaya ga nyasar ke /undefined
     const numericId = useMemo(() => {
         const n = Number(id);
         return Number.isFinite(n) && n > 0 ? n : NaN;
     }, [id]);
 
-    const [data, setData] = useState<ClientSample | null>(null);
+    const [data, setData] = useState<Sample | null>(null);
     const [loading, setLoading] = useState(true);
 
     const [saving, setSaving] = useState(false);
@@ -53,27 +63,47 @@ export default function ClientRequestDetailPage() {
     const [error, setError] = useState<string | null>(null);
     const [info, setInfo] = useState<string | null>(null);
 
-    // editable form
+    // form
     const [sampleType, setSampleType] = useState("");
-    const [title, setTitle] = useState("");
-    const [notes, setNotes] = useState("");
-    const [description, setDescription] = useState("");
+    const [scheduledDeliveryAt, setScheduledDeliveryAt] = useState("");
+    const [examinationPurpose, setExaminationPurpose] = useState("");
+    const [additionalNotes, setAdditionalNotes] = useState("");
 
-    const effectiveStatus = useMemo(
-        () => (data as any)?.request_status ?? (data as any)?.status,
-        [data]
-    );
+    // parameters
+    const [paramQuery, setParamQuery] = useState("");
+    const [paramLoading, setParamLoading] = useState(false);
+    const [paramItems, setParamItems] = useState<ParameterRow[]>([]);
+    const [selectedParamIds, setSelectedParamIds] = useState<number[]>([]);
+
+    const effectiveStatus = useMemo(() => String((data as any)?.request_status ?? ""), [data]);
 
     const canEdit = useMemo(() => {
-        const s = (effectiveStatus ?? "").toLowerCase();
-        return s === "draft" || s === "returned" || s === "rejected" || s === "" || s === "pending";
+        const s = effectiveStatus.toLowerCase();
+        return s === "draft" || s === "needs_revision" || s === "returned" || s === "";
     }, [effectiveStatus]);
 
-    const hydrateForm = (s: ClientSample) => {
-        setSampleType(String((s as any).sample_type ?? ""));
-        setTitle(String((s as any).title ?? (s as any).name ?? ""));
-        setNotes(String((s as any).notes ?? ""));
-        setDescription(String((s as any).description ?? ""));
+    const loadParams = async (q?: string) => {
+        try {
+            setParamLoading(true);
+            const res = await listParameters({ page: 1, per_page: 20, q: (q ?? "").trim() || undefined });
+            const rows = (res as any)?.data?.data ?? [];
+            setParamItems(Array.isArray(rows) ? rows : []);
+        } catch {
+            setParamItems([]);
+        } finally {
+            setParamLoading(false);
+        }
+    };
+
+    const hydrateForm = (s: Sample) => {
+        setSampleType(String(s.sample_type ?? ""));
+        setScheduledDeliveryAt(datetimeLocalFromIso((s as any).scheduled_delivery_at ?? null));
+        setExaminationPurpose(String((s as any).examination_purpose ?? ""));
+        setAdditionalNotes(String((s as any).additional_notes ?? ""));
+        const ids = Array.isArray((s as any).requested_parameters)
+            ? (s as any).requested_parameters.map((p: any) => Number(p.parameter_id)).filter((x: any) => Number.isFinite(x))
+            : [];
+        setSelectedParamIds(Array.isArray(ids) ? Array.from(new Set(ids)) : []);
     };
 
     const load = async () => {
@@ -82,15 +112,14 @@ export default function ClientRequestDetailPage() {
             setLoading(false);
             return;
         }
-
         try {
             setError(null);
             setInfo(null);
             setLoading(true);
-
-            const s = await clientPortal.getSample(numericId);
+            const s = await clientSampleRequestService.getById(numericId);
             setData(s);
             hydrateForm(s);
+            loadParams("");
         } catch (e: any) {
             setError(getValidationMessage(e, "Failed to load request detail."));
             setData(null);
@@ -112,36 +141,38 @@ export default function ClientRequestDetailPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [numericId]);
 
-    const buildPayload = () => {
-        const payload: Record<string, any> = {};
-
-        const st = sampleType.trim();
-        if (st) payload.sample_type = st;
-
-        const t = title.trim();
-        payload.title = t || null;
-        payload.name = t || null;
-
-        payload.notes = notes.trim() || null;
-        payload.description = description.trim() || null;
-
-        return payload;
+    const toggleParam = (id: number) => {
+        setSelectedParamIds((prev) => {
+            if (prev.includes(id)) return prev.filter((x) => x !== id);
+            return [...prev, id];
+        });
     };
+
+    const buildPayload = () => {
+        return {
+            sample_type: sampleType.trim(),
+            scheduled_delivery_at: scheduledDeliveryAt ? scheduledDeliveryAt : null,
+            examination_purpose: examinationPurpose.trim() || null,
+            additional_notes: additionalNotes.trim() || null,
+            parameter_ids: selectedParamIds,
+        };
+    };
+
+    const canSubmit = useMemo(() => {
+        return canEdit && !!sampleType.trim() && !!scheduledDeliveryAt.trim() && selectedParamIds.length >= 1 && !submitting;
+    }, [canEdit, sampleType, scheduledDeliveryAt, selectedParamIds, submitting]);
 
     const saveDraft = async () => {
         if (!Number.isFinite(numericId) || Number.isNaN(numericId)) return;
-
         if (!sampleType.trim()) {
             setError("Sample type is required.");
             return;
         }
-
         try {
             setInfo(null);
             setError(null);
             setSaving(true);
-
-            const updated = await clientPortal.updateSample(numericId, buildPayload());
+            const updated = await clientSampleRequestService.updateDraft(numericId, buildPayload());
             setData(updated);
             hydrateForm(updated);
             setInfo("Draft saved.");
@@ -154,9 +185,16 @@ export default function ClientRequestDetailPage() {
 
     const submit = async () => {
         if (!Number.isFinite(numericId) || Number.isNaN(numericId)) return;
-
         if (!sampleType.trim()) {
             setError("Sample type is required.");
+            return;
+        }
+        if (!scheduledDeliveryAt.trim()) {
+            setError("Scheduled delivery is required.");
+            return;
+        }
+        if (selectedParamIds.length < 1) {
+            setError("At least 1 parameter is required.");
             return;
         }
 
@@ -165,14 +203,10 @@ export default function ClientRequestDetailPage() {
             setError(null);
             setSubmitting(true);
 
-            // auto save before submit if editable
-            if (canEdit) {
-                await clientPortal.updateSample(numericId, buildPayload());
-            }
-
-            await clientPortal.submitSample(numericId);
-
+            // submit requires payload now
+            const updated = await clientSampleRequestService.submit(numericId, buildPayload() as any);
             setInfo("Submitted successfully. Waiting for admin review.");
+            setData(updated);
             await load();
         } catch (e: any) {
             setError(getValidationMessage(e, "Failed to submit request."));
@@ -197,7 +231,6 @@ export default function ClientRequestDetailPage() {
                         Back
                     </button>
                 </div>
-
                 <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
                     <div className="text-sm text-red-700">{error ?? "Request not found."}</div>
                 </div>
@@ -205,9 +238,8 @@ export default function ClientRequestDetailPage() {
         );
     }
 
-    const code = (data as any).sample_code ?? (data as any).code ?? "-";
-    const updated = fmtDate((data as any).updated_at ?? (data as any).created_at);
-    const statusLabel = effectiveStatus ?? "Unknown";
+    const updatedAt = fmtDate((data as any).updated_at ?? (data as any).created_at);
+    const statusLabel = effectiveStatus || "Unknown";
 
     return (
         <div className="min-h-[60vh]">
@@ -219,21 +251,15 @@ export default function ClientRequestDetailPage() {
 
                     <div className="mt-3 flex items-center gap-2">
                         <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                            Request #{(data as any).id ?? numericId}
+                            Request #{(data as any).sample_id ?? numericId}
                         </h1>
-                        <span
-                            className={cx(
-                                "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
-                                statusTone(statusLabel)
-                            )}
-                        >
+                        <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", statusTone(statusLabel))}>
                             {statusLabel}
                         </span>
                     </div>
 
                     <div className="text-sm text-gray-600 mt-1">
-                        Code <span className="font-semibold text-gray-900">{code}</span> · Updated{" "}
-                        <span className="font-semibold text-gray-900">{updated}</span>
+                        Updated <span className="font-semibold text-gray-900">{updatedAt}</span>
                     </div>
                 </div>
 
@@ -248,12 +274,11 @@ export default function ClientRequestDetailPage() {
                             {saving ? "Saving..." : "Save draft"}
                         </button>
                     )}
-
                     <button
                         type="button"
                         onClick={submit}
-                        disabled={submitting}
-                        className={cx("lims-btn-primary", submitting && "opacity-60 cursor-not-allowed")}
+                        disabled={!canSubmit}
+                        className={cx("lims-btn-primary", (!canSubmit || submitting) && "opacity-60 cursor-not-allowed")}
                     >
                         {submitting ? "Submitting..." : "Submit"}
                     </button>
@@ -261,22 +286,16 @@ export default function ClientRequestDetailPage() {
             </div>
 
             {error && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
-            {info && (
-                <div className="text-sm text-green-800 bg-green-100 border border-green-200 px-3 py-2 rounded mb-4">
-                    {info}
-                </div>
-            )}
+            {info && <div className="text-sm text-green-800 bg-green-100 border border-green-200 px-3 py-2 rounded mb-4">{info}</div>}
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white">
                     <div className="text-sm font-semibold text-gray-900">Request details</div>
-                    <div className="text-xs text-gray-500 mt-1">
-                        You can edit while status is Draft / Returned. Submit when ready.
-                    </div>
+                    <div className="text-xs text-gray-500 mt-1">Editable while Draft / Returned.</div>
                 </div>
 
                 <div className="px-4 md:px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
+                    <div className="md:col-span-2">
                         <label className="block text-xs font-medium text-gray-600 mb-1">
                             Sample type <span className="text-red-600">*</span>
                         </label>
@@ -284,41 +303,106 @@ export default function ClientRequestDetailPage() {
                             value={sampleType}
                             onChange={(e) => setSampleType(e.target.value)}
                             disabled={!canEdit}
-                            placeholder="Must match backend"
-                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Title / Name</label>
-                        <input
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            disabled={!canEdit}
-                            placeholder="e.g. Water sample from Site A"
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
                         />
                     </div>
 
                     <div className="md:col-span-2">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Scheduled delivery at <span className="text-red-600">*</span>
+                        </label>
                         <input
-                            value={notes}
-                            onChange={(e) => setNotes(e.target.value)}
+                            type="datetime-local"
+                            value={scheduledDeliveryAt}
+                            onChange={(e) => setScheduledDeliveryAt(e.target.value)}
                             disabled={!canEdit}
-                            placeholder="Optional notes for the lab"
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
                         />
                     </div>
 
                     <div className="md:col-span-2">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Parameters <span className="text-red-600">*</span>
+                        </label>
+
+                        <div className="flex gap-2">
+                            <input
+                                value={paramQuery}
+                                onChange={(e) => setParamQuery(e.target.value)}
+                                placeholder="Search parameter…"
+                                disabled={!canEdit}
+                                className="flex-1 rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
+                            />
+                            <button
+                                type="button"
+                                className="rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                onClick={() => loadParams(paramQuery)}
+                                disabled={!canEdit || paramLoading}
+                            >
+                                {paramLoading ? "…" : "Search"}
+                            </button>
+                        </div>
+
+                        <div className="mt-3 rounded-2xl border border-gray-200 bg-white max-h-48 overflow-auto">
+                            {paramLoading ? (
+                                <div className="p-3 text-sm text-gray-600">Loading…</div>
+                            ) : paramItems.length === 0 ? (
+                                <div className="p-3 text-sm text-gray-600">No parameters found.</div>
+                            ) : (
+                                <ul className="divide-y divide-gray-100">
+                                    {paramItems.map((p) => {
+                                        const id = Number(p.parameter_id);
+                                        const checked = selectedParamIds.includes(id);
+                                        return (
+                                            <li key={id} className="p-3 flex items-center justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <div className="text-sm font-medium text-gray-900 truncate">
+                                                        {(p.code ? `${p.code} — ` : "") + (p.name ?? `Parameter #${id}`)}
+                                                    </div>
+                                                    <div className="text-xs text-gray-500 truncate">{p.unit ? `Unit: ${p.unit}` : ""}</div>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleParam(id)}
+                                                    disabled={!canEdit}
+                                                    className={`px-3 py-1 rounded-full text-xs border ${checked
+                                                        ? "bg-primary text-white border-primary"
+                                                        : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                                                        } ${!canEdit ? "opacity-50 cursor-not-allowed" : ""}`}
+                                                >
+                                                    {checked ? "Selected" : "Select"}
+                                                </button>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            )}
+                        </div>
+
+                        <div className="mt-2 text-[11px] text-gray-500">
+                            Selected: <span className="font-semibold text-gray-800">{selectedParamIds.length}</span>
+                        </div>
+                    </div>
+
+                    <div className="md:col-span-2">
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Examination purpose</label>
                         <textarea
-                            value={description}
-                            onChange={(e) => setDescription(e.target.value)}
+                            value={examinationPurpose}
+                            onChange={(e) => setExaminationPurpose(e.target.value)}
                             disabled={!canEdit}
-                            placeholder="Describe sample context, handling notes, requested context, etc."
-                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm min-h-[140px] focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
+                            rows={2}
+                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
+                        />
+                    </div>
+
+                    <div className="md:col-span-2">
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Additional notes</label>
+                        <textarea
+                            value={additionalNotes}
+                            onChange={(e) => setAdditionalNotes(e.target.value)}
+                            disabled={!canEdit}
+                            rows={3}
+                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm min-h-[120px] focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
                         />
                     </div>
 
@@ -333,22 +417,11 @@ export default function ClientRequestDetailPage() {
             </div>
 
             <LoaPanelClient
-                requestPayload={data}
+                requestPayload={data as any}
                 onChanged={async () => {
                     await load();
                 }}
             />
-
-            <div className="mt-4 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white">
-                    <div className="text-sm font-semibold text-gray-900">Raw snapshot</div>
-                    <div className="text-xs text-gray-500 mt-1">Debug view (safe to remove later).</div>
-                </div>
-
-                <pre className="px-4 md:px-6 py-4 text-xs bg-gray-50 overflow-auto">
-                    {JSON.stringify(data, null, 2)}
-                </pre>
-            </div>
         </div>
     );
 }

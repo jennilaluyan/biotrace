@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { clientApprovalsService } from "../../services/clientApprovals";
-import type { Client } from "../../services/clients";
+import { clientApprovalsService, type ClientApplication } from "../../services/clientApprovals";
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
-import { toClientSlug } from "../../utils/slug";
-import { useNavigate } from "react-router-dom";
 
 type TypeFilter = "all" | "individual" | "institution";
 
@@ -12,18 +9,15 @@ export const ClientApprovalsPage = () => {
     const { user } = useAuth();
     const roleId = getUserRoleId(user);
     const roleLabel = getUserRoleLabel(user);
-    const navigate = useNavigate();
 
-    // ✅ Approve client: biasanya Admin saja (sesuai backend flow kamu)
     const canApproveClients = roleId === ROLE_ID.ADMIN;
 
-    const [items, setItems] = useState<Client[]>([]);
+    const [items, setItems] = useState<ClientApplication[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     const [searchTerm, setSearchTerm] = useState("");
     const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
-
     const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
 
     const load = async () => {
@@ -33,7 +27,7 @@ export const ClientApprovalsPage = () => {
             const data = await clientApprovalsService.listPending();
             setItems(data);
         } catch (err: any) {
-            setError(err?.data?.message ?? err?.data?.error ?? "Failed to load pending clients.");
+            setError(err?.data?.message ?? err?.data?.error ?? "Failed to load pending client applications.");
         } finally {
             setLoading(false);
         }
@@ -63,6 +57,7 @@ export const ClientApprovalsPage = () => {
                 c.contact_person_email,
                 c.address_ktp,
                 c.address_domicile,
+                c.national_id,
             ]
                 .filter(Boolean)
                 .join(" ")
@@ -72,27 +67,39 @@ export const ClientApprovalsPage = () => {
         });
     }, [items, searchTerm, typeFilter]);
 
-    const approve = async (clientId: number) => {
-        if (!confirm("Approve this client?")) return;
+    const approve = async (applicationId: number) => {
+        if (!confirm("Approve this client application? This will create a client account.")) return;
+
         try {
-            setActionLoadingId(clientId);
-            await clientApprovalsService.approve(clientId);
-            setItems((prev) => prev.filter((x) => x.client_id !== clientId));
+            setActionLoadingId(applicationId);
+            setError(null);
+
+            await clientApprovalsService.approve(applicationId);
+
+            // ✅ Always re-fetch from server to ensure DB really changed
+            await load();
         } catch (err: any) {
-            setError(err?.data?.message ?? err?.data?.error ?? "Failed to approve client.");
+            setError(err?.data?.message ?? err?.data?.error ?? "Failed to approve application.");
         } finally {
             setActionLoadingId(null);
         }
     };
 
-    const reject = async (clientId: number) => {
-        if (!confirm("Reject this client? This will remove the registration (soft delete).")) return;
+    const reject = async (applicationId: number) => {
+        if (!confirm("Reject this application?")) return;
+
+        const reason = prompt("Reject reason (optional):") ?? undefined;
+
         try {
-            setActionLoadingId(clientId);
-            await clientApprovalsService.reject(clientId);
-            setItems((prev) => prev.filter((x) => x.client_id !== clientId));
+            setActionLoadingId(applicationId);
+            setError(null);
+
+            await clientApprovalsService.reject(applicationId, reason);
+
+            // ✅ Always re-fetch from server
+            await load();
         } catch (err: any) {
-            setError(err?.data?.message ?? err?.data?.error ?? "Failed to reject client.");
+            setError(err?.data?.message ?? err?.data?.error ?? "Failed to reject application.");
         } finally {
             setActionLoadingId(null);
         }
@@ -114,9 +121,8 @@ export const ClientApprovalsPage = () => {
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
                     <h1 className="text-lg md:text-xl font-bold text-gray-900">Client Approvals</h1>
-                    <p className="text-xs text-gray-500 mt-1">Approve or reject newly registered client accounts.</p>
+                    <p className="text-xs text-gray-500 mt-1">Approve or reject newly registered client applications.</p>
                 </div>
-
                 <button type="button" onClick={load} className="btn-outline self-start md:self-auto">
                     Refresh
                 </button>
@@ -160,7 +166,7 @@ export const ClientApprovalsPage = () => {
                 </div>
 
                 <div className="px-4 md:px-6 py-4">
-                    {loading && <div className="text-sm text-gray-600">Loading pending clients...</div>}
+                    {loading && <div className="text-sm text-gray-600">Loading pending applications...</div>}
 
                     {error && !loading && (
                         <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
@@ -169,7 +175,7 @@ export const ClientApprovalsPage = () => {
                     {!loading && !error && (
                         <>
                             {filtered.length === 0 ? (
-                                <div className="text-sm text-gray-600">No pending client approvals.</div>
+                                <div className="text-sm text-gray-600">No pending client applications.</div>
                             ) : (
                                 <div className="overflow-x-auto">
                                     <table className="min-w-full text-sm">
@@ -186,16 +192,16 @@ export const ClientApprovalsPage = () => {
                                         <tbody>
                                             {filtered.map((c) => {
                                                 const isInstitution = c.type === "institution";
-                                                const primaryContact =
-                                                    c.email || c.phone || c.contact_person_email || c.contact_person_phone || "-";
+                                                const primaryContact = c.email || c.phone || c.contact_person_email || c.contact_person_phone || "-";
+
                                                 const details = isInstitution
                                                     ? (c.institution_name || "-")
-                                                    : (c.address_domicile || c.address_ktp || "-");
+                                                    : (c.national_id ? `NIK: ${c.national_id}` : (c.address_domicile || c.address_ktp || "-"));
 
-                                                const busy = actionLoadingId === c.client_id;
+                                                const busy = actionLoadingId === c.client_application_id;
 
                                                 return (
-                                                    <tr key={c.client_id} className="border-t border-gray-100 hover:bg-gray-50/60">
+                                                    <tr key={c.client_application_id} className="border-t border-gray-100 hover:bg-gray-50/60">
                                                         <td className="px-4 py-3">
                                                             <div className="font-medium text-gray-900">{c.name}</div>
                                                             <div className="text-[11px] text-gray-500">Status: Pending</div>
@@ -214,17 +220,9 @@ export const ClientApprovalsPage = () => {
                                                             <div className="inline-flex items-center gap-2">
                                                                 <button
                                                                     type="button"
-                                                                    className="btn-outline"
-                                                                    onClick={() => navigate(`/clients/${toClientSlug(c)}`)}
-                                                                >
-                                                                    View
-                                                                </button>
-
-                                                                <button
-                                                                    type="button"
                                                                     disabled={busy}
                                                                     className="lims-btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                                                                    onClick={() => approve(c.client_id)}
+                                                                    onClick={() => approve(c.client_application_id)}
                                                                 >
                                                                     {busy ? "..." : "Approve"}
                                                                 </button>
@@ -233,7 +231,7 @@ export const ClientApprovalsPage = () => {
                                                                     type="button"
                                                                     disabled={busy}
                                                                     className="lims-btn-danger disabled:opacity-50 disabled:cursor-not-allowed"
-                                                                    onClick={() => reject(c.client_id)}
+                                                                    onClick={() => reject(c.client_application_id)}
                                                                 >
                                                                     {busy ? "..." : "Reject"}
                                                                 </button>

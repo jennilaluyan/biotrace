@@ -46,14 +46,27 @@ export type ParameterPayload = {
     tag?: string | null;
 };
 
-export async function listParameters(params?: { page?: number; per_page?: number; q?: string }) {
+type ListParams = { page?: number; per_page?: number; q?: string; scope?: "staff" | "client" };
+
+function buildListUrl(params?: ListParams) {
     const qs = new URLSearchParams();
     if (params?.page) qs.set("page", String(params.page));
     if (params?.per_page) qs.set("per_page", String(params.per_page));
     if (params?.q) qs.set("q", params.q);
+
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
 
-    return apiGet<ApiEnvelope<Paginated<ParameterRow>>>(`${API_VER}/parameters${suffix}`);
+    // IMPORTANT:
+    // - staff uses: GET {API_VER}/parameters (auth:sanctum)
+    // - client portal SHOULD use: GET {API_VER}/client/parameters (auth:client_api)
+    //   (backend route must exist)
+    const basePath = params?.scope === "client" ? `${API_VER}/client/parameters` : `${API_VER}/parameters`;
+
+    return `${basePath}${suffix}`;
+}
+
+export async function listParameters(params?: ListParams) {
+    return apiGet<any>(buildListUrl(params));
 }
 
 export async function createParameter(payload: ParameterPayload) {
