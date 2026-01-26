@@ -104,10 +104,11 @@ class ClientSampleRequestController extends Controller
         $client = $this->currentClientOr403();
         $this->assertOwnedByClient($client, $sample);
 
+        // IMPORTANT: jangan return fresh() setelah load, karena relasi hilang.
         $sample->load(['requestedParameters']);
 
         return response()->json([
-            'data' => $sample->fresh(),
+            'data' => $sample,
         ], 200);
     }
 
@@ -159,10 +160,11 @@ class ClientSampleRequestController extends Controller
 
         $this->syncRequestedParameters($sample, $data['parameter_ids'] ?? null);
 
-        $sample->load(['requestedParameters']);
+        // Reload + load relation, dan return model yang sudah ada relasinya.
+        $sample->refresh()->load(['requestedParameters']);
 
         return response()->json([
-            'data' => $sample->fresh(),
+            'data' => $sample,
         ], 201);
     }
 
@@ -196,10 +198,10 @@ class ClientSampleRequestController extends Controller
 
         $this->syncRequestedParameters($sample, $data['parameter_ids'] ?? null);
 
-        $sample->load(['requestedParameters']);
+        $sample->refresh()->load(['requestedParameters']);
 
         return response()->json([
-            'data' => $sample->fresh(),
+            'data' => $sample,
         ], 200);
     }
 
@@ -273,10 +275,10 @@ class ClientSampleRequestController extends Controller
             }
         });
 
-        $sample->load(['requestedParameters']);
+        $sample->refresh()->load(['requestedParameters']);
 
         return response()->json([
-            'data' => $sample->fresh(),
+            'data' => $sample,
         ], 200);
     }
 
