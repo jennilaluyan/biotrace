@@ -20,8 +20,9 @@ final class SampleRequestStatusTransitions
     public const ROLE_TRANSITIONS = [
         'Administrator' => [
             'submitted' => ['returned', 'ready_for_delivery'],
-            'returned' => ['submitted'], // setelah client revisi & resubmit (nanti part 2)
+            'returned' => ['submitted'],
             'ready_for_delivery' => ['physically_received'],
+            'physically_received' => ['in_transit_to_collector'],
         ],
 
         'Sample Collector' => [

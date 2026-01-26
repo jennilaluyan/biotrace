@@ -9,6 +9,7 @@ use App\Models\Staff;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use App\Enums\SampleRequestStatus;
 
 class SamplePhysicalWorkflowController extends Controller
 {
@@ -162,44 +163,45 @@ class SamplePhysicalWorkflowController extends Controller
 
         DB::transaction(function () use ($sample, $targetCol, $note, $actor, $action, $old) {
             $sample->{$targetCol} = now();
+
+            if ($action === 'admin_brought_to_collector') {
+                $sample->request_status = SampleRequestStatus::IN_TRANSIT_TO_COLLECTOR->value;
+            }
+
             $sample->save();
 
-            // Best-effort audit log (schema-tolerant, FIXED for staff_id NOT NULL)
             if (Schema::hasTable('audit_logs')) {
                 $cols = array_flip(Schema::getColumnListing('audit_logs'));
-
                 $staffId = $actor->staff_id ?? $actor->getKey();
 
-                // Build payload with multiple possible column names (we will intersect by actual columns)
                 $payload = [
-                    // Common identity fields (different schemas may use different names)
                     'staff_id' => $staffId,
                     'performed_by' => $staffId,
                     'user_id' => $staffId,
-
                     'entity_name' => 'samples',
                     'entity_id' => $sample->sample_id,
-
                     'action' => 'SAMPLE_PHYSICAL_WORKFLOW_CHANGED',
 
-                    // Time fields
                     'performed_at' => now(),
                     'created_at' => now(),
                     'updated_at' => now(),
 
-                    // Notes/meta
                     'note' => $note,
                     'meta' => $note ? json_encode(['note' => $note]) : null,
 
-                    // Before/after snapshots
-                    'old_values' => json_encode([$targetCol => $old]),
-                    'new_values' => json_encode([$targetCol => $sample->{$targetCol}, 'action' => $action]),
+                    'old_values' => json_encode([
+                        $targetCol => $old,
+                        'request_status' => $sample->getOriginal('request_status'),
+                    ]),
+                    'new_values' => json_encode([
+                        $targetCol => $sample->{$targetCol},
+                        'action' => $action,
+                        'request_status' => $sample->request_status,
+                    ]),
                 ];
 
-                // insert only columns that exist
                 $insert = array_intersect_key($payload, $cols);
 
-                // Extra safety: if schema requires staff_id but we somehow didn't map it, bail gracefully
                 if (isset($cols['staff_id']) && empty($insert['staff_id'])) {
                     $insert['staff_id'] = $staffId;
                 }
@@ -208,7 +210,6 @@ class SamplePhysicalWorkflowController extends Controller
             }
         });
 
-        // refresh values
         $sample->refresh();
 
         return response()->json([

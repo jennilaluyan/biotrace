@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleRequestDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -23,6 +22,7 @@ function StatusPill({ value }: { value?: string | null }) {
         needs_revision: "bg-red-50 text-red-700 border-red-200",
         ready_for_delivery: "bg-indigo-50 text-indigo-700 border-indigo-200",
         physically_received: "bg-emerald-50 text-emerald-700 border-emerald-200",
+        in_transit_to_collector: "bg-amber-50 text-amber-800 border-amber-200",
         intake_checklist_passed: "bg-emerald-50 text-emerald-700 border-emerald-200",
         intake_validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
     };
@@ -84,6 +84,39 @@ function SmallButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
     );
 }
 
+function WorkflowActionButton(props: {
+    title: string;
+    subtitle: string;
+    onClick: () => void;
+    disabled?: boolean;
+    variant?: "primary" | "neutral";
+    busy?: boolean;
+}) {
+    const { title, subtitle, onClick, disabled, variant = "neutral", busy } = props;
+
+    const base =
+        "w-full text-left rounded-2xl border px-4 py-3 transition " +
+        "focus:outline-none focus:ring-2 focus:ring-offset-2 " +
+        (disabled ? "opacity-60 cursor-not-allowed" : "hover:shadow-sm");
+
+    const tone =
+        variant === "primary"
+            ? "bg-amber-50 border-amber-200 focus:ring-amber-300"
+            : "bg-white border-slate-200 focus:ring-slate-300";
+
+    return (
+        <button type="button" onClick={onClick} disabled={disabled} className={`${base} ${tone}`}>
+            <div className="flex items-center justify-between gap-3">
+                <div>
+                    <div className="font-semibold text-sm text-slate-900">{busy ? "Saving..." : title}</div>
+                    <div className="text-xs text-slate-600 mt-0.5">{subtitle}</div>
+                </div>
+                <div className="text-slate-400 text-sm">{disabled ? "Locked" : "→"}</div>
+            </div>
+        </button>
+    );
+}
+
 export default function SampleRequestDetailPage() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -118,13 +151,7 @@ export default function SampleRequestDetailPage() {
         if (fromUser) return fromUser;
 
         try {
-            const keys = [
-                "biotrace_auth",
-                "biotrace_user",
-                "auth",
-                "user",
-                "staff",
-            ];
+            const keys = ["biotrace_auth", "biotrace_user", "auth", "user", "staff"];
 
             for (const k of keys) {
                 const raw = localStorage.getItem(k);
@@ -137,7 +164,6 @@ export default function SampleRequestDetailPage() {
             // ignore
         }
 
-        // 3) Last resort: existing helper
         const fallback = Number(getUserRoleId(user));
         return Number.isFinite(fallback) ? fallback : 0;
     }, [user]);
@@ -166,6 +192,7 @@ export default function SampleRequestDetailPage() {
     const isApprovedOrLater =
         requestStatus === "ready_for_delivery" ||
         requestStatus === "physically_received" ||
+        requestStatus === "in_transit_to_collector" ||
         requestStatus === "intake_checklist_passed" ||
         requestStatus === "intake_validated";
 
@@ -182,18 +209,13 @@ export default function SampleRequestDetailPage() {
     const isAdmin = roleId === ROLE_ID.ADMIN;
 
     const canWfAdminReceive =
-        isAdmin &&
-        (requestStatus === "ready_for_delivery" || requestStatus === "physically_received") &&
-        !adminReceivedFromClientAt;
+        isAdmin && (requestStatus === "ready_for_delivery" || requestStatus === "physically_received") && !adminReceivedFromClientAt;
 
-    const canWfAdminBring =
-        isAdmin && !!adminReceivedFromClientAt && !adminBroughtToCollectorAt;
+    const canWfAdminBring = isAdmin && !!adminReceivedFromClientAt && !adminBroughtToCollectorAt;
 
-    const canWfAdminReceiveBack =
-        isAdmin && !!collectorReturnedToAdminAt && !adminReceivedFromCollectorAt;
+    const canWfAdminReceiveBack = isAdmin && !!collectorReturnedToAdminAt && !adminReceivedFromCollectorAt;
 
-    const canWfClientPickup =
-        isAdmin && !!adminReceivedFromCollectorAt && !clientPickedUpAt;
+    const canWfClientPickup = isAdmin && !!adminReceivedFromCollectorAt && !clientPickedUpAt;
 
     const [wfBusy, setWfBusy] = useState(false);
     const [wfError, setWfError] = useState<string | null>(null);
@@ -221,11 +243,7 @@ export default function SampleRequestDetailPage() {
             const data = await sampleService.getById(requestId);
             setSample(data);
         } catch (err: any) {
-            const msg =
-                err?.data?.message ??
-                err?.data?.error ??
-                err?.message ??
-                "Failed to load sample request detail.";
+            const msg = err?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to load sample request detail.";
             setError(msg);
         } finally {
             if (!silent) setLoading(false);
@@ -265,12 +283,7 @@ export default function SampleRequestDetailPage() {
             await apiPost<any>(`/v1/samples/${requestId}/request-status`, { action: "accept" });
             await load({ silent: true });
         } catch (err: any) {
-            const msg =
-                err?.response?.data?.message ??
-                err?.data?.message ??
-                err?.data?.error ??
-                err?.message ??
-                "Failed to approve request.";
+            const msg = err?.response?.data?.message ?? err?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to approve request.";
             setError(msg);
         }
     };
@@ -280,18 +293,27 @@ export default function SampleRequestDetailPage() {
         try {
             setWfBusy(true);
             setWfError(null);
-
-            // ✅ FIX: backend route supports PATCH, not POST
             await apiPatch<any>(`/v1/samples/${requestId}/physical-workflow`, { action, note: null });
-
             await load({ silent: true });
         } catch (err: any) {
             const msg =
-                err?.response?.data?.message ??
-                err?.data?.message ??
-                err?.data?.error ??
-                err?.message ??
-                "Failed to update physical workflow.";
+                err?.response?.data?.message ?? err?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to update physical workflow.";
+            setWfError(msg);
+        } finally {
+            setWfBusy(false);
+        }
+    };
+
+    const doMarkPhysicallyReceived = async () => {
+        if (!requestId || Number.isNaN(requestId)) return;
+        try {
+            setWfBusy(true);
+            setWfError(null);
+            await apiPost(`/v1/samples/${requestId}/request-status`, { action: "received", note: null });
+            await load({ silent: true });
+        } catch (err: any) {
+            const msg =
+                err?.response?.data?.message ?? err?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to update physical workflow.";
             setWfError(msg);
         } finally {
             setWfBusy(false);
@@ -342,9 +364,7 @@ export default function SampleRequestDetailPage() {
             <div className="lims-detail-shell">
                 {loading && <div className="text-sm text-gray-600">Loading request detail...</div>}
 
-                {error && !loading && (
-                    <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
-                )}
+                {error && !loading && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
 
                 {!loading && !error && sample && (
                     <div className="space-y-6">
@@ -371,12 +391,7 @@ export default function SampleRequestDetailPage() {
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <SmallButton
-                                    type="button"
-                                    onClick={refresh}
-                                    disabled={pageRefreshing}
-                                    className="flex items-center gap-2"
-                                >
+                                <SmallButton type="button" onClick={refresh} disabled={pageRefreshing} className="flex items-center gap-2">
                                     <IconRefresh />
                                     {pageRefreshing ? "Refreshing..." : "Refresh"}
                                 </SmallButton>
@@ -435,9 +450,7 @@ export default function SampleRequestDetailPage() {
                                         <div>
                                             <div className="lims-detail-label">Scheduled Delivery</div>
                                             <div className="lims-detail-value">
-                                                {(sample as any)?.scheduled_delivery_at
-                                                    ? formatDateTimeLocal((sample as any).scheduled_delivery_at)
-                                                    : "-"}
+                                                {(sample as any)?.scheduled_delivery_at ? formatDateTimeLocal((sample as any).scheduled_delivery_at) : "-"}
                                             </div>
                                         </div>
 
@@ -448,9 +461,7 @@ export default function SampleRequestDetailPage() {
                                                     (sample as any).requested_parameters.map((p: any) => {
                                                         const code = String(p?.code ?? "").trim();
                                                         const name = String(p?.name ?? "").trim();
-                                                        const label =
-                                                            (code ? `${code} — ` : "") +
-                                                            (name || `Parameter #${p?.parameter_id ?? ""}`);
+                                                        const label = (code ? `${code} — ` : "") + (name || `Parameter #${p?.parameter_id ?? ""}`);
                                                         return (
                                                             <span
                                                                 key={String(p?.parameter_id)}
@@ -480,11 +491,8 @@ export default function SampleRequestDetailPage() {
                                         <div className="lg:col-span-2">
                                             <div className="lims-detail-label">Client</div>
                                             <div className="lims-detail-value">
-                                                {sample.client?.name ??
-                                                    (sample.client_id ? `Client #${sample.client_id}` : "-")}
-                                                {sample.client?.email ? (
-                                                    <span className="text-xs text-gray-500"> · {sample.client.email}</span>
-                                                ) : null}
+                                                {sample.client?.name ?? (sample.client_id ? `Client #${sample.client_id}` : "-")}
+                                                {sample.client?.email ? <span className="text-xs text-gray-500"> · {sample.client.email}</span> : null}
                                             </div>
                                         </div>
                                     </div>
@@ -540,67 +548,48 @@ export default function SampleRequestDetailPage() {
                                                             />
                                                             <div className="flex-1">
                                                                 <div className="text-xs font-semibold text-gray-800">{r.label}</div>
-                                                                <div className="text-[11px] text-gray-600">
-                                                                    {r.at ? formatDateTimeLocal(r.at) : "-"}
-                                                                </div>
+                                                                <div className="text-[11px] text-gray-600">{r.at ? formatDateTimeLocal(r.at) : "-"}</div>
                                                             </div>
                                                         </div>
                                                     ))}
                                                 </div>
 
-                                                <div className="mt-4 flex flex-wrap gap-2">
-                                                    <SmallPrimaryButton
-                                                        type="button"
-                                                        onClick={async () => {
-                                                            if (!requestId || Number.isNaN(requestId)) return;
-                                                            try {
-                                                                setWfBusy(true);
-                                                                setWfError(null);
-
-                                                                // Mark physically received + auto-set admin_received_from_client_at (backend handles this)
-                                                                await apiPost(`/v1/samples/${requestId}/request-status`, { action: "received", note: null });
-
-                                                                await load({ silent: true });
-                                                            } catch (err: any) {
-                                                                const msg =
-                                                                    err?.response?.data?.message ??
-                                                                    err?.data?.message ??
-                                                                    err?.data?.error ??
-                                                                    err?.message ??
-                                                                    "Failed to update physical workflow.";
-                                                                setWfError(msg);
-                                                            } finally {
-                                                                setWfBusy(false);
-                                                            }
-                                                        }}
+                                                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                    <WorkflowActionButton
+                                                        title="Admin: Received from client"
+                                                        subtitle="Record the time the sample arrived at the admin desk."
+                                                        onClick={doMarkPhysicallyReceived}
                                                         disabled={!canWfAdminReceive || wfBusy}
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Admin: Received"}
-                                                    </SmallPrimaryButton>
+                                                        busy={wfBusy}
+                                                        variant="neutral"
+                                                    />
 
-                                                    <SmallButton
-                                                        type="button"
+                                                    <WorkflowActionButton
+                                                        title="Admin: Hand off to Sample Collector"
+                                                        subtitle="Marks this request as In transit to Sample Collector."
                                                         onClick={() => doPhysicalWorkflow("admin_brought_to_collector")}
                                                         disabled={!canWfAdminBring || wfBusy}
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Admin: To Collector"}
-                                                    </SmallButton>
+                                                        busy={wfBusy}
+                                                        variant="primary"
+                                                    />
 
-                                                    <SmallButton
-                                                        type="button"
+                                                    <WorkflowActionButton
+                                                        title="Admin: Received back from collector"
+                                                        subtitle="Record the time the collector returned the sample to admin."
                                                         onClick={() => doPhysicalWorkflow("admin_received_from_collector")}
                                                         disabled={!canWfAdminReceiveBack || wfBusy}
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Admin: Received Back"}
-                                                    </SmallButton>
+                                                        busy={wfBusy}
+                                                        variant="neutral"
+                                                    />
 
-                                                    <SmallButton
-                                                        type="button"
+                                                    <WorkflowActionButton
+                                                        title="Admin: Client picked up"
+                                                        subtitle="Final step for returned samples — record pickup time."
                                                         onClick={() => doPhysicalWorkflow("client_picked_up")}
                                                         disabled={!canWfClientPickup || wfBusy}
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Admin: Client Picked Up"}
-                                                    </SmallButton>
+                                                        busy={wfBusy}
+                                                        variant="neutral"
+                                                    />
                                                 </div>
                                             </div>
                                         </div>

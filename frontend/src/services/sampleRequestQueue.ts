@@ -6,6 +6,7 @@ export type RequestStatus =
     | "returned"
     | "ready_for_delivery"
     | "physically_received"
+    | "in_transit_to_collector"
     | string;
 
 export type SampleRequestQueueRow = {
