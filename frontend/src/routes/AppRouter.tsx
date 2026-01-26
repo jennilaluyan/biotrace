@@ -164,7 +164,7 @@ export const AppRouter = () => {
                     <Route
                         path="/samples/requests"
                         element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN]}>
+                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN, ROLE_ID.SAMPLE_COLLECTOR]}>
                                 <SampleRequestsQueuePage />
                             </RoleGuard>
                         }

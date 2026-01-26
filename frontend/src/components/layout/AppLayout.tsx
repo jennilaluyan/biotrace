@@ -54,6 +54,11 @@ export const AppLayout = () => {
             ]
             : [];
 
+    const scItems: NavItem[] =
+        roleId === ROLE_ID.SAMPLE_COLLECTOR
+            ? [{ label: "Request Queue", path: "/samples/requests", icon: "check" }]
+            : [];
+
     const labHeadItems: NavItem[] =
         roleId === ROLE_ID.LAB_HEAD
             ? [{ label: "Staff Approvals", path: "/staff/approvals", icon: "check" }]
@@ -81,6 +86,7 @@ export const AppLayout = () => {
         ...reportItems,
         ...auditItems,
         ...adminItems,
+        ...scItems,
         ...labHeadItems,
     ];
 
