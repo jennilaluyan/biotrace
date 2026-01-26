@@ -1,4 +1,3 @@
-// frontend/src/utils/loaGate.ts
 export type LoaAssignmentGate = {
     blocked: boolean;
     message: string;
