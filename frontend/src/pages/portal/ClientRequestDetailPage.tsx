@@ -37,12 +37,48 @@ const statusTone = (raw?: string | null) => {
     return "bg-gray-100 text-gray-700";
 };
 
+// ✅ Step 7 tones (derived statuses)
+const derivedStatusTone = (label?: string | null) => {
+    const s = (label ?? "").toLowerCase();
+    if (s === "pickup required") return "bg-amber-100 text-amber-800";
+    if (s === "picked up") return "bg-green-100 text-green-800";
+    return statusTone(label);
+};
+
 function datetimeLocalFromIso(iso?: string | null): string {
     if (!iso) return "";
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "";
     const pad = (n: number) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+type ClientRequestItem = Sample & {
+    admin_received_from_collector_at?: string | null;
+    collector_returned_to_admin_at?: string | null;
+    client_picked_up_at?: string | null;
+};
+
+function deriveClientStatus(it: ClientRequestItem): { label: string; sub?: string } {
+    const pickedAt = it.client_picked_up_at ?? null;
+
+    // waiting since: prefer admin_received_from_collector_at, fallback collector_returned_to_admin_at
+    const waitingSince =
+        it.admin_received_from_collector_at ?? it.collector_returned_to_admin_at ?? null;
+
+    const rs = String((it as any)?.request_status ?? "").toLowerCase();
+
+    if (pickedAt) {
+        return { label: "Picked Up", sub: `Picked up at ${fmtDate(pickedAt)}` };
+    }
+
+    const isReturnedFamily = rs === "returned" || rs === "needs_revision";
+    if (isReturnedFamily && waitingSince) {
+        return { label: "Pickup Required", sub: `Waiting since ${fmtDate(waitingSince)}` };
+    }
+
+    const fallback = String((it as any)?.request_status ?? "") || "Unknown";
+    return { label: fallback };
 }
 
 export default function ClientRequestDetailPage() {
@@ -75,7 +111,14 @@ export default function ClientRequestDetailPage() {
     const [paramItems, setParamItems] = useState<ParameterRow[]>([]);
     const [selectedParamIds, setSelectedParamIds] = useState<number[]>([]);
 
+    // raw request status (keeps edit rules consistent)
     const effectiveStatus = useMemo(() => String((data as any)?.request_status ?? ""), [data]);
+
+    // ✅ Step 7 derived status for display
+    const derived = useMemo(() => {
+        if (!data) return { label: "Unknown" as string, sub: undefined as string | undefined };
+        return deriveClientStatus(data as ClientRequestItem);
+    }, [data]);
 
     const canEdit = useMemo(() => {
         const s = effectiveStatus.toLowerCase();
@@ -239,7 +282,15 @@ export default function ClientRequestDetailPage() {
     }
 
     const updatedAt = fmtDate((data as any).updated_at ?? (data as any).created_at);
-    const statusLabel = effectiveStatus || "Unknown";
+
+    // raw status still exists for edit rules, but UI shows derived label
+    const displayedStatusLabel = derived.label || "Unknown";
+    const pickupWaitingSince =
+        (data as any).admin_received_from_collector_at ?? (data as any).collector_returned_to_admin_at ?? null;
+    const clientPickedUpAt = (data as any).client_picked_up_at ?? null;
+
+    const isPickupRequired = displayedStatusLabel.toLowerCase() === "pickup required";
+    const isPickedUp = displayedStatusLabel.toLowerCase() === "picked up";
 
     return (
         <div className="min-h-[60vh]">
@@ -253,14 +304,23 @@ export default function ClientRequestDetailPage() {
                         <h1 className="text-lg md:text-xl font-bold text-gray-900">
                             Request #{(data as any).sample_id ?? numericId}
                         </h1>
-                        <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", statusTone(statusLabel))}>
-                            {statusLabel}
+                        <span
+                            className={cx(
+                                "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
+                                derivedStatusTone(displayedStatusLabel)
+                            )}
+                        >
+                            {displayedStatusLabel}
                         </span>
                     </div>
 
                     <div className="text-sm text-gray-600 mt-1">
                         Updated <span className="font-semibold text-gray-900">{updatedAt}</span>
                     </div>
+
+                    {derived.sub ? (
+                        <div className="text-xs text-gray-500 mt-1">{derived.sub}</div>
+                    ) : null}
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
@@ -287,6 +347,46 @@ export default function ClientRequestDetailPage() {
 
             {error && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
             {info && <div className="text-sm text-green-800 bg-green-100 border border-green-200 px-3 py-2 rounded mb-4">{info}</div>}
+
+            {/* ✅ Step 7: Pickup panel */}
+            {(isPickupRequired || isPickedUp) && (
+                <div
+                    className={cx(
+                        "rounded-2xl border px-4 py-3 mb-4",
+                        isPickedUp
+                            ? "border-green-200 bg-green-50 text-green-900"
+                            : "border-amber-200 bg-amber-50 text-amber-900"
+                    )}
+                >
+                    <div className="text-sm font-semibold">
+                        {isPickedUp ? "Pickup completed" : "Pickup required"}
+                    </div>
+
+                    {isPickupRequired && (
+                        <div className="text-sm mt-1">
+                            Your sample is ready to be picked up.
+                            {pickupWaitingSince ? (
+                                <>
+                                    {" "}
+                                    Waiting since{" "}
+                                    <span className="font-semibold">{fmtDate(pickupWaitingSince)}</span>.
+                                </>
+                            ) : null}
+                        </div>
+                    )}
+
+                    {isPickedUp && (
+                        <div className="text-sm mt-1">
+                            Picked up at{" "}
+                            <span className="font-semibold">{fmtDate(clientPickedUpAt)}</span>.
+                        </div>
+                    )}
+
+                    <div className="text-xs mt-2 text-gray-700/80">
+                        Please contact the lab administration if you need rescheduling or pickup instructions.
+                    </div>
+                </div>
+            )}
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white">
