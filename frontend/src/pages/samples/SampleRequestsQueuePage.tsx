@@ -281,8 +281,12 @@ export default function SampleRequestsQueuePage() {
                                             const canAct = id != null;
                                             const st = String(r.request_status ?? "").toLowerCase();
 
-                                            const canApprove = canAct && st === "submitted";
-                                            const canReturn = canAct && (st === "submitted" || st === "ready_for_delivery");
+                                            // ✅ match backend allowed transitions:
+                                            // accept: submitted/returned/needs_revision
+                                            // return: submitted/returned/needs_revision
+                                            // received: ready_for_delivery
+                                            const canApprove = canAct && (st === "submitted" || st === "returned" || st === "needs_revision");
+                                            const canReturn = canAct && (st === "submitted" || st === "returned" || st === "needs_revision");
                                             const canReceived = canAct && st === "ready_for_delivery";
 
                                             return (
@@ -302,7 +306,7 @@ export default function SampleRequestsQueuePage() {
                                                     </td>
                                                     <td className="px-4 py-3">
                                                         <div className="flex items-center justify-end gap-2">
-                                                            {/* View (eye) */}
+                                                            {/* View */}
                                                             <button
                                                                 type="button"
                                                                 className={cx(
@@ -321,7 +325,7 @@ export default function SampleRequestsQueuePage() {
                                                                 View
                                                             </button>
 
-                                                            {/* Accept */}
+                                                            {/* Approve */}
                                                             <button
                                                                 type="button"
                                                                 className={cx(
@@ -333,7 +337,7 @@ export default function SampleRequestsQueuePage() {
                                                                 onClick={() => openModal(r, "approve")}
                                                                 title="Approve request"
                                                             >
-                                                                Accept
+                                                                Approve
                                                             </button>
 
                                                             {/* Return */}

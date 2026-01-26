@@ -18,7 +18,6 @@ class SampleRequestStatusController extends Controller
         $roleName = strtolower((string) ($user?->role?->name ?? $user?->role_name ?? ''));
         $roleId = (int) ($user?->role_id ?? 0);
 
-        // Accept common variants
         $isAdmin =
             $roleId === 2 ||
             str_contains($roleName, 'administrator') ||
@@ -33,43 +32,84 @@ class SampleRequestStatusController extends Controller
 
     /**
      * POST /api/v1/samples/{sample}/request-status
-     * body: { action: "accept"|"return", note?: string }
+     *
+     * Supports multiple client payload shapes (to stay compatible with frontend/service):
+     * - { action: "accept"|"return"|"received", note?: string }
+     * - { status: "ready_for_delivery"|"returned"|"physically_received", note?: string }
+     * - { request_status: "...", note?: string }
+     * - { nextStatus: "...", note?: string }
      */
     public function update(Request $request, Sample $sample): JsonResponse
     {
         $this->assertAdminOr403();
 
+        $user = Auth::user();
+        $staffId = (int) ($user?->staff_id ?? 0);
+
+        // --- Normalize incoming intent ---
         $action = strtolower(trim((string) $request->get('action', '')));
-        if (!in_array($action, ['accept', 'return'], true)) {
+
+        $statusFromBody =
+            (string) $request->get('status', '') ?:
+            (string) $request->get('request_status', '') ?:
+            (string) $request->get('nextStatus', '') ?:
+            (string) $request->get('next_status', '');
+
+        $statusFromBody = strtolower(trim($statusFromBody));
+
+        // Map status-based payload into an "action" (for compatibility)
+        if ($action === '' && $statusFromBody !== '') {
+            if ($statusFromBody === 'ready_for_delivery') $action = 'accept';
+            if ($statusFromBody === 'returned' || $statusFromBody === 'needs_revision') $action = 'return';
+            if ($statusFromBody === 'physically_received') $action = 'received';
+        }
+
+        if (!in_array($action, ['accept', 'return', 'received'], true)) {
             return response()->json(['message' => 'Invalid action.'], 422);
         }
 
         $current = strtolower((string) ($sample->request_status ?? ''));
+
         if ($current === 'draft') {
             return response()->json(['message' => 'Draft requests are not available in backoffice.'], 403);
         }
 
-        // Only allow transitions from submitted/returned/needs_revision
-        $allowedFrom = ['submitted', 'returned', 'needs_revision'];
-        if (!in_array($current, $allowedFrom, true)) {
-            return response()->json([
-                'message' => 'You are not allowed to perform this request status transition.',
-            ], 403);
+        // Allowed transitions:
+        // - accept/return: from submitted/returned/needs_revision
+        // - received: from ready_for_delivery (normal flow)
+        if ($action === 'received') {
+            if ($current !== 'ready_for_delivery') {
+                // If it is already physically_received, treat as idempotent success
+                if ($current === 'physically_received') {
+                    $sample->load(['client', 'requestedParameters']);
+                    return response()->json(['data' => $sample->fresh()], 200);
+                }
+
+                return response()->json([
+                    'message' => 'You are not allowed to mark physically received from the current status.',
+                    'details' => ['request_status' => [$current]],
+                ], 422);
+            }
+        } else {
+            $allowedFrom = ['submitted', 'returned', 'needs_revision'];
+            if (!in_array($current, $allowedFrom, true)) {
+                return response()->json([
+                    'message' => 'You are not allowed to perform this request status transition.',
+                ], 403);
+            }
         }
 
         $note = (string) $request->get('note', '');
         $note = trim($note);
 
-        if ($action === 'return') {
-            if ($note === '') {
-                return response()->json([
-                    'message' => 'Return note is required.',
-                    'details' => ['note' => ['Return note is required.']],
-                ], 422);
-            }
+        if ($action === 'return' && $note === '') {
+            return response()->json([
+                'message' => 'Return note is required.',
+                'details' => ['note' => ['Return note is required.']],
+            ], 422);
         }
 
-        DB::transaction(function () use ($sample, $action, $note) {
+        DB::transaction(function () use ($sample, $action, $note, $staffId) {
             $now = Carbon::now();
 
             if (Schema::hasColumn('samples', 'reviewed_at')) {
@@ -81,7 +121,7 @@ class SampleRequestStatusController extends Controller
                     $sample->request_status = 'ready_for_delivery';
                 }
                 if (Schema::hasColumn('samples', 'request_return_note')) {
-                    $sample->request_return_note = null; // clear old return note
+                    $sample->request_return_note = null;
                 }
                 if (Schema::hasColumn('samples', 'request_approved_at')) {
                     $sample->request_approved_at = $now;
@@ -100,16 +140,41 @@ class SampleRequestStatusController extends Controller
                 }
             }
 
+            if ($action === 'received') {
+                if (Schema::hasColumn('samples', 'request_status')) {
+                    $sample->request_status = 'physically_received';
+                }
+                if (Schema::hasColumn('samples', 'physically_received_at')) {
+                    $sample->physically_received_at = $now;
+                }
+
+                // ✅ This is the key fix: first physical workflow step must be green right away
+                if (Schema::hasColumn('samples', 'admin_received_from_client_at')) {
+                    if ($sample->admin_received_from_client_at === null) {
+                        $sample->admin_received_from_client_at = $now;
+                    }
+                }
+            }
+
             $sample->save();
 
             // optional audit log, schema-safe
             if (Schema::hasTable('audit_logs')) {
                 $cols = array_flip(Schema::getColumnListing('audit_logs'));
+
+                $oldRequestStatus = $sample->getOriginal('request_status');
+
                 $payload = [
                     'entity_name' => 'samples',
                     'entity_id' => $sample->sample_id,
-                    'action' => $action === 'accept' ? 'REQUEST_ACCEPTED' : 'REQUEST_RETURNED',
-                    'old_values' => json_encode(['request_status' => $sample->getOriginal('request_status')]),
+                    'action' => $action === 'accept'
+                        ? 'REQUEST_ACCEPTED'
+                        : ($action === 'return' ? 'REQUEST_RETURNED' : 'REQUEST_PHYSICALLY_RECEIVED'),
+
+                    // ✅ fix not-null staff_id when column exists
+                    'staff_id' => $staffId ?: null,
+
+                    'old_values' => json_encode(['request_status' => $oldRequestStatus]),
                     'new_values' => json_encode([
                         'request_status' => $sample->request_status,
                         'note' => $action === 'return' ? $note : null,
@@ -117,6 +182,7 @@ class SampleRequestStatusController extends Controller
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
+
                 DB::table('audit_logs')->insert(array_intersect_key($payload, $cols));
             }
         });

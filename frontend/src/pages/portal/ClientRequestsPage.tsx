@@ -12,7 +12,6 @@ function cx(...arr: Array<string | false | null | undefined>) {
 type StatusTone = { label: string; cls: string; sub?: string };
 
 type ClientRequestItem = Sample & {
-    // physical workflow timestamps (optional on type)
     admin_received_from_collector_at?: string | null;
     collector_returned_to_admin_at?: string | null;
     client_picked_up_at?: string | null;
@@ -53,15 +52,13 @@ function stableKey(it: any, idx: number) {
 }
 
 /**
- * ✅ Step 7: derive a client-visible status:
+ * ✅ Client-visible status:
  * - Picked Up when client_picked_up_at exists
- * - Pickup Required when returned/needs_revision AND admin has received it back from collector AND not picked up yet
+ * - Pickup Required when returned/needs_revision AND admin has received it back AND not picked up yet
  * - Otherwise fallback to request_status mapping
  */
 function deriveClientStatus(it: ClientRequestItem): StatusTone {
     const pickedAt = it.client_picked_up_at ?? null;
-
-    // "waiting since" anchor: prefer admin_received_from_collector_at, fallback collector_returned_to_admin_at
     const waitingSince =
         it.admin_received_from_collector_at ?? it.collector_returned_to_admin_at ?? null;
 
@@ -76,7 +73,6 @@ function deriveClientStatus(it: ClientRequestItem): StatusTone {
     }
 
     const isReturnedFamily = rs === "returned" || rs === "needs_revision";
-
     if (isReturnedFamily && waitingSince) {
         return {
             label: "Pickup Required",
@@ -105,18 +101,11 @@ export default function ClientRequestsPage() {
 
         const sf = statusFilter.toLowerCase();
 
-        // ✅ Step 7: allow derived-status filtering in UI
         if (sf !== "all") {
             if (sf === "pickup_required") {
-                list = list.filter((it) => {
-                    const d = deriveClientStatus(it);
-                    return d.label.toLowerCase() === "pickup required";
-                });
+                list = list.filter((it) => deriveClientStatus(it).label.toLowerCase() === "pickup required");
             } else if (sf === "picked_up") {
-                list = list.filter((it) => {
-                    const d = deriveClientStatus(it);
-                    return d.label.toLowerCase() === "picked up";
-                });
+                list = list.filter((it) => deriveClientStatus(it).label.toLowerCase() === "picked up");
             } else {
                 list = list.filter((it) => String(it.request_status ?? "").toLowerCase() === sf);
             }
@@ -253,18 +242,12 @@ export default function ClientRequestsPage() {
                             <option value="needs_revision">Returned</option>
                             <option value="ready_for_delivery">Ready for delivery</option>
                             <option value="physically_received">Physically received</option>
-
-                            {/* ✅ Step 7 derived statuses */}
                             <option value="pickup_required">Pickup required</option>
                             <option value="picked_up">Picked up</option>
                         </select>
                     </div>
 
-                    <button
-                        type="button"
-                        onClick={load}
-                        className="w-full md:w-auto rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                    >
+                    <button type="button" onClick={load} className="lims-btn w-full md:w-auto">
                         Refresh
                     </button>
 
@@ -274,7 +257,7 @@ export default function ClientRequestsPage() {
                             setSearchTerm("");
                             setStatusFilter("all");
                         }}
-                        className="w-full md:w-auto rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                        className="lims-btn w-full md:w-auto"
                     >
                         Clear
                     </button>

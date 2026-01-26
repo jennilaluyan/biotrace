@@ -46,9 +46,6 @@ function datetimeLocalFromIso(iso?: string | null): string {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/**
- * Flexible extractor for listParameters response.
- */
 function extractPaginatedRows<T>(res: any): T[] {
     const root = res?.data ?? res;
     const d = root?.data ?? root;
@@ -112,7 +109,6 @@ export default function ClientRequestDetailPage() {
         return s === "draft" || s === "needs_revision" || s === "returned" || s === "";
     }, [effectiveStatus]);
 
-    // From backend payload (used for initial label fallback)
     const requestedParameterRows = useMemo(() => {
         const arr = (data as any)?.requested_parameters;
         return Array.isArray(arr) ? arr : [];
@@ -127,7 +123,6 @@ export default function ClientRequestDetailPage() {
         try {
             setParamLoading(true);
 
-            // ✅ client detail page must use client scope
             const res = await listParameters({
                 scope: "client",
                 page: 1,
@@ -150,7 +145,6 @@ export default function ClientRequestDetailPage() {
         setExaminationPurpose(String((s as any).examination_purpose ?? ""));
         setAdditionalNotes(String((s as any).additional_notes ?? ""));
 
-        // ✅ Take FIRST selected parameter only
         const ids = Array.isArray((s as any).requested_parameters)
             ? (s as any).requested_parameters
                 .map((p: any) => Number(p.parameter_id))
@@ -158,8 +152,6 @@ export default function ClientRequestDetailPage() {
             : [];
 
         setSelectedParamId(ids.length ? ids[0] : null);
-
-        // ✅ if already has a selection, default collapse picker
         setParamPickerOpen(ids.length ? false : true);
     };
 
@@ -178,7 +170,6 @@ export default function ClientRequestDetailPage() {
             setData(s);
             hydrateForm(s);
 
-            // initial param list for search dropdown
             await loadParams("");
         } catch (e: any) {
             setError(getValidationMessage(e, "Failed to load request detail."));
@@ -201,7 +192,6 @@ export default function ClientRequestDetailPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [numericId]);
 
-    // ✅ Selecting a new parameter REPLACES the old one
     const selectParam = (id: number) => {
         setSelectedParamId(id);
     };
@@ -209,11 +199,9 @@ export default function ClientRequestDetailPage() {
     const selectedParamLabel = useMemo(() => {
         if (!selectedParamId) return null;
 
-        // Prefer: latest list result (when user searches/selects)
         const fromList = paramItems.find((p) => Number(p.parameter_id) === selectedParamId);
         if (fromList) return parameterLabel(fromList);
 
-        // Fallback: payload requested_parameters (initial)
         const fromPayload = requestedParameterRows.find((p: any) => Number(p?.parameter_id) === selectedParamId);
         if (fromPayload) return parameterLabel(fromPayload);
 
@@ -226,7 +214,6 @@ export default function ClientRequestDetailPage() {
             scheduled_delivery_at: scheduledDeliveryAt ? scheduledDeliveryAt : null,
             examination_purpose: examinationPurpose.trim() || null,
             additional_notes: additionalNotes.trim() || null,
-            // ✅ backend expects array, but we enforce 1 item max
             parameter_ids: selectedParamId ? [selectedParamId] : [],
         };
     };
@@ -277,8 +264,6 @@ export default function ClientRequestDetailPage() {
             setSubmitting(true);
 
             await clientSampleRequestService.submit(numericId, buildPayload() as any);
-
-            // ✅ after submit success: go back to Sample Requests page
             navigate("/portal/requests");
         } catch (e: any) {
             setError(getValidationMessage(e, "Failed to submit request."));
@@ -298,7 +283,6 @@ export default function ClientRequestDetailPage() {
     if (!data) {
         return (
             <div className="min-h-[60vh]">
-                {/* Breadcrumb (client) */}
                 <div className="px-0 py-2">
                     <nav className="lims-breadcrumb">
                         <span className="lims-breadcrumb-icon">
@@ -337,7 +321,6 @@ export default function ClientRequestDetailPage() {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Breadcrumb (client) */}
             <div className="px-0 py-2">
                 <nav className="lims-breadcrumb">
                     <span className="lims-breadcrumb-icon">
@@ -402,7 +385,6 @@ export default function ClientRequestDetailPage() {
             {error && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
             {info && <div className="text-sm text-green-800 bg-green-100 border border-green-200 px-3 py-2 rounded mb-4">{info}</div>}
 
-            {/* ✅ Return note from admin (visible to client) */}
             {requestReturnNote && (statusLower === "returned" || statusLower === "needs_revision") && (
                 <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
                     <div className="text-sm font-semibold text-amber-900">Revision requested</div>
@@ -476,7 +458,7 @@ export default function ClientRequestDetailPage() {
                             />
                             <button
                                 type="button"
-                                className="rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                className="lims-btn"
                                 onClick={async () => {
                                     setParamPickerOpen(true);
                                     await loadParams(paramQuery);
@@ -489,7 +471,7 @@ export default function ClientRequestDetailPage() {
                             {canEdit && paramPickerOpen && (
                                 <button
                                     type="button"
-                                    className="rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                    className="lims-btn"
                                     onClick={() => setParamPickerOpen(false)}
                                 >
                                     Done

@@ -6,7 +6,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import { formatDateTimeLocal } from "../../utils/date";
 import { sampleService, type Sample } from "../../services/samples";
-import { apiPost } from "../../services/api";
+import { apiPost, apiPatch } from "../../services/api";
 import { UpdateRequestStatusModal } from "../../components/samples/UpdateRequestStatusModal";
 import { LoaPanelStaff } from "../../components/loa/LoaPanelStaff";
 
@@ -89,12 +89,63 @@ export default function SampleRequestDetailPage() {
     const navigate = useNavigate();
     const { user } = useAuth();
 
-    const roleId = getUserRoleId(user);
-    const roleLabel = getUserRoleLabel(roleId);
+    const roleId = useMemo(() => {
+        const pickRoleId = (obj: any): number | null => {
+            if (!obj) return null;
+
+            const candidates = [
+                obj.role_id,
+                obj.roleId,
+                obj.role?.role_id,
+                obj.role?.id,
+                obj.role?.roleId,
+                obj.user?.role_id,
+                obj.user?.roleId,
+                obj.data?.role_id,
+                obj.data?.roleId,
+                obj.staff?.role_id,
+                obj.staff?.roleId,
+            ];
+
+            for (const c of candidates) {
+                const n = Number(c);
+                if (Number.isFinite(n) && n > 0) return n;
+            }
+            return null;
+        };
+
+        const fromUser = pickRoleId(user);
+        if (fromUser) return fromUser;
+
+        try {
+            const keys = [
+                "biotrace_auth",
+                "biotrace_user",
+                "auth",
+                "user",
+                "staff",
+            ];
+
+            for (const k of keys) {
+                const raw = localStorage.getItem(k);
+                if (!raw) continue;
+                const parsed = JSON.parse(raw);
+                const fromStorage = pickRoleId(parsed);
+                if (fromStorage) return fromStorage;
+            }
+        } catch {
+            // ignore
+        }
+
+        // 3) Last resort: existing helper
+        const fallback = Number(getUserRoleId(user));
+        return Number.isFinite(fallback) ? fallback : 0;
+    }, [user]);
+
+    const roleLabel = useMemo(() => getUserRoleLabel(roleId), [roleId]);
 
     const requestId = Number(id);
 
-    // ✅ only admin can view this page
     const canView = useMemo(() => roleId === ROLE_ID.ADMIN, [roleId]);
 
     const [sample, setSample] = useState<Sample | null>(null);
@@ -102,7 +153,6 @@ export default function SampleRequestDetailPage() {
     const [pageRefreshing, setPageRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // ✅ Modal only for "return" (and we keep "received" if you still need it)
     const [modalOpen, setModalOpen] = useState(false);
     const [modalAction, setModalAction] = useState<"return" | "received">("return");
 
@@ -113,7 +163,6 @@ export default function SampleRequestDetailPage() {
     const isSubmitted = requestStatus === "submitted";
     const isReturned = requestStatus === "returned" || requestStatus === "needs_revision";
 
-    // ✅ Only after approved (ready_for_delivery or later) we show LoA + Physical workflow
     const isApprovedOrLater =
         requestStatus === "ready_for_delivery" ||
         requestStatus === "physically_received" ||
@@ -122,7 +171,6 @@ export default function SampleRequestDetailPage() {
 
     const showPostApproveSections = isApprovedOrLater;
 
-    // Physical workflow fields
     const adminReceivedFromClientAt = (sample as any)?.admin_received_from_client_at ?? null;
     const adminBroughtToCollectorAt = (sample as any)?.admin_brought_to_collector_at ?? null;
     const collectorReceivedAt = (sample as any)?.collector_received_at ?? null;
@@ -131,11 +179,12 @@ export default function SampleRequestDetailPage() {
     const adminReceivedFromCollectorAt = (sample as any)?.admin_received_from_collector_at ?? null;
     const clientPickedUpAt = (sample as any)?.client_picked_up_at ?? null;
 
-    // ✅ only admin can operate workflow buttons
     const isAdmin = roleId === ROLE_ID.ADMIN;
 
     const canWfAdminReceive =
-        isAdmin && requestStatus === "physically_received" && !adminReceivedFromClientAt;
+        isAdmin &&
+        (requestStatus === "ready_for_delivery" || requestStatus === "physically_received") &&
+        !adminReceivedFromClientAt;
 
     const canWfAdminBring =
         isAdmin && !!adminReceivedFromClientAt && !adminBroughtToCollectorAt;
@@ -209,12 +258,10 @@ export default function SampleRequestDetailPage() {
 
     const closeModal = () => setModalOpen(false);
 
-    // ✅ Approve WITHOUT modal
     const approve = async () => {
         if (!requestId || Number.isNaN(requestId)) return;
         try {
             setError(null);
-            // backend: POST /v1/samples/:id/request-status { action: "accept" }
             await apiPost<any>(`/v1/samples/${requestId}/request-status`, { action: "accept" });
             await load({ silent: true });
         } catch (err: any) {
@@ -233,7 +280,10 @@ export default function SampleRequestDetailPage() {
         try {
             setWfBusy(true);
             setWfError(null);
-            await apiPost<any>(`/v1/samples/${requestId}/physical-workflow`, { action, note: null });
+
+            // ✅ FIX: backend route supports PATCH, not POST
+            await apiPatch<any>(`/v1/samples/${requestId}/physical-workflow`, { action, note: null });
+
             await load({ silent: true });
         } catch (err: any) {
             const msg =
@@ -264,7 +314,6 @@ export default function SampleRequestDetailPage() {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Breadcrumb */}
             <div className="px-0 py-2">
                 <nav className="lims-breadcrumb">
                     <span className="lims-breadcrumb-icon">
@@ -299,7 +348,6 @@ export default function SampleRequestDetailPage() {
 
                 {!loading && !error && sample && (
                     <div className="space-y-6">
-                        {/* Header */}
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                             <div>
                                 <h1 className="text-lg md:text-xl font-bold text-gray-900">Sample Request Detail</h1>
@@ -332,21 +380,16 @@ export default function SampleRequestDetailPage() {
                                     <IconRefresh />
                                     {pageRefreshing ? "Refreshing..." : "Refresh"}
                                 </SmallButton>
-
-                                {/* ✅ Back button removed (breadcrumb already exists) */}
                             </div>
                         </div>
 
-                        {/* Draft guard (admin shouldn't see draft) */}
                         {isDraft ? (
                             <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-4 text-sm text-red-800">
                                 This request is still <span className="font-semibold">draft</span> and is only visible to the client.
                             </div>
                         ) : (
                             <>
-                                {/* Top actions inside detail */}
                                 <div className="flex items-center gap-2 flex-wrap">
-                                    {/* ✅ submitted OR returned: allow approve/return (approve no modal) */}
                                     {(isSubmitted || isReturned) && (
                                         <>
                                             <SmallPrimaryButton type="button" onClick={approve}>
@@ -362,7 +405,6 @@ export default function SampleRequestDetailPage() {
                                         </>
                                     )}
 
-                                    {/* Once approved: allow marking physically received (kept via modal) */}
                                     {isAdmin && requestStatus === "ready_for_delivery" && (
                                         <SmallButton type="button" onClick={openReceived}>
                                             Mark Physically Received
@@ -370,7 +412,6 @@ export default function SampleRequestDetailPage() {
                                     )}
                                 </div>
 
-                                {/* ✅ return note preview in admin detail */}
                                 {returnNote && isReturned && (
                                     <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                                         <div className="font-semibold">Return note sent to client</div>
@@ -378,7 +419,6 @@ export default function SampleRequestDetailPage() {
                                     </div>
                                 )}
 
-                                {/* ✅ Sample Info (always visible) */}
                                 <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                                     <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
                                         <div className="text-sm font-bold text-gray-900">Sample Info</div>
@@ -395,7 +435,9 @@ export default function SampleRequestDetailPage() {
                                         <div>
                                             <div className="lims-detail-label">Scheduled Delivery</div>
                                             <div className="lims-detail-value">
-                                                {(sample as any)?.scheduled_delivery_at ? formatDateTimeLocal((sample as any).scheduled_delivery_at) : "-"}
+                                                {(sample as any)?.scheduled_delivery_at
+                                                    ? formatDateTimeLocal((sample as any).scheduled_delivery_at)
+                                                    : "-"}
                                             </div>
                                         </div>
 
@@ -406,7 +448,9 @@ export default function SampleRequestDetailPage() {
                                                     (sample as any).requested_parameters.map((p: any) => {
                                                         const code = String(p?.code ?? "").trim();
                                                         const name = String(p?.name ?? "").trim();
-                                                        const label = (code ? `${code} — ` : "") + (name || `Parameter #${p?.parameter_id ?? ""}`);
+                                                        const label =
+                                                            (code ? `${code} — ` : "") +
+                                                            (name || `Parameter #${p?.parameter_id ?? ""}`);
                                                         return (
                                                             <span
                                                                 key={String(p?.parameter_id)}
@@ -436,14 +480,16 @@ export default function SampleRequestDetailPage() {
                                         <div className="lg:col-span-2">
                                             <div className="lims-detail-label">Client</div>
                                             <div className="lims-detail-value">
-                                                {sample.client?.name ?? (sample.client_id ? `Client #${sample.client_id}` : "-")}
-                                                {sample.client?.email ? <span className="text-xs text-gray-500"> · {sample.client.email}</span> : null}
+                                                {sample.client?.name ??
+                                                    (sample.client_id ? `Client #${sample.client_id}` : "-")}
+                                                {sample.client?.email ? (
+                                                    <span className="text-xs text-gray-500"> · {sample.client.email}</span>
+                                                ) : null}
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* ✅ Only after approved: show LoA + Physical Workflow */}
                                 {showPostApproveSections && (
                                     <>
                                         <LoaPanelStaff
@@ -505,7 +551,28 @@ export default function SampleRequestDetailPage() {
                                                 <div className="mt-4 flex flex-wrap gap-2">
                                                     <SmallPrimaryButton
                                                         type="button"
-                                                        onClick={() => doPhysicalWorkflow("admin_received_from_client")}
+                                                        onClick={async () => {
+                                                            if (!requestId || Number.isNaN(requestId)) return;
+                                                            try {
+                                                                setWfBusy(true);
+                                                                setWfError(null);
+
+                                                                // Mark physically received + auto-set admin_received_from_client_at (backend handles this)
+                                                                await apiPost(`/v1/samples/${requestId}/request-status`, { action: "received", note: null });
+
+                                                                await load({ silent: true });
+                                                            } catch (err: any) {
+                                                                const msg =
+                                                                    err?.response?.data?.message ??
+                                                                    err?.data?.message ??
+                                                                    err?.data?.error ??
+                                                                    err?.message ??
+                                                                    "Failed to update physical workflow.";
+                                                                setWfError(msg);
+                                                            } finally {
+                                                                setWfBusy(false);
+                                                            }
+                                                        }}
                                                         disabled={!canWfAdminReceive || wfBusy}
                                                     >
                                                         {wfBusy ? "Saving..." : "Admin: Received"}
@@ -542,7 +609,6 @@ export default function SampleRequestDetailPage() {
                             </>
                         )}
 
-                        {/* ✅ Modal ONLY for return + received */}
                         <UpdateRequestStatusModal
                             open={modalOpen}
                             sampleId={requestId}

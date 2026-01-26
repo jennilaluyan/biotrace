@@ -75,9 +75,15 @@ export function getUserRoleId(user: any): number | null {
     return null;
 }
 
-// Ambil label untuk ditampilkan di UI dari *user object* (bukan roleId)
 export function getUserRoleLabel(user: any): string {
-    if (!user) return "UNKNOWN";
+    if (user == null) return "UNKNOWN";
+
+    if (typeof user === "number") {
+        return getRoleLabelById(user) ?? "UNKNOWN";
+    }
+    if (typeof user === "string" && user.trim() !== "" && !Number.isNaN(Number(user))) {
+        return getRoleLabelById(Number(user)) ?? "UNKNOWN";
+    }
 
     // kalau ada role_name langsung
     if (typeof user.role_name === "string" && user.role_name.trim() !== "") return user.role_name;
@@ -87,7 +93,6 @@ export function getUserRoleLabel(user: any): string {
     const role = user?.role;
     if (role && typeof role === "object") {
         if (typeof role.name === "string" && role.name.trim() !== "") return role.name;
-        // NOTE: kamu tidak punya column code di roles, jadi jangan andalkan role.code
     }
 
     // string role langsung

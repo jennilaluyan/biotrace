@@ -8,18 +8,22 @@ import { RoleGuard } from "../guards/RoleGuard";
 import { AppLayout } from "../components/layout/AppLayout";
 import { PortalLayout } from "../components/layout/PortalLayout";
 import { ROLE_ID } from "../utils/roles";
+
 import { ClientsPage } from "../pages/clients/ClientsPage";
 import { ClientDetailPage } from "../pages/clients/ClientDetailPage";
 import { ClientApprovalsPage } from "../pages/clients/ClientApprovalsPage";
+
 import { SamplesPage } from "../pages/samples/SamplesPage";
 import { SampleDetailPage } from "../pages/samples/SampleDetailPage";
 import SampleRequestsQueuePage from "../pages/samples/SampleRequestsQueuePage";
 import SampleRequestDetailPage from "../pages/samples/SampleRequestDetailPage";
+
 import { StaffApprovalsPage } from "../pages/staff/StaffApprovalsPage";
 import { QAParametersPage } from "../pages/qa/QAParametersPage";
 import { QAMethodsPage } from "../pages/qa/QAMethodsPage";
 import { AuditLogsPage } from "../pages/audit/AuditLogsPage";
 import { ReportsPage } from "../pages/reports/ReportsPage";
+
 import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
 import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
 import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
@@ -166,7 +170,6 @@ export const AppRouter = () => {
                         }
                     />
 
-                    {/* ✅ NEW: Backoffice Sample Request Detail */}
                     <Route
                         path="/samples/requests/:id"
                         element={
@@ -183,10 +186,7 @@ export const AppRouter = () => {
                 <Route element={<PortalLayout />}>
                     <Route path="/portal" element={<ClientDashboardPage />} />
                     <Route path="/portal/requests" element={<ClientRequestsPage />} />
-                    <Route
-                        path="/portal/requests/:id"
-                        element={<ClientRequestDetailPage />}
-                    />
+                    <Route path="/portal/requests/:id" element={<ClientRequestDetailPage />} />
                 </Route>
             </Route>
 

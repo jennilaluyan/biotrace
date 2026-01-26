@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Sample;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
 
 class SampleRequestQueueController extends Controller
@@ -13,16 +14,22 @@ class SampleRequestQueueController extends Controller
      * GET /api/v1/samples/requests
      * Backoffice queue:
      * - ONLY non-draft (client draft is private)
-     * - default: submitted/returned/needs_revision/ready_for_delivery/physically_received/...
-     * - supports q + status
+     * - ONLY requests (no lab_sample_code yet)
+     * - supports q + request_status/status + date filter (today/7d/30d)
      */
     public function index(Request $request): JsonResponse
     {
         $q = trim((string) $request->get('q', ''));
-        $status = trim((string) $request->get('status', ''));
+        // ✅ frontend sends request_status; keep backward compatibility with status
+        $status = trim((string) ($request->get('request_status', $request->get('status', ''))));
+        $date = trim((string) $request->get('date', ''));
 
-        $query = Sample::query()
-            ->with(['client', 'requestedParameters']);
+        $query = Sample::query()->with(['client', 'requestedParameters']);
+
+        // ✅ Queue = request yang belum punya lab_sample_code
+        if (Schema::hasColumn('samples', 'lab_sample_code')) {
+            $query->whereNull('lab_sample_code');
+        }
 
         // Draft is client-private
         if (Schema::hasColumn('samples', 'request_status')) {
@@ -33,14 +40,51 @@ class SampleRequestQueueController extends Controller
         }
 
         if ($status !== '') {
-            $query->where('request_status', $status);
+            if (Schema::hasColumn('samples', 'request_status')) {
+                $query->where('request_status', $status);
+            }
+        }
+
+        // Date filter: prefer submitted_at, else created_at, else sample_id as fallback (no filter)
+        if ($date !== '') {
+            $now = Carbon::now();
+            $from = null;
+
+            if ($date === 'today') {
+                $from = $now->copy()->startOfDay();
+            } elseif ($date === '7d') {
+                $from = $now->copy()->subDays(7);
+            } elseif ($date === '30d') {
+                $from = $now->copy()->subDays(30);
+            }
+
+            if ($from) {
+                if (Schema::hasColumn('samples', 'submitted_at')) {
+                    $query->where('submitted_at', '>=', $from);
+                } elseif (Schema::hasColumn('samples', 'created_at')) {
+                    $query->where('created_at', '>=', $from);
+                }
+            }
         }
 
         if ($q !== '') {
-            $query->where(function ($w) use ($q) {
-                $w->where('sample_type', 'ILIKE', "%{$q}%")
-                    ->orWhere('request_status', 'ILIKE', "%{$q}%")
-                    ->orWhere('lab_sample_code', 'ILIKE', "%{$q}%");
+            $like = "%{$q}%";
+
+            $query->where(function ($w) use ($like) {
+                // Database-agnostic search (avoid ILIKE hard dependency)
+                $driver = Schema::getConnection()->getDriverName();
+                $op = $driver === 'pgsql' ? 'ILIKE' : 'LIKE';
+
+                $w->where('sample_type', $op, $like)
+                    ->orWhere('request_status', $op, $like)
+                    ->orWhere('lab_sample_code', $op, $like);
+
+                // client name/email
+                if (method_exists(Sample::class, 'client')) {
+                    $w->orWhereHas('client', function ($c) use ($op, $like) {
+                        $c->where('name', $op, $like)->orWhere('email', $op, $like);
+                    });
+                }
             });
         }
 
