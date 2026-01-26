@@ -141,7 +141,33 @@ export const AppRouter = () => {
                     <Route
                         path="/audit/logs"
                         element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN]}>
+                            <RoleGuard
+                                allowedRoleIds={[
+                                    ROLE_ID.ADMIN,
+                                    ROLE_ID.SAMPLE_COLLECTOR,
+                                    ROLE_ID.ANALYST,
+                                    ROLE_ID.OPERATIONAL_MANAGER,
+                                    ROLE_ID.LAB_HEAD,
+                                ]}
+                            >
+                                <AuditLogsPage />
+                            </RoleGuard>
+                        }
+                    />
+
+                    {/* alias supaya menu /audit-logs tidak 404 */}
+                    <Route
+                        path="/audit-logs"
+                        element={
+                            <RoleGuard
+                                allowedRoleIds={[
+                                    ROLE_ID.ADMIN,
+                                    ROLE_ID.SAMPLE_COLLECTOR,
+                                    ROLE_ID.ANALYST,
+                                    ROLE_ID.OPERATIONAL_MANAGER,
+                                    ROLE_ID.LAB_HEAD,
+                                ]}
+                            >
                                 <AuditLogsPage />
                             </RoleGuard>
                         }
@@ -173,7 +199,7 @@ export const AppRouter = () => {
                     <Route
                         path="/samples/requests/:id"
                         element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN]}>
+                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN, ROLE_ID.SAMPLE_COLLECTOR]}>
                                 <SampleRequestDetailPage />
                             </RoleGuard>
                         }
