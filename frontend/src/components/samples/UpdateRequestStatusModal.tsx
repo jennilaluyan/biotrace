@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { updateRequestStatus } from "../../services/sampleRequestStatus";
+import { apiPost } from "../../services/api";
 
 type Props = {
     open: boolean;
@@ -12,11 +12,9 @@ type Props = {
 };
 
 type ApiError = {
-    data?: {
-        message?: string;
-        error?: string;
-        details?: Record<string, string[] | string>;
-    };
+    response?: { data?: any };
+    data?: any;
+    message?: string;
 };
 
 function cx(...arr: Array<string | false | null | undefined>) {
@@ -25,17 +23,22 @@ function cx(...arr: Array<string | false | null | undefined>) {
 
 const getErrorMessage = (err: unknown, fallback: string) => {
     const e = err as ApiError;
-    const details = e?.data?.details;
+    const data = e?.response?.data ?? e?.data ?? undefined;
 
+    const details = data?.details;
     if (details && typeof details === "object") {
         const firstKey = Object.keys(details)[0];
         const firstVal = firstKey ? details[firstKey] : undefined;
-
         if (Array.isArray(firstVal) && firstVal[0]) return String(firstVal[0]);
-        if (typeof firstVal === "string" && firstVal) return firstVal;
+        if (typeof firstVal === "string" && firstVal) return String(firstVal);
     }
 
-    return e?.data?.message ?? e?.data?.error ?? fallback;
+    return (
+        data?.message ??
+        data?.error ??
+        (typeof (e as any)?.message === "string" ? (e as any).message : null) ??
+        fallback
+    );
 };
 
 export const UpdateRequestStatusModal = ({
@@ -50,7 +53,7 @@ export const UpdateRequestStatusModal = ({
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const nextStatus = useMemo(() => {
+    const nextLabel = useMemo(() => {
         if (action === "return") return "returned";
         if (action === "approve") return "ready_for_delivery";
         return "physically_received";
@@ -67,12 +70,11 @@ export const UpdateRequestStatusModal = ({
             return "Send this request back to the client for revision. A note/reason is required.";
         if (action === "approve")
             return "Approve this request and set status to ready_for_delivery.";
-        return "Confirm the sample has been physically received by the lab.";
+        return "Confirm the sample has been physically received by the lab (admin desk).";
     }, [action]);
 
     const noteLabel = useMemo(() => {
         if (action === "return") return "Return reason / note *";
-        if (action === "approve") return "Optional note";
         return "Optional note";
     }, [action]);
 
@@ -110,7 +112,15 @@ export const UpdateRequestStatusModal = ({
             setSubmitting(true);
             setError(null);
 
-            await updateRequestStatus(sampleId, nextStatus, note.trim() || null);
+            // ✅ backend expects { action: "accept" | "return" | "received", note? }
+            const payload =
+                action === "approve"
+                    ? { action: "accept", note: note.trim() || undefined }
+                    : action === "return"
+                        ? { action: "return", note: note.trim() }
+                        : { action: "received", note: note.trim() || undefined };
+
+            await apiPost<any>(`/v1/samples/${sampleId}/request-status`, payload);
 
             onClose();
             onUpdated();
@@ -142,7 +152,7 @@ export const UpdateRequestStatusModal = ({
                             <span className="font-mono">{currentStatus ?? "-"}</span>
                             {" · "}
                             <span className="font-semibold">Next:</span>{" "}
-                            <span className="font-mono">{nextStatus}</span>
+                            <span className="font-mono">{nextLabel}</span>
                         </div>
                     </div>
 

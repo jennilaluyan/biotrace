@@ -23,6 +23,7 @@ use App\Http\Controllers\SampleRequestStatusController;
 use App\Http\Controllers\SampleController;
 use App\Http\Controllers\SampleStatusHistoryController;
 use App\Http\Controllers\SampleCommentController;
+use App\Http\Controllers\SamplePhysicalWorkflowController;
 
 // Intake
 use App\Http\Controllers\SampleIntakeChecklistController;
@@ -145,7 +146,7 @@ Route::prefix('v1')->group(function () {
             Route::post('loa/{loaId}/sign', [ClientLoaController::class, 'sign']);
 
             // parameters for clients
-            Route::get('parameters', [\App\Http\Controllers\ParameterController::class, 'index']);
+            Route::get('parameters', [ParameterController::class, 'index']);
         });
 
     /*
@@ -234,6 +235,12 @@ Route::prefix('v1')->group(function () {
         Route::get('samples/{sample}', [SampleController::class, 'show'])->whereNumber('sample');
         Route::patch('samples/{sample}', [SampleController::class, 'update'])->whereNumber('sample');
         Route::put('samples/{sample}', [SampleController::class, 'update'])->whereNumber('sample');
+        Route::patch('samples/{sample}/physical-workflow', [SamplePhysicalWorkflowController::class, 'update'])
+            ->whereNumber('sample');
+        Route::patch('/samples/{sample}/physical-workflow', [SamplePhysicalWorkflowController::class, 'update'])
+            ->whereNumber('sample');
+        Route::post('/samples/{sample}/custody', [SamplePhysicalWorkflowController::class, 'store'])
+            ->whereNumber('sample');
 
         // Sample status & history
         Route::post('samples/{sample}/status', [SampleController::class, 'updateStatus']);

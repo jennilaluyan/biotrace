@@ -1,3 +1,4 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\portal\ClientRequestDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { Sample } from "../../services/samples";
@@ -45,6 +46,27 @@ function datetimeLocalFromIso(iso?: string | null): string {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function extractPaginatedRows<T>(res: any): T[] {
+    const root = res?.data ?? res;
+    const d = root?.data ?? root;
+
+    if (Array.isArray(d)) return d as T[];
+    if (Array.isArray(d?.data)) return d.data as T[];
+
+    const d2 = d?.data ?? null;
+    if (Array.isArray(d2)) return d2 as T[];
+    if (Array.isArray(d2?.data)) return d2.data as T[];
+
+    return [];
+}
+
+function parameterLabel(p: any) {
+    const id = Number(p?.parameter_id);
+    const code = String(p?.code ?? "").trim();
+    const name = String(p?.name ?? "").trim();
+    return (code ? `${code} — ` : "") + (name || `Parameter #${id}`);
+}
+
 export default function ClientRequestDetailPage() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -73,7 +95,12 @@ export default function ClientRequestDetailPage() {
     const [paramQuery, setParamQuery] = useState("");
     const [paramLoading, setParamLoading] = useState(false);
     const [paramItems, setParamItems] = useState<ParameterRow[]>([]);
-    const [selectedParamIds, setSelectedParamIds] = useState<number[]>([]);
+
+    // ✅ ONLY ONE selection
+    const [selectedParamId, setSelectedParamId] = useState<number | null>(null);
+
+    // ✅ picker UI show/hide
+    const [paramPickerOpen, setParamPickerOpen] = useState(true);
 
     const effectiveStatus = useMemo(() => String((data as any)?.request_status ?? ""), [data]);
 
@@ -82,11 +109,28 @@ export default function ClientRequestDetailPage() {
         return s === "draft" || s === "needs_revision" || s === "returned" || s === "";
     }, [effectiveStatus]);
 
+    const requestedParameterRows = useMemo(() => {
+        const arr = (data as any)?.requested_parameters;
+        return Array.isArray(arr) ? arr : [];
+    }, [data]);
+
+    const requestReturnNote = useMemo(() => {
+        const note = String((data as any)?.request_return_note ?? "").trim();
+        return note || null;
+    }, [data]);
+
     const loadParams = async (q?: string) => {
         try {
             setParamLoading(true);
-            const res = await listParameters({ page: 1, per_page: 20, q: (q ?? "").trim() || undefined });
-            const rows = (res as any)?.data?.data ?? [];
+
+            const res = await listParameters({
+                scope: "client",
+                page: 1,
+                per_page: 20,
+                q: (q ?? "").trim() || undefined,
+            });
+
+            const rows = extractPaginatedRows<ParameterRow>(res);
             setParamItems(Array.isArray(rows) ? rows : []);
         } catch {
             setParamItems([]);
@@ -100,10 +144,15 @@ export default function ClientRequestDetailPage() {
         setScheduledDeliveryAt(datetimeLocalFromIso((s as any).scheduled_delivery_at ?? null));
         setExaminationPurpose(String((s as any).examination_purpose ?? ""));
         setAdditionalNotes(String((s as any).additional_notes ?? ""));
+
         const ids = Array.isArray((s as any).requested_parameters)
-            ? (s as any).requested_parameters.map((p: any) => Number(p.parameter_id)).filter((x: any) => Number.isFinite(x))
+            ? (s as any).requested_parameters
+                .map((p: any) => Number(p.parameter_id))
+                .filter((x: any) => Number.isFinite(x))
             : [];
-        setSelectedParamIds(Array.isArray(ids) ? Array.from(new Set(ids)) : []);
+
+        setSelectedParamId(ids.length ? ids[0] : null);
+        setParamPickerOpen(ids.length ? false : true);
     };
 
     const load = async () => {
@@ -116,10 +165,12 @@ export default function ClientRequestDetailPage() {
             setError(null);
             setInfo(null);
             setLoading(true);
+
             const s = await clientSampleRequestService.getById(numericId);
             setData(s);
             hydrateForm(s);
-            loadParams("");
+
+            await loadParams("");
         } catch (e: any) {
             setError(getValidationMessage(e, "Failed to load request detail."));
             setData(null);
@@ -141,12 +192,21 @@ export default function ClientRequestDetailPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [numericId]);
 
-    const toggleParam = (id: number) => {
-        setSelectedParamIds((prev) => {
-            if (prev.includes(id)) return prev.filter((x) => x !== id);
-            return [...prev, id];
-        });
+    const selectParam = (id: number) => {
+        setSelectedParamId(id);
     };
+
+    const selectedParamLabel = useMemo(() => {
+        if (!selectedParamId) return null;
+
+        const fromList = paramItems.find((p) => Number(p.parameter_id) === selectedParamId);
+        if (fromList) return parameterLabel(fromList);
+
+        const fromPayload = requestedParameterRows.find((p: any) => Number(p?.parameter_id) === selectedParamId);
+        if (fromPayload) return parameterLabel(fromPayload);
+
+        return `Parameter #${selectedParamId}`;
+    }, [selectedParamId, paramItems, requestedParameterRows]);
 
     const buildPayload = () => {
         return {
@@ -154,13 +214,13 @@ export default function ClientRequestDetailPage() {
             scheduled_delivery_at: scheduledDeliveryAt ? scheduledDeliveryAt : null,
             examination_purpose: examinationPurpose.trim() || null,
             additional_notes: additionalNotes.trim() || null,
-            parameter_ids: selectedParamIds,
+            parameter_ids: selectedParamId ? [selectedParamId] : [],
         };
     };
 
     const canSubmit = useMemo(() => {
-        return canEdit && !!sampleType.trim() && !!scheduledDeliveryAt.trim() && selectedParamIds.length >= 1 && !submitting;
-    }, [canEdit, sampleType, scheduledDeliveryAt, selectedParamIds, submitting]);
+        return canEdit && !!sampleType.trim() && !!scheduledDeliveryAt.trim() && !!selectedParamId && !submitting;
+    }, [canEdit, sampleType, scheduledDeliveryAt, selectedParamId, submitting]);
 
     const saveDraft = async () => {
         if (!Number.isFinite(numericId) || Number.isNaN(numericId)) return;
@@ -193,8 +253,8 @@ export default function ClientRequestDetailPage() {
             setError("Scheduled delivery is required.");
             return;
         }
-        if (selectedParamIds.length < 1) {
-            setError("At least 1 parameter is required.");
+        if (!selectedParamId) {
+            setError("One parameter is required.");
             return;
         }
 
@@ -203,11 +263,8 @@ export default function ClientRequestDetailPage() {
             setError(null);
             setSubmitting(true);
 
-            // submit requires payload now
-            const updated = await clientSampleRequestService.submit(numericId, buildPayload() as any);
-            setInfo("Submitted successfully. Waiting for admin review.");
-            setData(updated);
-            await load();
+            await clientSampleRequestService.submit(numericId, buildPayload() as any);
+            navigate("/portal/requests");
         } catch (e: any) {
             setError(getValidationMessage(e, "Failed to submit request."));
         } finally {
@@ -227,10 +284,30 @@ export default function ClientRequestDetailPage() {
         return (
             <div className="min-h-[60vh]">
                 <div className="px-0 py-2">
-                    <button type="button" className="lims-btn" onClick={() => navigate("/portal/requests")}>
-                        Back
-                    </button>
+                    <nav className="lims-breadcrumb">
+                        <span className="lims-breadcrumb-icon">
+                            <svg
+                                viewBox="0 0 24 24"
+                                className="h-4 w-4"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.6"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            >
+                                <path d="M4 12h9" />
+                                <path d="M11 9l3 3-3 3" />
+                                <path d="M4 6v12" />
+                            </svg>
+                        </span>
+                        <button type="button" className="lims-breadcrumb-link" onClick={() => navigate("/portal/requests")}>
+                            Sample Requests
+                        </button>
+                        <span className="lims-breadcrumb-separator">›</span>
+                        <span className="lims-breadcrumb-current">Sample Request Detail</span>
+                    </nav>
                 </div>
+
                 <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
                     <div className="text-sm text-red-700">{error ?? "Request not found."}</div>
                 </div>
@@ -240,26 +317,46 @@ export default function ClientRequestDetailPage() {
 
     const updatedAt = fmtDate((data as any).updated_at ?? (data as any).created_at);
     const statusLabel = effectiveStatus || "Unknown";
+    const statusLower = statusLabel.toLowerCase();
 
     return (
         <div className="min-h-[60vh]">
+            <div className="px-0 py-2">
+                <nav className="lims-breadcrumb">
+                    <span className="lims-breadcrumb-icon">
+                        <svg
+                            viewBox="0 0 24 24"
+                            className="h-4 w-4"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                        >
+                            <path d="M4 12h9" />
+                            <path d="M11 9l3 3-3 3" />
+                            <path d="M4 6v12" />
+                        </svg>
+                    </span>
+                    <button type="button" className="lims-breadcrumb-link" onClick={() => navigate("/portal/requests")}>
+                        Sample Requests
+                    </button>
+                    <span className="lims-breadcrumb-separator">›</span>
+                    <span className="lims-breadcrumb-current">Sample Request Detail</span>
+                </nav>
+            </div>
+
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
-                    <button type="button" className="lims-btn" onClick={() => navigate("/portal/requests")}>
-                        Back
-                    </button>
-
-                    <div className="mt-3 flex items-center gap-2">
-                        <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                            Request #{(data as any).sample_id ?? numericId}
-                        </h1>
+                    <div className="mt-1 flex items-center gap-2">
+                        <h1 className="text-lg md:text-xl font-bold text-gray-900">Request #{(data as any).sample_id ?? numericId}</h1>
                         <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", statusTone(statusLabel))}>
                             {statusLabel}
                         </span>
                     </div>
 
                     <div className="text-sm text-gray-600 mt-1">
-                        Updated <span className="font-semibold text-gray-900">{updatedAt}</span>
+                        Last updated <span className="font-semibold text-gray-900">{updatedAt}</span>
                     </div>
                 </div>
 
@@ -287,6 +384,13 @@ export default function ClientRequestDetailPage() {
 
             {error && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
             {info && <div className="text-sm text-green-800 bg-green-100 border border-green-200 px-3 py-2 rounded mb-4">{info}</div>}
+
+            {requestReturnNote && (statusLower === "returned" || statusLower === "needs_revision") && (
+                <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <div className="text-sm font-semibold text-amber-900">Revision requested</div>
+                    <div className="text-sm text-amber-900 mt-1 whitespace-pre-wrap">{requestReturnNote}</div>
+                </div>
+            )}
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white">
@@ -322,65 +426,102 @@ export default function ClientRequestDetailPage() {
 
                     <div className="md:col-span-2">
                         <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Parameters <span className="text-red-600">*</span>
+                            Parameter <span className="text-red-600">*</span>
                         </label>
+
+                        {selectedParamLabel && (
+                            <div className="mb-2 flex items-center justify-between gap-2 flex-wrap">
+                                <span className="inline-flex items-center rounded-full bg-red-600 text-white px-3 py-1 text-xs font-semibold">
+                                    {selectedParamLabel}
+                                </span>
+                            </div>
+                        )}
 
                         <div className="flex gap-2">
                             <input
                                 value={paramQuery}
                                 onChange={(e) => setParamQuery(e.target.value)}
+                                onFocus={() => {
+                                    if (!canEdit) return;
+                                    setParamPickerOpen(true);
+                                    if (paramItems.length === 0 && !paramLoading) {
+                                        loadParams(paramQuery);
+                                    }
+                                }}
+                                onMouseDown={() => {
+                                    if (!canEdit) return;
+                                    setParamPickerOpen(true);
+                                }}
                                 placeholder="Search parameter…"
                                 disabled={!canEdit}
                                 className="flex-1 rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
                             />
                             <button
                                 type="button"
-                                className="rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                                onClick={() => loadParams(paramQuery)}
+                                className="lims-btn"
+                                onClick={async () => {
+                                    setParamPickerOpen(true);
+                                    await loadParams(paramQuery);
+                                }}
                                 disabled={!canEdit || paramLoading}
                             >
                                 {paramLoading ? "…" : "Search"}
                             </button>
-                        </div>
 
-                        <div className="mt-3 rounded-2xl border border-gray-200 bg-white max-h-48 overflow-auto">
-                            {paramLoading ? (
-                                <div className="p-3 text-sm text-gray-600">Loading…</div>
-                            ) : paramItems.length === 0 ? (
-                                <div className="p-3 text-sm text-gray-600">No parameters found.</div>
-                            ) : (
-                                <ul className="divide-y divide-gray-100">
-                                    {paramItems.map((p) => {
-                                        const id = Number(p.parameter_id);
-                                        const checked = selectedParamIds.includes(id);
-                                        return (
-                                            <li key={id} className="p-3 flex items-center justify-between gap-3">
-                                                <div className="min-w-0">
-                                                    <div className="text-sm font-medium text-gray-900 truncate">
-                                                        {(p.code ? `${p.code} — ` : "") + (p.name ?? `Parameter #${id}`)}
-                                                    </div>
-                                                    <div className="text-xs text-gray-500 truncate">{p.unit ? `Unit: ${p.unit}` : ""}</div>
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => toggleParam(id)}
-                                                    disabled={!canEdit}
-                                                    className={`px-3 py-1 rounded-full text-xs border ${checked
-                                                        ? "bg-primary text-white border-primary"
-                                                        : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-                                                        } ${!canEdit ? "opacity-50 cursor-not-allowed" : ""}`}
-                                                >
-                                                    {checked ? "Selected" : "Select"}
-                                                </button>
-                                            </li>
-                                        );
-                                    })}
-                                </ul>
+                            {canEdit && paramPickerOpen && (
+                                <button
+                                    type="button"
+                                    className="lims-btn"
+                                    onClick={() => setParamPickerOpen(false)}
+                                >
+                                    Done
+                                </button>
                             )}
                         </div>
 
+                        {paramPickerOpen && (
+                            <div className="mt-3 rounded-2xl border border-gray-200 bg-white max-h-48 overflow-auto">
+                                {paramLoading ? (
+                                    <div className="p-3 text-sm text-gray-600">Loading…</div>
+                                ) : paramItems.length === 0 ? (
+                                    <div className="p-3 text-sm text-gray-600">No parameters found.</div>
+                                ) : (
+                                    <ul className="divide-y divide-gray-100">
+                                        {paramItems.map((p) => {
+                                            const id = Number(p.parameter_id);
+                                            const checked = selectedParamId === id;
+
+                                            return (
+                                                <li key={id} className="p-3 flex items-center justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <div className="text-sm font-medium text-gray-900 truncate">{parameterLabel(p)}</div>
+                                                        <div className="text-xs text-gray-500 truncate">{p.unit ? `Unit: ${p.unit}` : ""}</div>
+                                                    </div>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => selectParam(id)}
+                                                        disabled={!canEdit}
+                                                        className={cx(
+                                                            "px-3 py-1 rounded-full text-xs border",
+                                                            checked
+                                                                ? "bg-primary text-white border-primary"
+                                                                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50",
+                                                            !canEdit ? "opacity-50 cursor-not-allowed" : ""
+                                                        )}
+                                                    >
+                                                        {checked ? "Selected" : "Select"}
+                                                    </button>
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                )}
+                            </div>
+                        )}
+
                         <div className="mt-2 text-[11px] text-gray-500">
-                            Selected: <span className="font-semibold text-gray-800">{selectedParamIds.length}</span>
+                            Selected: <span className="font-semibold text-gray-800">{selectedParamId ? 1 : 0}</span>
                         </div>
                     </div>
 

@@ -13,8 +13,10 @@ type NavItem = {
 
 export const PortalLayout = () => {
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [loggingOut, setLoggingOut] = useState(false);
+
     const navigate = useNavigate();
-    const { client, loading, isClientAuthenticated } = useClientAuth() as any;
+    const { loading, isClientAuthenticated } = useClientAuth() as any;
 
     // Hard guard
     useEffect(() => {
@@ -45,7 +47,6 @@ export const PortalLayout = () => {
             );
         }
 
-        // home
         return (
             <svg
                 viewBox="0 0 24 24"
@@ -62,8 +63,20 @@ export const PortalLayout = () => {
         );
     };
 
+    const handlePortalLogout = async () => {
+        if (loggingOut) return;
+        try {
+            setLoggingOut(true);
+            await clientLogoutRequest();
+        } finally {
+            setLoggingOut(false);
+            navigate("/login", { replace: true });
+        }
+    };
+
     const renderNavItem = (item: NavItem, closeOnClick = false) => {
-        const end = item.path === "/portal" || item.path === "/portal/requests";
+        // ✅ Only dashboard should use "end". Requests should stay active for /portal/requests/:id
+        const end = item.path === "/portal";
 
         return (
             <NavLink
@@ -88,23 +101,36 @@ export const PortalLayout = () => {
         );
     };
 
-    // Make portal logout behave like backoffice: Topbar dropdown handles it.
-    // We'll hook into Topbar's logout behavior by forcing /login redirect after client logout.
-    const handlePortalLogout = async () => {
-        try {
-            await clientLogoutRequest();
-        } finally {
-            navigate("/login", { replace: true });
-        }
-    };
-
-    // Trick: Topbar currently uses staff auth + logoutRequest().
-    // To keep UI identical NOW (without refactoring Topbar), we keep the same Topbar component,
-    // and provide logout for portal via a small global handler: click "Logout" from topbar dropdown will still work for staff only.
-    // For portal, we also add a hidden logout route behavior by clearing client session when leaving portal.
-    //
-    // Practical solution: keep portal logout button in sidebar removed, and rely on top-right "Logout" link in your screenshot? (Not identical.)
-    // If you want 100% identical AND functional logout in portal, we should refactor Topbar to accept custom logout + labels.
+    const LogoutButton = ({ compact }: { compact?: boolean }) => (
+        <button
+            type="button"
+            onClick={handlePortalLogout}
+            disabled={loggingOut}
+            className={[
+                "w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition",
+                "text-white/80 hover:bg-white/10 hover:text-white",
+                loggingOut ? "opacity-60 cursor-not-allowed" : "",
+                compact ? "justify-center" : "",
+            ].join(" ")}
+        >
+            <span className="inline-flex h-5 w-5 items-center justify-center">
+                <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                >
+                    <path d="M10 17l5-5-5-5" />
+                    <path d="M15 12H3" />
+                    <path d="M21 21V3" />
+                </svg>
+            </span>
+            <span>{loggingOut ? "Logging out..." : "Logout"}</span>
+        </button>
+    );
 
     return (
         <div className="min-h-screen bg-cream flex">
@@ -113,9 +139,14 @@ export const PortalLayout = () => {
                 <div className="px-6 py-5 border-b border-black/10 flex items-center">
                     <img src={BiotraceLogo} alt="Biotrace" className="h-10 w-auto" />
                 </div>
+
                 <nav className="flex-1 px-3 py-4 space-y-1">
                     {navItems.map((i) => renderNavItem(i))}
                 </nav>
+
+                <div className="px-3 pb-4">
+                    <LogoutButton />
+                </div>
             </aside>
 
             {/* Mobile overlay */}
@@ -144,11 +175,15 @@ export const PortalLayout = () => {
                 <nav className="px-3 py-4 space-y-1">
                     {navItems.map((i) => renderNavItem(i, true))}
                 </nav>
+
+                <div className="px-3 pb-4">
+                    <LogoutButton />
+                </div>
             </aside>
 
             {/* Main */}
             <div className="flex-1 flex flex-col min-h-screen">
-                {/* Use EXACT same Topbar component as backoffice */}
+                {/* Use same Topbar (portal just uses sidebar open) */}
                 <Topbar onOpenNav={() => setSidebarOpen(true)} />
 
                 <main className="flex-1 px-4 md:px-6 pb-6 pt-4">

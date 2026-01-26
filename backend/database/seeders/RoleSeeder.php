@@ -55,11 +55,34 @@ class RoleSeeder extends Seeder
                 'updated_at' => $now,
             ],
         ];
-        
-        DB::table('roles')->upsert(
-            $rows,
-            ['role_id'],
-            ['name', 'description', 'updated_at']
-        );        
+
+        DB::transaction(function () use ($rows) {
+            // Upsert by role_id (stable IDs)
+            DB::table('roles')->upsert(
+                $rows,
+                ['role_id'],
+                ['name', 'description', 'updated_at']
+            );
+
+            /**
+             * IMPORTANT (PostgreSQL):
+             * Because we insert explicit role_id values (1..6), the sequence behind bigIncrements
+             * may not move forward automatically.
+             *
+             * If later the app does: INSERT INTO roles(name, ...) VALUES (...)
+             * without role_id, Postgres will try to reuse old sequence values (1..6) -> duplicate key.
+             *
+             * So we must "bump" the sequence to MAX(role_id).
+             */
+            if (DB::getDriverName() === 'pgsql') {
+                DB::statement("
+                    SELECT setval(
+                        pg_get_serial_sequence('roles', 'role_id'),
+                        (SELECT COALESCE(MAX(role_id), 1) FROM roles),
+                        true
+                    )
+                ");
+            }
+        });
     }
 }

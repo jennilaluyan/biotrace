@@ -6,67 +6,89 @@ use App\Models\Sample;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Schema;
 
 class SampleRequestQueueController extends Controller
 {
     /**
      * GET /api/v1/samples/requests
-     *
-     * Query params:
-     * - request_status=submitted|ready_for_delivery|physically_received|...
-     * - submitted_from=YYYY-MM-DD
-     * - submitted_to=YYYY-MM-DD
-     * - q=search
-     * - date=today|7d|30d (optional shortcut)
+     * Backoffice queue:
+     * - ONLY non-draft (client draft is private)
+     * - ONLY requests (no lab_sample_code yet)
+     * - supports q + request_status/status + date filter (today/7d/30d)
      */
     public function index(Request $request): JsonResponse
     {
-        $this->authorize('viewAny', Sample::class);
+        $q = trim((string) $request->get('q', ''));
+        // ✅ frontend sends request_status; keep backward compatibility with status
+        $status = trim((string) ($request->get('request_status', $request->get('status', ''))));
+        $date = trim((string) $request->get('date', ''));
 
-        $query = Sample::query()->with(['client', 'creator', 'assignee', 'requestedParameters']);
+        $query = Sample::query()->with(['client', 'requestedParameters']);
 
-        if ($request->filled('request_status')) {
-            $query->where('request_status', $request->string('request_status')->toString());
+        // ✅ Queue = request yang belum punya lab_sample_code
+        if (Schema::hasColumn('samples', 'lab_sample_code')) {
+            $query->whereNull('lab_sample_code');
         }
 
-        if ($request->filled('submitted_from')) {
-            $query->whereDate('submitted_at', '>=', $request->get('submitted_from'));
+        // Draft is client-private
+        if (Schema::hasColumn('samples', 'request_status')) {
+            $query->where(function ($w) {
+                $w->whereNull('request_status')
+                    ->orWhere('request_status', '!=', 'draft');
+            });
         }
 
-        if ($request->filled('submitted_to')) {
-            $query->whereDate('submitted_at', '<=', $request->get('submitted_to'));
+        if ($status !== '') {
+            if (Schema::hasColumn('samples', 'request_status')) {
+                $query->where('request_status', $status);
+            }
         }
 
-        // shortcut date filter
-        if ($request->filled('date')) {
-            $v = strtolower(trim((string) $request->get('date')));
+        // Date filter: prefer submitted_at, else created_at, else sample_id as fallback (no filter)
+        if ($date !== '') {
             $now = Carbon::now();
-            if ($v === 'today') {
-                $query->whereDate('submitted_at', '=', $now->toDateString());
-            } elseif ($v === '7d') {
-                $query->where('submitted_at', '>=', $now->copy()->subDays(7));
-            } elseif ($v === '30d') {
-                $query->where('submitted_at', '>=', $now->copy()->subDays(30));
+            $from = null;
+
+            if ($date === 'today') {
+                $from = $now->copy()->startOfDay();
+            } elseif ($date === '7d') {
+                $from = $now->copy()->subDays(7);
+            } elseif ($date === '30d') {
+                $from = $now->copy()->subDays(30);
+            }
+
+            if ($from) {
+                if (Schema::hasColumn('samples', 'submitted_at')) {
+                    $query->where('submitted_at', '>=', $from);
+                } elseif (Schema::hasColumn('samples', 'created_at')) {
+                    $query->where('created_at', '>=', $from);
+                }
             }
         }
 
-        if ($request->filled('q')) {
-            $q = trim((string) $request->get('q'));
-            if ($q !== '') {
-                $query->where(function ($w) use ($q) {
-                    $w->where('sample_id', (int) $q)
-                        ->orWhereHas('client', fn($c) => $c->where('name', 'ILIKE', "%{$q}%"))
-                        ->orWhere('sample_type', 'ILIKE', "%{$q}%")
-                        ->orWhere('lab_sample_code', 'ILIKE', "%{$q}%")
-                        ->orWhere('request_status', 'ILIKE', "%{$q}%");
-                });
-            }
+        if ($q !== '') {
+            $like = "%{$q}%";
+
+            $query->where(function ($w) use ($like) {
+                // Database-agnostic search (avoid ILIKE hard dependency)
+                $driver = Schema::getConnection()->getDriverName();
+                $op = $driver === 'pgsql' ? 'ILIKE' : 'LIKE';
+
+                $w->where('sample_type', $op, $like)
+                    ->orWhere('request_status', $op, $like)
+                    ->orWhere('lab_sample_code', $op, $like);
+
+                // client name/email
+                if (method_exists(Sample::class, 'client')) {
+                    $w->orWhereHas('client', function ($c) use ($op, $like) {
+                        $c->where('name', $op, $like)->orWhere('email', $op, $like);
+                    });
+                }
+            });
         }
 
-        // newest first (submitted_at first, fallback to scheduled_delivery_at, fallback to received_at)
-        $query->orderByRaw('COALESCE(submitted_at, scheduled_delivery_at, received_at) DESC');
-
-        $rows = $query->paginate(15);
+        $rows = $query->orderByDesc('sample_id')->paginate(15);
 
         return response()->json([
             'data' => $rows->items(),

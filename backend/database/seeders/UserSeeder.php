@@ -22,7 +22,6 @@ class UserSeeder extends Seeder
         $hasRoleId   = Schema::hasColumn($table, 'role_id');
 
         // Map role_id by role name from roles table
-        // ['Client' => 1, 'Administrator' => 2, ...] sesuai RoleSeeder
         $roleIdByName = DB::table('roles')
             ->pluck('role_id', 'name')
             ->toArray();
@@ -59,10 +58,12 @@ class UserSeeder extends Seeder
             }
 
             // Password
+            // IMPORTANT: if both columns exist, set both to avoid auth mismatch.
             $hashed = Hash::make('P@ssw0rd!');
             if ($hasPwdHash) {
                 $row['password_hash'] = $hashed;
-            } elseif ($hasPassword) {
+            }
+            if ($hasPassword) {
                 $row['password'] = $hashed;
             }
 
@@ -81,12 +82,12 @@ class UserSeeder extends Seeder
 
         // Sesuaikan nama ROLE dengan 'name' di RoleSeeder
         $rows = [
-            $makeRow('Client Demo',              'client@lims.local',             'Client'),
-            $makeRow('Administrator Demo',       'admin@lims.local',              'Administrator'),
-            $makeRow('Sample Collector Demo',    'samplecollector@lims.local',    'Sample Collector'),
-            $makeRow('Analyst Demo',             'analyst@lims.local',            'Analyst'),
-            $makeRow('Operational Manager Demo', 'operationalmanager@lims.local', 'Operational Manager'),
-            $makeRow('Laboratory Head Demo',     'labhead@lims.local',            'Laboratory Head'),
+            $makeRow('Client Demo',              'client@lims.local',              'Client'),
+            $makeRow('Administrator Demo',       'admin@lims.local',               'Administrator'),
+            $makeRow('Sample Collector Demo',    'samplecollector@lims.local',     'Sample Collector'),
+            $makeRow('Analyst Demo',             'analyst@lims.local',             'Analyst'),
+            $makeRow('Operational Manager Demo', 'operationalmanager@lims.local',  'Operational Manager'),
+            $makeRow('Laboratory Head Demo',     'labhead@lims.local',             'Laboratory Head'),
         ];
 
         if ($hasRoleId) {
@@ -100,8 +101,17 @@ class UserSeeder extends Seeder
         }
 
         if ($hasEmail) {
+            // Ensure password columns are included in upsert update columns
             $updateColumns = array_keys($rows[0]);
             $updateColumns = array_values(array_filter($updateColumns, fn($c) => $c !== 'created_at'));
+
+            if ($hasPwdHash && !in_array('password_hash', $updateColumns, true)) {
+                $updateColumns[] = 'password_hash';
+            }
+            if ($hasPassword && !in_array('password', $updateColumns, true)) {
+                $updateColumns[] = 'password';
+            }
+
             DB::table($table)->upsert($rows, ['email'], $updateColumns);
         } else {
             foreach ($rows as $row) {

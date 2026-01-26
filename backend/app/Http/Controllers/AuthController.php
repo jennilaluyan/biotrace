@@ -8,10 +8,10 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use App\Support\AuditLogger;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Schema;
 
 class AuthController extends Controller
 {
-    // POST /api/v1/auth/login
     // POST /api/v1/auth/login
     public function login(Request $request)
     {
@@ -21,12 +21,38 @@ class AuthController extends Controller
             'device_name' => ['nullable', 'string'], // optional: token untuk Postman
         ]);
 
-        $user = Staff::where('email', $data['email'])->first();
+        // Normalize email (trim + lower for lookup)
+        $email = mb_strtolower(trim($data['email']));
+
+        // Find staff case-insensitive (robust for DB uniqueness rules)
+        $user = Staff::query()
+            ->whereRaw('LOWER(email) = ?', [$email])
+            ->first();
+
+        // Resolve password hash column safely
+        $hash = null;
+
+        if ($user) {
+            // preferred schema: password_hash
+            if (Schema::hasColumn('staffs', 'password_hash')) {
+                $hash = $user->password_hash;
+            }
+
+            // fallback: some schemas might use 'password'
+            if (!$hash && Schema::hasColumn('staffs', 'password')) {
+                $hash = $user->password;
+            }
+
+            // last resort: model may implement getAuthPassword properly
+            if (!$hash && method_exists($user, 'getAuthPassword')) {
+                $hash = $user->getAuthPassword();
+            }
+        }
 
         // =====================
-        // GAGAL: kredensial salah
+        // FAIL: invalid credentials
         // =====================
-        if (! $user || ! Hash::check($data['password'], $user->getAuthPassword())) {
+        if (! $user || ! $hash || ! Hash::check($data['password'], $hash)) {
             AuditLogger::write(
                 'LOGIN_FAILURE',
                 null,              // staff_id belum tahu
@@ -34,7 +60,7 @@ class AuthController extends Controller
                 null,              // entity_id
                 null,              // old_values
                 [
-                    'email'  => $data['email'],
+                    'email'  => $email,
                     'reason' => 'INVALID_CREDENTIALS',
                 ]
             );
@@ -43,17 +69,17 @@ class AuthController extends Controller
         }
 
         // =====================
-        // GAGAL: akun non-aktif
+        // FAIL: inactive
         // =====================
         if (! $user->is_active) {
             AuditLogger::write(
                 'LOGIN_FAILURE',
-                $user->getKey(),   // staff_id actor
+                $user->getKey(),
                 'staffs',
                 $user->getKey(),
                 null,
                 [
-                    'email'  => $data['email'],
+                    'email'  => $email,
                     'reason' => 'ACCOUNT_INACTIVE',
                 ]
             );
@@ -64,8 +90,6 @@ class AuthController extends Controller
         // =====================
         // LOGIN via SESSION (browser SPA)
         // =====================
-        // 👉 JANGAN pakai if ($request->hasSession())
-        // Langsung login ke guard web dan regenerate session.
         if ($request->hasSession()) {
             Auth::guard('web')->login($user);
             $request->session()->regenerate();
@@ -80,21 +104,17 @@ class AuthController extends Controller
         $token = null;
 
         if (! empty($data['device_name'])) {
-            // kebijakan: 1 user = 1 active token
             $user->tokens()->delete();
 
             $tokenInstance = $user->createToken($data['device_name']);
             $token = $tokenInstance->plainTextToken;
         }
 
-        // =====================
-        // LOGIN_SUCCESS → catat audit
-        // =====================
         AuditLogger::write(
             'LOGIN_SUCCESS',
-            $user->getKey(),      // staff_id
+            $user->getKey(),
             'staffs',
-            $user->getKey(),      // entity_id
+            $user->getKey(),
             null,
             [
                 'email'       => $user->email,
@@ -115,7 +135,6 @@ class AuthController extends Controller
                     ]
                     : null,
             ],
-            // null untuk browser (cookie), string token untuk Postman
             'token' => $token,
         ], 200);
     }
@@ -150,7 +169,6 @@ class AuthController extends Controller
         $user = $request->user();
         $tokenId = null;
 
-        // kalau logout pakai Bearer token (Postman)
         if ($user && method_exists($user, 'currentAccessToken')) {
             $token = $user->currentAccessToken();
 
@@ -160,7 +178,6 @@ class AuthController extends Controller
             }
         }
 
-        // AUDIT: LOGOUT sebelum session dihancurkan
         AuditLogger::write(
             'LOGOUT',
             $user?->getKey(),
@@ -174,7 +191,6 @@ class AuthController extends Controller
             ]
         );
 
-        // ✅ logout session (cookie flow) — HARUS panggil guard logout
         Auth::guard('web')->logout();
 
         if ($request->hasSession()) {
@@ -194,12 +210,10 @@ class AuthController extends Controller
             'role_id' => [
                 'required',
                 'integer',
-                // boleh self-register: Admin, Sample Collector, Analyst, OM
                 Rule::in([2, 3, 4, 5]),
             ],
         ]);
 
-        // email case-insensitive sudah ada unique index, tapi tetap aman cek cepat:
         $exists = Staff::whereRaw('LOWER(email) = ?', [strtolower($data['email'])])->exists();
         if ($exists) {
             return response()->json(['message' => 'Email already registered'], 422);
@@ -210,12 +224,12 @@ class AuthController extends Controller
             'email' => $data['email'],
             'password_hash' => Hash::make($data['password']),
             'role_id' => $data['role_id'],
-            'is_active' => false, // penting: pending Lab Head approval
+            'is_active' => false,
         ]);
 
         AuditLogger::write(
             'STAFF_REGISTER',
-            $staff->getKey(), // actor = dirinya sendiri
+            $staff->getKey(),
             'staffs',
             $staff->getKey(),
             null,

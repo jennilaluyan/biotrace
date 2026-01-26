@@ -2,19 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\SampleHighLevelStatus;
 use App\Http\Requests\SampleStatusUpdateRequest;
 use App\Http\Requests\SampleStoreRequest;
 use App\Models\Sample;
 use App\Models\Staff;
+use App\Support\AuditLogger;
 use App\Support\SampleStatusTransitions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use App\Support\AuditLogger;
-use App\Enums\SampleHighLevelStatus;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class SampleController extends Controller
 {
@@ -28,18 +28,24 @@ class SampleController extends Controller
         $query = Sample::query()
             ->with(['client', 'creator', 'assignee', 'requestedParameters']);
 
+        // ✅ F1: Samples page = ONLY records that already have lab_sample_code
+        if (Schema::hasColumn('samples', 'lab_sample_code')) {
+            $query->whereNotNull('lab_sample_code');
+        }
+
         if ($request->filled('client_id')) {
             $query->where('client_id', $request->integer('client_id'));
         }
 
         if ($request->filled('status_enum')) {
-            $raw = strtolower($request->get('status_enum'));
+            $raw = strtolower((string) $request->get('status_enum'));
             $enum = SampleHighLevelStatus::tryFrom($raw);
             if ($enum) {
                 $query->whereIn('current_status', $enum->currentStatuses());
             }
         }
 
+        // Keep legacy date filters (only meaningful for lab samples)
         if ($request->filled('from')) {
             $query->whereDate('received_at', '>=', $request->get('from'));
         }
@@ -47,7 +53,11 @@ class SampleController extends Controller
             $query->whereDate('received_at', '<=', $request->get('to'));
         }
 
-        $samples = $query->orderByDesc('received_at')->paginate(15);
+        // Prefer stable ordering even if received_at is null
+        $samples = $query
+            ->orderByDesc('received_at')
+            ->orderByDesc('sample_id')
+            ->paginate(15);
 
         return response()->json([
             'data' => $samples->items(),
@@ -132,7 +142,21 @@ class SampleController extends Controller
 
     public function updateStatus(SampleStatusUpdateRequest $request, Sample $sample): JsonResponse
     {
-        if (Schema::hasColumn('samples', 'request_status')) {
+        /**
+         * ✅ Gate lab workflow:
+         * - Prefer physical workflow marker admin_received_from_client_at (more correct)
+         * - Fallback: request_status must be physically_received
+         */
+        if (Schema::hasColumn('samples', 'admin_received_from_client_at')) {
+            if (empty($sample->admin_received_from_client_at)) {
+                return response()->json([
+                    'message' => 'Sample belum diterima oleh admin dari client (physical workflow belum mulai).',
+                    'errors' => [
+                        'admin_received_from_client_at' => [null],
+                    ],
+                ], 422);
+            }
+        } elseif (Schema::hasColumn('samples', 'request_status')) {
             if (($sample->request_status ?? null) !== 'physically_received') {
                 return response()->json([
                     'message' => 'Sample belum diterima fisik oleh lab. Tidak boleh masuk lab workflow.',

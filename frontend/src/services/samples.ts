@@ -23,6 +23,16 @@ export type SampleRequestStatus =
     | "physically_received"
     | (string & {});
 
+// ✅ Physical workflow actions (Admin <-> Sample Collector)
+export type PhysicalWorkflowAction =
+    | "admin_received_from_client"
+    | "admin_brought_to_collector"
+    | "collector_received"
+    | "collector_intake_completed"
+    | "collector_returned_to_admin"
+    | "admin_received_from_collector"
+    | "client_picked_up";
+
 export interface SampleClient {
     client_id: number;
     type?: string;
@@ -45,6 +55,26 @@ export type RequestedParameter = {
     unit?: string | null;
     status?: string | null;
     tag?: string | null;
+};
+
+// ✅ Status history type (biar import di SampleDetailPage aman)
+export type SampleStatusHistoryItem = {
+    id: number;
+    sample_id?: number;
+    from_status?: string | null;
+    to_status?: string | null;
+    note?: string | null;
+    created_at: string;
+
+    actor?: {
+        staff_id?: number;
+        name?: string | null;
+        email?: string | null;
+        role?: {
+            role_id?: number;
+            name?: string | null;
+        } | null;
+    } | null;
 };
 
 export interface Sample {
@@ -77,6 +107,15 @@ export interface Sample {
     ready_at?: string | null;
     physically_received_at?: string | null;
     lab_sample_code?: string | null;
+
+    // ✅ Physical workflow timestamps (F2)
+    admin_received_from_client_at?: string | null;
+    admin_brought_to_collector_at?: string | null;
+    collector_received_at?: string | null;
+    collector_intake_completed_at?: string | null;
+    collector_returned_to_admin_at?: string | null;
+    admin_received_from_collector_at?: string | null;
+    client_picked_up_at?: string | null;
 
     // ✅ requested parameters (pivot)
     requested_parameters?: RequestedParameter[] | null;
@@ -149,5 +188,26 @@ export const sampleService = {
     async updateStatus(sampleId: number, payload: UpdateSampleStatusPayload): Promise<Sample> {
         const res = await apiPost<any>(`/v1/samples/${sampleId}/status`, payload);
         return (res?.data ?? res) as Sample;
+    },
+
+    // ✅ Step 2 — Physical Workflow endpoint
+    async updatePhysicalWorkflow(
+        sampleId: number,
+        action: PhysicalWorkflowAction,
+        note?: string | null
+    ): Promise<Sample> {
+        const res = await apiPost<any>(
+            `/v1/samples/${sampleId}/physical-workflow?_method=PATCH`,
+            {
+                action,
+                note: note ?? null,
+            }
+        );
+        return (res?.data ?? res) as Sample;
+    },
+
+    async getStatusHistory(sampleId: number): Promise<SampleStatusHistoryItem[]> {
+        const res = await apiGet<any>(`/v1/samples/${sampleId}/status-history`);
+        return (res?.data ?? res) as SampleStatusHistoryItem[];
     },
 };

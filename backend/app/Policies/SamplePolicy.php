@@ -21,11 +21,9 @@ class SamplePolicy
     protected function hasRoleName(Staff $user, array $allowed): bool
     {
         $name = $user->role?->name;
-
         if (!$name) {
             return false;
         }
-
         return in_array($name, $allowed, true);
     }
 
@@ -47,9 +45,14 @@ class SamplePolicy
 
     /**
      * Siapa boleh lihat 1 sample (GET /samples/{sample}).
+     * ✅ Draft request TIDAK boleh dilihat oleh staff/admin (hanya client).
      */
     public function view(Staff $user, Sample $sample): bool
     {
+        $isDraftRequest = (($sample->request_status ?? null) === 'draft') && empty($sample->lab_sample_code);
+        if ($isDraftRequest) {
+            return false;
+        }
         return $this->viewAny($user);
     }
 
@@ -65,6 +68,7 @@ class SamplePolicy
             'Laboratory Head',
         ]);
     }
+
     public function overrideAssigneeOnCreate(Staff $user): bool
     {
         return $this->hasRoleName($user, [
@@ -74,10 +78,16 @@ class SamplePolicy
 
     public function updateRequestStatus(Staff $user, Sample $sample, string $targetStatus): bool
     {
+        // ✅ Draft request tidak boleh di-handle staff
+        $isDraftRequest = (($sample->request_status ?? null) === 'draft') && empty($sample->lab_sample_code);
+        if ($isDraftRequest) {
+            return false;
+        }
+
         // Yang boleh mengubah request_status:
-        // - Administrator (review + mark ready/received)
-        // - Sample Collector (checklist pass/fail)
-        // - Laboratory Head (validate intake; step berikutnya)
+        // - Administrator (review + approve + mark physically received + return)
+        // - Sample Collector (checklist pass/fail)  (future)
+        // - Laboratory Head (validate intake)       (future)
         return $this->hasRoleName($user, [
             'Administrator',
             'Sample Collector',
@@ -92,5 +102,38 @@ class SamplePolicy
             'Administrator',
             'Laboratory Head', // optional; kalau mau ketat, hapus ini
         ]);
+    }
+
+    /**
+     * Role-based guard for physical workflow actions.
+     */
+    public function updatePhysicalWorkflow(Staff $user, Sample $sample, string $action): bool
+    {
+        $role = (string) ($user->role?->name ?? '');
+        $adminRoles = ['Administrator', 'Laboratory Head'];
+        $collectorRoles = ['Sample Collector'];
+
+        $adminActions = [
+            'admin_received_from_client',
+            'admin_brought_to_collector',
+            'admin_received_from_collector',
+            'client_picked_up',
+        ];
+
+        $collectorActions = [
+            'collector_received',
+            'collector_intake_completed',
+            'collector_returned_to_admin',
+        ];
+
+        if (in_array($action, $adminActions, true)) {
+            return in_array($role, $adminRoles, true);
+        }
+
+        if (in_array($action, $collectorActions, true)) {
+            return in_array($role, $collectorRoles, true);
+        }
+
+        return false;
     }
 }
