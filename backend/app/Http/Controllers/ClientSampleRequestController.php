@@ -104,11 +104,10 @@ class ClientSampleRequestController extends Controller
         $client = $this->currentClientOr403();
         $this->assertOwnedByClient($client, $sample);
 
-        // IMPORTANT: jangan return fresh() setelah load, karena relasi hilang.
         $sample->load(['requestedParameters']);
 
         return response()->json([
-            'data' => $sample,
+            'data' => $sample->fresh()->load(['requestedParameters']),
         ], 200);
     }
 

@@ -36,6 +36,12 @@ class Sample extends Model
         'created_by',
         'assigned_to',
 
+        // workflow request moderation
+        'request_return_note',
+        'request_approved_at',
+        'request_returned_at',
+
+        // physical workflow timestamps
         'admin_received_from_client_at',
         'admin_brought_to_collector_at',
         'collector_received_at',
@@ -51,6 +57,10 @@ class Sample extends Model
         'reviewed_at' => 'datetime',
         'ready_at' => 'datetime',
         'physically_received_at' => 'datetime',
+        'scheduled_delivery_at' => 'datetime',
+
+        'request_approved_at' => 'datetime',
+        'request_returned_at' => 'datetime',
 
         'admin_received_from_client_at' => 'datetime',
         'admin_brought_to_collector_at' => 'datetime',
@@ -65,13 +75,11 @@ class Sample extends Model
         'status_enum',
     ];
 
-    // Relasi ke client (pakai client_id)
     public function client()
     {
         return $this->belongsTo(Client::class, 'client_id', 'client_id');
     }
 
-    // Staf yang membuat entri (created_by -> staffs.staff_id)
     public function creator()
     {
         return $this->belongsTo(Staff::class, 'created_by', 'staff_id');
@@ -116,14 +124,9 @@ class Sample extends Model
         )->withTimestamps();
     }
 
-    /**
-     * Status high-level (registered/testing/reported) yang dihitung dari current_status.
-     */
     public function getStatusEnumAttribute(): ?string
     {
-        if (!$this->current_status) {
-            return null;
-        }
+        if (!$this->current_status) return null;
         $enum = SampleHighLevelStatus::fromCurrentStatus($this->current_status);
         return $enum->value;
     }

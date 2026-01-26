@@ -5,68 +5,46 @@ namespace App\Http\Controllers;
 use App\Models\Sample;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Schema;
 
 class SampleRequestQueueController extends Controller
 {
     /**
      * GET /api/v1/samples/requests
-     *
-     * Query params:
-     * - request_status=submitted|ready_for_delivery|physically_received|...
-     * - submitted_from=YYYY-MM-DD
-     * - submitted_to=YYYY-MM-DD
-     * - q=search
-     * - date=today|7d|30d (optional shortcut)
+     * Backoffice queue:
+     * - ONLY non-draft (client draft is private)
+     * - default: submitted/returned/needs_revision/ready_for_delivery/physically_received/...
+     * - supports q + status
      */
     public function index(Request $request): JsonResponse
     {
-        $this->authorize('viewAny', Sample::class);
+        $q = trim((string) $request->get('q', ''));
+        $status = trim((string) $request->get('status', ''));
 
-        $query = Sample::query()->with(['client', 'creator', 'assignee', 'requestedParameters']);
+        $query = Sample::query()
+            ->with(['client', 'requestedParameters']);
 
-        if ($request->filled('request_status')) {
-            $query->where('request_status', $request->string('request_status')->toString());
+        // Draft is client-private
+        if (Schema::hasColumn('samples', 'request_status')) {
+            $query->where(function ($w) {
+                $w->whereNull('request_status')
+                    ->orWhere('request_status', '!=', 'draft');
+            });
         }
 
-        if ($request->filled('submitted_from')) {
-            $query->whereDate('submitted_at', '>=', $request->get('submitted_from'));
+        if ($status !== '') {
+            $query->where('request_status', $status);
         }
 
-        if ($request->filled('submitted_to')) {
-            $query->whereDate('submitted_at', '<=', $request->get('submitted_to'));
+        if ($q !== '') {
+            $query->where(function ($w) use ($q) {
+                $w->where('sample_type', 'ILIKE', "%{$q}%")
+                    ->orWhere('request_status', 'ILIKE', "%{$q}%")
+                    ->orWhere('lab_sample_code', 'ILIKE', "%{$q}%");
+            });
         }
 
-        // shortcut date filter
-        if ($request->filled('date')) {
-            $v = strtolower(trim((string) $request->get('date')));
-            $now = Carbon::now();
-            if ($v === 'today') {
-                $query->whereDate('submitted_at', '=', $now->toDateString());
-            } elseif ($v === '7d') {
-                $query->where('submitted_at', '>=', $now->copy()->subDays(7));
-            } elseif ($v === '30d') {
-                $query->where('submitted_at', '>=', $now->copy()->subDays(30));
-            }
-        }
-
-        if ($request->filled('q')) {
-            $q = trim((string) $request->get('q'));
-            if ($q !== '') {
-                $query->where(function ($w) use ($q) {
-                    $w->where('sample_id', (int) $q)
-                        ->orWhereHas('client', fn($c) => $c->where('name', 'ILIKE', "%{$q}%"))
-                        ->orWhere('sample_type', 'ILIKE', "%{$q}%")
-                        ->orWhere('lab_sample_code', 'ILIKE', "%{$q}%")
-                        ->orWhere('request_status', 'ILIKE', "%{$q}%");
-                });
-            }
-        }
-
-        // newest first (submitted_at first, fallback to scheduled_delivery_at, fallback to received_at)
-        $query->orderByRaw('COALESCE(submitted_at, scheduled_delivery_at, received_at) DESC');
-
-        $rows = $query->paginate(15);
+        $rows = $query->orderByDesc('sample_id')->paginate(15);
 
         return response()->json([
             'data' => $rows->items(),

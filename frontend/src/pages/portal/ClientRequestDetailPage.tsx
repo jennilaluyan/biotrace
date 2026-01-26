@@ -48,11 +48,6 @@ function datetimeLocalFromIso(iso?: string | null): string {
 
 /**
  * Flexible extractor for listParameters response.
- * Supports:
- * - ApiResponse::success(paginate): { status, data: { current_page, data: [] ... } }
- * - axios-like: { data: { status, data: { ... } } }
- * - { data: [] }
- * - { data: { data: [] } }
  */
 function extractPaginatedRows<T>(res: any): T[] {
     const root = res?.data ?? res;
@@ -121,6 +116,11 @@ export default function ClientRequestDetailPage() {
     const requestedParameterRows = useMemo(() => {
         const arr = (data as any)?.requested_parameters;
         return Array.isArray(arr) ? arr : [];
+    }, [data]);
+
+    const requestReturnNote = useMemo(() => {
+        const note = String((data as any)?.request_return_note ?? "").trim();
+        return note || null;
     }, [data]);
 
     const loadParams = async (q?: string) => {
@@ -267,7 +267,7 @@ export default function ClientRequestDetailPage() {
             return;
         }
         if (!selectedParamId) {
-            setError("1 parameter is required.");
+            setError("One parameter is required.");
             return;
         }
 
@@ -298,11 +298,32 @@ export default function ClientRequestDetailPage() {
     if (!data) {
         return (
             <div className="min-h-[60vh]">
+                {/* Breadcrumb (client) */}
                 <div className="px-0 py-2">
-                    <button type="button" className="lims-btn" onClick={() => navigate("/portal/requests")}>
-                        Back
-                    </button>
+                    <nav className="lims-breadcrumb">
+                        <span className="lims-breadcrumb-icon">
+                            <svg
+                                viewBox="0 0 24 24"
+                                className="h-4 w-4"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.6"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            >
+                                <path d="M4 12h9" />
+                                <path d="M11 9l3 3-3 3" />
+                                <path d="M4 6v12" />
+                            </svg>
+                        </span>
+                        <button type="button" className="lims-breadcrumb-link" onClick={() => navigate("/portal/requests")}>
+                            Sample Requests
+                        </button>
+                        <span className="lims-breadcrumb-separator">›</span>
+                        <span className="lims-breadcrumb-current">Sample Request Detail</span>
+                    </nav>
                 </div>
+
                 <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
                     <div className="text-sm text-red-700">{error ?? "Request not found."}</div>
                 </div>
@@ -312,16 +333,39 @@ export default function ClientRequestDetailPage() {
 
     const updatedAt = fmtDate((data as any).updated_at ?? (data as any).created_at);
     const statusLabel = effectiveStatus || "Unknown";
+    const statusLower = statusLabel.toLowerCase();
 
     return (
         <div className="min-h-[60vh]">
+            {/* Breadcrumb (client) */}
+            <div className="px-0 py-2">
+                <nav className="lims-breadcrumb">
+                    <span className="lims-breadcrumb-icon">
+                        <svg
+                            viewBox="0 0 24 24"
+                            className="h-4 w-4"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                        >
+                            <path d="M4 12h9" />
+                            <path d="M11 9l3 3-3 3" />
+                            <path d="M4 6v12" />
+                        </svg>
+                    </span>
+                    <button type="button" className="lims-breadcrumb-link" onClick={() => navigate("/portal/requests")}>
+                        Sample Requests
+                    </button>
+                    <span className="lims-breadcrumb-separator">›</span>
+                    <span className="lims-breadcrumb-current">Sample Request Detail</span>
+                </nav>
+            </div>
+
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
-                    <button type="button" className="lims-btn" onClick={() => navigate("/portal/requests")}>
-                        Back
-                    </button>
-
-                    <div className="mt-3 flex items-center gap-2">
+                    <div className="mt-1 flex items-center gap-2">
                         <h1 className="text-lg md:text-xl font-bold text-gray-900">Request #{(data as any).sample_id ?? numericId}</h1>
                         <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", statusTone(statusLabel))}>
                             {statusLabel}
@@ -329,13 +373,18 @@ export default function ClientRequestDetailPage() {
                     </div>
 
                     <div className="text-sm text-gray-600 mt-1">
-                        Updated <span className="font-semibold text-gray-900">{updatedAt}</span>
+                        Last updated <span className="font-semibold text-gray-900">{updatedAt}</span>
                     </div>
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
                     {canEdit && (
-                        <button type="button" onClick={saveDraft} disabled={saving} className={cx("lims-btn", saving && "opacity-60 cursor-not-allowed")}>
+                        <button
+                            type="button"
+                            onClick={saveDraft}
+                            disabled={saving}
+                            className={cx("lims-btn", saving && "opacity-60 cursor-not-allowed")}
+                        >
                             {saving ? "Saving..." : "Save draft"}
                         </button>
                     )}
@@ -352,6 +401,14 @@ export default function ClientRequestDetailPage() {
 
             {error && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
             {info && <div className="text-sm text-green-800 bg-green-100 border border-green-200 px-3 py-2 rounded mb-4">{info}</div>}
+
+            {/* ✅ Return note from admin (visible to client) */}
+            {requestReturnNote && (statusLower === "returned" || statusLower === "needs_revision") && (
+                <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <div className="text-sm font-semibold text-amber-900">Revision requested</div>
+                    <div className="text-sm text-amber-900 mt-1 whitespace-pre-wrap">{requestReturnNote}</div>
+                </div>
+            )}
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white">
@@ -387,7 +444,7 @@ export default function ClientRequestDetailPage() {
 
                     <div className="md:col-span-2">
                         <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Parameters <span className="text-red-600">*</span>
+                            Parameter <span className="text-red-600">*</span>
                         </label>
 
                         {selectedParamLabel && (
