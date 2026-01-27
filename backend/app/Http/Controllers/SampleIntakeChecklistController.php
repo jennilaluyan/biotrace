@@ -10,6 +10,9 @@ use App\Support\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use App\Support\LabSampleCode;
+use Illuminate\Support\Carbon;
+use Illuminate\Database\QueryException;
 
 class SampleIntakeChecklistController extends Controller
 {
@@ -120,14 +123,13 @@ class SampleIntakeChecklistController extends Controller
 
         $nextStatus = $isPassed ? 'intake_checklist_passed' : 'rejected';
 
-        DB::transaction(function () use ($sample, $actor, $normalized, $generalNote, $isPassed, $nextStatus) {
+        DB::transaction(function () use ($sample, $actor, $normalized, $generalNote, $isPassed) {
             SampleIntakeChecklist::create([
                 'sample_id' => $sample->sample_id,
                 'checklist' => [
                     ...$normalized,
                     'general_note' => $generalNote ? trim($generalNote) : null,
                 ],
-                // keep notes column as a convenience summary for quick read
                 'notes' => $generalNote ? trim($generalNote) : null,
                 'is_passed' => $isPassed,
                 'checked_by' => (int) $actor->staff_id,
@@ -136,13 +138,47 @@ class SampleIntakeChecklistController extends Controller
                 'updated_at' => now(),
             ]);
 
-            // ✅ Step 5: record intake completed timestamp
+            // Step 5: record intake completed timestamp
             if (empty($sample->collector_intake_completed_at)) {
                 $sample->collector_intake_completed_at = now();
             }
 
+            // Promote / status update
             $old = (string) $sample->request_status;
-            $sample->request_status = $nextStatus;
+
+            if ($isPassed) {
+                // ✅ Step 6A: generate lab sample code (BML-XXX) if not exists yet
+                if (empty($sample->lab_sample_code)) {
+                    $tries = 0;
+                    while (true) {
+                        $tries++;
+                        $sample->lab_sample_code = LabSampleCode::next('BML', 3);
+
+                        try {
+                            // don't save yet; we also want to fill received_at below
+                            break;
+                        } catch (QueryException $e) {
+                            if ($tries >= 3) throw $e;
+                        }
+                    }
+                }
+
+                // ✅ ensure received_at for sorting in Samples list (if still null)
+                if (empty($sample->received_at)) {
+                    $seed = $sample->admin_received_from_client_at
+                        ?? $sample->physically_received_at
+                        ?? now();
+
+                    $sample->received_at = Carbon::parse((string) $seed);
+                }
+
+                // ✅ "promoted": this makes it disappear from queue & appear in Samples
+                $sample->request_status = 'intake_validated';
+            } else {
+                // Fail: keep your current behavior
+                $sample->request_status = 'rejected';
+            }
+
             $sample->save();
 
             AuditLogger::write(
@@ -153,7 +189,8 @@ class SampleIntakeChecklistController extends Controller
                 oldValues: null,
                 newValues: [
                     'is_passed' => $isPassed,
-                    'request_status' => $nextStatus,
+                    'request_status' => $sample->request_status,
+                    'lab_sample_code' => $sample->lab_sample_code ?? null,
                 ]
             );
 
@@ -162,8 +199,10 @@ class SampleIntakeChecklistController extends Controller
                 sampleId: (int) $sample->sample_id,
                 clientId: (int) $sample->client_id,
                 oldStatus: $old,
-                newStatus: $nextStatus,
-                note: $isPassed ? 'Intake checklist passed' : 'Intake checklist failed'
+                newStatus: (string) $sample->request_status,
+                note: $isPassed
+                    ? 'Intake checklist passed — promoted to lab sample'
+                    : 'Intake checklist failed'
             );
 
             AuditLogger::write(
@@ -172,7 +211,10 @@ class SampleIntakeChecklistController extends Controller
                 entityName: 'samples',
                 entityId: (int) $sample->sample_id,
                 oldValues: null,
-                newValues: ['is_passed' => $isPassed]
+                newValues: [
+                    'is_passed' => $isPassed,
+                    'lab_sample_code' => $sample->lab_sample_code ?? null,
+                ]
             );
         });
 
@@ -182,6 +224,7 @@ class SampleIntakeChecklistController extends Controller
             'data' => [
                 'sample_id' => $fresh->sample_id,
                 'request_status' => $fresh->request_status,
+                'lab_sample_code' => $fresh->lab_sample_code ?? null,
                 'collector_intake_completed_at' => $fresh->collector_intake_completed_at ?? null,
                 'intake_checklist' => $fresh->intakeChecklist,
             ],

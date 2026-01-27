@@ -29,11 +29,17 @@ function StatusPill({ value }: { value?: string | null }) {
         intake_validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
     };
     const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
-    const label = value
-        ? value.toLowerCase() === "under_inspection"
-            ? "Under inspection"
-            : value
-        : "-";
+    const label =
+        value
+            ? (() => {
+                const vv = value.toLowerCase();
+                if (vv === "under_inspection") return "Under inspection";
+                if (vv === "intake_validated") return "Promoted to lab sample";
+                if (vv === "intake_checklist_passed") return "Checklist passed";
+                if (vv === "rejected") return "Not eligible";
+                return value;
+            })()
+            : "-"
 
     return (
         <span className={cx("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border", tone)}>
@@ -450,6 +456,24 @@ export default function SampleRequestDetailPage() {
                                 </SmallButton>
                             </div>
                         </div>
+
+                        {labSampleCode ? (
+                            <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                                <div className="font-semibold">This request has been promoted to a lab sample.</div>
+                                <div className="mt-1">
+                                    Lab code: <span className="font-mono">{labSampleCode}</span>
+                                </div>
+                                <div className="mt-3">
+                                    <button
+                                        type="button"
+                                        className="lims-btn-primary"
+                                        onClick={() => navigate(`/samples/${requestId}`)}
+                                    >
+                                        Open in Samples
+                                    </button>
+                                </div>
+                            </div>
+                        ) : null}
 
                         {isDraft ? (
                             <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-4 text-sm text-red-800">
