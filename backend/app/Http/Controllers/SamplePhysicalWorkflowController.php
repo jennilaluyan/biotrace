@@ -168,6 +168,10 @@ class SamplePhysicalWorkflowController extends Controller
                 $sample->request_status = SampleRequestStatus::IN_TRANSIT_TO_COLLECTOR->value;
             }
 
+            if ($action === 'collector_received') {
+                $sample->request_status = SampleRequestStatus::UNDER_INSPECTION->value;
+            }
+
             $sample->save();
 
             if (Schema::hasTable('audit_logs')) {

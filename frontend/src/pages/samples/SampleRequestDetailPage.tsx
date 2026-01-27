@@ -23,13 +23,14 @@ function StatusPill({ value }: { value?: string | null }) {
         ready_for_delivery: "bg-indigo-50 text-indigo-700 border-indigo-200",
         physically_received: "bg-emerald-50 text-emerald-700 border-emerald-200",
         in_transit_to_collector: "bg-amber-50 text-amber-800 border-amber-200",
+        under_inspection: "bg-amber-50 text-amber-800 border-amber-200",
         intake_checklist_passed: "bg-emerald-50 text-emerald-700 border-emerald-200",
         intake_validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
     };
     const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
     return (
         <span className={cx("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border", tone)}>
-            {value ?? "-"}
+            {value ? (value.toLowerCase() === "under_inspection" ? "Under inspection" : value) : "-"}
         </span>
     );
 }
@@ -172,7 +173,10 @@ export default function SampleRequestDetailPage() {
 
     const requestId = Number(id);
 
-    const canView = useMemo(() => roleId === ROLE_ID.ADMIN, [roleId]);
+    const canView = useMemo(
+        () => roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.SAMPLE_COLLECTOR,
+        [roleId]
+    );
 
     const [sample, setSample] = useState<Sample | null>(null);
     const [loading, setLoading] = useState(true);
@@ -205,11 +209,17 @@ export default function SampleRequestDetailPage() {
     const collectorReturnedToAdminAt = (sample as any)?.collector_returned_to_admin_at ?? null;
     const adminReceivedFromCollectorAt = (sample as any)?.admin_received_from_collector_at ?? null;
     const clientPickedUpAt = (sample as any)?.client_picked_up_at ?? null;
-
     const isAdmin = roleId === ROLE_ID.ADMIN;
+    const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
 
     const canWfAdminReceive =
         isAdmin && (requestStatus === "ready_for_delivery" || requestStatus === "physically_received") && !adminReceivedFromClientAt;
+
+    const canWfCollectorReceive =
+        isCollector &&
+        requestStatus === "in_transit_to_collector" &&
+        !!adminBroughtToCollectorAt &&
+        !collectorReceivedAt;
 
     const canWfAdminBring = isAdmin && !!adminReceivedFromClientAt && !adminBroughtToCollectorAt;
 
@@ -555,41 +565,67 @@ export default function SampleRequestDetailPage() {
                                                 </div>
 
                                                 <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                    <WorkflowActionButton
-                                                        title="Admin: Received from client"
-                                                        subtitle="Record the time the sample arrived at the admin desk."
-                                                        onClick={doMarkPhysicallyReceived}
-                                                        disabled={!canWfAdminReceive || wfBusy}
-                                                        busy={wfBusy}
-                                                        variant="neutral"
-                                                    />
+                                                    {isAdmin ? (
+                                                        <>
+                                                            <WorkflowActionButton
+                                                                title="Admin: Received from client"
+                                                                subtitle="Record the time the sample arrived at the admin desk."
+                                                                onClick={doMarkPhysicallyReceived}
+                                                                disabled={!canWfAdminReceive || wfBusy}
+                                                                busy={wfBusy}
+                                                                variant="neutral"
+                                                            />
 
-                                                    <WorkflowActionButton
-                                                        title="Admin: Hand off to Sample Collector"
-                                                        subtitle="Marks this request as In transit to Sample Collector."
-                                                        onClick={() => doPhysicalWorkflow("admin_brought_to_collector")}
-                                                        disabled={!canWfAdminBring || wfBusy}
-                                                        busy={wfBusy}
-                                                        variant="primary"
-                                                    />
+                                                            <WorkflowActionButton
+                                                                title="Admin: Hand off to Sample Collector"
+                                                                subtitle="Marks this request as In transit to Sample Collector."
+                                                                onClick={() => doPhysicalWorkflow("admin_brought_to_collector")}
+                                                                disabled={!canWfAdminBring || wfBusy}
+                                                                busy={wfBusy}
+                                                                variant="primary"
+                                                            />
 
-                                                    <WorkflowActionButton
-                                                        title="Admin: Received back from collector"
-                                                        subtitle="Record the time the collector returned the sample to admin."
-                                                        onClick={() => doPhysicalWorkflow("admin_received_from_collector")}
-                                                        disabled={!canWfAdminReceiveBack || wfBusy}
-                                                        busy={wfBusy}
-                                                        variant="neutral"
-                                                    />
+                                                            <WorkflowActionButton
+                                                                title="Admin: Received back from collector"
+                                                                subtitle="Record the time the collector returned the sample to admin."
+                                                                onClick={() => doPhysicalWorkflow("admin_received_from_collector")}
+                                                                disabled={!canWfAdminReceiveBack || wfBusy}
+                                                                busy={wfBusy}
+                                                                variant="neutral"
+                                                            />
 
-                                                    <WorkflowActionButton
-                                                        title="Admin: Client picked up"
-                                                        subtitle="Final step for returned samples — record pickup time."
-                                                        onClick={() => doPhysicalWorkflow("client_picked_up")}
-                                                        disabled={!canWfClientPickup || wfBusy}
-                                                        busy={wfBusy}
-                                                        variant="neutral"
-                                                    />
+                                                            <WorkflowActionButton
+                                                                title="Admin: Client picked up"
+                                                                subtitle="Final step for returned samples — record pickup time."
+                                                                onClick={() => doPhysicalWorkflow("client_picked_up")}
+                                                                disabled={!canWfClientPickup || wfBusy}
+                                                                busy={wfBusy}
+                                                                variant="neutral"
+                                                            />
+                                                        </>
+                                                    ) : null}
+
+                                                    {isCollector ? (
+                                                        <>
+                                                            <WorkflowActionButton
+                                                                title="Collector: Received"
+                                                                subtitle="Confirm you received the sample from admin. Status becomes Under inspection."
+                                                                onClick={() => doPhysicalWorkflow("collector_received")}
+                                                                disabled={!canWfCollectorReceive || wfBusy}
+                                                                busy={wfBusy}
+                                                                variant="primary"
+                                                            />
+
+                                                            <WorkflowActionButton
+                                                                title="Collector: Intake checklist"
+                                                                subtitle="Available after you mark the sample as received."
+                                                                onClick={() => { }}
+                                                                disabled
+                                                                busy={false}
+                                                                variant="neutral"
+                                                            />
+                                                        </>
+                                                    ) : null}
                                                 </div>
                                             </div>
                                         </div>
