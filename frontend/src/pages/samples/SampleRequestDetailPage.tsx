@@ -25,6 +25,8 @@ function StatusPill({ value }: { value?: string | null }) {
         physically_received: "bg-emerald-50 text-emerald-700 border-emerald-200",
         in_transit_to_collector: "bg-amber-50 text-amber-800 border-amber-200",
         under_inspection: "bg-amber-50 text-amber-800 border-amber-200",
+        inspection_failed: "bg-red-50 text-red-700 border-red-200",
+        returned_to_admin: "bg-slate-100 text-slate-700 border-slate-200",
         intake_checklist_passed: "bg-emerald-50 text-emerald-700 border-emerald-200",
         intake_validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
     };
@@ -34,9 +36,8 @@ function StatusPill({ value }: { value?: string | null }) {
             ? (() => {
                 const vv = value.toLowerCase();
                 if (vv === "under_inspection") return "Under inspection";
-                if (vv === "intake_validated") return "Promoted to lab sample";
-                if (vv === "intake_checklist_passed") return "Checklist passed";
-                if (vv === "rejected") return "Not eligible";
+                if (vv === "inspection_failed") return "Inspection failed";
+                if (vv === "returned_to_admin") return "Returned to Admin";
                 return value;
             })()
             : "-"
@@ -212,6 +213,8 @@ export default function SampleRequestDetailPage() {
         requestStatus === "physically_received" ||
         requestStatus === "in_transit_to_collector" ||
         requestStatus === "under_inspection" ||
+        requestStatus === "inspection_failed" ||
+        requestStatus === "returned_to_admin" ||
         requestStatus === "intake_checklist_passed" ||
         requestStatus === "intake_validated";
 
@@ -240,6 +243,12 @@ export default function SampleRequestDetailPage() {
         requestStatus === "in_transit_to_collector" &&
         !!adminBroughtToCollectorAt &&
         !collectorReceivedAt;
+
+    const canWfCollectorReturnToAdmin =
+        isCollector &&
+        requestStatus === "inspection_failed" &&
+        !!collectorIntakeCompletedAt &&
+        !collectorReturnedToAdminAt;
 
     const canOpenIntakeChecklist =
         isCollector &&
@@ -693,19 +702,20 @@ export default function SampleRequestDetailPage() {
 
                                                             <WorkflowActionButton
                                                                 title="Collector: Intake checklist"
-                                                                subtitle={
-                                                                    canOpenIntakeChecklist
-                                                                        ? "Fill the intake checklist (all must pass)."
-                                                                        : !collectorReceivedAt
-                                                                            ? "Available after you mark the sample as received."
-                                                                            : collectorIntakeCompletedAt
-                                                                                ? "Already submitted."
-                                                                                : "Available when status is Under inspection."
-                                                                }
+                                                                subtitle="Complete the intake checks. All categories must pass."
                                                                 onClick={() => setIntakeOpen(true)}
                                                                 disabled={!canOpenIntakeChecklist || wfBusy}
-                                                                busy={false}
-                                                                variant={canOpenIntakeChecklist ? "primary" : "neutral"}
+                                                                busy={wfBusy}
+                                                                variant="neutral"
+                                                            />
+
+                                                            <WorkflowActionButton
+                                                                title="Collector: Returned to Admin"
+                                                                subtitle="Return the sample to admin after inspection failed."
+                                                                onClick={() => doPhysicalWorkflow("collector_returned_to_admin")}
+                                                                disabled={!canWfCollectorReturnToAdmin || wfBusy}
+                                                                busy={wfBusy}
+                                                                variant="primary"
                                                             />
                                                         </>
                                                     ) : null}

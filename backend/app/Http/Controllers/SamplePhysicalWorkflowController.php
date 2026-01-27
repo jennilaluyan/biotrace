@@ -147,6 +147,36 @@ class SamplePhysicalWorkflowController extends Controller
             }
         }
 
+        // ✅ Additional status-level guards (prevents “status jumping”)
+        $rs = (string)($sample->request_status ?? '');
+
+        if ($action === 'collector_received' && $rs !== SampleRequestStatus::IN_TRANSIT_TO_COLLECTOR->value) {
+            return response()->json([
+                'status' => 422,
+                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
+                'message' => "Collector can only receive when status is in_transit_to_collector.",
+                'details' => [['field' => 'action', 'message' => 'Invalid request_status for this action.']],
+            ], 422);
+        }
+
+        if ($action === 'collector_returned_to_admin' && $rs !== SampleRequestStatus::INSPECTION_FAILED->value) {
+            return response()->json([
+                'status' => 422,
+                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
+                'message' => "Collector can only return to admin when status is inspection_failed.",
+                'details' => [['field' => 'action', 'message' => 'Invalid request_status for this action.']],
+            ], 422);
+        }
+
+        if ($action === 'admin_received_from_collector' && $rs !== SampleRequestStatus::RETURNED_TO_ADMIN->value) {
+            return response()->json([
+                'status' => 422,
+                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
+                'message' => "Admin can only receive from collector when status is returned_to_admin.",
+                'details' => [['field' => 'action', 'message' => 'Invalid request_status for this action.']],
+            ], 422);
+        }
+
         // Guard: do not set twice
         if (!empty($sample->{$targetCol})) {
             return response()->json([
@@ -170,6 +200,11 @@ class SamplePhysicalWorkflowController extends Controller
 
             if ($action === 'collector_received') {
                 $sample->request_status = SampleRequestStatus::UNDER_INSPECTION->value;
+            }
+
+            // ✅ Step 6B: after failed inspection, collector returns to admin
+            if ($action === 'collector_returned_to_admin') {
+                $sample->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
             }
 
             $sample->save();
@@ -222,7 +257,6 @@ class SamplePhysicalWorkflowController extends Controller
                 'sample_id' => $sample->sample_id,
                 'request_status' => $sample->request_status ?? null,
 
-                // Return all known columns (only those that exist will be non-null)
                 'admin_received_from_client_at' => $sample->admin_received_from_client_at ?? null,
                 'admin_brought_to_collector_at' => $sample->admin_brought_to_collector_at ?? null,
                 'admin_handed_to_collector_at' => $sample->admin_handed_to_collector_at ?? null,

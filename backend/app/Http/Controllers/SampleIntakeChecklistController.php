@@ -151,33 +151,30 @@ class SampleIntakeChecklistController extends Controller
                 if (empty($sample->lab_sample_code)) {
                     $tries = 0;
                     while (true) {
-                        $tries++;
-                        $sample->lab_sample_code = LabSampleCode::next('BML', 3);
-
                         try {
-                            // don't save yet; we also want to fill received_at below
+                            $sample->lab_sample_code = LabSampleCode::next();
                             break;
                         } catch (QueryException $e) {
+                            $tries++;
                             if ($tries >= 3) throw $e;
                         }
                     }
                 }
 
-                // ✅ ensure received_at for sorting in Samples list (if still null)
                 if (empty($sample->received_at)) {
                     $seed = $sample->admin_received_from_client_at
                         ?? $sample->physically_received_at
                         ?? now();
-
                     $sample->received_at = Carbon::parse((string) $seed);
                 }
 
-                // ✅ "promoted": this makes it disappear from queue & appear in Samples
+                // ✅ PASS: promoted → disappear from queue
                 $sample->request_status = 'intake_validated';
             } else {
-                // Fail: keep your current behavior
-                $sample->request_status = 'rejected';
+                // ✅ FAIL Step 6B: inspection failed (belum dikembalikan fisik ke admin sampai SC klik "Returned to Admin")
+                $sample->request_status = 'inspection_failed';
             }
+            $sample->save();
 
             $sample->save();
 
