@@ -17,6 +17,9 @@ class AuditLogPolicy
     public function viewAny(Staff $user): bool
     {
         return in_array($user->role?->name, [
+            'Administrator',
+            'Sample Collector',
+            'Analyst',
             'Operational Manager',
             'Laboratory Head',
         ], true);

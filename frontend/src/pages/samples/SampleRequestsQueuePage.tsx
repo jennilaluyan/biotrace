@@ -49,8 +49,8 @@ export default function SampleRequestsQueuePage() {
     const { user } = useAuth();
     const roleId = getUserRoleId(user) ?? ROLE_ID.CLIENT;
     const roleLabel = getUserRoleLabel(user);
-
-    const canView = roleId === ROLE_ID.ADMIN;
+    const isAdmin = roleId === ROLE_ID.ADMIN;
+    const canView = roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.SAMPLE_COLLECTOR;
 
     // ---- state ----
     const [pager, setPager] = useState<Paginator<SampleRequestQueueRow> | null>(null);
@@ -281,10 +281,6 @@ export default function SampleRequestsQueuePage() {
                                             const canAct = id != null;
                                             const st = String(r.request_status ?? "").toLowerCase();
 
-                                            // ✅ match backend allowed transitions:
-                                            // accept: submitted/returned/needs_revision
-                                            // return: submitted/returned/needs_revision
-                                            // received: ready_for_delivery
                                             const canApprove = canAct && (st === "submitted" || st === "returned" || st === "needs_revision");
                                             const canReturn = canAct && (st === "submitted" || st === "returned" || st === "needs_revision");
                                             const canReceived = canAct && st === "ready_for_delivery";
@@ -306,71 +302,72 @@ export default function SampleRequestsQueuePage() {
                                                     </td>
                                                     <td className="px-4 py-3">
                                                         <div className="flex items-center justify-end gap-2">
-                                                            {/* View */}
+                                                            {/* View (Admin + SC) */}
                                                             <button
                                                                 type="button"
                                                                 className={cx(
                                                                     "inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold",
-                                                                    "border-gray-300 text-gray-700 hover:bg-gray-50",
-                                                                    !canAct && "opacity-50 cursor-not-allowed"
+                                                                    "border-gray-300 text-gray-700 hover:bg-gray-50"
                                                                 )}
-                                                                disabled={!canAct}
-                                                                onClick={() => {
-                                                                    if (!canAct) return;
-                                                                    navigate(`/samples/requests/${id}`);
-                                                                }}
+                                                                onClick={() => navigate(`/samples/requests/${id}`)}
                                                                 title="View request detail"
                                                             >
                                                                 <EyeIcon />
                                                                 View
                                                             </button>
 
-                                                            {/* Approve */}
-                                                            <button
-                                                                type="button"
-                                                                className={cx(
-                                                                    "inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-semibold",
-                                                                    "bg-primary text-white hover:bg-primary/90",
-                                                                    !canApprove && "opacity-50 cursor-not-allowed"
-                                                                )}
-                                                                disabled={!canApprove}
-                                                                onClick={() => openModal(r, "approve")}
-                                                                title="Approve request"
-                                                            >
-                                                                Approve
-                                                            </button>
+                                                            {/* Admin-only actions */}
+                                                            {roleId === ROLE_ID.ADMIN ? (
+                                                                <>
+                                                                    {/* Approve */}
+                                                                    <button
+                                                                        type="button"
+                                                                        className={cx(
+                                                                            "inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-semibold",
+                                                                            "bg-primary text-white hover:bg-primary/90",
+                                                                            !canApprove && "opacity-50 cursor-not-allowed"
+                                                                        )}
+                                                                        disabled={!canApprove}
+                                                                        onClick={() => openModal(r, "approve")}
+                                                                        title="Approve request"
+                                                                    >
+                                                                        Approve
+                                                                    </button>
 
-                                                            {/* Return */}
-                                                            <button
-                                                                type="button"
-                                                                className={cx(
-                                                                    "inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-semibold border",
-                                                                    "border-red-200 text-red-700 hover:bg-red-50",
-                                                                    !canReturn && "opacity-50 cursor-not-allowed"
-                                                                )}
-                                                                disabled={!canReturn}
-                                                                onClick={() => openModal(r, "return")}
-                                                                title="Return request to client"
-                                                            >
-                                                                Return
-                                                            </button>
+                                                                    {/* Return */}
+                                                                    <button
+                                                                        type="button"
+                                                                        className={cx(
+                                                                            "inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-semibold border",
+                                                                            "border-red-200 text-red-700 hover:bg-red-50",
+                                                                            !canReturn && "opacity-50 cursor-not-allowed"
+                                                                        )}
+                                                                        disabled={!canReturn}
+                                                                        onClick={() => openModal(r, "return")}
+                                                                        title="Return request to client"
+                                                                    >
+                                                                        Return
+                                                                    </button>
 
-                                                            {/* Received */}
-                                                            <button
-                                                                type="button"
-                                                                className={cx(
-                                                                    "inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-semibold border",
-                                                                    "border-gray-300 text-gray-700 hover:bg-gray-50",
-                                                                    !canReceived && "opacity-50 cursor-not-allowed"
-                                                                )}
-                                                                disabled={!canReceived}
-                                                                onClick={() => openModal(r, "received")}
-                                                                title="Mark physically received"
-                                                            >
-                                                                Received
-                                                            </button>
+                                                                    {/* Received */}
+                                                                    <button
+                                                                        type="button"
+                                                                        className={cx(
+                                                                            "inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-semibold border",
+                                                                            "border-gray-300 text-gray-700 hover:bg-gray-50",
+                                                                            !canReceived && "opacity-50 cursor-not-allowed"
+                                                                        )}
+                                                                        disabled={!canReceived}
+                                                                        onClick={() => openModal(r, "received")}
+                                                                        title="Mark physically received"
+                                                                    >
+                                                                        Received
+                                                                    </button>
+                                                                </>
+                                                            ) : null}
                                                         </div>
                                                     </td>
+
                                                 </tr>
                                             );
                                         })}

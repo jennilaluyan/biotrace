@@ -6,23 +6,22 @@ export type RequestStatus =
     | "returned"
     | "ready_for_delivery"
     | "physically_received"
+    | "in_transit_to_collector"
     | string;
 
 export type SampleRequestQueueRow = {
     sample_id?: number;
     id?: number;
-
     request_status?: RequestStatus;
-
     sample_type?: string | null;
     lab_sample_code?: string | null;
 
     client_id?: number | null;
     client_name?: string | null;
+    client_email?: string | null;
 
     created_at?: string | null;
     updated_at?: string | null;
-
     [key: string]: any;
 };
 

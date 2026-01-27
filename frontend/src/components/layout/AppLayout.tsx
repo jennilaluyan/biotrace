@@ -16,6 +16,12 @@ export const AppLayout = () => {
     const { user } = useAuth();
     const roleId = getUserRoleId(user);
 
+    const isClient = roleId === ROLE_ID.CLIENT;
+    const isStaff = !!roleId && roleId !== ROLE_ID.CLIENT;
+
+    const isAdmin = roleId === ROLE_ID.ADMIN;
+    const isSampleCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
+
     const canAccessQAModules =
         roleId === ROLE_ID.ANALYST ||
         roleId === ROLE_ID.LAB_HEAD ||
@@ -28,36 +34,35 @@ export const AppLayout = () => {
         roleId === ROLE_ID.OPERATIONAL_MANAGER ||
         roleId === ROLE_ID.LAB_HEAD;
 
-    const canSeeReports =
-        roleId === ROLE_ID.OPERATIONAL_MANAGER ||
-        roleId === ROLE_ID.LAB_HEAD;
+    const canSeeReports = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
 
-    const isClient = roleId === ROLE_ID.CLIENT;
-    const isStaff = !!roleId && roleId !== ROLE_ID.CLIENT;
+    const portalItems: NavItem[] = isClient
+        ? [{ label: "My Requests", path: "/portal/requests", icon: "flask" }]
+        : [];
 
-    const baseItems: NavItem[] = isStaff
+    const staffBaseItems: NavItem[] = isStaff
         ? [
             { label: "Clients", path: "/clients", icon: "users" },
             { label: "Samples", path: "/samples", icon: "flask" },
         ]
         : [];
 
-    const portalItems: NavItem[] = isClient
-        ? [{ label: "My Requests", path: "/portal/requests", icon: "flask" }]
+    const adminItems: NavItem[] = isAdmin
+        ? [
+            { label: "Client Approvals", path: "/clients/approvals", icon: "check" },
+            { label: "Request Queue", path: "/samples/requests", icon: "check" },
+        ]
         : [];
 
-    const adminItems: NavItem[] =
-        roleId === ROLE_ID.ADMIN
-            ? [
-                { label: "Client Approvals", path: "/clients/approvals", icon: "check" },
-                { label: "Request Queue", path: "/samples/requests", icon: "check" },
-            ]
-            : [];
+    const scOnlyItems: NavItem[] = isSampleCollector
+        ? [
+            { label: "Request Queue", path: "/samples/requests", icon: "check" },
+            { label: "Samples", path: "/samples", icon: "flask" },
+        ]
+        : [];
 
     const labHeadItems: NavItem[] =
-        roleId === ROLE_ID.LAB_HEAD
-            ? [{ label: "Staff Approvals", path: "/staff/approvals", icon: "check" }]
-            : [];
+        roleId === ROLE_ID.LAB_HEAD ? [{ label: "Staff Approvals", path: "/staff/approvals", icon: "check" }] : [];
 
     const qaItems: NavItem[] = canAccessQAModules
         ? [
@@ -66,23 +71,30 @@ export const AppLayout = () => {
         ]
         : [];
 
-    const reportItems: NavItem[] = canSeeReports
-        ? [{ label: "Reports", path: "/reports", icon: "check" }]
-        : [];
+    const reportItems: NavItem[] = canSeeReports ? [{ label: "Reports", path: "/reports", icon: "check" }] : [];
 
-    const auditItems: NavItem[] = canSeeAuditLogs
-        ? [{ label: "Audit Logs", path: "/audit-logs", icon: "check" }]
-        : [];
+    const auditItems: NavItem[] = canSeeAuditLogs ? [{ label: "Audit Logs", path: "/audit-logs", icon: "check" }] : [];
 
-    const navItems: NavItem[] = [
-        ...portalItems,
-        ...baseItems,
-        ...qaItems,
-        ...reportItems,
-        ...auditItems,
-        ...adminItems,
-        ...labHeadItems,
-    ];
+    const navItems: NavItem[] = (() => {
+        if (isClient) return [...portalItems];
+
+        if (isSampleCollector) {
+            return [...scOnlyItems, ...auditItems];
+        }
+
+        if (isStaff) {
+            return [
+                ...staffBaseItems,
+                ...qaItems,
+                ...reportItems,
+                ...auditItems,
+                ...adminItems,
+                ...labHeadItems,
+            ];
+        }
+
+        return [];
+    })();
 
     const renderIcon = (icon?: NavItem["icon"]) => {
         if (icon === "flask") {
@@ -160,15 +172,11 @@ export const AppLayout = () => {
                 className={({ isActive }) =>
                     [
                         "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition",
-                        isActive
-                            ? "bg-white/10 text-white"
-                            : "text-white/80 hover:bg-white/10 hover:text-white",
+                        isActive ? "bg-white/10 text-white" : "text-white/80 hover:bg-white/10 hover:text-white",
                     ].join(" ")
                 }
             >
-                <span className="inline-flex h-5 w-5 items-center justify-center">
-                    {renderIcon(item.icon)}
-                </span>
+                <span className="inline-flex h-5 w-5 items-center justify-center">{renderIcon(item.icon)}</span>
                 <span>{item.label}</span>
             </NavLink>
         );
@@ -181,17 +189,10 @@ export const AppLayout = () => {
                     <img src={BiotraceLogo} alt="Biotrace" className="h-10 w-auto" />
                 </div>
 
-                <nav className="flex-1 px-3 py-4 space-y-1">
-                    {navItems.map((i) => renderNavItem(i))}
-                </nav>
+                <nav className="flex-1 px-3 py-4 space-y-1">{navItems.map((i) => renderNavItem(i))}</nav>
             </aside>
 
-            {sidebarOpen && (
-                <div
-                    className="fixed inset-0 z-30 bg-black/40 lg:hidden"
-                    onClick={() => setSidebarOpen(false)}
-                />
-            )}
+            {sidebarOpen && <div className="fixed inset-0 z-30 bg-black/40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
             <aside
                 className={`fixed z-40 inset-y-0 left-0 w-64 bg-primary text-white transform transition-transform duration-200 lg:hidden ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
@@ -199,17 +200,12 @@ export const AppLayout = () => {
             >
                 <div className="px-6 py-5 border-b border-black/10 flex items-center justify-between">
                     <img src={BiotraceLogo} alt="Biotrace" className="h-8 w-auto" />
-                    <button
-                        className="text-white text-xl leading-none"
-                        onClick={() => setSidebarOpen(false)}
-                    >
+                    <button className="text-white text-xl leading-none" onClick={() => setSidebarOpen(false)}>
                         ✕
                     </button>
                 </div>
 
-                <nav className="px-3 py-4 space-y-1">
-                    {navItems.map((i) => renderNavItem(i, true))}
-                </nav>
+                <nav className="px-3 py-4 space-y-1">{navItems.map((i) => renderNavItem(i, true))}</nav>
             </aside>
 
             <div className="flex-1 flex flex-col min-h-screen">

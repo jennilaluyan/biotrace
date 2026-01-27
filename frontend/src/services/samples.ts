@@ -19,8 +19,14 @@ export type SampleRequestStatus =
     | "draft"
     | "submitted"
     | "returned"
+    | "needs_revision"
     | "ready_for_delivery"
     | "physically_received"
+    | "in_transit_to_collector"
+    | "under_inspection"
+    | "intake_checklist_passed"
+    | "intake_validated"
+    | "rejected"
     | (string & {});
 
 // ✅ Physical workflow actions (Admin <-> Sample Collector)

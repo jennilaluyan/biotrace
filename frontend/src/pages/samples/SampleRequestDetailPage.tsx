@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleRequestDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -9,6 +8,7 @@ import { sampleService, type Sample } from "../../services/samples";
 import { apiPost, apiPatch } from "../../services/api";
 import { UpdateRequestStatusModal } from "../../components/samples/UpdateRequestStatusModal";
 import { LoaPanelStaff } from "../../components/loa/LoaPanelStaff";
+import { IntakeChecklistModal } from "../../components/intake/IntakeChecklistModal";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -23,13 +23,28 @@ function StatusPill({ value }: { value?: string | null }) {
         needs_revision: "bg-red-50 text-red-700 border-red-200",
         ready_for_delivery: "bg-indigo-50 text-indigo-700 border-indigo-200",
         physically_received: "bg-emerald-50 text-emerald-700 border-emerald-200",
+        in_transit_to_collector: "bg-amber-50 text-amber-800 border-amber-200",
+        under_inspection: "bg-amber-50 text-amber-800 border-amber-200",
+        inspection_failed: "bg-red-50 text-red-700 border-red-200",
+        returned_to_admin: "bg-slate-100 text-slate-700 border-slate-200",
         intake_checklist_passed: "bg-emerald-50 text-emerald-700 border-emerald-200",
         intake_validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
     };
     const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
+    const label =
+        value
+            ? (() => {
+                const vv = value.toLowerCase();
+                if (vv === "under_inspection") return "Under inspection";
+                if (vv === "inspection_failed") return "Inspection failed";
+                if (vv === "returned_to_admin") return "Returned to Admin";
+                return value;
+            })()
+            : "-"
+
     return (
         <span className={cx("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border", tone)}>
-            {value ?? "-"}
+            {label}
         </span>
     );
 }
@@ -84,6 +99,39 @@ function SmallButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
     );
 }
 
+function WorkflowActionButton(props: {
+    title: string;
+    subtitle: string;
+    onClick: () => void;
+    disabled?: boolean;
+    variant?: "primary" | "neutral";
+    busy?: boolean;
+}) {
+    const { title, subtitle, onClick, disabled, variant = "neutral", busy } = props;
+
+    const base =
+        "w-full text-left rounded-2xl border px-4 py-3 transition " +
+        "focus:outline-none focus:ring-2 focus:ring-offset-2 " +
+        (disabled ? "opacity-60 cursor-not-allowed" : "hover:shadow-sm");
+
+    const tone =
+        variant === "primary"
+            ? "bg-amber-50 border-amber-200 focus:ring-amber-300"
+            : "bg-white border-slate-200 focus:ring-slate-300";
+
+    return (
+        <button type="button" onClick={onClick} disabled={disabled} className={`${base} ${tone}`}>
+            <div className="flex items-center justify-between gap-3">
+                <div>
+                    <div className="font-semibold text-sm text-slate-900">{busy ? "Saving..." : title}</div>
+                    <div className="text-xs text-slate-600 mt-0.5">{subtitle}</div>
+                </div>
+                <div className="text-slate-400 text-sm">{disabled ? "Locked" : "→"}</div>
+            </div>
+        </button>
+    );
+}
+
 export default function SampleRequestDetailPage() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -118,14 +166,7 @@ export default function SampleRequestDetailPage() {
         if (fromUser) return fromUser;
 
         try {
-            const keys = [
-                "biotrace_auth",
-                "biotrace_user",
-                "auth",
-                "user",
-                "staff",
-            ];
-
+            const keys = ["biotrace_auth", "biotrace_user", "auth", "user", "staff"];
             for (const k of keys) {
                 const raw = localStorage.getItem(k);
                 if (!raw) continue;
@@ -137,7 +178,6 @@ export default function SampleRequestDetailPage() {
             // ignore
         }
 
-        // 3) Last resort: existing helper
         const fallback = Number(getUserRoleId(user));
         return Number.isFinite(fallback) ? fallback : 0;
     }, [user]);
@@ -146,7 +186,10 @@ export default function SampleRequestDetailPage() {
 
     const requestId = Number(id);
 
-    const canView = useMemo(() => roleId === ROLE_ID.ADMIN, [roleId]);
+    const canView = useMemo(
+        () => roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.SAMPLE_COLLECTOR,
+        [roleId]
+    );
 
     const [sample, setSample] = useState<Sample | null>(null);
     const [loading, setLoading] = useState(true);
@@ -155,6 +198,8 @@ export default function SampleRequestDetailPage() {
 
     const [modalOpen, setModalOpen] = useState(false);
     const [modalAction, setModalAction] = useState<"return" | "received">("return");
+
+    const [intakeOpen, setIntakeOpen] = useState(false);
 
     const requestStatus = String((sample as any)?.request_status ?? "").toLowerCase();
     const labSampleCode = String((sample as any)?.lab_sample_code ?? "");
@@ -166,6 +211,10 @@ export default function SampleRequestDetailPage() {
     const isApprovedOrLater =
         requestStatus === "ready_for_delivery" ||
         requestStatus === "physically_received" ||
+        requestStatus === "in_transit_to_collector" ||
+        requestStatus === "under_inspection" ||
+        requestStatus === "inspection_failed" ||
+        requestStatus === "returned_to_admin" ||
         requestStatus === "intake_checklist_passed" ||
         requestStatus === "intake_validated";
 
@@ -180,20 +229,37 @@ export default function SampleRequestDetailPage() {
     const clientPickedUpAt = (sample as any)?.client_picked_up_at ?? null;
 
     const isAdmin = roleId === ROLE_ID.ADMIN;
+    const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
 
     const canWfAdminReceive =
         isAdmin &&
         (requestStatus === "ready_for_delivery" || requestStatus === "physically_received") &&
         !adminReceivedFromClientAt;
 
-    const canWfAdminBring =
-        isAdmin && !!adminReceivedFromClientAt && !adminBroughtToCollectorAt;
+    const canWfAdminBring = isAdmin && !!adminReceivedFromClientAt && !adminBroughtToCollectorAt;
+
+    const canWfCollectorReceive =
+        isCollector &&
+        requestStatus === "in_transit_to_collector" &&
+        !!adminBroughtToCollectorAt &&
+        !collectorReceivedAt;
+
+    const canWfCollectorReturnToAdmin =
+        isCollector &&
+        requestStatus === "inspection_failed" &&
+        !!collectorIntakeCompletedAt &&
+        !collectorReturnedToAdminAt;
+
+    const canOpenIntakeChecklist =
+        isCollector &&
+        requestStatus === "under_inspection" &&
+        !!collectorReceivedAt &&
+        !collectorIntakeCompletedAt;
 
     const canWfAdminReceiveBack =
         isAdmin && !!collectorReturnedToAdminAt && !adminReceivedFromCollectorAt;
 
-    const canWfClientPickup =
-        isAdmin && !!adminReceivedFromCollectorAt && !clientPickedUpAt;
+    const canWfClientPickup = isAdmin && !!adminReceivedFromCollectorAt && !clientPickedUpAt;
 
     const [wfBusy, setWfBusy] = useState(false);
     const [wfError, setWfError] = useState<string | null>(null);
@@ -280,10 +346,27 @@ export default function SampleRequestDetailPage() {
         try {
             setWfBusy(true);
             setWfError(null);
-
-            // ✅ FIX: backend route supports PATCH, not POST
             await apiPatch<any>(`/v1/samples/${requestId}/physical-workflow`, { action, note: null });
+            await load({ silent: true });
+        } catch (err: any) {
+            const msg =
+                err?.response?.data?.message ??
+                err?.data?.message ??
+                err?.data?.error ??
+                err?.message ??
+                "Failed to update physical workflow.";
+            setWfError(msg);
+        } finally {
+            setWfBusy(false);
+        }
+    };
 
+    const doMarkPhysicallyReceived = async () => {
+        if (!requestId || Number.isNaN(requestId)) return;
+        try {
+            setWfBusy(true);
+            setWfError(null);
+            await apiPost(`/v1/samples/${requestId}/request-status`, { action: "received", note: null });
             await load({ silent: true });
         } catch (err: any) {
             const msg =
@@ -383,6 +466,24 @@ export default function SampleRequestDetailPage() {
                             </div>
                         </div>
 
+                        {labSampleCode ? (
+                            <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                                <div className="font-semibold">This request has been promoted to a lab sample.</div>
+                                <div className="mt-1">
+                                    Lab code: <span className="font-mono">{labSampleCode}</span>
+                                </div>
+                                <div className="mt-3">
+                                    <button
+                                        type="button"
+                                        className="lims-btn-primary"
+                                        onClick={() => navigate(`/samples/${requestId}`)}
+                                    >
+                                        Open in Samples
+                                    </button>
+                                </div>
+                            </div>
+                        ) : null}
+
                         {isDraft ? (
                             <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-4 text-sm text-red-800">
                                 This request is still <span className="font-semibold">draft</span> and is only visible to the client.
@@ -390,7 +491,7 @@ export default function SampleRequestDetailPage() {
                         ) : (
                             <>
                                 <div className="flex items-center gap-2 flex-wrap">
-                                    {(isSubmitted || isReturned) && (
+                                    {(isSubmitted || isReturned) && isAdmin && (
                                         <>
                                             <SmallPrimaryButton type="button" onClick={approve}>
                                                 Approve
@@ -448,9 +549,7 @@ export default function SampleRequestDetailPage() {
                                                     (sample as any).requested_parameters.map((p: any) => {
                                                         const code = String(p?.code ?? "").trim();
                                                         const name = String(p?.name ?? "").trim();
-                                                        const label =
-                                                            (code ? `${code} — ` : "") +
-                                                            (name || `Parameter #${p?.parameter_id ?? ""}`);
+                                                        const label = (code ? `${code} — ` : "") + (name || `Parameter #${p?.parameter_id ?? ""}`);
                                                         return (
                                                             <span
                                                                 key={String(p?.parameter_id)}
@@ -480,8 +579,7 @@ export default function SampleRequestDetailPage() {
                                         <div className="lg:col-span-2">
                                             <div className="lims-detail-label">Client</div>
                                             <div className="lims-detail-value">
-                                                {sample.client?.name ??
-                                                    (sample.client_id ? `Client #${sample.client_id}` : "-")}
+                                                {sample.client?.name ?? (sample.client_id ? `Client #${sample.client_id}` : "-")}
                                                 {sample.client?.email ? (
                                                     <span className="text-xs text-gray-500"> · {sample.client.email}</span>
                                                 ) : null}
@@ -492,14 +590,16 @@ export default function SampleRequestDetailPage() {
 
                                 {showPostApproveSections && (
                                     <>
-                                        <LoaPanelStaff
-                                            sampleId={requestId}
-                                            roleId={roleId}
-                                            samplePayload={sample}
-                                            onChanged={async () => {
-                                                await load({ silent: true });
-                                            }}
-                                        />
+                                        {isAdmin && (
+                                            <LoaPanelStaff
+                                                sampleId={requestId}
+                                                roleId={roleId}
+                                                samplePayload={sample}
+                                                onChanged={async () => {
+                                                    await load({ silent: true });
+                                                }}
+                                            />
+                                        )}
 
                                         <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                                             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
@@ -548,59 +648,77 @@ export default function SampleRequestDetailPage() {
                                                     ))}
                                                 </div>
 
-                                                <div className="mt-4 flex flex-wrap gap-2">
-                                                    <SmallPrimaryButton
-                                                        type="button"
-                                                        onClick={async () => {
-                                                            if (!requestId || Number.isNaN(requestId)) return;
-                                                            try {
-                                                                setWfBusy(true);
-                                                                setWfError(null);
+                                                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                    {isAdmin ? (
+                                                        <>
+                                                            <WorkflowActionButton
+                                                                title="Admin: Received from client"
+                                                                subtitle="Record the time the sample arrived at the admin desk."
+                                                                onClick={doMarkPhysicallyReceived}
+                                                                disabled={!canWfAdminReceive || wfBusy}
+                                                                busy={wfBusy}
+                                                                variant="neutral"
+                                                            />
 
-                                                                // Mark physically received + auto-set admin_received_from_client_at (backend handles this)
-                                                                await apiPost(`/v1/samples/${requestId}/request-status`, { action: "received", note: null });
+                                                            <WorkflowActionButton
+                                                                title="Admin: Hand off to Sample Collector"
+                                                                subtitle="Marks this request as In transit to Sample Collector."
+                                                                onClick={() => doPhysicalWorkflow("admin_brought_to_collector")}
+                                                                disabled={!canWfAdminBring || wfBusy}
+                                                                busy={wfBusy}
+                                                                variant="primary"
+                                                            />
 
-                                                                await load({ silent: true });
-                                                            } catch (err: any) {
-                                                                const msg =
-                                                                    err?.response?.data?.message ??
-                                                                    err?.data?.message ??
-                                                                    err?.data?.error ??
-                                                                    err?.message ??
-                                                                    "Failed to update physical workflow.";
-                                                                setWfError(msg);
-                                                            } finally {
-                                                                setWfBusy(false);
-                                                            }
-                                                        }}
-                                                        disabled={!canWfAdminReceive || wfBusy}
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Admin: Received"}
-                                                    </SmallPrimaryButton>
+                                                            <WorkflowActionButton
+                                                                title="Admin: Received back from collector"
+                                                                subtitle="Record the time the collector returned the sample to admin."
+                                                                onClick={() => doPhysicalWorkflow("admin_received_from_collector")}
+                                                                disabled={!canWfAdminReceiveBack || wfBusy}
+                                                                busy={wfBusy}
+                                                                variant="neutral"
+                                                            />
 
-                                                    <SmallButton
-                                                        type="button"
-                                                        onClick={() => doPhysicalWorkflow("admin_brought_to_collector")}
-                                                        disabled={!canWfAdminBring || wfBusy}
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Admin: To Collector"}
-                                                    </SmallButton>
+                                                            <WorkflowActionButton
+                                                                title="Admin: Client picked up"
+                                                                subtitle="Final step for returned samples — record pickup time."
+                                                                onClick={() => doPhysicalWorkflow("client_picked_up")}
+                                                                disabled={!canWfClientPickup || wfBusy}
+                                                                busy={wfBusy}
+                                                                variant="neutral"
+                                                            />
+                                                        </>
+                                                    ) : null}
 
-                                                    <SmallButton
-                                                        type="button"
-                                                        onClick={() => doPhysicalWorkflow("admin_received_from_collector")}
-                                                        disabled={!canWfAdminReceiveBack || wfBusy}
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Admin: Received Back"}
-                                                    </SmallButton>
+                                                    {isCollector ? (
+                                                        <>
+                                                            <WorkflowActionButton
+                                                                title="Collector: Received"
+                                                                subtitle="Confirm you received the sample from admin. Status becomes Under inspection."
+                                                                onClick={() => doPhysicalWorkflow("collector_received")}
+                                                                disabled={!canWfCollectorReceive || wfBusy}
+                                                                busy={wfBusy}
+                                                                variant="primary"
+                                                            />
 
-                                                    <SmallButton
-                                                        type="button"
-                                                        onClick={() => doPhysicalWorkflow("client_picked_up")}
-                                                        disabled={!canWfClientPickup || wfBusy}
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Admin: Client Picked Up"}
-                                                    </SmallButton>
+                                                            <WorkflowActionButton
+                                                                title="Collector: Intake checklist"
+                                                                subtitle="Complete the intake checks. All categories must pass."
+                                                                onClick={() => setIntakeOpen(true)}
+                                                                disabled={!canOpenIntakeChecklist || wfBusy}
+                                                                busy={wfBusy}
+                                                                variant="neutral"
+                                                            />
+
+                                                            <WorkflowActionButton
+                                                                title="Collector: Returned to Admin"
+                                                                subtitle="Return the sample to admin after inspection failed."
+                                                                onClick={() => doPhysicalWorkflow("collector_returned_to_admin")}
+                                                                disabled={!canWfCollectorReturnToAdmin || wfBusy}
+                                                                busy={wfBusy}
+                                                                variant="primary"
+                                                            />
+                                                        </>
+                                                    ) : null}
                                                 </div>
                                             </div>
                                         </div>
@@ -619,6 +737,18 @@ export default function SampleRequestDetailPage() {
                                 await load({ silent: true });
                             }}
                         />
+
+                        {intakeOpen ? (
+                            <IntakeChecklistModal
+                                open={intakeOpen}
+                                onClose={() => setIntakeOpen(false)}
+                                sampleId={requestId}
+                                requestLabel={`Request #${requestId}`}
+                                onSubmitted={async () => {
+                                    await load({ silent: true });
+                                }}
+                            />
+                        ) : null}
                     </div>
                 )}
             </div>

@@ -74,8 +74,12 @@ class SampleRequestStatusController extends Controller
             return response()->json(['message' => 'Draft requests are not available in backoffice.'], 403);
         }
 
+        // ✅ Capture old status BEFORE any mutation (for correct audit)
+        $oldRequestStatus = (string) ($sample->request_status ?? '');
+
         // Allowed transitions:
-        // - accept/return: from submitted/returned/needs_revision
+        // - accept: from submitted/returned/needs_revision
+        // - return: from submitted/returned/needs_revision + fail-path (returned_to_admin/inspection_failed)
         // - received: from ready_for_delivery (normal flow)
         if ($action === 'received') {
             if ($current !== 'ready_for_delivery') {
@@ -91,10 +95,15 @@ class SampleRequestStatusController extends Controller
                 ], 422);
             }
         } else {
-            $allowedFrom = ['submitted', 'returned', 'needs_revision'];
+            // ✅ Step 7 fix: allow return from fail-path states too
+            $allowedFrom = ($action === 'accept')
+                ? ['submitted', 'returned', 'needs_revision']
+                : ['submitted', 'returned', 'needs_revision', 'returned_to_admin', 'inspection_failed'];
+
             if (!in_array($current, $allowedFrom, true)) {
                 return response()->json([
                     'message' => 'You are not allowed to perform this request status transition.',
+                    'details' => ['request_status' => [$current]],
                 ], 403);
             }
         }
@@ -109,7 +118,7 @@ class SampleRequestStatusController extends Controller
             ], 422);
         }
 
-        DB::transaction(function () use ($sample, $action, $note, $staffId) {
+        DB::transaction(function () use ($sample, $action, $note, $staffId, $oldRequestStatus) {
             $now = Carbon::now();
 
             if (Schema::hasColumn('samples', 'reviewed_at')) {
@@ -130,6 +139,7 @@ class SampleRequestStatusController extends Controller
 
             if ($action === 'return') {
                 if (Schema::hasColumn('samples', 'request_status')) {
+                    // This is the "notify client / pickup required" action in Step 7
                     $sample->request_status = 'returned';
                 }
                 if (Schema::hasColumn('samples', 'request_return_note')) {
@@ -161,8 +171,6 @@ class SampleRequestStatusController extends Controller
             // optional audit log, schema-safe
             if (Schema::hasTable('audit_logs')) {
                 $cols = array_flip(Schema::getColumnListing('audit_logs'));
-
-                $oldRequestStatus = $sample->getOriginal('request_status');
 
                 $payload = [
                     'entity_name' => 'samples',

@@ -19,14 +19,24 @@ class SampleRequestQueueController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $user = $request->user();
+        $roleName = $user?->role?->name;
+
+        if (!in_array($roleName, ['Administrator', 'Sample Collector'], true)) {
+            return response()->json([
+                'status' => 403,
+                'error' => 'Forbidden',
+                'code' => 'ROLE_FORBIDDEN',
+                'message' => 'You are not allowed to access the sample requests queue.',
+            ], 403);
+        }
+
         $q = trim((string) $request->get('q', ''));
-        // ✅ frontend sends request_status; keep backward compatibility with status
         $status = trim((string) ($request->get('request_status', $request->get('status', ''))));
         $date = trim((string) $request->get('date', ''));
 
         $query = Sample::query()->with(['client', 'requestedParameters']);
 
-        // ✅ Queue = request yang belum punya lab_sample_code
         if (Schema::hasColumn('samples', 'lab_sample_code')) {
             $query->whereNull('lab_sample_code');
         }
@@ -90,8 +100,18 @@ class SampleRequestQueueController extends Controller
 
         $rows = $query->orderByDesc('sample_id')->paginate(15);
 
+        $items = collect($rows->items())->map(function ($s) {
+            // $s adalah Sample model (karena paginate dari Eloquent)
+            $arr = $s->toArray();
+
+            $arr['client_name']  = $s->client?->name ?? null;
+            $arr['client_email'] = $s->client?->email ?? null;
+
+            return $arr;
+        })->values()->all();
+
         return response()->json([
-            'data' => $rows->items(),
+            'data' => $items,
             'meta' => [
                 'current_page' => $rows->currentPage(),
                 'last_page' => $rows->lastPage(),

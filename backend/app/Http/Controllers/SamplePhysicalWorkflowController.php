@@ -9,6 +9,7 @@ use App\Models\Staff;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use App\Enums\SampleRequestStatus;
 
 class SamplePhysicalWorkflowController extends Controller
 {
@@ -146,6 +147,46 @@ class SamplePhysicalWorkflowController extends Controller
             }
         }
 
+        // ✅ Additional status-level guards (prevents “status jumping”)
+        $rs = (string)($sample->request_status ?? '');
+
+        if ($action === 'collector_received' && $rs !== SampleRequestStatus::IN_TRANSIT_TO_COLLECTOR->value) {
+            return response()->json([
+                'status' => 422,
+                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
+                'message' => "Collector can only receive when status is in_transit_to_collector.",
+                'details' => [['field' => 'action', 'message' => 'Invalid request_status for this action.']],
+            ], 422);
+        }
+
+        if ($action === 'collector_returned_to_admin' && $rs !== SampleRequestStatus::INSPECTION_FAILED->value) {
+            return response()->json([
+                'status' => 422,
+                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
+                'message' => "Collector can only return to admin when status is inspection_failed.",
+                'details' => [['field' => 'action', 'message' => 'Invalid request_status for this action.']],
+            ], 422);
+        }
+
+        if ($action === 'admin_received_from_collector' && $rs !== SampleRequestStatus::RETURNED_TO_ADMIN->value) {
+            return response()->json([
+                'status' => 422,
+                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
+                'message' => "Admin can only receive from collector when status is returned_to_admin.",
+                'details' => [['field' => 'action', 'message' => 'Invalid request_status for this action.']],
+            ], 422);
+        }
+
+        // ✅ Step 7: pickup only after admin "return/notify client" (client-facing status)
+        if ($action === 'client_picked_up' && !in_array($rs, ['returned', 'needs_revision'], true)) {
+            return response()->json([
+                'status' => 422,
+                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
+                'message' => "Client pickup can only be recorded after status is returned/needs_revision (pickup required).",
+                'details' => [['field' => 'action', 'message' => 'Invalid request_status for this action.']],
+            ], 422);
+        }
+
         // Guard: do not set twice
         if (!empty($sample->{$targetCol})) {
             return response()->json([
@@ -158,48 +199,62 @@ class SamplePhysicalWorkflowController extends Controller
             ], 409);
         }
 
-        $old = $sample->{$targetCol};
+        // ✅ Capture old values BEFORE mutation (for correct audit)
+        $oldTargetValue = $sample->{$targetCol};
+        $oldRequestStatus = (string) ($sample->request_status ?? '');
 
-        DB::transaction(function () use ($sample, $targetCol, $note, $actor, $action, $old) {
+        DB::transaction(function () use ($sample, $targetCol, $note, $actor, $action, $oldTargetValue, $oldRequestStatus) {
             $sample->{$targetCol} = now();
+
+            if ($action === 'admin_brought_to_collector') {
+                $sample->request_status = SampleRequestStatus::IN_TRANSIT_TO_COLLECTOR->value;
+            }
+
+            if ($action === 'collector_received') {
+                $sample->request_status = SampleRequestStatus::UNDER_INSPECTION->value;
+            }
+
+            // ✅ Step 6B: after failed inspection, collector returns to admin
+            if ($action === 'collector_returned_to_admin') {
+                $sample->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
+            }
+
             $sample->save();
 
-            // Best-effort audit log (schema-tolerant, FIXED for staff_id NOT NULL)
             if (Schema::hasTable('audit_logs')) {
                 $cols = array_flip(Schema::getColumnListing('audit_logs'));
-
                 $staffId = $actor->staff_id ?? $actor->getKey();
 
-                // Build payload with multiple possible column names (we will intersect by actual columns)
                 $payload = [
-                    // Common identity fields (different schemas may use different names)
                     'staff_id' => $staffId,
                     'performed_by' => $staffId,
                     'user_id' => $staffId,
-
                     'entity_name' => 'samples',
                     'entity_id' => $sample->sample_id,
 
+                    // ✅ Keep action <= 40 chars (DB constraint)
                     'action' => 'SAMPLE_PHYSICAL_WORKFLOW_CHANGED',
 
-                    // Time fields
                     'performed_at' => now(),
                     'created_at' => now(),
                     'updated_at' => now(),
 
-                    // Notes/meta
                     'note' => $note,
                     'meta' => $note ? json_encode(['note' => $note]) : null,
 
-                    // Before/after snapshots
-                    'old_values' => json_encode([$targetCol => $old]),
-                    'new_values' => json_encode([$targetCol => $sample->{$targetCol}, 'action' => $action]),
+                    'old_values' => json_encode([
+                        $targetCol => $oldTargetValue,
+                        'request_status' => $oldRequestStatus,
+                    ]),
+                    'new_values' => json_encode([
+                        $targetCol => $sample->{$targetCol},
+                        'event_key' => $action,               // ✅ store the real event here
+                        'request_status' => $sample->request_status,
+                    ]),
                 ];
 
-                // insert only columns that exist
                 $insert = array_intersect_key($payload, $cols);
 
-                // Extra safety: if schema requires staff_id but we somehow didn't map it, bail gracefully
                 if (isset($cols['staff_id']) && empty($insert['staff_id'])) {
                     $insert['staff_id'] = $staffId;
                 }
@@ -208,7 +263,6 @@ class SamplePhysicalWorkflowController extends Controller
             }
         });
 
-        // refresh values
         $sample->refresh();
 
         return response()->json([
@@ -217,7 +271,6 @@ class SamplePhysicalWorkflowController extends Controller
                 'sample_id' => $sample->sample_id,
                 'request_status' => $sample->request_status ?? null,
 
-                // Return all known columns (only those that exist will be non-null)
                 'admin_received_from_client_at' => $sample->admin_received_from_client_at ?? null,
                 'admin_brought_to_collector_at' => $sample->admin_brought_to_collector_at ?? null,
                 'admin_handed_to_collector_at' => $sample->admin_handed_to_collector_at ?? null,

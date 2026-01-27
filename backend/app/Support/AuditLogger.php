@@ -39,6 +39,11 @@ class AuditLogger
             }
         }
 
+        // ✅ DB column audit_logs.action is varchar(40) on your schema
+        if (strlen($normalizedAction) > 40) {
+            $normalizedAction = substr($normalizedAction, 0, 40);
+        }
+
         DB::table('audit_logs')->insert([
             'staff_id'    => $staffId,
             'entity_name' => $entityName,
@@ -118,6 +123,11 @@ class AuditLogger
                 'note' => $note,
                 'client_id' => $clientId,
             ];
+        } else {
+            // tetap simpan client_id untuk traceability
+            $diff['_meta'] = [
+                'client_id' => $clientId,
+            ];
         }
 
         self::write(
@@ -148,6 +158,10 @@ class AuditLogger
                 'note' => $note,
                 'client_id' => $clientId,
             ];
+        } else {
+            $diff['_meta'] = [
+                'client_id' => $clientId,
+            ];
         }
 
         self::write(
@@ -157,6 +171,39 @@ class AuditLogger
             entityId: $sampleId,
             oldValues: $diff,
             newValues: null
+        );
+    }
+
+    /**
+     * Audit log untuk event physical workflow (ISO evidence friendly).
+     * NOTE: AuditLogger::write() tidak punya parameter clientId, jadi kita simpan di new_values/_meta.
+     */
+    public static function logSamplePhysicalWorkflowEvent(
+        int $staffId,
+        int $sampleId,
+        int $clientId,
+        string $eventKey,
+        array $oldValues,
+        array $newValues,
+        ?string $note = null
+    ): void {
+        $actionKey = 'SAMPLE_PHYSICAL_WORKFLOW_' . strtoupper(preg_replace('/[^a-z0-9]+/i', '_', $eventKey));
+
+        $payloadNew = array_merge($newValues, [
+            'event_key' => $eventKey,
+            'note' => $note,
+            '_meta' => [
+                'client_id' => $clientId,
+            ],
+        ]);
+
+        self::write(
+            action: $actionKey,
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: $oldValues,
+            newValues: $payloadNew
         );
     }
 }
