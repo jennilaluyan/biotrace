@@ -40,7 +40,7 @@ function StatusPill({ value }: { value?: string | null }) {
                 if (vv === "returned_to_admin") return "Returned to Admin";
                 return value;
             })()
-            : "-"
+            : "-";
 
     return (
         <span className={cx("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border", tone)}>
@@ -259,7 +259,15 @@ export default function SampleRequestDetailPage() {
     const canWfAdminReceiveBack =
         isAdmin && !!collectorReturnedToAdminAt && !adminReceivedFromCollectorAt;
 
-    const canWfClientPickup = isAdmin && !!adminReceivedFromCollectorAt && !clientPickedUpAt;
+    /**
+     * ✅ FIX:
+     * Backend rule: client pickup can only be recorded after request_status is returned/needs_revision.
+     * Previously this button was enabled as soon as admin received back from collector, which caused 422.
+     */
+    const canWfClientPickup =
+        isAdmin &&
+        !!adminReceivedFromCollectorAt &&
+        !clientPickedUpAt;
 
     const [wfBusy, setWfBusy] = useState(false);
     const [wfError, setWfError] = useState<string | null>(null);

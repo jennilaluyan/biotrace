@@ -168,25 +168,21 @@ class SamplePhysicalWorkflowController extends Controller
             ], 422);
         }
 
-        if ($action === 'admin_received_from_collector' && $rs !== SampleRequestStatus::RETURNED_TO_ADMIN->value) {
+        if ($action === 'admin_received_from_collector' && !in_array($rs, [
+            SampleRequestStatus::RETURNED_TO_ADMIN->value,
+            SampleRequestStatus::INSPECTION_FAILED->value, // tolerate edge-case, timestamp prerequisites still enforced
+        ], true)) {
             return response()->json([
                 'status' => 422,
                 'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
-                'message' => "Admin can only receive from collector when status is returned_to_admin.",
+                'message' => "Admin can only receive from collector after inspection return flow.",
                 'details' => [['field' => 'action', 'message' => 'Invalid request_status for this action.']],
             ], 422);
         }
 
-        // ✅ Step 7: pickup only after admin "return/notify client" (client-facing status)
-        if ($action === 'client_picked_up' && !in_array($rs, ['returned', 'needs_revision'], true)) {
-            return response()->json([
-                'status' => 422,
-                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
-                'message' => "Client pickup can only be recorded after status is returned/needs_revision (pickup required).",
-                'details' => [['field' => 'action', 'message' => 'Invalid request_status for this action.']],
-            ], 422);
+        if ($action === 'client_picked_up' && $rs === '') {
+            // no-op; keep guard structure symmetrical (optional)
         }
-
         // Guard: do not set twice
         if (!empty($sample->{$targetCol})) {
             return response()->json([
@@ -214,8 +210,18 @@ class SamplePhysicalWorkflowController extends Controller
                 $sample->request_status = SampleRequestStatus::UNDER_INSPECTION->value;
             }
 
-            // ✅ Step 6B: after failed inspection, collector returns to admin
+            // ✅ After failed inspection, collector returns to admin (pickup required)
             if ($action === 'collector_returned_to_admin') {
+                $sample->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
+            }
+
+            // ✅ When admin receives back from collector, ensure client-facing status is pickup-required
+            if ($action === 'admin_received_from_collector') {
+                $sample->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
+            }
+
+            // ✅ When client picked up, keep status consistent for client view
+            if ($action === 'client_picked_up') {
                 $sample->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
             }
 

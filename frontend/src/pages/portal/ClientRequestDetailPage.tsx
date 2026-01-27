@@ -33,6 +33,7 @@ const statusTone = (raw?: string | null) => {
     if (s === "draft") return "bg-gray-100 text-gray-700";
     if (s === "submitted") return "bg-primary-soft/10 text-primary-soft";
     if (s === "needs_revision" || s === "returned") return "bg-red-100 text-red-700";
+    if (s === "returned_to_admin") return "bg-red-100 text-red-700"; // ✅ pickup required (client-facing)
     if (s === "ready_for_delivery") return "bg-indigo-50 text-indigo-700";
     if (s === "physically_received") return "bg-green-100 text-green-800";
     return "bg-gray-100 text-gray-700";
