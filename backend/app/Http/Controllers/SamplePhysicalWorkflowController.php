@@ -177,6 +177,16 @@ class SamplePhysicalWorkflowController extends Controller
             ], 422);
         }
 
+        // ✅ Step 7: pickup only after admin "return/notify client" (client-facing status)
+        if ($action === 'client_picked_up' && !in_array($rs, ['returned', 'needs_revision'], true)) {
+            return response()->json([
+                'status' => 422,
+                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
+                'message' => "Client pickup can only be recorded after status is returned/needs_revision (pickup required).",
+                'details' => [['field' => 'action', 'message' => 'Invalid request_status for this action.']],
+            ], 422);
+        }
+
         // Guard: do not set twice
         if (!empty($sample->{$targetCol})) {
             return response()->json([
@@ -189,9 +199,11 @@ class SamplePhysicalWorkflowController extends Controller
             ], 409);
         }
 
-        $old = $sample->{$targetCol};
+        // ✅ Capture old values BEFORE mutation (for correct audit)
+        $oldTargetValue = $sample->{$targetCol};
+        $oldRequestStatus = (string) ($sample->request_status ?? '');
 
-        DB::transaction(function () use ($sample, $targetCol, $note, $actor, $action, $old) {
+        DB::transaction(function () use ($sample, $targetCol, $note, $actor, $action, $oldTargetValue, $oldRequestStatus) {
             $sample->{$targetCol} = now();
 
             if ($action === 'admin_brought_to_collector') {
@@ -219,6 +231,8 @@ class SamplePhysicalWorkflowController extends Controller
                     'user_id' => $staffId,
                     'entity_name' => 'samples',
                     'entity_id' => $sample->sample_id,
+
+                    // ✅ Keep action <= 40 chars (DB constraint)
                     'action' => 'SAMPLE_PHYSICAL_WORKFLOW_CHANGED',
 
                     'performed_at' => now(),
@@ -229,12 +243,12 @@ class SamplePhysicalWorkflowController extends Controller
                     'meta' => $note ? json_encode(['note' => $note]) : null,
 
                     'old_values' => json_encode([
-                        $targetCol => $old,
-                        'request_status' => $sample->getOriginal('request_status'),
+                        $targetCol => $oldTargetValue,
+                        'request_status' => $oldRequestStatus,
                     ]),
                     'new_values' => json_encode([
                         $targetCol => $sample->{$targetCol},
-                        'action' => $action,
+                        'event_key' => $action,               // ✅ store the real event here
                         'request_status' => $sample->request_status,
                     ]),
                 ];
