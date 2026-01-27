@@ -8,6 +8,7 @@ import { sampleService, type Sample } from "../../services/samples";
 import { apiPost, apiPatch } from "../../services/api";
 import { UpdateRequestStatusModal } from "../../components/samples/UpdateRequestStatusModal";
 import { LoaPanelStaff } from "../../components/loa/LoaPanelStaff";
+import { IntakeChecklistModal } from "../../components/intake/IntakeChecklistModal";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -28,9 +29,15 @@ function StatusPill({ value }: { value?: string | null }) {
         intake_validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
     };
     const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
+    const label = value
+        ? value.toLowerCase() === "under_inspection"
+            ? "Under inspection"
+            : value
+        : "-";
+
     return (
         <span className={cx("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border", tone)}>
-            {value ? (value.toLowerCase() === "under_inspection" ? "Under inspection" : value) : "-"}
+            {label}
         </span>
     );
 }
@@ -153,7 +160,6 @@ export default function SampleRequestDetailPage() {
 
         try {
             const keys = ["biotrace_auth", "biotrace_user", "auth", "user", "staff"];
-
             for (const k of keys) {
                 const raw = localStorage.getItem(k);
                 if (!raw) continue;
@@ -186,6 +192,8 @@ export default function SampleRequestDetailPage() {
     const [modalOpen, setModalOpen] = useState(false);
     const [modalAction, setModalAction] = useState<"return" | "received">("return");
 
+    const [intakeOpen, setIntakeOpen] = useState(false);
+
     const requestStatus = String((sample as any)?.request_status ?? "").toLowerCase();
     const labSampleCode = String((sample as any)?.lab_sample_code ?? "");
 
@@ -197,6 +205,7 @@ export default function SampleRequestDetailPage() {
         requestStatus === "ready_for_delivery" ||
         requestStatus === "physically_received" ||
         requestStatus === "in_transit_to_collector" ||
+        requestStatus === "under_inspection" ||
         requestStatus === "intake_checklist_passed" ||
         requestStatus === "intake_validated";
 
@@ -209,11 +218,16 @@ export default function SampleRequestDetailPage() {
     const collectorReturnedToAdminAt = (sample as any)?.collector_returned_to_admin_at ?? null;
     const adminReceivedFromCollectorAt = (sample as any)?.admin_received_from_collector_at ?? null;
     const clientPickedUpAt = (sample as any)?.client_picked_up_at ?? null;
+
     const isAdmin = roleId === ROLE_ID.ADMIN;
     const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
 
     const canWfAdminReceive =
-        isAdmin && (requestStatus === "ready_for_delivery" || requestStatus === "physically_received") && !adminReceivedFromClientAt;
+        isAdmin &&
+        (requestStatus === "ready_for_delivery" || requestStatus === "physically_received") &&
+        !adminReceivedFromClientAt;
+
+    const canWfAdminBring = isAdmin && !!adminReceivedFromClientAt && !adminBroughtToCollectorAt;
 
     const canWfCollectorReceive =
         isCollector &&
@@ -221,9 +235,14 @@ export default function SampleRequestDetailPage() {
         !!adminBroughtToCollectorAt &&
         !collectorReceivedAt;
 
-    const canWfAdminBring = isAdmin && !!adminReceivedFromClientAt && !adminBroughtToCollectorAt;
+    const canOpenIntakeChecklist =
+        isCollector &&
+        requestStatus === "under_inspection" &&
+        !!collectorReceivedAt &&
+        !collectorIntakeCompletedAt;
 
-    const canWfAdminReceiveBack = isAdmin && !!collectorReturnedToAdminAt && !adminReceivedFromCollectorAt;
+    const canWfAdminReceiveBack =
+        isAdmin && !!collectorReturnedToAdminAt && !adminReceivedFromCollectorAt;
 
     const canWfClientPickup = isAdmin && !!adminReceivedFromCollectorAt && !clientPickedUpAt;
 
@@ -253,7 +272,11 @@ export default function SampleRequestDetailPage() {
             const data = await sampleService.getById(requestId);
             setSample(data);
         } catch (err: any) {
-            const msg = err?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to load sample request detail.";
+            const msg =
+                err?.data?.message ??
+                err?.data?.error ??
+                err?.message ??
+                "Failed to load sample request detail.";
             setError(msg);
         } finally {
             if (!silent) setLoading(false);
@@ -293,7 +316,12 @@ export default function SampleRequestDetailPage() {
             await apiPost<any>(`/v1/samples/${requestId}/request-status`, { action: "accept" });
             await load({ silent: true });
         } catch (err: any) {
-            const msg = err?.response?.data?.message ?? err?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to approve request.";
+            const msg =
+                err?.response?.data?.message ??
+                err?.data?.message ??
+                err?.data?.error ??
+                err?.message ??
+                "Failed to approve request.";
             setError(msg);
         }
     };
@@ -307,7 +335,11 @@ export default function SampleRequestDetailPage() {
             await load({ silent: true });
         } catch (err: any) {
             const msg =
-                err?.response?.data?.message ?? err?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to update physical workflow.";
+                err?.response?.data?.message ??
+                err?.data?.message ??
+                err?.data?.error ??
+                err?.message ??
+                "Failed to update physical workflow.";
             setWfError(msg);
         } finally {
             setWfBusy(false);
@@ -323,7 +355,11 @@ export default function SampleRequestDetailPage() {
             await load({ silent: true });
         } catch (err: any) {
             const msg =
-                err?.response?.data?.message ?? err?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to update physical workflow.";
+                err?.response?.data?.message ??
+                err?.data?.message ??
+                err?.data?.error ??
+                err?.message ??
+                "Failed to update physical workflow.";
             setWfError(msg);
         } finally {
             setWfBusy(false);
@@ -374,7 +410,9 @@ export default function SampleRequestDetailPage() {
             <div className="lims-detail-shell">
                 {loading && <div className="text-sm text-gray-600">Loading request detail...</div>}
 
-                {error && !loading && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
+                {error && !loading && (
+                    <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
+                )}
 
                 {!loading && !error && sample && (
                     <div className="space-y-6">
@@ -401,7 +439,12 @@ export default function SampleRequestDetailPage() {
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <SmallButton type="button" onClick={refresh} disabled={pageRefreshing} className="flex items-center gap-2">
+                                <SmallButton
+                                    type="button"
+                                    onClick={refresh}
+                                    disabled={pageRefreshing}
+                                    className="flex items-center gap-2"
+                                >
                                     <IconRefresh />
                                     {pageRefreshing ? "Refreshing..." : "Refresh"}
                                 </SmallButton>
@@ -415,7 +458,7 @@ export default function SampleRequestDetailPage() {
                         ) : (
                             <>
                                 <div className="flex items-center gap-2 flex-wrap">
-                                    {(isSubmitted || isReturned) && (
+                                    {(isSubmitted || isReturned) && isAdmin && (
                                         <>
                                             <SmallPrimaryButton type="button" onClick={approve}>
                                                 Approve
@@ -460,7 +503,9 @@ export default function SampleRequestDetailPage() {
                                         <div>
                                             <div className="lims-detail-label">Scheduled Delivery</div>
                                             <div className="lims-detail-value">
-                                                {(sample as any)?.scheduled_delivery_at ? formatDateTimeLocal((sample as any).scheduled_delivery_at) : "-"}
+                                                {(sample as any)?.scheduled_delivery_at
+                                                    ? formatDateTimeLocal((sample as any).scheduled_delivery_at)
+                                                    : "-"}
                                             </div>
                                         </div>
 
@@ -502,7 +547,9 @@ export default function SampleRequestDetailPage() {
                                             <div className="lims-detail-label">Client</div>
                                             <div className="lims-detail-value">
                                                 {sample.client?.name ?? (sample.client_id ? `Client #${sample.client_id}` : "-")}
-                                                {sample.client?.email ? <span className="text-xs text-gray-500"> · {sample.client.email}</span> : null}
+                                                {sample.client?.email ? (
+                                                    <span className="text-xs text-gray-500"> · {sample.client.email}</span>
+                                                ) : null}
                                             </div>
                                         </div>
                                     </div>
@@ -510,14 +557,16 @@ export default function SampleRequestDetailPage() {
 
                                 {showPostApproveSections && (
                                     <>
-                                        <LoaPanelStaff
-                                            sampleId={requestId}
-                                            roleId={roleId}
-                                            samplePayload={sample}
-                                            onChanged={async () => {
-                                                await load({ silent: true });
-                                            }}
-                                        />
+                                        {isAdmin && (
+                                            <LoaPanelStaff
+                                                sampleId={requestId}
+                                                roleId={roleId}
+                                                samplePayload={sample}
+                                                onChanged={async () => {
+                                                    await load({ silent: true });
+                                                }}
+                                            />
+                                        )}
 
                                         <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                                             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
@@ -558,7 +607,9 @@ export default function SampleRequestDetailPage() {
                                                             />
                                                             <div className="flex-1">
                                                                 <div className="text-xs font-semibold text-gray-800">{r.label}</div>
-                                                                <div className="text-[11px] text-gray-600">{r.at ? formatDateTimeLocal(r.at) : "-"}</div>
+                                                                <div className="text-[11px] text-gray-600">
+                                                                    {r.at ? formatDateTimeLocal(r.at) : "-"}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     ))}
@@ -618,11 +669,19 @@ export default function SampleRequestDetailPage() {
 
                                                             <WorkflowActionButton
                                                                 title="Collector: Intake checklist"
-                                                                subtitle="Available after you mark the sample as received."
-                                                                onClick={() => { }}
-                                                                disabled
+                                                                subtitle={
+                                                                    canOpenIntakeChecklist
+                                                                        ? "Fill the intake checklist (all must pass)."
+                                                                        : !collectorReceivedAt
+                                                                            ? "Available after you mark the sample as received."
+                                                                            : collectorIntakeCompletedAt
+                                                                                ? "Already submitted."
+                                                                                : "Available when status is Under inspection."
+                                                                }
+                                                                onClick={() => setIntakeOpen(true)}
+                                                                disabled={!canOpenIntakeChecklist || wfBusy}
                                                                 busy={false}
-                                                                variant="neutral"
+                                                                variant={canOpenIntakeChecklist ? "primary" : "neutral"}
                                                             />
                                                         </>
                                                     ) : null}
@@ -644,6 +703,18 @@ export default function SampleRequestDetailPage() {
                                 await load({ silent: true });
                             }}
                         />
+
+                        {intakeOpen ? (
+                            <IntakeChecklistModal
+                                open={intakeOpen}
+                                onClose={() => setIntakeOpen(false)}
+                                sampleId={requestId}
+                                requestLabel={`Request #${requestId}`}
+                                onSubmitted={async () => {
+                                    await load({ silent: true });
+                                }}
+                            />
+                        ) : null}
                     </div>
                 )}
             </div>
