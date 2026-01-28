@@ -221,10 +221,7 @@ class LetterOfOrderService
             $sig->save();
 
             // If both OM & LH signed => signed_internal
-            $om = LoaSignature::query()->where('lo_id', $loId)->where('role_code', 'OM')->whereNotNull('signed_at')->exists();
-            $lh = LoaSignature::query()->where('lo_id', $loId)->where('role_code', 'LH')->whereNotNull('signed_at')->exists();
-
-            if ($om && $lh && $loa->loa_status === 'draft') {
+            if (in_array($roleCode, ['OM', 'LH'], true) && $loa->loa_status === 'draft') {
                 $loa->loa_status = 'signed_internal';
                 $loa->updated_at = now();
                 $loa->save();

@@ -1,3 +1,4 @@
+{{-- L:\Campus\Final Countdown\biotrace\backend\resources\views\documents\surat_pengujian.blade.php --}}
 @extends('reports.coa.layout')
 
 @section('content')
@@ -12,6 +13,20 @@
         $items = $items ?? data_get($payload, 'items', []);
         if (!is_array($items))
             $items = [];
+
+        // ✅ Step 9 — signature status (checkbox indicator)
+        $sigByRole = [];
+        if (isset($loo) && isset($loo->signatures)) {
+            try {
+                foreach ($loo->signatures as $s) {
+                    $sigByRole[strtoupper((string) data_get($s, 'role_code', ''))] = $s;
+                }
+            } catch (\Throwable $e) {
+                // ignore
+            }
+        }
+        $omSigned = !empty(data_get($sigByRole, 'OM.signed_at'));
+        $lhSigned = !empty(data_get($sigByRole, 'LH.signed_at'));
 
         // Dummy QR placeholders (kalau nanti ada link verifikasi/signature, tinggal ganti)
         $omUrl = 'https://example.com';
@@ -116,6 +131,11 @@
             align-items: center;
             justify-content: center;
             font-size: 9px;
+        }
+
+        .checkbox {
+            font-size: 12px;
+            margin-bottom: 4px;
         }
     </style>
 
@@ -232,6 +252,11 @@
         <tr>
             <td class="sign-col">
                 <div class="sig-name">OPERATIONAL MANAGER</div>
+
+                <div class="checkbox">
+                    {!! $omSigned ? '&#9745;' : '&#9744;' !!} <span style="font-weight:normal;">Signed</span>
+                </div>
+
                 <div class="sig-box">
                     @if ($omQr)
                         <img src="{{ $omQr }}" style="width:110px;height:110px;" />
@@ -244,6 +269,11 @@
 
             <td class="sign-col">
                 <div class="sig-name">LABORATORY HEAD</div>
+
+                <div class="checkbox">
+                    {!! $lhSigned ? '&#9745;' : '&#9744;' !!} <span style="font-weight:normal;">Signed</span>
+                </div>
+
                 <div class="sig-box">
                     @if ($lhQr)
                         <img src="{{ $lhQr }}" style="width:110px;height:110px;" />

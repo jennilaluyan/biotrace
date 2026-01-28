@@ -97,18 +97,32 @@ export function LooPanelStaff({ sampleId, roleId, samplePayload, onChanged }: Pr
         }
     };
 
-    const signInternal = async () => {
+    const signatures = Array.isArray(loo?.signatures) ? loo.signatures : [];
+    const isSigned = (roleCode: "OM" | "LH") =>
+        signatures.some((s: any) => String(s?.role_code ?? "").toUpperCase() === roleCode && !!s?.signed_at);
+
+    const canSignRole = (roleCode: "OM" | "LH") => {
+        // only OM can sign OM, only LH can sign LH
+        if (roleCode === "OM") return roleId === ROLE_ID.OPERATIONAL_MANAGER;
+        if (roleCode === "LH") return roleId === ROLE_ID.LAB_HEAD;
+        return false;
+    };
+
+    const signAs = async (roleCode: "OM" | "LH") => {
         if (!loo?.loo_id) return;
+        if (!canSignRole(roleCode)) return;
+        if (isSigned(roleCode)) return;
+
         try {
             setWorking(true);
             setError(null);
             setInfo(null);
-            const next = await looService.signInternal(loo.loo_id);
+            const next = await looService.signInternal(loo.loo_id, roleCode);
             setLoo(next);
-            setInfo("LoO signed internally.");
+            setInfo(`${roleCode} signed.`);
             onChanged?.();
         } catch (e: any) {
-            setError(safeErr(e, "Failed to sign LoO internally."));
+            setError(safeErr(e, `Failed to sign as ${roleCode}.`));
         } finally {
             setWorking(false);
         }
@@ -231,14 +245,35 @@ export function LooPanelStaff({ sampleId, roleId, samplePayload, onChanged }: Pr
 
                     {!!loo?.loo_id && (
                         <>
-                            <button
-                                type="button"
-                                className={cx("lims-btn", working && "opacity-60 cursor-not-allowed")}
-                                onClick={signInternal}
-                                disabled={working}
-                            >
-                                Sign Internal
-                            </button>
+                            <div className="mt-3 space-y-2">
+                                <label className="flex items-center gap-2 text-sm">
+                                    <input
+                                        type="checkbox"
+                                        checked={isSigned("OM")}
+                                        disabled={working || !canSignRole("OM") || isSigned("OM")}
+                                        onChange={() => signAs("OM")}
+                                    />
+                                    <span className={canSignRole("OM") ? "" : "text-gray-400"}>
+                                        OM Sign {isSigned("OM") ? "(signed)" : ""}
+                                    </span>
+                                </label>
+
+                                <label className="flex items-center gap-2 text-sm">
+                                    <input
+                                        type="checkbox"
+                                        checked={isSigned("LH")}
+                                        disabled={working || !canSignRole("LH") || isSigned("LH")}
+                                        onChange={() => signAs("LH")}
+                                    />
+                                    <span className={canSignRole("LH") ? "" : "text-gray-400"}>
+                                        LH Sign {isSigned("LH") ? "(signed)" : ""}
+                                    </span>
+                                </label>
+
+                                <div className="text-xs text-gray-500">
+                                    Internal signatures are independent — one can sign without waiting for the other.
+                                </div>
+                            </div>
 
                             <button
                                 type="button"
