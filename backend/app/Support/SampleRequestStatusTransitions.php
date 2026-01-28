@@ -26,16 +26,21 @@ final class SampleRequestStatusTransitions
         ],
 
         'Sample Collector' => [
-            'physically_received' => ['rejected', 'submitted'],
-            // NOTE: kita pakai 'submitted' di sini sebagai "submitted to lab head for validation"
-            // biar tidak nambah status baru dulu. Nanti kalau kamu mau lebih jelas:
-            // buat status 'collector_submitted' / 'pending_lh_validation'
+            // setelah diterima fisik & dibawa ke SC, SC isi checklist:
+            // PASS -> awaiting_verification
+            // FAIL -> inspection_failed (controller checklist yang set)
+            'physically_received' => ['in_transit_to_collector', 'rejected'],
+            'in_transit_to_collector' => ['under_inspection'],
+            'under_inspection' => ['awaiting_verification', 'inspection_failed'],
+        ],
+
+        'Operational Manager' => [
+            // Step 3 nanti punya endpoint verify, tapi transition map kita siapkan dari sekarang
+            'awaiting_verification' => ['intake_validated'],
         ],
 
         'Laboratory Head' => [
-            'submitted' => ['physically_received'],
-            // NOTE: placeholder. Nanti step 2.5 kita ubah:
-            // LH validate -> tetap physically_received tapi sekaligus generate lab_sample_code + LoA
+            'awaiting_verification' => ['intake_validated'],
         ],
     ];
 
