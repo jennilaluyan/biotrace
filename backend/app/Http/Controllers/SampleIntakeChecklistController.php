@@ -121,8 +121,6 @@ class SampleIntakeChecklistController extends Controller
             }
         }
 
-        $nextStatus = $isPassed ? 'intake_checklist_passed' : 'rejected';
-
         DB::transaction(function () use ($sample, $actor, $normalized, $generalNote, $isPassed) {
             SampleIntakeChecklist::create([
                 'sample_id' => $sample->sample_id,
@@ -147,12 +145,7 @@ class SampleIntakeChecklistController extends Controller
             $old = (string) $sample->request_status;
 
             if ($isPassed) {
-                /**
-                 * ✅ Step 1 (New Flow):
-                 * SC PASS checklist TIDAK lagi assign lab_sample_code.
-                 * Masuk gate verifikasi OM/LH terlebih dahulu.
-                 */
-                $sample->request_status = 'awaiting_verification';
+                $sample->request_status = \App\Enums\SampleRequestStatus::AWAITING_VERIFICATION->value;
 
                 // (Opsional tapi aman) seed received_at kalau null untuk konsistensi timestamp,
                 // tapi tidak mempengaruhi lab workflow karena lab_sample_code masih null.
@@ -163,10 +156,8 @@ class SampleIntakeChecklistController extends Controller
                     $sample->received_at = Carbon::parse((string) $seed);
                 }
             } else {
-                $sample->request_status = 'inspection_failed';
+                $sample->request_status = \App\Enums\SampleRequestStatus::INSPECTION_FAILED->value;
             }
-            $sample->save();
-
             $sample->save();
 
             AuditLogger::write(
