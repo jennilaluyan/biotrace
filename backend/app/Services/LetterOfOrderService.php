@@ -17,51 +17,115 @@ class LetterOfOrderService
         private readonly LoaPdfService $pdf,
     ) {}
 
-    public function ensureDraftForSample(int $sampleId, int $actorStaffId): LetterOfOrder
+    public function ensureDraftForSamples(array $sampleIds, int $actorStaffId): LetterOfOrder
     {
-        return DB::transaction(function () use ($sampleId, $actorStaffId) {
+        $sampleIds = array_values(array_unique(array_map('intval', $sampleIds)));
+        if (count($sampleIds) <= 0) {
+            throw new RuntimeException('sample_ids is required.');
+        }
 
-            $existing = LetterOfOrder::query()->where('sample_id', $sampleId)->first();
-            if ($existing) return $existing;
+        return DB::transaction(function () use ($sampleIds, $actorStaffId) {
+            // 1) load samples
+            $samples = DB::table('samples')
+                ->whereIn('sample_id', $sampleIds)
+                ->get([
+                    'sample_id',
+                    'client_id',
+                    'lab_sample_code',
+                    'sample_type',
+                    'verified_at',
+                    'request_status',
+                ]);
 
+            if ($samples->count() !== count($sampleIds)) {
+                throw new RuntimeException('Some samples not found.');
+            }
+
+            // 2) enforce same client_id
+            $clientIds = $samples->pluck('client_id')->filter()->unique()->values();
+            if ($clientIds->count() !== 1) {
+                throw new RuntimeException('Selected samples must belong to the same client.');
+            }
+            $clientId = (int) $clientIds->first();
+
+            // 3) verification + lab code gate
+            foreach ($samples as $s) {
+                if (empty($s->verified_at)) {
+                    throw new RuntimeException("Sample {$s->sample_id} is not verified yet.");
+                }
+                if (empty($s->lab_sample_code)) {
+                    throw new RuntimeException("Sample {$s->sample_id} has no lab_sample_code yet.");
+                }
+            }
+
+            $client = DB::table('clients')->where('client_id', $clientId)->first();
+
+            // 4) load parameters from request pivot
+            $paramRows = DB::table('sample_requested_parameters as srp')
+                ->join('parameters as p', 'p.parameter_id', '=', 'srp.parameter_id')
+                ->whereIn('srp.sample_id', $sampleIds)
+                ->orderBy('p.code')
+                ->get([
+                    'srp.sample_id',
+                    'p.parameter_id',
+                    'p.code',
+                    'p.name',
+                ]);
+
+            $paramsBySample = [];
+            foreach ($paramRows as $r) {
+                $sid = (int) $r->sample_id;
+                if (!isset($paramsBySample[$sid])) $paramsBySample[$sid] = [];
+                $paramsBySample[$sid][] = [
+                    'parameter_id' => (int) $r->parameter_id,
+                    'code' => (string) ($r->code ?? ''),
+                    'name' => (string) ($r->name ?? ''),
+                ];
+            }
+
+            // 5) build items snapshot (for PDF + DB items table)
+            $items = [];
+            $sortedSamples = $samples->sortBy('lab_sample_code')->values();
+            foreach ($sortedSamples as $idx => $s) {
+                $sid = (int) $s->sample_id;
+                $items[] = [
+                    'no' => $idx + 1,
+                    'sample_id' => $sid,
+                    'lab_sample_code' => (string) $s->lab_sample_code,
+                    'sample_type' => $s->sample_type ?? null,
+                    'parameters' => $paramsBySample[$sid] ?? [],
+                ];
+            }
+
+            // 6) create LOA
             $number = $this->numberGen->nextNumber();
             $path = $this->pdf->buildPath($number);
-
-            // snapshot minimal (jangan query berat)
-            $sample = DB::table('samples')->where('sample_id', $sampleId)->first();
-            if (!$sample) throw new RuntimeException('Sample not found.');
-
-            $client = null;
-            if (!empty($sample->client_id)) {
-                $client = DB::table('clients')->where('client_id', $sample->client_id)->first();
-            }
 
             $payload = [
                 'loa_number' => $number,
                 'generated_at' => now()->toISOString(),
-                'sample_id' => $sample->sample_id,
-                'lab_sample_code' => $sample->lab_sample_code ?? null,
-                'sample_type' => $sample->sample_type ?? null,
                 'client' => $client ? [
                     'name' => $client->name ?? null,
                     'organization' => $client->organization ?? null,
                     'email' => $client->email ?? null,
                     'phone' => $client->phone ?? null,
                 ] : null,
+                'sample_ids' => $sampleIds,
+                'items' => $items,
             ];
 
-            // render PDF
-            $binary = $this->pdf->render('documents.loa.berita_acara', [
+            // ✅ NEW template for LOA (Surat Pengujian Sampel)
+            $binary = $this->pdf->render('documents.loa.surat_pengujian', [
                 'loa' => (object)['number' => $number],
                 'payload' => $payload,
-                'sample' => $sample,
                 'client' => $client,
+                'items' => $items,
             ]);
-
             $this->pdf->store($path, $binary);
 
+            // NOTE: keep sample_id filled (use first as anchor) to avoid schema change now
             $loa = LetterOfOrder::query()->create([
-                'sample_id' => $sampleId,
+                'sample_id' => (int) $sortedSamples->first()->sample_id,
                 'number' => $number,
                 'generated_at' => now(),
                 'generated_by' => $actorStaffId,
@@ -72,10 +136,22 @@ class LetterOfOrderService
                 'updated_at' => null,
             ]);
 
-            // create signature slots from loa_signature_roles
+            // 7) persist items (NEW TABLE)
+            foreach ($items as $it) {
+                \App\Models\LetterOfOrderItem::query()->create([
+                    'lo_id' => (int) $loa->lo_id,
+                    'sample_id' => (int) $it['sample_id'],
+                    'lab_sample_code' => (string) $it['lab_sample_code'],
+                    'parameters' => $it['parameters'],
+                    'created_at' => now(),
+                    'updated_at' => null,
+                ]);
+            }
+
+            // 8) create signature slots from loa_signature_roles
             $roles = DB::table('loa_signature_roles')->orderBy('sort_order')->get(['role_code']);
             foreach ($roles as $r) {
-                LoaSignature::query()->create([
+                \App\Models\LoaSignature::query()->create([
                     'lo_id' => $loa->lo_id,
                     'role_code' => $r->role_code,
                     'signed_by_staff' => null,
@@ -88,7 +164,7 @@ class LetterOfOrderService
                 ]);
             }
 
-            return $loa;
+            return $loa->loadMissing(['items', 'signatures']);
         }, 3);
     }
 

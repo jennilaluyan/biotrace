@@ -31,11 +31,23 @@ class LetterOfOrderController extends Controller
         // OM(5) / LH(6)
         $this->assertStaffRoleAllowed($staff, [5, 6]);
 
-        $loa = $this->svc->ensureDraftForSample($sampleId, (int) $staff->staff_id);
+        // ✅ NEW: allow bulk generation using sample_ids[]
+        $request->validate([
+            'sample_ids' => ['nullable', 'array', 'min:1'],
+            'sample_ids.*' => ['integer', 'min:1', 'distinct'],
+        ]);
+
+        $sampleIds = $request->input('sample_ids');
+
+        if (is_array($sampleIds) && count($sampleIds) > 0) {
+            $loa = $this->svc->ensureDraftForSamples($sampleIds, (int) $staff->staff_id);
+        } else {
+            $loa = $this->svc->ensureDraftForSample($sampleId, (int) $staff->staff_id);
+        }
 
         return response()->json([
             'message' => 'LoA generated.',
-            'data' => $loa,
+            'data' => $loa->loadMissing(['signatures', 'items']),
         ], 201);
     }
 

@@ -42,6 +42,12 @@ class LetterOfOrder extends Model
         return $this->hasMany(LoaSignature::class, 'lo_id', 'lo_id');
     }
 
+    public function items(): HasMany
+    {
+        return $this->hasMany(LetterOfOrderItem::class, 'lo_id', 'lo_id')
+            ->orderBy('item_id');
+    }
+
     public function sample(): BelongsTo
     {
         return $this->belongsTo(Sample::class, 'sample_id', 'sample_id');
