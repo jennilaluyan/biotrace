@@ -63,7 +63,7 @@ class SampleIntakeChecklistController extends Controller
         $notesByKey = is_array($data['notes'] ?? null) ? $data['notes'] : [];
         $generalNote = isset($data['note']) ? (string) $data['note'] : null;
 
-        $requiredKeys = [
+        $legacyGroups = [
             'sample_physical_condition' => 'Sample Physical Condition',
             'volume' => 'Volume',
             'identity' => 'Identity',
@@ -71,60 +71,139 @@ class SampleIntakeChecklistController extends Controller
             'supporting_documents' => 'Supporting Documents',
         ];
 
+        $requiredItems = [
+            // kondisi sampel / wadah
+            'container_intact' => 'Wadah sampel dalam kondisi baik',
+            'cap_sealed' => 'Tutup rapat / tersegel',
+            'no_leakage' => 'Tidak bocor / tidak tumpah',
+            'label_attached' => 'Label terpasang',
+            'label_clear' => 'Label terbaca jelas',
+            'label_matches_form' => 'Label sesuai data pada form',
+
+            // volume / media
+            'volume_sufficient' => 'Volume sampel cukup',
+            'vtm_present' => 'Media/VTM tersedia (jika diperlukan)',
+
+            // identitas & kesesuaian
+            'identity_complete' => 'Identitas sampel lengkap',
+            'sample_type_matches' => 'Jenis sampel sesuai permintaan',
+
+            // packing/transport
+            'packaging_intact' => 'Packing aman & tidak rusak',
+            'triple_packaging' => 'Triple packaging sesuai SOP (jika diperlukan)',
+            'temperature_condition_ok' => 'Kondisi suhu/transport sesuai (ice pack/cool box)',
+
+            // dokumen pendukung
+            'request_form_attached' => 'Form permintaan sampel terlampir',
+            'chain_of_custody_attached' => 'Chain-of-custody terlampir (jika digunakan)',
+            'other_docs_complete' => 'Dokumen pendukung lain lengkap',
+        ];
+
         $normalized = [];
 
+        // Legacy fallback (older UI)
         // Legacy fallback (older UI)
         if (!is_array($checks)) {
             $legacy = is_array($data['checklist'] ?? null) ? $data['checklist'] : [];
             $checks = [];
-            foreach ($requiredKeys as $k => $_label) {
+            // UI lama: mungkin hanya kirim 5 kategori
+            foreach ($legacyGroups as $k => $_label) {
                 if (array_key_exists($k, $legacy)) {
                     $checks[$k] = (bool) $legacy[$k];
                 }
             }
         }
 
-        // Enforce presence (extra safety; request rules should already catch)
-        foreach ($requiredKeys as $k => $label) {
-            if (!array_key_exists($k, $checks)) {
-                return response()->json([
-                    'message' => 'Validation error.',
-                    'details' => [
-                        ['field' => "checks.$k", 'message' => "$label is required."],
-                    ],
-                ], 422);
+        // Tentukan mode:
+        // - kalau ada minimal 1 item detail → pakai mode detail
+        // - kalau tidak ada → fallback pakai 5 kategori lama
+        $hasDetail = false;
+        foreach (array_keys($requiredItems) as $dk) {
+            if (is_array($checks) && array_key_exists($dk, $checks)) {
+                $hasDetail = true;
+                break;
             }
+        }
 
-            $passed = $checks[$k] === true;
-            $note = trim((string)($notesByKey[$k] ?? ''));
+        // Normalized output (yang disimpan ke JSON)
+        $normalized = [];
 
-            if (!$passed && $note === '') {
-                return response()->json([
-                    'message' => 'Validation error.',
-                    'details' => [
-                        ['field' => "notes.$k", 'message' => "Reason is required when '$label' is FAIL."],
-                    ],
-                ], 422);
+        if ($hasDetail) {
+            // ✅ Step 5 mode detail
+            foreach ($requiredItems as $k => $label) {
+                if (!array_key_exists($k, $checks)) {
+                    return response()->json([
+                        'message' => 'Validation error.',
+                        'details' => [
+                            ['field' => "checks.$k", 'message' => "$label wajib diisi."],
+                        ],
+                    ], 422);
+                }
+
+                $passed = $checks[$k] === true;
+                $note = trim((string)($notesByKey[$k] ?? ''));
+
+                if (!$passed && $note === '') {
+                    return response()->json([
+                        'message' => 'Validation error.',
+                        'details' => [
+                            ['field' => "notes.$k", 'message' => "Alasan wajib diisi jika '$label' FAIL."],
+                        ],
+                    ], 422);
+                }
+
+                $normalized[$k] = [
+                    'passed' => $passed,
+                    'note' => $note !== '' ? $note : null,
+                    'label' => $label,
+                ];
             }
+        } else {
+            // ✅ fallback mode lama (5 kategori)
+            foreach ($legacyGroups as $k => $label) {
+                if (!array_key_exists($k, $checks)) {
+                    return response()->json([
+                        'message' => 'Validation error.',
+                        'details' => [
+                            ['field' => "checks.$k", 'message' => "$label is required."],
+                        ],
+                    ], 422);
+                }
 
-            $normalized[$k] = [
-                'passed' => $passed,
-                'note' => $note !== '' ? $note : null,
-            ];
+                $passed = $checks[$k] === true;
+                $note = trim((string)($notesByKey[$k] ?? ''));
+
+                if (!$passed && $note === '') {
+                    return response()->json([
+                        'message' => 'Validation error.',
+                        'details' => [
+                            ['field' => "notes.$k", 'message' => "Reason is required when '$label' is FAIL."],
+                        ],
+                    ], 422);
+                }
+
+                $normalized[$k] = [
+                    'passed' => $passed,
+                    'note' => $note !== '' ? $note : null,
+                    'label' => $label,
+                ];
+            }
         }
 
         $isPassed = true;
         foreach ($normalized as $row) {
-            if ($row['passed'] !== true) {
+            if (($row['passed'] ?? false) !== true) {
                 $isPassed = false;
                 break;
             }
         }
 
-        DB::transaction(function () use ($sample, $actor, $normalized, $generalNote, $isPassed) {
+        DB::transaction(function () use ($sample, $actor, $normalized, $generalNote, $isPassed, $hasDetail) {
             SampleIntakeChecklist::create([
                 'sample_id' => $sample->sample_id,
                 'checklist' => [
+                    'schema_version' => $hasDetail ? 2 : 1,
+                    'mode' => $hasDetail ? 'detailed' : 'legacy',
                     ...$normalized,
                     'general_note' => $generalNote ? trim($generalNote) : null,
                 ],
