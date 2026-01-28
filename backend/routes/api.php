@@ -259,12 +259,22 @@ Route::prefix('v1')->group(function () {
         Route::post('samples/{sample}/request-status', [SampleRequestStatusController::class, 'update'])->whereNumber('sample');
 
         /*
-        |--------------------------------------------------------------------------
-        | Intake
-        |--------------------------------------------------------------------------
-        */
-        Route::post('samples/{sample}/intake-checklist', [SampleIntakeChecklistController::class, 'store'])->whereNumber('sample');
-        Route::post('samples/{sample}/intake-validate', [SampleIntakeValidationController::class, 'validateIntake'])->whereNumber('sample');
+|--------------------------------------------------------------------------
+| Intake
+|--------------------------------------------------------------------------
+*/
+        Route::post('samples/{sample}/intake-checklist', [
+            SampleIntakeChecklistController::class,
+            'store'
+        ])->whereNumber('sample');
+        Route::post('samples/{sample}/verify', [
+            \App\Http\Controllers\SampleVerificationController::class,
+            'verify'
+        ])->whereNumber('sample');
+        Route::post('samples/{sample}/intake-validate', [
+            SampleIntakeValidationController::class,
+            'validateIntake'
+        ])->whereNumber('sample');
 
         /*
         |--------------------------------------------------------------------------
