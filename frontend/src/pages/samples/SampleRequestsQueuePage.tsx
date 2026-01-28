@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
+import LooBatchGenerator from "../../components/loo/LooBatchGenerator";
 import {
     fetchSampleRequestsQueue,
     type Paginator,
@@ -50,7 +51,14 @@ export default function SampleRequestsQueuePage() {
     const roleId = getUserRoleId(user) ?? ROLE_ID.CLIENT;
     const roleLabel = getUserRoleLabel(user);
     const isAdmin = roleId === ROLE_ID.ADMIN;
-    const canView = roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.SAMPLE_COLLECTOR;
+    const canView = useMemo(
+        () =>
+            roleId === ROLE_ID.ADMIN ||
+            roleId === ROLE_ID.SAMPLE_COLLECTOR ||
+            roleId === ROLE_ID.OPERATIONAL_MANAGER ||
+            roleId === ROLE_ID.LAB_HEAD,
+        [roleId]
+    );
 
     // ---- state ----
     const [pager, setPager] = useState<Paginator<SampleRequestQueueRow> | null>(null);
@@ -151,16 +159,30 @@ export default function SampleRequestsQueuePage() {
         setModalCurrentStatus(null);
     };
 
-    if (!canView) {
+    const isOperationalManager = roleId === ROLE_ID.OPERATIONAL_MANAGER;
+    const isLabHead = roleId === ROLE_ID.LAB_HEAD;
+
+    if (canView && (isOperationalManager || isLabHead)) {
         return (
-            <div className="min-h-[60vh] flex flex-col items-center justify-center">
-                <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
-                <p className="text-sm text-gray-600">
-                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access the sample requests queue.
-                </p>
+            <div className="min-h-[60vh] space-y-4">
+                <div className="px-0 py-2">
+                    <nav className="lims-breadcrumb">
+                        <span className="lims-breadcrumb-icon">
+                            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M4 12h9" />
+                                <path d="M11 9l3 3-3 3" />
+                                <path d="M4 6v12" />
+                            </svg>
+                        </span>
+                        <span className="lims-breadcrumb-current">LOO Generator</span>
+                    </nav>
+                </div>
+
+                <LooBatchGenerator roleLabel={roleLabel} />
             </div>
         );
     }
+
 
     return (
         <div className="min-h-[60vh]">

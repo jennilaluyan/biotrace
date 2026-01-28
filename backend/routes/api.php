@@ -58,7 +58,6 @@ use App\Http\Controllers\PublicCoaVerificationController;
 
 // LOO
 use App\Http\Controllers\LetterOfOrderController;
-use App\Http\Controllers\ClientLooController;
 
 Route::prefix('v1')->group(function () {
 
@@ -141,9 +140,6 @@ Route::prefix('v1')->group(function () {
             Route::get('samples/{sample}', [ClientSampleRequestController::class, 'show'])->whereNumber('sample');
             Route::patch('samples/{sample}', [ClientSampleRequestController::class, 'update'])->whereNumber('sample');
             Route::post('samples/{sample}/submit', [ClientSampleRequestController::class, 'submit'])->whereNumber('sample');
-
-            // Client LOA sign (portal)
-            Route::post('loa/{loaId}/sign', [ClientLooController::class, 'sign']);
 
             // parameters for clients
             Route::get('parameters', [ParameterController::class, 'index']);

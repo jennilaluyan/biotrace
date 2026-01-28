@@ -10,7 +10,6 @@ import { sampleService, Sample } from "../../services/samples";
 import { apiGet, apiPost } from "../../services/api";
 
 import { validateIntake } from "../../services/intake";
-import { LoaPanelStaff } from "../../components/loa/LoaPanelStaff";
 import { SampleTestsTab } from "../../components/samples/SampleTestsTab";
 
 /* ----------------------------- Local Types ----------------------------- */
@@ -819,17 +818,6 @@ export const SampleDetailPage = () => {
                                         </div>
                                     </div>
                                 )}
-
-                                {/* LoA panel tetap tampil (seperti versi kamu) */}
-                                <LoaPanelStaff
-                                    sampleId={sampleId}
-                                    roleId={roleId}
-                                    samplePayload={sample}
-                                    onChanged={async () => {
-                                        await loadSample({ silent: true });
-                                        await loadHistory();
-                                    }}
-                                />
 
                                 {tab === "tests" && (
                                     <SampleTestsTab

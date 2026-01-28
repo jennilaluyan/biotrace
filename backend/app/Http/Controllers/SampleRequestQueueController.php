@@ -20,14 +20,24 @@ class SampleRequestQueueController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $roleName = $user?->role?->name;
+        $roleName = (string) ($user?->role?->name ?? '');
 
-        if (!in_array($roleName, ['Administrator', 'Sample Collector'], true)) {
+        $mode = trim((string) $request->get('mode', ''));
+
+        // default queue: Admin + Sample Collector
+        $allowedRoles = ['Administrator', 'Sample Collector'];
+
+        // loo_candidates: OM/LH juga boleh akses
+        if ($mode === 'loo_candidates') {
+            $allowedRoles = ['Operational Manager', 'Laboratory Head'];
+        }
+
+        if (!in_array($roleName, $allowedRoles, true)) {
             return response()->json([
                 'status' => 403,
                 'error' => 'Forbidden',
                 'code' => 'ROLE_FORBIDDEN',
-                'message' => 'You are not allowed to access the sample requests queue.',
+                'message' => 'You are not allowed to access this queue.',
             ], 403);
         }
 
@@ -37,8 +47,39 @@ class SampleRequestQueueController extends Controller
 
         $query = Sample::query()->with(['client', 'requestedParameters']);
 
-        if (Schema::hasColumn('samples', 'lab_sample_code')) {
-            $query->whereNull('lab_sample_code');
+        /**
+         * mode=loo_candidates:
+         * - hanya sampel yang sudah verified + sudah ada lab_sample_code
+         * - tujuan: dipilih OM/LH untuk generate LOO batch
+         */
+        if ($mode === 'loo_candidates') {
+            if (Schema::hasColumn('samples', 'verified_at')) {
+                $query->whereNotNull('verified_at');
+            }
+            if (Schema::hasColumn('samples', 'lab_sample_code')) {
+                $query->whereNotNull('lab_sample_code');
+            }
+
+            // draft tetap tidak relevan (client-private)
+            if (Schema::hasColumn('samples', 'request_status')) {
+                $query->where(function ($w) {
+                    $w->whereNull('request_status')
+                        ->orWhere('request_status', '!=', 'draft');
+                });
+            }
+        } else {
+            // mode lama: hanya request (lab_sample_code belum ada)
+            if (Schema::hasColumn('samples', 'lab_sample_code')) {
+                $query->whereNull('lab_sample_code');
+            }
+
+            // Draft is client-private
+            if (Schema::hasColumn('samples', 'request_status')) {
+                $query->where(function ($w) {
+                    $w->whereNull('request_status')
+                        ->orWhere('request_status', '!=', 'draft');
+                });
+            }
         }
 
         // Draft is client-private

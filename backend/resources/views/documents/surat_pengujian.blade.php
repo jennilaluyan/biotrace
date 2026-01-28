@@ -165,9 +165,22 @@
             <td>{{ $clientOrg }}</td>
         </tr>
         <tr>
-            <td>Tanggal</td>
-            <td>:</td>
-            <td>{{ $today->format('d-m-Y') }}</td>
+            <td style="width: 180px;">Tanggal Dokumen</td>
+            <td>{{ \Carbon\Carbon::now()->translatedFormat('d F Y') }}</td>
+        </tr>
+        <tr>
+            <td style="width: 180px;">Tanggal Penerimaan</td>
+            <td>
+                @php
+                    $rx = data_get($payload ?? [], 'received_at', null);
+                @endphp
+
+                @if($rx)
+                    {{ \Carbon\Carbon::parse($rx)->translatedFormat('d F Y') }}
+                @else
+                    -
+                @endif
+            </td>
         </tr>
     </table>
 
