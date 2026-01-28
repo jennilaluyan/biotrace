@@ -99,15 +99,20 @@ class SampleIntakeChecklistApiTest extends TestCase
         $sampleId = $this->createSamplePhysicallyReceived((int) $sc->staff_id);
 
         $res = $this->postJson("/api/v1/samples/{$sampleId}/intake-checklist", [
-            'checklist' => [
-                'container_intact' => true,
-                'label_clear' => true,
-                'volume_sufficient' => true,
+            'checks' => [
+                'sample_physical_condition' => true,
+                'volume' => true,
+                'identity' => true,
+                'packing' => true,
+                'supporting_documents' => true,
             ],
-            'notes' => 'All good',
+            'note' => 'All good',
         ]);
 
         $res->assertStatus(201);
+
+        $res->assertJsonPath('data.request_status', 'awaiting_verification');
+        $res->assertJsonPath('data.lab_sample_code', null);
 
         $this->assertDatabaseHas('sample_intake_checklists', [
             'sample_id' => $sampleId,
@@ -136,12 +141,17 @@ class SampleIntakeChecklistApiTest extends TestCase
         $sampleId = $this->createSamplePhysicallyReceived((int) $sc->staff_id);
 
         $this->postJson("/api/v1/samples/{$sampleId}/intake-checklist", [
-            'checklist' => [
-                'container_intact' => true,
-                'label_clear' => false, // fail
-                'volume_sufficient' => true,
+            'checks' => [
+                'sample_physical_condition' => false, // fail
+                'volume' => true,
+                'identity' => true,
+                'packing' => true,
+                'supporting_documents' => true,
             ],
-            'notes' => 'Label missing',
+            'notes' => [
+                'sample_physical_condition' => 'Wadah/label/tutup tidak sesuai.',
+            ],
+            'note' => 'Physical condition failed',
         ])->assertStatus(201);
 
         $this->assertDatabaseHas('sample_intake_checklists', [
@@ -196,7 +206,13 @@ class SampleIntakeChecklistApiTest extends TestCase
         $sampleId = $this->createSamplePhysicallyReceived((int) $sc->staff_id);
 
         $this->postJson("/api/v1/samples/{$sampleId}/intake-checklist", [
-            'checklist' => ['x' => true],
+            'checks' => [
+                'sample_physical_condition' => true,
+                'volume' => true,
+                'identity' => true,
+                'packing' => true,
+                'supporting_documents' => true,
+            ],
         ])->assertStatus(201);
 
         $this->postJson("/api/v1/samples/{$sampleId}/intake-checklist", [

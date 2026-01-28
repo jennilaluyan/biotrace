@@ -147,31 +147,22 @@ class SampleIntakeChecklistController extends Controller
             $old = (string) $sample->request_status;
 
             if ($isPassed) {
-                // ✅ Step 6A: generate lab sample code (BML-XXX) if not exists yet
-                if (empty($sample->lab_sample_code)) {
-                    $tries = 0;
-                    while (true) {
-                        try {
-                            $sample->lab_sample_code = LabSampleCode::next();
-                            break;
-                        } catch (QueryException $e) {
-                            $tries++;
-                            if ($tries >= 3) throw $e;
-                        }
-                    }
-                }
+                /**
+                 * ✅ Step 1 (New Flow):
+                 * SC PASS checklist TIDAK lagi assign lab_sample_code.
+                 * Masuk gate verifikasi OM/LH terlebih dahulu.
+                 */
+                $sample->request_status = 'awaiting_verification';
 
+                // (Opsional tapi aman) seed received_at kalau null untuk konsistensi timestamp,
+                // tapi tidak mempengaruhi lab workflow karena lab_sample_code masih null.
                 if (empty($sample->received_at)) {
                     $seed = $sample->admin_received_from_client_at
                         ?? $sample->physically_received_at
                         ?? now();
                     $sample->received_at = Carbon::parse((string) $seed);
                 }
-
-                // ✅ PASS: promoted → disappear from queue
-                $sample->request_status = 'intake_validated';
             } else {
-                // ✅ FAIL Step 6B: inspection failed (belum dikembalikan fisik ke admin sampai SC klik "Returned to Admin")
                 $sample->request_status = 'inspection_failed';
             }
             $sample->save();
@@ -198,7 +189,7 @@ class SampleIntakeChecklistController extends Controller
                 oldStatus: $old,
                 newStatus: (string) $sample->request_status,
                 note: $isPassed
-                    ? 'Intake checklist passed — promoted to lab sample'
+                    ? 'Intake checklist passed — awaiting OM/LH verification'
                     : 'Intake checklist failed'
             );
 
