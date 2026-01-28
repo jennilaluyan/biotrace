@@ -4,22 +4,22 @@ namespace App\Services;
 
 use App\Models\LetterOfOrder;
 use App\Models\LoaSignature;
-use App\Models\LoaSignatureRole;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use RuntimeException;
 
 class LetterOfOrderService
 {
     public function __construct(
-        private readonly LoaNumberGenerator $numberGen,
-        private readonly LoaPdfService $pdf,
+        private readonly LooNumberGenerator $numberGen,
+        private readonly LooPdfService $pdf,
     ) {}
 
     public function ensureDraftForSamples(array $sampleIds, int $actorStaffId): LetterOfOrder
     {
         $sampleIds = array_values(array_unique(array_map('intval', $sampleIds)));
+        $sampleIds = array_values(array_filter($sampleIds, fn($x) => $x > 0));
+
         if (count($sampleIds) <= 0) {
             throw new RuntimeException('sample_ids is required.');
         }
@@ -50,11 +50,13 @@ class LetterOfOrderService
 
             // 3) verification + lab code gate
             foreach ($samples as $s) {
+                $sid = (int) $s->sample_id;
+
                 if (empty($s->verified_at)) {
-                    throw new RuntimeException("Sample {$s->sample_id} is not verified yet.");
+                    throw new RuntimeException("Sample {$sid} is not verified yet.");
                 }
                 if (empty($s->lab_sample_code)) {
-                    throw new RuntimeException("Sample {$s->sample_id} has no lab_sample_code yet.");
+                    throw new RuntimeException("Sample {$sid} has no lab_sample_code yet.");
                 }
             }
 
@@ -85,7 +87,10 @@ class LetterOfOrderService
 
             // 5) build items snapshot (for PDF + DB items table)
             $items = [];
-            $sortedSamples = $samples->sortBy('lab_sample_code')->values();
+            $sortedSamples = $samples->sortBy(function ($s) {
+                return (string) ($s->lab_sample_code ?? '');
+            })->values();
+
             foreach ($sortedSamples as $idx => $s) {
                 $sid = (int) $s->sample_id;
                 $items[] = [
@@ -97,30 +102,42 @@ class LetterOfOrderService
                 ];
             }
 
-            // 6) create LOA
+            // 6) generate number + pdf
             $number = $this->numberGen->nextNumber();
             $path = $this->pdf->buildPath($number);
 
             $payload = [
+                // ✅ primary naming (LoO)
+                'loo_number' => $number,
+
+                // ✅ backward compat (kalau ada tempat lain masih baca loa_number)
                 'loa_number' => $number,
+
                 'generated_at' => now()->toISOString(),
+
                 'client' => $client ? [
                     'name' => $client->name ?? null,
                     'organization' => $client->organization ?? null,
                     'email' => $client->email ?? null,
                     'phone' => $client->phone ?? null,
-                ] : null,
+                ] : [
+                    'name' => null,
+                    'organization' => null,
+                    'email' => null,
+                    'phone' => null,
+                ],
+
                 'sample_ids' => $sampleIds,
                 'items' => $items,
             ];
 
-            // ✅ NEW template for LOA (Surat Pengujian Sampel)
-            $binary = $this->pdf->render('documents.loa.surat_pengujian', [
-                'loa' => (object)['number' => $number],
+            $binary = $this->pdf->render('documents.loo.surat_perintah_pengujian_sampel', [
+                'loo' => (object) ['number' => $number],
                 'payload' => $payload,
                 'client' => $client,
                 'items' => $items,
             ]);
+
             $this->pdf->store($path, $binary);
 
             // NOTE: keep sample_id filled (use first as anchor) to avoid schema change now
@@ -130,7 +147,10 @@ class LetterOfOrderService
                 'generated_at' => now(),
                 'generated_by' => $actorStaffId,
                 'file_url' => $path,
+
+                // ⚠️ tetap pakai loa_status kalau schema kamu memang begitu sekarang
                 'loa_status' => 'draft',
+
                 'payload' => $payload,
                 'created_at' => now(),
                 'updated_at' => null,
@@ -148,11 +168,15 @@ class LetterOfOrderService
                 ]);
             }
 
-            // 8) create signature slots from loa_signature_roles
-            $roles = DB::table('loa_signature_roles')->orderBy('sort_order')->get(['role_code']);
+            // 8) create signature slots
+            // ⚠️ table masih loa_signature_roles (biar ga ganggu migrasi sekarang)
+            $roles = DB::table('loa_signature_roles')
+                ->orderBy('sort_order')
+                ->get(['role_code']);
+
             foreach ($roles as $r) {
-                \App\Models\LoaSignature::query()->create([
-                    'lo_id' => $loa->lo_id,
+                LoaSignature::query()->create([
+                    'lo_id' => (int) $loa->lo_id,
                     'role_code' => $r->role_code,
                     'signed_by_staff' => null,
                     'signed_by_client' => null,
@@ -168,6 +192,10 @@ class LetterOfOrderService
         }, 3);
     }
 
+    public function ensureDraftForSample(int $sampleId, int $actorStaffId): LetterOfOrder
+    {
+        return $this->ensureDraftForSamples([$sampleId], $actorStaffId);
+    }
     public function signInternal(int $loId, int $actorStaffId, string $roleCode): LetterOfOrder
     {
         return DB::transaction(function () use ($loId, $actorStaffId, $roleCode) {

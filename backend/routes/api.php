@@ -56,9 +56,9 @@ use App\Http\Controllers\ReportSignatureController;
 use App\Http\Controllers\CoaPdfController;
 use App\Http\Controllers\PublicCoaVerificationController;
 
-// LOA
+// LOO
 use App\Http\Controllers\LetterOfOrderController;
-use App\Http\Controllers\ClientLoaController;
+use App\Http\Controllers\ClientLooController;
 
 Route::prefix('v1')->group(function () {
 
@@ -143,7 +143,7 @@ Route::prefix('v1')->group(function () {
             Route::post('samples/{sample}/submit', [ClientSampleRequestController::class, 'submit'])->whereNumber('sample');
 
             // Client LOA sign (portal)
-            Route::post('loa/{loaId}/sign', [ClientLoaController::class, 'sign']);
+            Route::post('loa/{loaId}/sign', [ClientLooController::class, 'sign']);
 
             // parameters for clients
             Route::get('parameters', [ParameterController::class, 'index']);
@@ -351,9 +351,9 @@ Route::prefix('v1')->group(function () {
         | LOA (staff)
         |--------------------------------------------------------------------------
         */
-        Route::post('/samples/{sampleId}/loa', [LetterOfOrderController::class, 'generate']);
-        Route::post('/loa/{loaId}/sign', [LetterOfOrderController::class, 'signInternal']);
-        Route::post('/loa/{loaId}/send', [LetterOfOrderController::class, 'sendToClient']);
+        Route::post('/samples/{sampleId}/loo', [LetterOfOrderController::class, 'generate']);
+        Route::post('/loo/{looId}/sign', [LetterOfOrderController::class, 'signInternal']);
+        Route::post('/loo/{looId}/send', [LetterOfOrderController::class, 'sendToClient']);
 
         /*
         |--------------------------------------------------------------------------

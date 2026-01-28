@@ -2,7 +2,7 @@
 
 @section('content')
     @php
-        $number = $loa->number ?? data_get($payload, 'loa_number', '-');
+        $number = $loo->number ?? data_get($payload, 'loo_number', data_get($payload, 'loa_number', '-'));
         $today = \Illuminate\Support\Carbon::now();
         $year = $today->format('Y');
 
@@ -13,14 +13,15 @@
         if (!is_array($items))
             $items = [];
 
-        // Dummy barcode links (sementara sama dengan LH yang lama -> google.com)
-        $omUrl = 'https://google.com';
-        $lhUrl = 'https://google.com';
+        // Dummy QR placeholders (kalau nanti ada link verifikasi/signature, tinggal ganti)
+        $omUrl = 'https://example.com';
+        $lhUrl = 'https://example.com';
 
         $makeQr = function (string $url): ?string {
             try {
                 if (class_exists(\SimpleSoftwareIO\QrCode\Facades\QrCode::class)) {
-                    $png = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('png')->size(110)->margin(1)->generate($url);
+                    $png = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('png')
+                        ->size(110)->margin(1)->generate($url);
                     return 'data:image/png;base64,' . base64_encode($png);
                 }
             } catch (\Throwable $e) {
@@ -222,7 +223,7 @@
                     @if ($omQr)
                         <img src="{{ $omQr }}" style="width:110px;height:110px;" />
                     @else
-                        <div class="qr-ph">OM BARCODE</div>
+                        <div class="qr-ph">OM QR</div>
                     @endif
                 </div>
                 <div class="sig-role">( OM )</div>
@@ -234,12 +235,11 @@
                     @if ($lhQr)
                         <img src="{{ $lhQr }}" style="width:110px;height:110px;" />
                     @else
-                        <div class="qr-ph">LH BARCODE</div>
+                        <div class="qr-ph">LH QR</div>
                     @endif
                 </div>
                 <div class="sig-role">( LH )</div>
             </td>
         </tr>
     </table>
-
 @endsection

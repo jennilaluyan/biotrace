@@ -7,11 +7,11 @@ use App\Services\LetterOfOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 
-class ClientLoaController extends Controller
+class ClientLooController extends Controller
 {
     public function __construct(private readonly LetterOfOrderService $svc) {}
 
-    public function sign(int $loaId): JsonResponse
+    public function sign(int $looId): JsonResponse
     {
         /** @var Client $client */
         $client = Auth::user();
@@ -19,11 +19,11 @@ class ClientLoaController extends Controller
             return response()->json(['message' => 'Authenticated client not found.'], 500);
         }
 
-        $loa = $this->svc->clientSign($loaId, (int) $client->client_id);
+        $loo = $this->svc->clientSign($looId, (int) $client->client_id);
 
         return response()->json([
-            'message' => 'Client signed. LoA locked.',
-            'data' => $loa,
+            'message' => 'Client signed. LoO locked.',
+            'data' => $loo,
         ]);
     }
 }

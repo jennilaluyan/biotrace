@@ -5,18 +5,21 @@ namespace App\Services;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Storage;
 
-class LoaPdfService
+class LooPdfService
 {
     public function disk(): string
     {
-        return (string) config('loa.storage_disk', 'local');
+        return (string) config('loo.storage_disk', 'local');
     }
 
-    public function buildPath(string $loaNumber): string
+    public function buildPath(string $looNumber): string
     {
-        $base = trim((string) config('loa.storage_path', 'letters/loa'), '/');
+        $base = trim((string) config('loo.storage_path', 'letters/loo'), '/');
         $year = now()->format('Y');
-        $safe = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $loaNumber) ?: 'loa';
+        $safe = preg_replace('/[^A-Za-z0-9_\-\/]+/', '_', $looNumber) ?: 'loo';
+        // replace slash to avoid nested folders if you want flat storage:
+        $safe = str_replace('/', '_', $safe);
+
         return "{$base}/{$year}/{$safe}.pdf";
     }
 

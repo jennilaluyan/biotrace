@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\LetterOfOrder;
 use App\Models\Staff;
 use App\Services\LetterOfOrderService;
 use Illuminate\Http\JsonResponse;
@@ -46,7 +45,7 @@ class LetterOfOrderController extends Controller
         }
 
         return response()->json([
-            'message' => 'LoA generated.',
+            'message' => 'LoO generated.',
             'data' => $loa->loadMissing(['signatures', 'items']),
         ], 201);
     }
