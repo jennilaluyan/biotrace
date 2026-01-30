@@ -24,13 +24,28 @@ class SampleRequestQueueController extends Controller
 
         $mode = trim((string) $request->get('mode', ''));
 
-        // default queue: Admin + Sample Collector
-        $allowedRoles = ['Administrator', 'Sample Collector'];
+        /**
+         * Workflow baru:
+         * - default queue dipakai untuk visibility request (termasuk awaiting_verification) oleh:
+         *   Admin, Sample Collector, Operational Manager, Laboratory Head
+         * - loo_candidates dipakai OM/LH untuk generate LOO/LOA batch (admin boleh juga kalau kamu mau)
+         */
+        $allowedRolesDefault = [
+            'Administrator',
+            'Sample Collector',
+            'Operational Manager',
+            'Laboratory Head',
+        ];
 
-        // loo_candidates: OM/LH juga boleh akses
-        if ($mode === 'loo_candidates') {
-            $allowedRoles = ['Operational Manager', 'Laboratory Head'];
-        }
+        $allowedRolesLooCandidates = [
+            'Operational Manager',
+            'Laboratory Head',
+            'Administrator',
+        ];
+
+        $allowedRoles = $mode === 'loo_candidates'
+            ? $allowedRolesLooCandidates
+            : $allowedRolesDefault;
 
         if (!in_array($roleName, $allowedRoles, true)) {
             return response()->json([
@@ -82,21 +97,12 @@ class SampleRequestQueueController extends Controller
             }
         }
 
-        // Draft is client-private
-        if (Schema::hasColumn('samples', 'request_status')) {
-            $query->where(function ($w) {
-                $w->whereNull('request_status')
-                    ->orWhere('request_status', '!=', 'draft');
-            });
-        }
-
         if ($status !== '') {
             if (Schema::hasColumn('samples', 'request_status')) {
                 $query->where('request_status', $status);
             }
         }
 
-        // Date filter: prefer submitted_at, else created_at, else sample_id as fallback (no filter)
         if ($date !== '') {
             $now = Carbon::now();
             $from = null;

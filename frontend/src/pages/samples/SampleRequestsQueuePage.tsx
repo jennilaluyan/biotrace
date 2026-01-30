@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
-import LooBatchGenerator from "../../components/loo/LooBatchGenerator";
 import {
     fetchSampleRequestsQueue,
     type Paginator,
@@ -24,6 +23,10 @@ const statusTone = (raw?: string | null) => {
     if (s === "needs_revision" || s === "returned") return "bg-red-100 text-red-700";
     if (s === "ready_for_delivery") return "bg-indigo-50 text-indigo-700";
     if (s === "physically_received") return "bg-green-100 text-green-800";
+    if (s === "awaiting_verification") return "bg-violet-100 text-violet-800";
+    if (s === "in_transit_to_collector") return "bg-amber-100 text-amber-800";
+    if (s === "under_inspection") return "bg-amber-100 text-amber-800";
+    if (s === "returned_to_admin") return "bg-slate-100 text-slate-700";
     return "bg-gray-100 text-gray-700";
 };
 
@@ -159,30 +162,16 @@ export default function SampleRequestsQueuePage() {
         setModalCurrentStatus(null);
     };
 
-    const isOperationalManager = roleId === ROLE_ID.OPERATIONAL_MANAGER;
-    const isLabHead = roleId === ROLE_ID.LAB_HEAD;
+    const isOperationalManager =
+        roleId === ROLE_ID.OPERATIONAL_MANAGER;
+    const isLabHead =
+        roleId === ROLE_ID.LAB_HEAD;
 
-    if (canView && (isOperationalManager || isLabHead)) {
-        return (
-            <div className="min-h-[60vh] space-y-4">
-                <div className="px-0 py-2">
-                    <nav className="lims-breadcrumb">
-                        <span className="lims-breadcrumb-icon">
-                            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M4 12h9" />
-                                <path d="M11 9l3 3-3 3" />
-                                <path d="M4 6v12" />
-                            </svg>
-                        </span>
-                        <span className="lims-breadcrumb-current">LOO Generator</span>
-                    </nav>
-                </div>
-
-                <LooBatchGenerator roleLabel={roleLabel} />
-            </div>
-        );
-    }
-
+    useEffect(() => {
+        if (isOperationalManager || isLabHead) {
+            setStatusFilter((prev) => prev || "awaiting_verification");
+        }
+    }, [isOperationalManager, isLabHead]);
 
     return (
         <div className="min-h-[60vh]">
@@ -247,11 +236,23 @@ export default function SampleRequestsQueuePage() {
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
                             <option value="">All statuses</option>
+
+                            {/* common */}
                             <option value="submitted">submitted</option>
                             <option value="ready_for_delivery">ready_for_delivery</option>
                             <option value="physically_received">physically_received</option>
                             <option value="returned">returned</option>
                             <option value="needs_revision">needs_revision</option>
+
+                            {/* workflow */}
+                            <option value="in_transit_to_collector">in_transit_to_collector</option>
+                            <option value="under_inspection">under_inspection</option>
+                            <option value="returned_to_admin">returned_to_admin</option>
+                            <option value="intake_checklist_passed">intake_checklist_passed</option>
+
+                            {/* ✅ new gate */}
+                            <option value="awaiting_verification">awaiting_verification</option>
+
                         </select>
                     </div>
 
@@ -271,6 +272,15 @@ export default function SampleRequestsQueuePage() {
                         </select>
                     </div>
                 </div>
+
+                {(isOperationalManager || isLabHead) ? (
+                    <Link
+                        to="/loo"
+                        className="inline-flex items-center gap-2 rounded-xl bg-primary-soft px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
+                    >
+                        Open LOO Generator
+                    </Link>
+                ) : null}
 
                 {/* Body */}
                 <div className="px-4 md:px-6 py-4">

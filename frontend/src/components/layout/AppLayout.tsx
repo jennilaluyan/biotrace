@@ -61,6 +61,15 @@ export const AppLayout = () => {
         ]
         : [];
 
+    const isOmOrLh = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
+
+    const omLhItems: NavItem[] = isOmOrLh
+        ? [
+            { label: "Request Queue", path: "/samples/requests", icon: "check" },
+            { label: "LOO Generator", path: "/loo", icon: "flask" },
+        ]
+        : [];
+
     const labHeadItems: NavItem[] =
         roleId === ROLE_ID.LAB_HEAD ? [{ label: "Staff Approvals", path: "/staff/approvals", icon: "check" }] : [];
 
@@ -85,6 +94,7 @@ export const AppLayout = () => {
         if (isStaff) {
             return [
                 ...staffBaseItems,
+                ...omLhItems,
                 ...qaItems,
                 ...reportItems,
                 ...auditItems,
@@ -161,7 +171,8 @@ export const AppLayout = () => {
             item.path === "/clients/approvals" ||
             item.path === "/samples/requests" ||
             item.path === "/staff/approvals" ||
-            item.path === "/portal/requests";
+            item.path === "/portal/requests" ||
+            item.path === "/loo";
 
         return (
             <NavLink
