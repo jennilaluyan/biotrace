@@ -3,8 +3,11 @@
 namespace App\Services;
 
 use App\Models\LetterOfOrder;
+use App\Models\LetterOfOrderItem;
 use App\Models\LoaSignature;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -14,6 +17,58 @@ class LetterOfOrderService
         private readonly LooNumberGenerator $numberGen,
         private readonly LooPdfService $pdf,
     ) {}
+
+    /**
+     * letter_of_order_items table sometimes exists but is incomplete in your env.
+     * Only use it if it has the required columns.
+     */
+    private function isItemsTableUsable(): bool
+    {
+        $table = 'letter_of_order_items';
+        if (!Schema::hasTable($table)) return false;
+
+        $required = ['lo_id', 'sample_id', 'lab_sample_code', 'parameters'];
+        foreach ($required as $col) {
+            if (!Schema::hasColumn($table, $col)) return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Build in-memory items relation so we never query broken items table.
+     */
+    private function buildItemsModels(int $loId, array $itemsSnapshot): Collection
+    {
+        $rows = [];
+
+        foreach ($itemsSnapshot as $it) {
+            $rows[] = LetterOfOrderItem::make([
+                'lo_id' => $loId,
+                'sample_id' => (int) ($it['sample_id'] ?? 0),
+                'lab_sample_code' => (string) ($it['lab_sample_code'] ?? ''),
+                'parameters' => $it['parameters'] ?? [],
+                'created_at' => now(),
+                'updated_at' => null,
+            ]);
+        }
+
+        return collect($rows);
+    }
+
+    /**
+     * Find existing LoO by anchor sample_id (unique constraint uq_lo_sample).
+     * If found, we must reuse it to avoid duplicate key error.
+     */
+    private function findExistingByAnchorSampleId(int $anchorSampleId): ?LetterOfOrder
+    {
+        if ($anchorSampleId <= 0) return null;
+
+        return LetterOfOrder::query()
+            ->where('sample_id', $anchorSampleId)
+            ->orderByDesc('lo_id')
+            ->first();
+    }
 
     public function ensureDraftForSamples(array $sampleIds, int $actorStaffId): LetterOfOrder
     {
@@ -41,14 +96,7 @@ class LetterOfOrderService
                 throw new RuntimeException('Some samples not found.');
             }
 
-            // 2) enforce same client_id
-            $clientIds = $samples->pluck('client_id')->filter()->unique()->values();
-            if ($clientIds->count() !== 1) {
-                throw new RuntimeException('Selected samples must belong to the same client.');
-            }
-            $clientId = (int) $clientIds->first();
-
-            // 3) verification + lab code gate
+            // 2) verification + lab code gate
             foreach ($samples as $s) {
                 $sid = (int) $s->sample_id;
 
@@ -60,9 +108,7 @@ class LetterOfOrderService
                 }
             }
 
-            $client = DB::table('clients')->where('client_id', $clientId)->first();
-
-            // 4) load parameters from request pivot
+            // 3) load parameters from request pivot
             $paramRows = DB::table('sample_requested_parameters as srp')
                 ->join('parameters as p', 'p.parameter_id', '=', 'srp.parameter_id')
                 ->whereIn('srp.sample_id', $sampleIds)
@@ -85,12 +131,12 @@ class LetterOfOrderService
                 ];
             }
 
-            // 5) build items snapshot (for PDF + DB items table)
-            $items = [];
+            // 4) build items snapshot
             $sortedSamples = $samples->sortBy(function ($s) {
                 return (string) ($s->lab_sample_code ?? '');
             })->values();
 
+            $items = [];
             foreach ($sortedSamples as $idx => $s) {
                 $sid = (int) $s->sample_id;
                 $items[] = [
@@ -102,25 +148,66 @@ class LetterOfOrderService
                 ];
             }
 
-            // 6) generate number + pdf
+            // IMPORTANT:
+            // uq_lo_sample forces UNIQUE(sample_id) in letters_of_order.
+            // We must use a stable anchor sample_id and reuse existing LoO if present.
+            $anchorSampleId = (int) $sortedSamples->first()->sample_id;
+
+            $existing = $this->findExistingByAnchorSampleId($anchorSampleId);
+            if ($existing) {
+                // If already locked, just return it (cannot change content).
+                if ($existing->loa_status === 'locked') {
+                    $existing->loadMissing(['signatures']);
+                    $payload = is_array($existing->payload) ? $existing->payload : (array) $existing->payload;
+                    $existing->setRelation('items', $this->buildItemsModels((int) $existing->lo_id, (array) ($payload['items'] ?? [])));
+                    return $existing;
+                }
+
+                // If draft/signed_internal/sent_to_client: keep number + file_url,
+                // but refresh payload sample_ids/items so UI matches the latest selection.
+                $payload = is_array($existing->payload) ? $existing->payload : (array) $existing->payload;
+
+                // Keep existing number for consistency
+                $number = (string) ($existing->number ?? '');
+                if ($number === '') {
+                    $number = $this->numberGen->nextNumber();
+                    $existing->number = $number;
+                }
+
+                // Ensure file_url exists (db constraint)
+                if (empty($existing->file_url)) {
+                    $existing->file_url = $this->pdf->buildPath($number);
+                }
+
+                $payload['loo_number'] = $number;
+                $payload['loa_number'] = $number;
+                $payload['sample_ids'] = $sampleIds;
+                $payload['items'] = $items;
+
+                // Do NOT reset pdf_generated_at if already generated
+                $payload['pdf_generated_at'] = $payload['pdf_generated_at'] ?? null;
+
+                $existing->payload = $payload;
+                $existing->updated_at = now();
+                $existing->save();
+
+                $existing->loadMissing(['signatures']);
+                $existing->setRelation('items', $this->buildItemsModels((int) $existing->lo_id, $items));
+
+                return $existing;
+            }
+
+            // 5) create new draft (only if none exists)
             $number = $this->numberGen->nextNumber();
-            $path = $this->pdf->buildPath($number);
+            $reservedPath = $this->pdf->buildPath($number);
 
             $payload = [
-                // ✅ primary naming (LoO)
                 'loo_number' => $number,
-
-                // ✅ backward compat (kalau ada tempat lain masih baca loa_number)
-                'loa_number' => $number,
-
+                'loa_number' => $number, // backward compat
                 'generated_at' => now()->toISOString(),
 
-                'client' => $client ? [
-                    'name' => $client->name ?? null,
-                    'organization' => $client->organization ?? null,
-                    'email' => $client->email ?? null,
-                    'phone' => $client->phone ?? null,
-                ] : [
+                // client identity intentionally omitted
+                'client' => [
                     'name' => null,
                     'organization' => null,
                     'email' => null,
@@ -129,47 +216,51 @@ class LetterOfOrderService
 
                 'sample_ids' => $sampleIds,
                 'items' => $items,
+                'pdf_generated_at' => null,
             ];
 
-            $binary = $this->pdf->render('documents.loo.surat_perintah_pengujian_sampel', [
-                'loo' => (object) ['number' => $number],
-                'payload' => $payload,
-                'client' => $client,
-                'items' => $items,
-            ]);
+            try {
+                $loa = LetterOfOrder::query()->create([
+                    'sample_id' => $anchorSampleId,
+                    'number' => $number,
+                    'generated_at' => now(),
+                    'generated_by' => $actorStaffId,
 
-            $this->pdf->store($path, $binary);
+                    // must not be null
+                    'file_url' => $reservedPath,
 
-            // NOTE: keep sample_id filled (use first as anchor) to avoid schema change now
-            $loa = LetterOfOrder::query()->create([
-                'sample_id' => (int) $sortedSamples->first()->sample_id,
-                'number' => $number,
-                'generated_at' => now(),
-                'generated_by' => $actorStaffId,
-                'file_url' => $path,
-
-                // ⚠️ tetap pakai loa_status kalau schema kamu memang begitu sekarang
-                'loa_status' => 'draft',
-
-                'payload' => $payload,
-                'created_at' => now(),
-                'updated_at' => null,
-            ]);
-
-            // 7) persist items (NEW TABLE)
-            foreach ($items as $it) {
-                \App\Models\LetterOfOrderItem::query()->create([
-                    'lo_id' => (int) $loa->lo_id,
-                    'sample_id' => (int) $it['sample_id'],
-                    'lab_sample_code' => (string) $it['lab_sample_code'],
-                    'parameters' => $it['parameters'],
+                    'loa_status' => 'draft',
+                    'payload' => $payload,
                     'created_at' => now(),
                     'updated_at' => null,
                 ]);
+            } catch (\Throwable $e) {
+                // If race / duplicate happens anyway, fetch existing and return it
+                $existing2 = $this->findExistingByAnchorSampleId($anchorSampleId);
+                if ($existing2) {
+                    $existing2->loadMissing(['signatures']);
+                    $p2 = is_array($existing2->payload) ? $existing2->payload : (array) $existing2->payload;
+                    $existing2->setRelation('items', $this->buildItemsModels((int) $existing2->lo_id, (array) ($p2['items'] ?? [])));
+                    return $existing2;
+                }
+                throw $e;
             }
 
-            // 8) create signature slots
-            // ⚠️ table masih loa_signature_roles (biar ga ganggu migrasi sekarang)
+            // 6) Persist items only if items table is usable (optional)
+            if ($this->isItemsTableUsable()) {
+                foreach ($items as $it) {
+                    DB::table('letter_of_order_items')->insert([
+                        'lo_id' => (int) $loa->lo_id,
+                        'sample_id' => (int) $it['sample_id'],
+                        'lab_sample_code' => (string) $it['lab_sample_code'],
+                        'parameters' => json_encode($it['parameters']),
+                        'created_at' => now(),
+                        'updated_at' => null,
+                    ]);
+                }
+            }
+
+            // 7) create signature slots
             $roles = DB::table('loa_signature_roles')
                 ->orderBy('sort_order')
                 ->get(['role_code']);
@@ -188,7 +279,11 @@ class LetterOfOrderService
                 ]);
             }
 
-            return $loa->loadMissing(['items', 'signatures']);
+            // attach relations safely (avoid querying broken items table)
+            $loa->loadMissing(['signatures']);
+            $loa->setRelation('items', $this->buildItemsModels((int) $loa->lo_id, $items));
+
+            return $loa;
         }, 3);
     }
 
@@ -196,10 +291,10 @@ class LetterOfOrderService
     {
         return $this->ensureDraftForSamples([$sampleId], $actorStaffId);
     }
+
     public function signInternal(int $loId, int $actorStaffId, string $roleCode): LetterOfOrder
     {
         return DB::transaction(function () use ($loId, $actorStaffId, $roleCode) {
-
             /** @var LetterOfOrder $loa */
             $loa = LetterOfOrder::query()->where('lo_id', $loId)->firstOrFail();
 
@@ -212,7 +307,12 @@ class LetterOfOrderService
                 ->where('role_code', $roleCode)
                 ->firstOrFail();
 
-            if ($sig->signed_at) return $loa; // idempotent
+            if ($sig->signed_at) {
+                $loa->loadMissing(['signatures']);
+                $payload = is_array($loa->payload) ? $loa->payload : (array) $loa->payload;
+                $loa->setRelation('items', $this->buildItemsModels((int) $loa->lo_id, (array) ($payload['items'] ?? [])));
+                return $loa->refresh();
+            }
 
             $sig->signed_by_staff = $actorStaffId;
             $sig->signed_at = now();
@@ -220,12 +320,60 @@ class LetterOfOrderService
             $sig->updated_at = now();
             $sig->save();
 
-            // If both OM & LH signed => signed_internal
-            if (in_array($roleCode, ['OM', 'LH'], true) && $loa->loa_status === 'draft') {
-                $loa->loa_status = 'signed_internal';
+            // Re-check OM + LH signatures
+            $sigs = LoaSignature::query()
+                ->where('lo_id', $loId)
+                ->whereIn('role_code', ['OM', 'LH'])
+                ->get(['role_code', 'signed_at']);
+
+            $signedMap = [];
+            foreach ($sigs as $row) {
+                $signedMap[(string) $row->role_code] = !empty($row->signed_at);
+            }
+
+            $omSigned = (bool) ($signedMap['OM'] ?? false);
+            $lhSigned = (bool) ($signedMap['LH'] ?? false);
+            $allSigned = $omSigned && $lhSigned;
+
+            if ($allSigned) {
+                if ($loa->loa_status === 'draft') {
+                    $loa->loa_status = 'signed_internal';
+                }
+
+                $payload = is_array($loa->payload) ? $loa->payload : (array) $loa->payload;
+                $alreadyGenerated = !empty($payload['pdf_generated_at']);
+
+                if (!$alreadyGenerated) {
+                    $number = (string) $loa->number;
+
+                    $path = (string) ($loa->file_url ?? $this->pdf->buildPath($number));
+
+                    // DO NOT read $loa->items (avoid DB items table). Use payload snapshot instead.
+                    $items = (array) ($payload['items'] ?? []);
+
+                    $binary = $this->pdf->render('documents.loo.surat_perintah_pengujian_sampel', [
+                        'loo' => (object) ['number' => $number],
+                        'payload' => $payload,
+                        'client' => null,
+                        'items' => $items,
+                        'omUrl' => 'https://google.com',
+                        'lhUrl' => 'https://google.com',
+                    ]);
+
+                    $this->pdf->store($path, $binary);
+
+                    $payload['pdf_generated_at'] = now()->toISOString();
+                    $loa->payload = $payload;
+                    $loa->file_url = $path;
+                }
+
                 $loa->updated_at = now();
                 $loa->save();
             }
+
+            $loa->loadMissing(['signatures']);
+            $payload = is_array($loa->payload) ? $loa->payload : (array) $loa->payload;
+            $loa->setRelation('items', $this->buildItemsModels((int) $loa->lo_id, (array) ($payload['items'] ?? [])));
 
             return $loa->refresh();
         }, 3);
@@ -240,10 +388,18 @@ class LetterOfOrderService
                 throw new RuntimeException('LoA must be signed_internal before sending to client.');
             }
 
+            $payload = is_array($loa->payload) ? $loa->payload : (array) $loa->payload;
+            if (empty($payload['pdf_generated_at'])) {
+                throw new RuntimeException('PDF is not generated yet. Ensure OM & LH have signed.');
+            }
+
             $loa->loa_status = 'sent_to_client';
             $loa->sent_to_client_at = now();
             $loa->updated_at = now();
             $loa->save();
+
+            $loa->loadMissing(['signatures']);
+            $loa->setRelation('items', $this->buildItemsModels((int) $loa->lo_id, (array) ($payload['items'] ?? [])));
 
             return $loa;
         }, 3);
@@ -252,7 +408,6 @@ class LetterOfOrderService
     public function clientSign(int $loId, int $clientId): LetterOfOrder
     {
         return DB::transaction(function () use ($loId, $clientId) {
-
             $loa = LetterOfOrder::query()->where('lo_id', $loId)->firstOrFail();
 
             if (!in_array($loa->loa_status, ['sent_to_client'], true)) {
@@ -272,12 +427,15 @@ class LetterOfOrderService
                 $sig->save();
             }
 
-            // auto lock after client signed
             $loa->loa_status = 'locked';
             $loa->client_signed_at = now();
             $loa->locked_at = now();
             $loa->updated_at = now();
             $loa->save();
+
+            $payload = is_array($loa->payload) ? $loa->payload : (array) $loa->payload;
+            $loa->loadMissing(['signatures']);
+            $loa->setRelation('items', $this->buildItemsModels((int) $loa->lo_id, (array) ($payload['items'] ?? [])));
 
             return $loa->refresh();
         }, 3);

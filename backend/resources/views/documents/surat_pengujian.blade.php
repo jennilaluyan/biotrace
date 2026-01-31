@@ -28,9 +28,8 @@
         $omSigned = !empty(data_get($sigByRole, 'OM.signed_at'));
         $lhSigned = !empty(data_get($sigByRole, 'LH.signed_at'));
 
-        // Dummy QR placeholders (kalau nanti ada link verifikasi/signature, tinggal ganti)
-        $omUrl = 'https://example.com';
-        $lhUrl = 'https://example.com';
+        $omUrl = 'https://google.com';
+        $lhUrl = 'https://google.com';
 
         $makeQr = function (string $url): ?string {
             try {

@@ -213,7 +213,6 @@ export default function SampleRequestDetailPage() {
     const isSubmitted = requestStatus === "submitted";
     const isReturned = requestStatus === "returned" || requestStatus === "needs_revision";
 
-    const [assignBusy, setAssignBusy] = useState(false);
     const [verifyBusy, setVerifyBusy] = useState(false);
 
     const isApprovedOrLater =
@@ -248,12 +247,6 @@ export default function SampleRequestDetailPage() {
     const canVerify =
         (isOperationalManager || isLabHead) &&
         requestStatus === "awaiting_verification" &&
-        !verifiedAt;
-
-    const canAssignSampleCode =
-        (isOperationalManager || isLabHead) &&
-        requestStatus === "awaiting_verification" &&
-        !!verifiedAt &&
         !labSampleCode;
 
     const canWfAdminReceive =
@@ -424,6 +417,12 @@ export default function SampleRequestDetailPage() {
 
             await apiPost(`/v1/samples/${requestId}/verify`, {});
             await load({ silent: true });
+
+            const nextCode = (sample as any)?.lab_sample_code ?? null;
+            const nextStatus = (sample as any)?.request_status ?? null;
+            if (nextCode || nextStatus === "intake_validated") {
+                navigate(`/samples/${requestId}`);
+            }
         } catch (err: any) {
             const msg =
                 err?.response?.data?.message ??
@@ -433,27 +432,6 @@ export default function SampleRequestDetailPage() {
             setWfError(msg);
         } finally {
             setVerifyBusy(false);
-        }
-    };
-
-    const doAssignSampleCode = async () => {
-        if (!canAssignSampleCode || assignBusy) return;
-
-        try {
-            setAssignBusy(true);
-            setWfError(null);
-
-            await apiPost(`/v1/samples/${requestId}/intake-validate`, {});
-            await load({ silent: true });
-        } catch (err: any) {
-            const msg =
-                err?.response?.data?.message ??
-                err?.data?.message ??
-                err?.message ??
-                "Gagal assign sample code.";
-            setWfError(msg);
-        } finally {
-            setAssignBusy(false);
         }
     };
 
@@ -799,17 +777,19 @@ export default function SampleRequestDetailPage() {
 
                                                 {(isOperationalManager || isLabHead) ? (
                                                     <>
-                                                        {!verifiedAt ? (
+                                                        {canVerify ? (
                                                             <>
                                                                 <div className="sm:col-span-2 text-xs text-amber-800 bg-amber-50 border border-amber-100 px-3 py-2 rounded-xl">
                                                                     Status sekarang <span className="font-semibold">awaiting_verification</span>.{" "}
-                                                                    OM/LH harus melakukan <span className="font-semibold">Verify</span> dulu sebelum bisa Assign Sample ID.
+                                                                    Setelah <span className="font-semibold">Verify</span>, sistem otomatis assign{" "}
+                                                                    <span className="font-semibold">Sample ID (BML)</span> dan request akan pindah ke halaman{" "}
+                                                                    <span className="font-semibold">Samples</span>.
                                                                 </div>
 
                                                                 <div className="sm:col-span-2">
                                                                     <WorkflowActionButton
                                                                         title="Verify (OM/LH)"
-                                                                        subtitle="Lock verification gate. Setelah verified, baru boleh Assign Sample ID."
+                                                                        subtitle="Verify + auto-assign Sample ID (BML) + promote to lab sample."
                                                                         onClick={doVerify}
                                                                         disabled={!canVerify || verifyBusy}
                                                                         busy={verifyBusy}
@@ -818,21 +798,27 @@ export default function SampleRequestDetailPage() {
                                                                 </div>
                                                             </>
                                                         ) : (
-                                                            <div className="sm:col-span-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-xl">
-                                                                Sudah verified pada <span className="font-semibold">{formatDateTimeLocal(verifiedAt)}</span>. Sekarang Assign Sample ID bisa dilakukan.
-                                                            </div>
-                                                        )}
+                                                            <>
+                                                                {verifiedAt ? (
+                                                                    <div className="sm:col-span-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-xl">
+                                                                        Sudah verified pada{" "}
+                                                                        <span className="font-semibold">{formatDateTimeLocal(verifiedAt)}</span>.
+                                                                        {labSampleCode ? (
+                                                                            <>
+                                                                                {" "}Sample ID:{" "}
+                                                                                <span className="font-mono font-semibold">{labSampleCode}</span>.
+                                                                            </>
+                                                                        ) : null}
+                                                                    </div>
+                                                                ) : null}
 
-                                                        <div className="sm:col-span-2">
-                                                            <WorkflowActionButton
-                                                                title="Assign Sample ID"
-                                                                subtitle="Generate lab sample code after verification (OM/LH only)."
-                                                                onClick={doAssignSampleCode}
-                                                                disabled={!canAssignSampleCode || assignBusy}
-                                                                busy={assignBusy}
-                                                                variant="primary"
-                                                            />
-                                                        </div>
+                                                                {!verifiedAt && requestStatus !== "awaiting_verification" ? (
+                                                                    <div className="sm:col-span-2 text-xs text-gray-700 bg-gray-50 border border-gray-100 px-3 py-2 rounded-xl">
+                                                                        Verification action is not available for the current status.
+                                                                    </div>
+                                                                ) : null}
+                                                            </>
+                                                        )}
                                                     </>
                                                 ) : null}
                                             </div>

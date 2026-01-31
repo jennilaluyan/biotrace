@@ -7,7 +7,9 @@ use App\Http\Requests\SampleVerifyRequest;
 use App\Models\Sample;
 use App\Models\Staff;
 use App\Support\AuditLogger;
+use App\Support\LabSampleCode;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class SampleVerificationController extends Controller
@@ -21,6 +23,10 @@ class SampleVerificationController extends Controller
      * - request_status must be awaiting_verification
      * - intake checklist must exist and passed
      * - cannot verify twice
+     *
+     * IMPORTANT NEW RULE:
+     * - when verified => system auto-assign lab_sample_code immediately
+     * - request_status becomes intake_validated (moves out of request queue)
      */
     public function verify(SampleVerifyRequest $request, Sample $sample): JsonResponse
     {
@@ -55,6 +61,7 @@ class SampleVerificationController extends Controller
         // Must have checklist and passed
         $sample->load('intakeChecklist');
         $checklist = $sample->intakeChecklist;
+
         if (!$checklist) {
             return response()->json([
                 'status' => 422,
@@ -65,7 +72,8 @@ class SampleVerificationController extends Controller
                 ],
             ], 422);
         }
-        if ((bool)($checklist->is_passed ?? false) !== true) {
+
+        if ((bool) ($checklist->is_passed ?? false) !== true) {
             return response()->json([
                 'status' => 422,
                 'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
@@ -76,7 +84,7 @@ class SampleVerificationController extends Controller
             ], 422);
         }
 
-        // Cannot verify twice (first verifier wins)
+        // Cannot verify twice
         if (!empty($sample->verified_at)) {
             return response()->json([
                 'status' => 409,
@@ -88,20 +96,29 @@ class SampleVerificationController extends Controller
             ], 409);
         }
 
-        // Normalize role → OM/LH
+        // Normalize role -> OM/LH
         $roleName = strtolower(trim((string) ($actor->role?->name ?? '')));
         $verifiedByRole = null;
 
-        // tolerate variants
-        if (str_contains($roleName, 'operational manager') || $roleName === 'om' || str_contains($roleName, 'operational_manager')) {
+        if (
+            str_contains($roleName, 'operational manager') ||
+            $roleName === 'om' ||
+            str_contains($roleName, 'operational_manager')
+        ) {
             $verifiedByRole = 'OM';
         }
-        if (str_contains($roleName, 'laboratory head') || str_contains($roleName, 'lab head') || $roleName === 'lh' || str_contains($roleName, 'laboratory_head') || str_contains($roleName, 'lab_head')) {
+
+        if (
+            str_contains($roleName, 'laboratory head') ||
+            str_contains($roleName, 'lab head') ||
+            $roleName === 'lh' ||
+            str_contains($roleName, 'laboratory_head') ||
+            str_contains($roleName, 'lab_head')
+        ) {
             $verifiedByRole = 'LH';
         }
 
         if ($verifiedByRole === null) {
-            // extra safety (should not happen due to policy)
             return response()->json([
                 'status' => 403,
                 'code' => 'LIMS.AUTH.FORBIDDEN',
@@ -110,6 +127,10 @@ class SampleVerificationController extends Controller
         }
 
         $note = $request->validated()['note'] ?? null;
+        $now = Carbon::now();
+
+        // Prefer staff_id if available (common in your schema)
+        $actorStaffId = (int) (($actor->staff_id ?? null) ?: ($actor->id ?? 0));
 
         // Capture old values for audit
         $old = [
@@ -117,35 +138,47 @@ class SampleVerificationController extends Controller
             'verified_by_staff_id' => $sample->verified_by_staff_id,
             'verified_by_role' => $sample->verified_by_role,
             'request_status' => $sample->request_status,
+            'lab_sample_code' => $sample->lab_sample_code,
         ];
 
-        DB::transaction(function () use ($sample, $actor, $verifiedByRole) {
-            $sample->verified_at = now();
-            $sample->verified_by_staff_id = (int) ($actor->staff_id ?? $actor->getKey());
+        DB::transaction(function () use ($sample, $actorStaffId, $now, $verifiedByRole) {
+            // 1) Mark verified
+            $sample->verified_at = $now;
+            $sample->verified_by_staff_id = $actorStaffId;
             $sample->verified_by_role = $verifiedByRole;
+
+            // 2) ✅ AUTO-ASSIGN Sample ID (BML) immediately after verified
+            if (!$sample->lab_sample_code) {
+                $sample->lab_sample_code = LabSampleCode::next();
+            }
+
+            // 3) ✅ Promote out of request queue
+            $sample->request_status = SampleRequestStatus::INTAKE_VALIDATED->value;
+
             $sample->save();
-        });
+        }, 3);
 
         $sample->refresh();
 
-        // Audit log
+        // Audit log (keep ONLY the method that exists in your project)
         AuditLogger::logSampleRequestVerified(
-            staffId: (int) ($actor->staff_id ?? $actor->getKey()),
+            staffId: $actorStaffId,
             sampleId: (int) $sample->sample_id,
-            clientId: (int) $sample->client_id,
-            verifiedByRole: (string) $sample->verified_by_role,
+            clientId: (int) ($sample->client_id ?? 0),
+            verifiedByRole: (string) ($sample->verified_by_role ?? $verifiedByRole),
             oldValues: $old,
             newValues: [
                 'verified_at' => $sample->verified_at,
                 'verified_by_staff_id' => $sample->verified_by_staff_id,
                 'verified_by_role' => $sample->verified_by_role,
                 'request_status' => $sample->request_status,
+                'lab_sample_code' => $sample->lab_sample_code,
             ],
             note: is_string($note) && trim($note) !== '' ? trim($note) : null
         );
 
         return response()->json([
-            'message' => 'Verified.',
+            'message' => 'Verified and sample code assigned.',
             'data' => $sample->fresh(),
         ], 200);
     }

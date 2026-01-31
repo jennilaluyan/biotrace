@@ -26,7 +26,7 @@ function fmtDateTime(iso?: string | null) {
 function coerceLoo(maybe: any): any | null {
     if (!maybe) return null;
 
-    const directId = Number(maybe?.loo_id ?? maybe?.id ?? maybe?.loa_id ?? 0);
+    const directId = Number(maybe?.loo_id ?? maybe?.lo_id ?? maybe?.id ?? maybe?.loa_id ?? 0);
     if (!Number.isNaN(directId) && directId > 0) {
         return {
             loo_id: directId,
@@ -39,7 +39,7 @@ function coerceLoo(maybe: any): any | null {
             sent_to_client_at: maybe?.sent_to_client_at ?? null,
             client_signed_at: maybe?.client_signed_at ?? null,
             locked_at: maybe?.locked_at ?? null,
-            pdf_url: maybe?.pdf_url ?? maybe?.pdfUrl ?? null,
+            pdf_url: maybe?.pdf_url ?? maybe?.file_url ?? maybe?.pdfUrl ?? maybe?.fileUrl ?? null,
         } satisfies LetterOfOrder;
     }
 
@@ -88,7 +88,7 @@ export function LooPanelStaff({ sampleId, roleId, samplePayload, onChanged }: Pr
             setInfo(null);
             const next = await looService.generate(sampleId);
             setLoo(next);
-            setInfo("LoO generated.");
+            setInfo("LoO draft created. PDF will be available after OM & LH sign.");
             onChanged?.();
         } catch (e: any) {
             setError(safeErr(e, "Failed to generate LoO."));
@@ -279,7 +279,12 @@ export function LooPanelStaff({ sampleId, roleId, samplePayload, onChanged }: Pr
                                 type="button"
                                 className={cx("lims-btn", working && "opacity-60 cursor-not-allowed")}
                                 onClick={sendToClient}
-                                disabled={working}
+                                disabled={working || String(loo?.loo_status ?? "").toLowerCase() !== "signed_internal"}
+                                title={
+                                    String(loo?.loo_status ?? "").toLowerCase() !== "signed_internal"
+                                        ? "Requires OM & LH signatures (signed_internal) before sending."
+                                        : undefined
+                                }
                             >
                                 Send to Client
                             </button>
