@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Schema;
 
 class LetterOfOrder extends Model
 {
@@ -44,8 +45,26 @@ class LetterOfOrder extends Model
 
     public function items(): HasMany
     {
-        return $this->hasMany(LetterOfOrderItem::class, 'lo_id', 'lo_id')
-            ->orderBy('item_id');
+        $rel = $this->hasMany(LetterOfOrderItem::class, 'lo_id', 'lo_id');
+
+        // Jangan asumsi nama PK kolomnya selalu item_id.
+        // Pilih kolom order yang benar-benar ada di table.
+        $table = (new LetterOfOrderItem())->getTable(); // biasanya "letter_of_order_items"
+
+        if (Schema::hasColumn($table, 'item_id')) {
+            return $rel->orderBy('item_id');
+        }
+
+        if (Schema::hasColumn($table, 'lo_item_id')) {
+            return $rel->orderBy('lo_item_id');
+        }
+
+        if (Schema::hasColumn($table, 'id')) {
+            return $rel->orderBy('id');
+        }
+
+        // fallback aman: tanpa orderBy supaya tidak meledak
+        return $rel;
     }
 
     public function sample(): BelongsTo

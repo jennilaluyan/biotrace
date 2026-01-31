@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import { fetchReports, ReportRow, Paginator } from "../../services/reports";
+import { listReportDocuments, type ReportDocumentRow } from "../../services/reportDocuments";
 import { ReportPreviewModal } from "../../components/reports/ReportPreviewModal";
 
 type DateFilter = "all" | "today" | "7d" | "30d";
@@ -100,12 +101,11 @@ export const ReportsPage = () => {
     const roleId = getUserRoleId(user);
     const roleLabel = getUserRoleLabel(user);
 
-    const canViewReports =
-        roleId === ROLE_ID.OPERATIONAL_MANAGER ||
-        roleId === ROLE_ID.LAB_HEAD;
+    const canViewReports = !!roleId && roleId !== ROLE_ID.CLIENT;
 
     // ---- state ----
     const [pager, setPager] = useState<Paginator<ReportRow> | null>(null);
+    const [reportDocs, setReportDocs] = useState<ReportDocumentRow[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -113,8 +113,11 @@ export const ReportsPage = () => {
     const [searchTerm, setSearchTerm] = useState("");
     const [dateFilter, setDateFilter] = useState<DateFilter>("all");
     const [currentPage, setCurrentPage] = useState(1);
-
     const [previewReportId, setPreviewReportId] = useState<number | null>(null);
+
+    const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
+    const [previewTitle, setPreviewTitle] = useState<string>("PDF Preview");
+    const [previewOpen, setPreviewOpen] = useState(false);
 
     // ---- fetch ----
     const loadReports = async (opts?: { keepPage?: boolean }) => {
@@ -124,19 +127,22 @@ export const ReportsPage = () => {
 
             const page = opts?.keepPage ? currentPage : 1;
 
-            const data = await fetchReports({
-                page,
-                per_page: PAGE_SIZE,
-                q: searchTerm.trim() || undefined,
-                date: dateFilter !== "all" ? dateFilter : undefined,
-            });
+            const [reportsData, docs] = await Promise.all([
+                fetchReports({
+                    page,
+                    per_page: PAGE_SIZE,
+                    q: searchTerm.trim() || undefined,
+                    date: dateFilter !== "all" ? dateFilter : undefined,
+                }),
+                listReportDocuments(),
+            ]);
 
-            if (!data || !Array.isArray((data as any).data)) {
-                console.warn("Unexpected reports response", data);
+            if (!reportsData || !Array.isArray((reportsData as any).data)) {
+                console.warn("Unexpected reports response", reportsData);
             }
 
-            setPager(data);
-
+            setPager(reportsData);
+            setReportDocs(docs ?? []);
             if (!opts?.keepPage) setCurrentPage(1);
         } catch (err: any) {
             const msg =
@@ -173,9 +179,39 @@ export const ReportsPage = () => {
     };
 
     const openPdf = (fileUrl: string) => {
+        // NOTE:
+        // Kalau fileUrl itu path storage biasa, sering 404 karena backoffice (Vite) tidak serve /storage.
+        // Jadi kita preview saja di modal (kalau gagal, modal tampilkan error).
         const url = resolvePublicFileUrl(fileUrl);
-        window.open(url, "_blank", "noopener,noreferrer");
+
+        setPreviewPdfUrl(url);
+        setPreviewTitle("PDF Preview");
+        setPreviewOpen(true);
     };
+
+    const filteredDocs = reportDocs.filter((d) => {
+        const q = searchTerm.trim().toLowerCase();
+        const hay =
+            `${d.type ?? ""} ${d.number ?? ""} ${d.client_name ?? ""} ${d.client_org ?? ""} ${(d.sample_codes ?? []).join(" ")}`.toLowerCase();
+
+        if (q && !hay.includes(q)) return false;
+
+        const iso = d.generated_at ?? d.created_at;
+        if (!iso || dateFilter === "all") return true;
+
+        const dt = new Date(iso);
+        if (Number.isNaN(dt.getTime())) return true;
+
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        const t = dt.getTime();
+
+        if (dateFilter === "today") return t >= startOfToday;
+        if (dateFilter === "7d") return t >= now.getTime() - 7 * 24 * 60 * 60 * 1000;
+        if (dateFilter === "30d") return t >= now.getTime() - 30 * 24 * 60 * 60 * 1000;
+
+        return true;
+    });
 
     if (!canViewReports) {
         return (
@@ -265,6 +301,93 @@ export const ReportsPage = () => {
                     >
                         Apply
                     </button>
+                </div>
+
+                {/* Documents (LOO now, extensible later) */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-4">
+                    <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                        <div>
+                            <h2 className="text-sm font-semibold text-gray-900">Documents</h2>
+                            <p className="text-xs text-gray-500">
+                                Letter of Order sekarang muncul di sini. Dokumen PDF lain nanti tinggal masuk via endpoint yang sama.
+                            </p>
+                        </div>
+                        <div className="text-xs text-gray-500">
+                            {filteredDocs.length} item(s)
+                        </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                            <thead className="text-xs text-gray-500">
+                                <tr className="border-b border-gray-100">
+                                    <th className="text-left px-4 py-3">Type</th>
+                                    <th className="text-left px-4 py-3">Number</th>
+                                    <th className="text-left px-4 py-3">Client</th>
+                                    <th className="text-left px-4 py-3">Samples</th>
+                                    <th className="text-left px-4 py-3">Generated</th>
+                                    <th className="text-left px-4 py-3">Status</th>
+                                    <th className="text-right px-4 py-3">Action</th>
+                                </tr>
+                            </thead>
+
+                            <tbody className="divide-y divide-gray-100">
+                                {filteredDocs.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={7} className="px-4 py-6 text-center text-gray-500">
+                                            No documents found.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    filteredDocs.map((d) => {
+                                        const docType = String(d.type ?? "").toLowerCase();
+                                        const docId = d.id;
+                                        const url =
+                                            docType && docId
+                                                ? `/v1/reports/documents/${docType}/${docId}/pdf`
+                                                : null;
+                                        return (
+                                            <tr key={`${d.type}-${d.id}`} className="hover:bg-gray-50">
+                                                <td className="px-4 py-3 font-medium text-gray-900">{d.type}</td>
+                                                <td className="px-4 py-3 text-gray-700">{d.number}</td>
+                                                <td className="px-4 py-3 text-gray-700">
+                                                    {d.client_name ?? "-"}
+                                                    {d.client_org ? (
+                                                        <div className="text-xs text-gray-500">{d.client_org}</div>
+                                                    ) : null}
+                                                </td>
+                                                <td className="px-4 py-3 text-gray-700">
+                                                    {(d.sample_codes ?? []).length ? (d.sample_codes ?? []).join(", ") : "-"}
+                                                </td>
+                                                <td className="px-4 py-3 text-gray-700">
+                                                    {fmtDate(d.generated_at ?? d.created_at)}
+                                                </td>
+                                                <td className="px-4 py-3 text-gray-700">{d.status ?? "-"}</td>
+                                                <td className="px-4 py-3 text-right">
+                                                    {url ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (!url) return;
+                                                                setPreviewPdfUrl(url);
+                                                                setPreviewTitle(`${d.type} Preview`);
+                                                                setPreviewOpen(true);
+                                                            }}
+                                                            className="px-3 py-1 rounded-full text-xs bg-primary text-white hover:opacity-90"
+                                                        >
+                                                            Open PDF
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-xs text-gray-400">No file</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
                 {/* Content */}
@@ -450,8 +573,8 @@ export const ReportsPage = () => {
                                                     type="button"
                                                     onClick={() => handlePageChange(page)}
                                                     className={`px-3 py-1 rounded-full text-xs border ${page === currentPage
-                                                            ? "bg-primary text-white border-primary"
-                                                            : "bg-white text-gray-700 hover:bg-gray-50"
+                                                        ? "bg-primary text-white border-primary"
+                                                        : "bg-white text-gray-700 hover:bg-gray-50"
                                                         }`}
                                                 >
                                                     {page}
@@ -480,6 +603,17 @@ export const ReportsPage = () => {
                 reportId={previewReportId}
                 onClose={() => setPreviewReportId(null)}
             />
+
+            <ReportPreviewModal
+                open={previewOpen}
+                onClose={() => {
+                    setPreviewOpen(false);
+                    setPreviewPdfUrl(null);
+                }}
+                pdfUrl={previewPdfUrl}
+                title={previewTitle}
+            />
+
         </div>
     );
 };

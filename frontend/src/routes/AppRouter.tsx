@@ -179,6 +179,9 @@ export const AppRouter = () => {
                         element={
                             <RoleGuard
                                 allowedRoleIds={[
+                                    ROLE_ID.ADMIN,
+                                    ROLE_ID.SAMPLE_COLLECTOR,
+                                    ROLE_ID.ANALYST,
                                     ROLE_ID.OPERATIONAL_MANAGER,
                                     ROLE_ID.LAB_HEAD,
                                 ]}
@@ -188,7 +191,6 @@ export const AppRouter = () => {
                         }
                     />
 
-                    {/* ✅ Dedicated LOO Generator page for OM/LH */}
                     <Route
                         path="/loo"
                         element={

@@ -335,6 +335,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/reports/{report}/sign', [ReportSignatureController::class, 'sign'])->whereNumber('report');
         Route::post('/reports/{report}/finalize', [ReportController::class, 'finalize'])->whereNumber('report');
         Route::get('/reports/documents', [\App\Http\Controllers\ReportDocumentsController::class, 'index']);
+        Route::get('/reports/documents/{type}/{id}/pdf', [\App\Http\Controllers\ReportDocumentsController::class, 'pdf']);
 
         // COA PDF
         Route::get('/reports/{report}/pdf', [CoaPdfController::class, 'downloadByReport'])->whereNumber('report');

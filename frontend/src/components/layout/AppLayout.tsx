@@ -34,7 +34,7 @@ export const AppLayout = () => {
         roleId === ROLE_ID.OPERATIONAL_MANAGER ||
         roleId === ROLE_ID.LAB_HEAD;
 
-    const canSeeReports = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
+    const canSeeReports = isStaff;
 
     const portalItems: NavItem[] = isClient
         ? [{ label: "My Requests", path: "/portal/requests", icon: "flask" }]

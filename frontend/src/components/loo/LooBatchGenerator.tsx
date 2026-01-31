@@ -109,6 +109,30 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
         return out;
     };
 
+    const resolveResultUrl = (res: any): string | null => {
+        // Prioritas 1: backend kasih download_url (ideal)
+        const dl = res?.download_url;
+        if (dl && typeof dl === "string" && dl.trim() !== "") return dl;
+
+        // Prioritas 2: kalau backend balikin lo_id, pakai endpoint secure
+        const loId = res?.lo_id ?? res?.id;
+        if (typeof loId === "number" && loId > 0) {
+            return `/api/v1/reports/documents/loo/${loId}/pdf`;
+        }
+
+        // Prioritas 3: fallback lama (TAPI ini cuma works kalau memang public URL)
+        const fu = res?.file_url;
+        if (fu && typeof fu === "string") {
+            // kalau sudah absolute http(s), boleh
+            if (/^https?:\/\//i.test(fu)) return fu;
+            // kalau path /api/... juga boleh
+            if (fu.startsWith("/api/")) return fu;
+            // selain itu: kemungkinan private path -> jangan
+        }
+
+        return null;
+    };
+
     const generate = async () => {
         if (busy) return;
         if (!selectedIds.length) {
@@ -133,8 +157,30 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
 
             const res = await looService.generateForSamples(selectedIds, map);
 
-            setResultUrl(res.file_url ?? null);
-            setResultNumber(res.number ?? null);
+            const looNumber =
+                typeof (res as any)?.number === "string"
+                    ? ((res as any).number as string)
+                    : typeof (res as any)?.loo_number === "string"
+                        ? ((res as any).loo_number as string)
+                        : null;
+
+            setResultNumber(looNumber);
+
+            const pickString = (obj: unknown, key: string): string | null => {
+                if (!obj || typeof obj !== "object") return null;
+                const v = (obj as any)[key];
+                return typeof v === "string" && v.trim() !== "" ? v : null;
+            };
+
+            const url = resolveResultUrl(res);
+            if (!url) {
+                setError(
+                    "LOO berhasil dibuat, tapi URL untuk preview/download tidak tersedia. Pastikan backend mengembalikan download_url atau lo_id."
+                );
+                return;
+            }
+
+            setResultUrl(url);
         } catch (err: any) {
             const msg =
                 err?.response?.data?.message ??
@@ -227,7 +273,13 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
                             const selMap = paramSel[sid] ?? {};
 
                             return (
-                                <div key={sid} className={cx("rounded-2xl border p-4", checked ? "border-amber-200 bg-amber-50/20" : "border-gray-200 bg-white")}>
+                                <div
+                                    key={sid}
+                                    className={cx(
+                                        "rounded-2xl border p-4",
+                                        checked ? "border-amber-200 bg-amber-50/20" : "border-gray-200 bg-white"
+                                    )}
+                                >
                                     <div className="flex items-start justify-between gap-3 flex-wrap">
                                         <label className="flex items-start gap-3 cursor-pointer">
                                             <input
@@ -311,7 +363,15 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
                 </div>
 
                 <div className="mt-4 flex items-center justify-end gap-2">
-                    <button type="button" className="lims-btn" onClick={() => { setResultUrl(null); setResultNumber(null); }} disabled={busy}>
+                    <button
+                        type="button"
+                        className="lims-btn"
+                        onClick={() => {
+                            setResultUrl(null);
+                            setResultNumber(null);
+                        }}
+                        disabled={busy}
+                    >
                         Reset Result
                     </button>
                     <button type="button" className="lims-btn-primary" onClick={generate} disabled={busy}>
@@ -326,12 +386,7 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
                             Number: <span className="font-mono">{resultNumber ?? "-"}</span>
                         </div>
                         <div className="mt-2">
-                            <a
-                                href={resultUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="underline font-semibold"
-                            >
+                            <a href={resultUrl} target="_blank" rel="noreferrer" className="underline font-semibold">
                                 Open / Download PDF
                             </a>
                         </div>
