@@ -110,24 +110,25 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
     };
 
     const resolveResultUrl = (res: any): string | null => {
-        // Prioritas 1: backend kasih download_url (ideal)
+        // 1) Ideal: backend gives download_url
         const dl = res?.download_url;
-        if (dl && typeof dl === "string" && dl.trim() !== "") return dl;
+        if (typeof dl === "string" && dl.trim() !== "") return dl;
 
-        // Prioritas 2: kalau backend balikin lo_id, pakai endpoint secure
-        const loId = res?.lo_id ?? res?.id;
+        // 2) Also accept pdf_url (backend sets pdf_url=download_url in your controller)
+        const pdf = res?.pdf_url;
+        if (typeof pdf === "string" && pdf.trim() !== "") return pdf;
+
+        // 3) If we have an id, always use the secure endpoint
+        const loId = res?.lo_id ?? res?.loo_id ?? res?.id;
         if (typeof loId === "number" && loId > 0) {
             return `/api/v1/reports/documents/loo/${loId}/pdf`;
         }
 
-        // Prioritas 3: fallback lama (TAPI ini cuma works kalau memang public URL)
+        // 4) legacy fallback (only if truly public/absolute)
         const fu = res?.file_url;
-        if (fu && typeof fu === "string") {
-            // kalau sudah absolute http(s), boleh
+        if (typeof fu === "string" && fu.trim() !== "") {
             if (/^https?:\/\//i.test(fu)) return fu;
-            // kalau path /api/... juga boleh
-            if (fu.startsWith("/api/")) return fu;
-            // selain itu: kemungkinan private path -> jangan
+            if (fu.startsWith("/api/") || fu.startsWith("/v1/")) return fu;
         }
 
         return null;
