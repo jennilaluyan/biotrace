@@ -14,6 +14,73 @@ type Props = {
     title?: string;
 };
 
+/**
+ * Convert absolute URL to relative path to avoid CORS,
+ * and normalize /api vs /v1 based on axios baseURL.
+ */
+function normalizeRequestPath(requestUrl: string): string {
+    let path = String(requestUrl || "").trim();
+    if (!path) return path;
+
+    // Absolute -> strip origin
+    try {
+        if (/^https?:\/\//i.test(path)) {
+            const u = new URL(path);
+            path = (u.pathname || "/") + (u.search || "");
+        }
+    } catch {
+        // ignore
+    }
+
+    // Ensure starts with /
+    if (!path.startsWith("/")) path = "/" + path;
+
+    // If backend gives something like ".../api/..." inside the string, keep from /api
+    const apiIdx = path.indexOf("/api/");
+    if (apiIdx > 0) path = path.slice(apiIdx);
+
+    const v1Idx = path.indexOf("/v1/");
+    if (v1Idx > 0 && apiIdx < 0) path = path.slice(v1Idx);
+
+    // Now map /api vs /v1 depending on http.defaults.baseURL
+    const base = String(http.defaults.baseURL ?? "").replace(/\/+$/, "");
+    const baseHasApi = /\/api$/i.test(base);
+
+    // If baseURL already ends with /api, we should NOT send /api/... again
+    if (baseHasApi && path.startsWith("/api/")) {
+        path = path.replace(/^\/api/, "");
+    }
+
+    // If baseURL does NOT include /api but path starts with /v1, prefix /api
+    // (this matches your previous logic; keep it for safety)
+    if (!baseHasApi && path.startsWith("/v1/")) {
+        path = "/api" + path;
+    }
+
+    return path;
+}
+
+async function blobToUsefulError(blob: Blob): Promise<string> {
+    try {
+        const text = await blob.text();
+        if (!text) return "Request failed (empty error).";
+        try {
+            const json = JSON.parse(text);
+            // common API error shapes
+            return (
+                json?.message ??
+                json?.error ??
+                json?.msg ??
+                text
+            );
+        } catch {
+            return text;
+        }
+    } catch {
+        return "Request failed (unreadable error).";
+    }
+}
+
 export const ReportPreviewModal: React.FC<Props> = ({
     open,
     onClose,
@@ -55,21 +122,7 @@ export const ReportPreviewModal: React.FC<Props> = ({
             });
 
             try {
-                // Avoid /api/api/... when baseURL already ends with /api
-                const base = String(http.defaults.baseURL ?? "").replace(/\/+$/, "");
-                const baseHasApi = /\/api$/i.test(base);
-
-                let path = requestUrl;
-
-                // Kalau baseURL sudah .../api, jangan kirim /api/... lagi
-                if (baseHasApi && path.startsWith("/api/")) {
-                    path = path.replace(/^\/api/, "");
-                }
-
-                // Kalau baseURL TIDAK punya .../api tapi path diawali /v1, prefix /api
-                if (!baseHasApi && path.startsWith("/v1/")) {
-                    path = "/api" + path;
-                }
+                const path = normalizeRequestPath(requestUrl);
 
                 const res = await http.get(path, { responseType: "blob" });
 
@@ -78,10 +131,10 @@ export const ReportPreviewModal: React.FC<Props> = ({
                 const blob = res.data as Blob;
                 const ct = String(res.headers?.["content-type"] ?? "").toLowerCase();
 
-                // kalau server balikin JSON, tampilkan sebagai error
+                // If server returns JSON (error), show it
                 if (ct.includes("application/json")) {
-                    const text = await blob.text();
-                    throw new Error(text || "Server returned JSON, not a PDF.");
+                    const msg = await blobToUsefulError(blob);
+                    throw new Error(msg || "Server returned JSON, not a PDF.");
                 }
 
                 const url = URL.createObjectURL(blob);
@@ -89,12 +142,19 @@ export const ReportPreviewModal: React.FC<Props> = ({
             } catch (e: any) {
                 if (cancelled) return;
 
-                // axios error shape
-                const msg =
-                    e?.response?.data?.message ??
-                    e?.message ??
-                    "Failed to load PDF.";
-                setError(String(msg));
+                // axios error shape:
+                // - e.response.data may be a Blob (because responseType=blob)
+                const respData = e?.response?.data;
+                if (respData instanceof Blob) {
+                    const msg = await blobToUsefulError(respData);
+                    setError(String(msg));
+                } else {
+                    const msg =
+                        e?.response?.data?.message ??
+                        e?.message ??
+                        "Failed to load PDF.";
+                    setError(String(msg));
+                }
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -119,14 +179,31 @@ export const ReportPreviewModal: React.FC<Props> = ({
                 {/* Header */}
                 <div className="flex items-center justify-between px-4 py-3 border-b">
                     <h2 className="text-sm font-semibold text-gray-800">{title}</h2>
-                    <button
-                        onClick={onClose}
-                        className="text-gray-500 hover:text-gray-700"
-                        aria-label="Close preview"
-                        type="button"
-                    >
-                        ✕
-                    </button>
+
+                    <div className="flex items-center gap-2">
+                        {blobUrl ? (
+                            <a
+                                href={blobUrl}
+                                download
+                                className="lims-btn"
+                                onClick={(e) => {
+                                    // ensure click doesn't close modal by accident
+                                    e.stopPropagation();
+                                }}
+                            >
+                                Download
+                            </a>
+                        ) : null}
+
+                        <button
+                            onClick={onClose}
+                            className="text-gray-500 hover:text-gray-700"
+                            aria-label="Close preview"
+                            type="button"
+                        >
+                            ✕
+                        </button>
+                    </div>
                 </div>
 
                 {/* Body */}

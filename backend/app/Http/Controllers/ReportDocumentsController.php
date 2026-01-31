@@ -39,30 +39,32 @@ class ReportDocumentsController extends Controller
             $sampleCodes = array_values(array_unique($sampleCodes));
             $client = $lo->sample?->client;
 
-            $docName = 'Letter of Order (LOO)'; // atau "Surat Perintah Pengujian Sampel" kalau mau full Indo
+            $docName = 'Letter of Order (LOO)';
             $docCode = (string) $lo->number;
 
             $docs[] = [
                 'type' => 'LOO',
                 'id' => (int) $lo->lo_id,
 
-                // ✅ doc-centric fields (NEW)
+                // doc-centric fields
                 'document_name' => $docName,
                 'document_code' => $docCode,
 
-                // keep number for compatibility (frontend lama masih pakai)
+                // keep number for compatibility
                 'number' => $docCode,
 
                 'status' => (string) ($lo->loa_status ?? 'draft'),
                 'generated_at' => $lo->generated_at?->toIso8601String(),
                 'created_at' => $lo->created_at?->toIso8601String(),
 
-                // ✅ stop relying on these (set null so UI stops showing)
+                // stop relying on these
                 'client_name' => null,
                 'client_org' => null,
                 'sample_codes' => [],
 
                 'file_url' => $lo->file_url,
+
+                // IMPORTANT: always expose via secure endpoint
                 'download_url' => url("/api/v1/reports/documents/loo/{$lo->lo_id}/pdf"),
             ];
         }
@@ -103,6 +105,7 @@ class ReportDocumentsController extends Controller
                 'debug' => [
                     'file_url' => $raw,
                     'expected_root' => storage_path('app/private'),
+                    'hint' => 'Ensure file exists under storage/app/private/reports/loo/... and DB path resolves correctly.',
                 ],
             ], 404);
         }
@@ -116,20 +119,24 @@ class ReportDocumentsController extends Controller
     /**
      * Resolve file_url (db) into absolute path on server.
      *
-     * IMPORTANT:
-     * - Disk "local" kamu root-nya storage/app/private (lihat filesystems.php)
-     *   jadi path RELATIF seperti "reports/loo/2026/x.pdf" akan dicari di:
-     *   storage/app/private/reports/loo/2026/x.pdf
+     * Your REAL storage target:
+     *   storage/app/private/reports/loo/...
+     *
+     * Common issue:
+     * - DB may store "letters/loo/..." (legacy)
+     * - We must map it to "reports/loo/..."
+     * - And because Laravel disk('local') root is storage/app,
+     *   we must check "private/{path}".
      */
     private function resolvePdfAbsolutePath(string $raw): ?string
     {
         $raw = trim($raw);
         if ($raw === '') return null;
 
-        // normalize windows slash
+        // normalize slashes
         $raw = str_replace('\\', '/', $raw);
 
-        // kalau full URL, ambil path doang
+        // if full URL, take path only
         if (preg_match('/^https?:\/\//i', $raw)) {
             $p = parse_url($raw, PHP_URL_PATH);
             if (is_string($p) && $p !== '') {
@@ -142,7 +149,7 @@ class ReportDocumentsController extends Controller
 
         $candidates = [];
 
-        // /storage/xxx => xxx (kadang kebawa dari public url)
+        // If has "/storage/xxx", strip to xxx (public link style)
         if (strpos($raw, '/storage/') !== false) {
             $after = substr($raw, strpos($raw, '/storage/') + strlen('/storage/'));
             if (is_string($after) && $after !== '') $candidates[] = $after;
@@ -158,11 +165,30 @@ class ReportDocumentsController extends Controller
         // strip prefix "public/"
         $candidates[] = preg_replace('#^public/#', '', $rel);
 
-        // COMPAT: data lama mungkin simpan letters/loo/... tapi kamu ingin reports/loo/...
+        // ✅ COMPAT: old path letters/loo -> reports/loo
         foreach ($candidates as $c) {
             $c = (string) $c;
             if (str_starts_with($c, 'letters/loo/')) {
                 $candidates[] = preg_replace('#^letters/loo/#', 'reports/loo/', $c);
+            }
+        }
+
+        // ✅ PRIMARY: your declared canonical root is reports/loo
+        // If somebody stores just "2026/xxx.pdf", make it reports/loo/2026/xxx.pdf
+        foreach ($candidates as $c) {
+            $c = (string) $c;
+            if ($c !== '' && !str_contains($c, '/')) continue;
+
+            // if already starts with reports/loo or letters/loo, skip
+            if (str_starts_with($c, 'reports/loo/') || str_starts_with($c, 'letters/loo/') || str_starts_with($c, 'private/')) {
+                continue;
+            }
+
+            // If it looks like "2026/xxx.pdf" or "loo/2026/xxx.pdf"
+            if (preg_match('#^\d{4}/.+\.pdf$#i', $c)) {
+                $candidates[] = 'reports/loo/' . $c;
+            } elseif (preg_match('#^loo/\d{4}/.+\.pdf$#i', $c)) {
+                $candidates[] = 'reports/' . $c;
             }
         }
 
@@ -171,9 +197,25 @@ class ReportDocumentsController extends Controller
             return is_string($v) && trim($v) !== '';
         })));
 
-        // 1) Paling utama: disk local (root storage/app/private)
-        $diskLocal = Storage::disk('local');
+        // ✅ KEY FIX:
+        // Laravel disk('local') root = storage/app
+        // but your files are in storage/app/private/...
+        // so we must also try "private/{candidate}"
+        $withPrivatePrefix = [];
         foreach ($candidates as $c) {
+            $c = ltrim((string) $c, '/');
+            if ($c === '') continue;
+
+            $withPrivatePrefix[] = $c;
+            if (!str_starts_with($c, 'private/')) {
+                $withPrivatePrefix[] = 'private/' . $c;
+            }
+        }
+        $withPrivatePrefix = array_values(array_unique($withPrivatePrefix));
+
+        // 1) check disk local (storage/app)
+        $diskLocal = Storage::disk('local');
+        foreach ($withPrivatePrefix as $c) {
             $c = ltrim((string) $c, '/');
             if ($c === '') continue;
 
@@ -182,7 +224,7 @@ class ReportDocumentsController extends Controller
             }
         }
 
-        // 2) Cadangan: disk public (kalau suatu saat kamu taruh di public)
+        // 2) check disk public (storage/app/public) - just in case
         $diskPublic = Storage::disk('public');
         foreach ($candidates as $c) {
             $c = ltrim((string) $c, '/');
@@ -193,13 +235,19 @@ class ReportDocumentsController extends Controller
             }
         }
 
-        // 3) fallback: direct absolute-ish checks (just in case)
+        // 3) direct absolute checks (fallbacks)
         foreach ($candidates as $c) {
             $c = ltrim((string) $c, '/');
             if ($c === '') continue;
 
             $pPrivate = storage_path('app/private/' . $c);
             if (is_file($pPrivate)) return $pPrivate;
+
+            // if candidate accidentally already has private/
+            if (str_starts_with($c, 'private/')) {
+                $pPrivate2 = storage_path('app/' . $c);
+                if (is_file($pPrivate2)) return $pPrivate2;
+            }
 
             $pPublic = storage_path('app/public/' . $c);
             if (is_file($pPublic)) return $pPublic;
@@ -208,7 +256,7 @@ class ReportDocumentsController extends Controller
             if (is_file($pPublicLink)) return $pPublicLink;
         }
 
-        // 4) last fallback: search by filename under private reports/loo + letters/loo
+        // 4) last fallback: search by filename under private reports/loo (and letters/loo for legacy)
         $filename = basename($rel);
         if ($filename) {
             $roots = [
