@@ -39,21 +39,30 @@ class ReportDocumentsController extends Controller
             $sampleCodes = array_values(array_unique($sampleCodes));
             $client = $lo->sample?->client;
 
+            $docName = 'Letter of Order (LOO)'; // atau "Surat Perintah Pengujian Sampel" kalau mau full Indo
+            $docCode = (string) $lo->number;
+
             $docs[] = [
                 'type' => 'LOO',
                 'id' => (int) $lo->lo_id,
-                'number' => (string) $lo->number,
+
+                // ✅ doc-centric fields (NEW)
+                'document_name' => $docName,
+                'document_code' => $docCode,
+
+                // keep number for compatibility (frontend lama masih pakai)
+                'number' => $docCode,
+
                 'status' => (string) ($lo->loa_status ?? 'draft'),
                 'generated_at' => $lo->generated_at?->toIso8601String(),
                 'created_at' => $lo->created_at?->toIso8601String(),
-                'client_name' => $client?->name,
-                'client_org' => $client?->organization,
-                'sample_codes' => $sampleCodes,
 
-                // ini path private (relatif)
+                // ✅ stop relying on these (set null so UI stops showing)
+                'client_name' => null,
+                'client_org' => null,
+                'sample_codes' => [],
+
                 'file_url' => $lo->file_url,
-
-                // preview/download selalu via endpoint ini (jangan expose file private)
                 'download_url' => url("/api/v1/reports/documents/loo/{$lo->lo_id}/pdf"),
             ];
         }

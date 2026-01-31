@@ -192,7 +192,7 @@ export const ReportsPage = () => {
     const filteredDocs = reportDocs.filter((d) => {
         const q = searchTerm.trim().toLowerCase();
         const hay =
-            `${d.type ?? ""} ${d.number ?? ""} ${d.client_name ?? ""} ${d.client_org ?? ""} ${(d.sample_codes ?? []).join(" ")}`.toLowerCase();
+            `${d.type ?? ""} ${d.document_name ?? ""} ${d.document_code ?? ""} ${d.number ?? ""}`.toLowerCase();
 
         if (q && !hay.includes(q)) return false;
 
@@ -321,10 +321,8 @@ export const ReportsPage = () => {
                         <table className="min-w-full text-sm">
                             <thead className="text-xs text-gray-500">
                                 <tr className="border-b border-gray-100">
-                                    <th className="text-left px-4 py-3">Type</th>
-                                    <th className="text-left px-4 py-3">Number</th>
-                                    <th className="text-left px-4 py-3">Client</th>
-                                    <th className="text-left px-4 py-3">Samples</th>
+                                    <th className="text-left px-4 py-3">Document</th>
+                                    <th className="text-left px-4 py-3">Code / Number</th>
                                     <th className="text-left px-4 py-3">Generated</th>
                                     <th className="text-left px-4 py-3">Status</th>
                                     <th className="text-right px-4 py-3">Action</th>
@@ -340,37 +338,31 @@ export const ReportsPage = () => {
                                     </tr>
                                 ) : (
                                     filteredDocs.map((d) => {
-                                        const docType = String(d.type ?? "").toLowerCase();
-                                        const docId = d.id;
-                                        const url =
-                                            docType && docId
-                                                ? `/v1/reports/documents/${docType}/${docId}/pdf`
-                                                : null;
+                                        const docName = d.document_name ?? d.type ?? "Document";
+                                        const docCode = d.document_code ?? d.number ?? "-";
+                                        const url = d.download_url ?? null;
                                         return (
                                             <tr key={`${d.type}-${d.id}`} className="hover:bg-gray-50">
-                                                <td className="px-4 py-3 font-medium text-gray-900">{d.type}</td>
-                                                <td className="px-4 py-3 text-gray-700">{d.number}</td>
-                                                <td className="px-4 py-3 text-gray-700">
-                                                    {d.client_name ?? "-"}
-                                                    {d.client_org ? (
-                                                        <div className="text-xs text-gray-500">{d.client_org}</div>
-                                                    ) : null}
+                                                <td className="px-4 py-3 font-medium text-gray-900">
+                                                    {docName}
+                                                    <div className="text-xs text-gray-500">{String(d.type ?? "").toUpperCase()}</div>
                                                 </td>
-                                                <td className="px-4 py-3 text-gray-700">
-                                                    {(d.sample_codes ?? []).length ? (d.sample_codes ?? []).join(", ") : "-"}
-                                                </td>
+
+                                                <td className="px-4 py-3 text-gray-700">{docCode}</td>
+
                                                 <td className="px-4 py-3 text-gray-700">
                                                     {fmtDate(d.generated_at ?? d.created_at)}
                                                 </td>
+
                                                 <td className="px-4 py-3 text-gray-700">{d.status ?? "-"}</td>
+
                                                 <td className="px-4 py-3 text-right">
                                                     {url ? (
                                                         <button
                                                             type="button"
                                                             onClick={() => {
-                                                                if (!url) return;
-                                                                setPreviewPdfUrl(url);
-                                                                setPreviewTitle(`${d.type} Preview`);
+                                                                setPreviewPdfUrl(url);          // ✅ absolute API URL already
+                                                                setPreviewTitle(`${docName} Preview`);
                                                                 setPreviewOpen(true);
                                                             }}
                                                             className="px-3 py-1 rounded-full text-xs bg-primary text-white hover:opacity-90"
@@ -383,6 +375,7 @@ export const ReportsPage = () => {
                                                 </td>
                                             </tr>
                                         );
+
                                     })
                                 )}
                             </tbody>

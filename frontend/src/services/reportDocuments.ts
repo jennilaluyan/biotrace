@@ -3,13 +3,23 @@ import { apiGet } from "./api";
 export type ReportDocumentRow = {
     type: "LOO" | string;
     id: number;
+
+    // existing
     number: string;
+
+    // ✅ NEW doc-centric fields
+    document_name?: string | null;
+    document_code?: string | null;
+
     status?: string | null;
     generated_at?: string | null;
     created_at?: string | null;
+
+    // legacy fields (no longer used in UI)
     client_name?: string | null;
     client_org?: string | null;
     sample_codes?: string[];
+
     file_url?: string | null;
     download_url?: string | null;
 };

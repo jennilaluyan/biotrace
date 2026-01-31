@@ -90,7 +90,13 @@ function coerceLoo(maybe: any): LetterOfOrder | null {
             client_signed_at: maybe?.client_signed_at ?? null,
             locked_at: maybe?.locked_at ?? null,
 
-            pdf_url: maybe?.pdf_url ?? maybe?.file_url ?? maybe?.fileUrl ?? maybe?.pdfUrl ?? null,
+            pdf_url:
+                maybe?.download_url ??
+                maybe?.pdf_url ??
+                maybe?.file_url ??
+                maybe?.fileUrl ??
+                maybe?.pdfUrl ??
+                null,
 
             signatures: Array.isArray(maybe?.signatures) ? maybe.signatures : null,
             items: Array.isArray(maybe?.items) ? maybe.items : null,

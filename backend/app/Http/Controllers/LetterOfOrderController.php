@@ -44,9 +44,18 @@ class LetterOfOrderController extends Controller
             $loa = $this->svc->ensureDraftForSample($sampleId, (int) $staff->staff_id);
         }
 
+        $loa = $loa->loadMissing(['signatures', 'items']);
+
+        // expose only via API endpoint (private file)
+        $downloadUrl = url("/api/v1/reports/documents/loo/{$loa->lo_id}/pdf");
+
+        // Attach transient attributes so frontend can use them
+        $loa->setAttribute('download_url', $downloadUrl);
+        $loa->setAttribute('pdf_url', $downloadUrl);
+
         return response()->json([
             'message' => 'LoO generated.',
-            'data' => $loa->loadMissing(['signatures', 'items']),
+            'data' => $loa,
         ], 201);
     }
 
