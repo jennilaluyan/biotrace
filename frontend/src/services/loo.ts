@@ -42,9 +42,16 @@ export type LooItem = {
 };
 
 export type LetterOfOrder = {
-    loo_id: number; // frontend naming (maps lo_id/loo_id)
+    // keep both for compatibility (backend uses lo_id)
+    loo_id: number;       // canonical id in FE
+    lo_id?: number;       // mirror backend key (optional)
+
     sample_id: number;
+
+    // backend sometimes returns number
     loo_number?: string | null;
+    number?: string | null;
+
     loo_status?: LooStatus | null;
 
     created_at?: string;
@@ -55,9 +62,10 @@ export type LetterOfOrder = {
     client_signed_at?: string | null;
     locked_at?: string | null;
 
+    // file fields
     pdf_url?: string | null;
+    download_url?: string | null;
 
-    // ✅ Step 8/9: include details when backend returns loadMissing(['signatures','items'])
     signatures?: LooSignature[] | null;
     items?: LooItem[] | null;
 };
@@ -78,8 +86,14 @@ function coerceLoo(maybe: any): LetterOfOrder | null {
     if (!Number.isNaN(directId) && directId > 0) {
         const loo: LetterOfOrder = {
             loo_id: directId,
+            lo_id: directId, // mirror backend key so UI fallback works
+
             sample_id: Number(maybe?.sample_id ?? maybe?.sampleId ?? 0),
-            loo_number: maybe?.loo_number ?? maybe?.number ?? maybe?.loa_number ?? null,
+
+            // keep both number variants
+            loo_number: maybe?.loo_number ?? maybe?.loa_number ?? maybe?.number ?? null,
+            number: maybe?.number ?? maybe?.loo_number ?? maybe?.loa_number ?? null,
+
             loo_status: (maybe?.loo_status ?? maybe?.status ?? maybe?.loa_status ?? null) as LooStatus | null,
 
             created_at: maybe?.created_at ?? maybe?.createdAt,
@@ -90,9 +104,11 @@ function coerceLoo(maybe: any): LetterOfOrder | null {
             client_signed_at: maybe?.client_signed_at ?? null,
             locked_at: maybe?.locked_at ?? null,
 
+            // backend now returns download_url + pdf_url (prefer those)
+            download_url: maybe?.download_url ?? null,
             pdf_url:
-                maybe?.download_url ??
                 maybe?.pdf_url ??
+                maybe?.download_url ??         // if backend sets pdf_url=download_url
                 maybe?.file_url ??
                 maybe?.fileUrl ??
                 maybe?.pdfUrl ??
