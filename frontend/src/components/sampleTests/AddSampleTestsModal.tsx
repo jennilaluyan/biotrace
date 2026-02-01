@@ -1,7 +1,5 @@
-// frontend/src/components/sampleTests/AddSampleTestsModal.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "../../services/api";
-import { isLoaLockError } from "../../utils/loaGate";
 import { getErrorMessage } from "../../utils/errors";
 import { useDebouncedValue } from "../../utils/useDebouncedValue";
 
@@ -249,13 +247,6 @@ export function AddSampleTestsModal({
 
             onCreated();
         } catch (err: any) {
-            if (isLoaLockError(err)) {
-                setSubmitError(
-                    assignmentBlockMessage ??
-                    "Assignment ditolak karena LoA belum locked. Selesaikan workflow LoA (generate → sign internal → send → client sign) sampai LoA = locked."
-                );
-                return;
-            }
             setSubmitError(getErrorMessage(err, "Failed to bulk create sample tests."));
         } finally {
             setSubmitting(false);

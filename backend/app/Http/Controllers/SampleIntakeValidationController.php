@@ -21,16 +21,33 @@ class SampleIntakeValidationController extends Controller
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
-        // role gate: toleran variasi nama
+        // role gate: OM atau LH boleh verifikasi/assign code
         $role = strtolower(trim((string) ($actor->role?->name ?? '')));
-        $allowed = ['laboratory head', 'lab head', 'laboratory_head', 'lab_head', 'lh'];
+        $allowed = [
+            'operational manager',
+            'operational_manager',
+            'om',
+            'laboratory head',
+            'lab head',
+            'laboratory_head',
+            'lab_head',
+            'lh'
+        ];
         if (!in_array($role, $allowed, true)) {
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
-        if ((string) $sample->request_status !== 'physically_received') {
+        if ((string) $sample->request_status !== 'awaiting_verification') {
             return response()->json([
-                'message' => 'Intake can only be validated when request_status is physically_received.',
+                'message' => 'Sample code can only be assigned when request_status is awaiting_verification.',
+                'details' => ['request_status' => [$sample->request_status]],
+            ], 422);
+        }
+
+        if (empty($sample->verified_at)) {
+            return response()->json([
+                'message' => 'Sample must be verified by OM/LH before assigning lab sample code.',
+                'details' => ['verified_at' => [null]],
             ], 422);
         }
 
@@ -62,8 +79,10 @@ class SampleIntakeValidationController extends Controller
             }
 
             $code = $gen->nextCode();
-
             $sample->lab_sample_code = $code;
+
+            // domain rule: setelah code di-assign → intake validated
+            $sample->request_status = 'intake_validated';
 
             // set received_at jika masih null
             if (empty($sample->received_at)) {

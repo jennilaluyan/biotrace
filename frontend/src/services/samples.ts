@@ -1,3 +1,4 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\services\samples.ts
 import { apiGet, apiPost } from "./api";
 
 // --- backend detail statuses (current_status)
@@ -24,7 +25,10 @@ export type SampleRequestStatus =
     | "physically_received"
     | "in_transit_to_collector"
     | "under_inspection"
+    | "inspection_failed"
+    | "returned_to_admin"
     | "intake_checklist_passed"
+    | "awaiting_verification"
     | "intake_validated"
     | "rejected"
     | (string & {});
@@ -112,6 +116,12 @@ export interface Sample {
     reviewed_at?: string | null;
     ready_at?: string | null;
     physically_received_at?: string | null;
+
+    // ✅ verification gate fields
+    verified_at?: string | null;
+    verified_by?: number | null;
+
+    // lab sample code
     lab_sample_code?: string | null;
 
     // ✅ Physical workflow timestamps (F2)
@@ -202,13 +212,10 @@ export const sampleService = {
         action: PhysicalWorkflowAction,
         note?: string | null
     ): Promise<Sample> {
-        const res = await apiPost<any>(
-            `/v1/samples/${sampleId}/physical-workflow?_method=PATCH`,
-            {
-                action,
-                note: note ?? null,
-            }
-        );
+        const res = await apiPost<any>(`/v1/samples/${sampleId}/physical-workflow?_method=PATCH`, {
+            action,
+            note: note ?? null,
+        });
         return (res?.data ?? res) as Sample;
     },
 

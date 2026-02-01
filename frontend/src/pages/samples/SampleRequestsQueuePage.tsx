@@ -23,6 +23,10 @@ const statusTone = (raw?: string | null) => {
     if (s === "needs_revision" || s === "returned") return "bg-red-100 text-red-700";
     if (s === "ready_for_delivery") return "bg-indigo-50 text-indigo-700";
     if (s === "physically_received") return "bg-green-100 text-green-800";
+    if (s === "awaiting_verification") return "bg-violet-100 text-violet-800";
+    if (s === "in_transit_to_collector") return "bg-amber-100 text-amber-800";
+    if (s === "under_inspection") return "bg-amber-100 text-amber-800";
+    if (s === "returned_to_admin") return "bg-slate-100 text-slate-700";
     return "bg-gray-100 text-gray-700";
 };
 
@@ -50,7 +54,14 @@ export default function SampleRequestsQueuePage() {
     const roleId = getUserRoleId(user) ?? ROLE_ID.CLIENT;
     const roleLabel = getUserRoleLabel(user);
     const isAdmin = roleId === ROLE_ID.ADMIN;
-    const canView = roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.SAMPLE_COLLECTOR;
+    const canView = useMemo(
+        () =>
+            roleId === ROLE_ID.ADMIN ||
+            roleId === ROLE_ID.SAMPLE_COLLECTOR ||
+            roleId === ROLE_ID.OPERATIONAL_MANAGER ||
+            roleId === ROLE_ID.LAB_HEAD,
+        [roleId]
+    );
 
     // ---- state ----
     const [pager, setPager] = useState<Paginator<SampleRequestQueueRow> | null>(null);
@@ -151,16 +162,16 @@ export default function SampleRequestsQueuePage() {
         setModalCurrentStatus(null);
     };
 
-    if (!canView) {
-        return (
-            <div className="min-h-[60vh] flex flex-col items-center justify-center">
-                <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
-                <p className="text-sm text-gray-600">
-                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access the sample requests queue.
-                </p>
-            </div>
-        );
-    }
+    const isOperationalManager =
+        roleId === ROLE_ID.OPERATIONAL_MANAGER;
+    const isLabHead =
+        roleId === ROLE_ID.LAB_HEAD;
+
+    useEffect(() => {
+        if (isOperationalManager || isLabHead) {
+            setStatusFilter((prev) => prev || "awaiting_verification");
+        }
+    }, [isOperationalManager, isLabHead]);
 
     return (
         <div className="min-h-[60vh]">
@@ -225,11 +236,23 @@ export default function SampleRequestsQueuePage() {
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
                             <option value="">All statuses</option>
+
+                            {/* common */}
                             <option value="submitted">submitted</option>
                             <option value="ready_for_delivery">ready_for_delivery</option>
                             <option value="physically_received">physically_received</option>
                             <option value="returned">returned</option>
                             <option value="needs_revision">needs_revision</option>
+
+                            {/* workflow */}
+                            <option value="in_transit_to_collector">in_transit_to_collector</option>
+                            <option value="under_inspection">under_inspection</option>
+                            <option value="returned_to_admin">returned_to_admin</option>
+                            <option value="intake_checklist_passed">intake_checklist_passed</option>
+
+                            {/* ✅ new gate */}
+                            <option value="awaiting_verification">awaiting_verification</option>
+
                         </select>
                     </div>
 
@@ -249,6 +272,15 @@ export default function SampleRequestsQueuePage() {
                         </select>
                     </div>
                 </div>
+
+                {(isOperationalManager || isLabHead) ? (
+                    <Link
+                        to="/loo"
+                        className="inline-flex items-center gap-2 rounded-xl bg-primary-soft px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
+                    >
+                        Open LOO Generator
+                    </Link>
+                ) : null}
 
                 {/* Body */}
                 <div className="px-4 md:px-6 py-4">

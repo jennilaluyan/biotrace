@@ -17,6 +17,7 @@ import { SamplesPage } from "../pages/samples/SamplesPage";
 import { SampleDetailPage } from "../pages/samples/SampleDetailPage";
 import SampleRequestsQueuePage from "../pages/samples/SampleRequestsQueuePage";
 import SampleRequestDetailPage from "../pages/samples/SampleRequestDetailPage";
+import { LooGeneratorPage } from "../pages/loo/LooGeneratorPage";
 
 import { StaffApprovalsPage } from "../pages/staff/StaffApprovalsPage";
 import { QAParametersPage } from "../pages/qa/QAParametersPage";
@@ -178,6 +179,9 @@ export const AppRouter = () => {
                         element={
                             <RoleGuard
                                 allowedRoleIds={[
+                                    ROLE_ID.ADMIN,
+                                    ROLE_ID.SAMPLE_COLLECTOR,
+                                    ROLE_ID.ANALYST,
                                     ROLE_ID.OPERATIONAL_MANAGER,
                                     ROLE_ID.LAB_HEAD,
                                 ]}
@@ -188,9 +192,30 @@ export const AppRouter = () => {
                     />
 
                     <Route
+                        path="/loo"
+                        element={
+                            <RoleGuard
+                                allowedRoleIds={[
+                                    ROLE_ID.OPERATIONAL_MANAGER,
+                                    ROLE_ID.LAB_HEAD,
+                                ]}
+                            >
+                                <LooGeneratorPage />
+                            </RoleGuard>
+                        }
+                    />
+
+                    <Route
                         path="/samples/requests"
                         element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN, ROLE_ID.SAMPLE_COLLECTOR]}>
+                            <RoleGuard
+                                allowedRoleIds={[
+                                    ROLE_ID.ADMIN,
+                                    ROLE_ID.SAMPLE_COLLECTOR,
+                                    ROLE_ID.OPERATIONAL_MANAGER,
+                                    ROLE_ID.LAB_HEAD,
+                                ]}
+                            >
                                 <SampleRequestsQueuePage />
                             </RoleGuard>
                         }
@@ -199,7 +224,14 @@ export const AppRouter = () => {
                     <Route
                         path="/samples/requests/:id"
                         element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN, ROLE_ID.SAMPLE_COLLECTOR]}>
+                            <RoleGuard
+                                allowedRoleIds={[
+                                    ROLE_ID.ADMIN,
+                                    ROLE_ID.SAMPLE_COLLECTOR,
+                                    ROLE_ID.OPERATIONAL_MANAGER,
+                                    ROLE_ID.LAB_HEAD,
+                                ]}
+                            >
                                 <SampleRequestDetailPage />
                             </RoleGuard>
                         }

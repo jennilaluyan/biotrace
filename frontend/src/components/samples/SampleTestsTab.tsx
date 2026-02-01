@@ -1,10 +1,8 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\SampleTestsTab.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 
 import { apiGet } from "../../services/api";
 import { formatDateTimeLocal } from "../../utils/date";
-import { getLoaAssignmentGate } from "../../utils/loaGate";
 
 import { AddSampleTestsModal } from "../sampleTests/AddSampleTestsModal";
 import { ResultEntryModal } from "../sampleTests/ResultEntryModal";
@@ -219,16 +217,6 @@ export const SampleTestsTab = ({
         roleId === ROLE_ID.ANALYST ||
         roleId === ROLE_ID.OPERATIONAL_MANAGER ||
         roleId === ROLE_ID.LAB_HEAD;
-
-    const loaGate = useMemo(() => {
-        if (!sample) return null;
-        return getLoaAssignmentGate(sample);
-    }, [sample]);
-
-    const assignBlocked = loaGate?.blocked ?? false;
-    const assignBlockMessage =
-        loaGate?.message ??
-        "Test assignment dikunci sampai LoA berstatus locked. Selesaikan workflow LoA dulu.";
 
     const tests = testsPager?.data ?? [];
     const totalTests = testsPager?.total ?? tests.length;
@@ -462,28 +450,8 @@ export const SampleTestsTab = ({
                             Enter QC
                         </SmallPrimaryButton>
                     )}
-
-                    {canAddTests && (
-                        <button
-                            className="lims-btn-primary"
-                            type="button"
-                            onClick={() => setOpenAddTests(true)}
-                            disabled={assignBlocked}
-                            title={assignBlocked ? assignBlockMessage : undefined}
-                        >
-                            Add Tests
-                        </button>
-                    )}
                 </div>
             </div>
-
-            {/* LoA gate banner */}
-            {loaGate?.blocked && (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
-                    <div className="font-semibold text-amber-900">Test assignment terkunci</div>
-                    <div className="text-amber-900/80 mt-1">{loaGate.message}</div>
-                </div>
-            )}
 
             {/* QC Banner */}
             <div className={cx("rounded-2xl border px-4 py-4", qcBannerTone)}>
@@ -734,8 +702,6 @@ export const SampleTestsTab = ({
                     loadQc();
                     setReagentRefreshKey((k) => k + 1);
                 }}
-                assignmentBlocked={assignBlocked}
-                assignmentBlockMessage={assignBlockMessage}
             />
 
             <ResultEntryModal

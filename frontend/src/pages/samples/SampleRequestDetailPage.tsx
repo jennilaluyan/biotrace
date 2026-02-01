@@ -7,7 +7,6 @@ import { formatDateTimeLocal } from "../../utils/date";
 import { sampleService, type Sample } from "../../services/samples";
 import { apiPost, apiPatch } from "../../services/api";
 import { UpdateRequestStatusModal } from "../../components/samples/UpdateRequestStatusModal";
-import { LoaPanelStaff } from "../../components/loa/LoaPanelStaff";
 import { IntakeChecklistModal } from "../../components/intake/IntakeChecklistModal";
 
 function cx(...arr: Array<string | false | null | undefined>) {
@@ -28,6 +27,7 @@ function StatusPill({ value }: { value?: string | null }) {
         inspection_failed: "bg-red-50 text-red-700 border-red-200",
         returned_to_admin: "bg-slate-100 text-slate-700 border-slate-200",
         intake_checklist_passed: "bg-emerald-50 text-emerald-700 border-emerald-200",
+        awaiting_verification: "bg-violet-50 text-violet-700 border-violet-200",
         intake_validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
     };
     const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
@@ -38,6 +38,7 @@ function StatusPill({ value }: { value?: string | null }) {
                 if (vv === "under_inspection") return "Under inspection";
                 if (vv === "inspection_failed") return "Inspection failed";
                 if (vv === "returned_to_admin") return "Returned to Admin";
+                if (vv === "awaiting_verification") return "Awaiting verification";
                 return value;
             })()
             : "-";
@@ -187,7 +188,11 @@ export default function SampleRequestDetailPage() {
     const requestId = Number(id);
 
     const canView = useMemo(
-        () => roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.SAMPLE_COLLECTOR,
+        () =>
+            roleId === ROLE_ID.ADMIN ||
+            roleId === ROLE_ID.SAMPLE_COLLECTOR ||
+            roleId === ROLE_ID.OPERATIONAL_MANAGER ||
+            roleId === ROLE_ID.LAB_HEAD,
         [roleId]
     );
 
@@ -201,12 +206,14 @@ export default function SampleRequestDetailPage() {
 
     const [intakeOpen, setIntakeOpen] = useState(false);
 
-    const requestStatus = String((sample as any)?.request_status ?? "").toLowerCase();
-    const labSampleCode = String((sample as any)?.lab_sample_code ?? "");
+    const requestStatus = (sample as any)?.request_status ?? null;
+    const labSampleCode = (sample as any)?.lab_sample_code ?? null;
 
     const isDraft = requestStatus === "draft" && !labSampleCode;
     const isSubmitted = requestStatus === "submitted";
     const isReturned = requestStatus === "returned" || requestStatus === "needs_revision";
+
+    const [verifyBusy, setVerifyBusy] = useState(false);
 
     const isApprovedOrLater =
         requestStatus === "ready_for_delivery" ||
@@ -216,6 +223,7 @@ export default function SampleRequestDetailPage() {
         requestStatus === "inspection_failed" ||
         requestStatus === "returned_to_admin" ||
         requestStatus === "intake_checklist_passed" ||
+        requestStatus === "awaiting_verification" ||
         requestStatus === "intake_validated";
 
     const showPostApproveSections = isApprovedOrLater;
@@ -230,6 +238,16 @@ export default function SampleRequestDetailPage() {
 
     const isAdmin = roleId === ROLE_ID.ADMIN;
     const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
+
+    const isOperationalManager = roleId === ROLE_ID.OPERATIONAL_MANAGER;
+    const isLabHead = roleId === ROLE_ID.LAB_HEAD;
+
+    const verifiedAt = (sample as any)?.verified_at ?? null;
+
+    const canVerify =
+        (isOperationalManager || isLabHead) &&
+        requestStatus === "awaiting_verification" &&
+        !labSampleCode;
 
     const canWfAdminReceive =
         isAdmin &&
@@ -260,13 +278,14 @@ export default function SampleRequestDetailPage() {
         isAdmin && !!collectorReturnedToAdminAt && !adminReceivedFromCollectorAt;
 
     /**
-     * ✅ FIX:
-     * Backend rule: client pickup can only be recorded after request_status is returned/needs_revision.
-     * Previously this button was enabled as soon as admin received back from collector, which caused 422.
+     * ✅ FIX (tetap):
+     * Backend rule: client pickup can only be recorded after returned/needs_revision.
+     * Jangan enable sebelum status memang sudah returned/needs_revision.
      */
     const canWfClientPickup =
         isAdmin &&
         !!adminReceivedFromCollectorAt &&
+        (requestStatus === "returned" || requestStatus === "needs_revision") &&
         !clientPickedUpAt;
 
     const [wfBusy, setWfBusy] = useState(false);
@@ -389,6 +408,33 @@ export default function SampleRequestDetailPage() {
         }
     };
 
+    const doVerify = async () => {
+        if (!canVerify || verifyBusy) return;
+
+        try {
+            setVerifyBusy(true);
+            setWfError(null);
+
+            await apiPost(`/v1/samples/${requestId}/verify`, {});
+            await load({ silent: true });
+
+            const nextCode = (sample as any)?.lab_sample_code ?? null;
+            const nextStatus = (sample as any)?.request_status ?? null;
+            if (nextCode || nextStatus === "intake_validated") {
+                navigate(`/samples/${requestId}`);
+            }
+        } catch (err: any) {
+            const msg =
+                err?.response?.data?.message ??
+                err?.data?.message ??
+                err?.message ??
+                "Gagal verify sample request.";
+            setWfError(msg);
+        } finally {
+            setVerifyBusy(false);
+        }
+    };
+
     if (!canView) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
@@ -449,6 +495,17 @@ export default function SampleRequestDetailPage() {
                                     <span className="text-gray-400">·</span>
                                     <span className="text-xs text-gray-500">status</span>
                                     <StatusPill value={(sample as any)?.request_status ?? "-"} />
+
+                                    {verifiedAt ? (
+                                        <>
+                                            <span className="text-gray-400">·</span>
+                                            <span className="text-xs text-gray-500">verified</span>
+                                            <span className="text-xs font-semibold text-emerald-700">
+                                                {formatDateTimeLocal(verifiedAt)}
+                                            </span>
+                                        </>
+                                    ) : null}
+
                                     {labSampleCode ? (
                                         <>
                                             <span className="text-gray-400">·</span>
@@ -557,7 +614,9 @@ export default function SampleRequestDetailPage() {
                                                     (sample as any).requested_parameters.map((p: any) => {
                                                         const code = String(p?.code ?? "").trim();
                                                         const name = String(p?.name ?? "").trim();
-                                                        const label = (code ? `${code} — ` : "") + (name || `Parameter #${p?.parameter_id ?? ""}`);
+                                                        const label =
+                                                            (code ? `${code} — ` : "") +
+                                                            (name || `Parameter #${p?.parameter_id ?? ""}`);
                                                         return (
                                                             <span
                                                                 key={String(p?.parameter_id)}
@@ -597,140 +656,174 @@ export default function SampleRequestDetailPage() {
                                 </div>
 
                                 {showPostApproveSections && (
-                                    <>
-                                        {isAdmin && (
-                                            <LoaPanelStaff
-                                                sampleId={requestId}
-                                                roleId={roleId}
-                                                samplePayload={sample}
-                                                onChanged={async () => {
-                                                    await load({ silent: true });
-                                                }}
-                                            />
-                                        )}
-
-                                        <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
-                                            <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
-                                                <div>
-                                                    <div className="text-sm font-bold text-gray-900">Physical Workflow</div>
-                                                    <div className="text-xs text-gray-500 mt-1">
-                                                        Admin ↔ Sample Collector handoff timestamps (backend enforces order).
-                                                    </div>
-                                                </div>
-                                                <div className="text-[11px] text-gray-500">
-                                                    You are: <span className="font-semibold">{roleLabel}</span>
+                                    <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
+                                        <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
+                                            <div>
+                                                <div className="text-sm font-bold text-gray-900">Physical Workflow</div>
+                                                <div className="text-xs text-gray-500 mt-1">
+                                                    Admin ↔ Sample Collector handoff timestamps (backend enforces order).
                                                 </div>
                                             </div>
-
-                                            <div className="px-5 py-4">
-                                                {wfError && (
-                                                    <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-3">
-                                                        {wfError}
-                                                    </div>
-                                                )}
-
-                                                <div className="mt-2 space-y-2">
-                                                    {[
-                                                        { label: "Admin: received from client", at: adminReceivedFromClientAt },
-                                                        { label: "Admin: brought to collector", at: adminBroughtToCollectorAt },
-                                                        { label: "Collector: received", at: collectorReceivedAt },
-                                                        { label: "Collector: intake completed", at: collectorIntakeCompletedAt },
-                                                        { label: "Collector: returned to admin", at: collectorReturnedToAdminAt },
-                                                        { label: "Admin: received from collector", at: adminReceivedFromCollectorAt },
-                                                        { label: "Client: picked up", at: clientPickedUpAt },
-                                                    ].map((r, idx) => (
-                                                        <div key={`${r.label}-${idx}`} className="flex items-start gap-3">
-                                                            <div
-                                                                className={cx(
-                                                                    "mt-1 h-2.5 w-2.5 rounded-full border",
-                                                                    r.at ? "bg-emerald-500 border-emerald-600" : "bg-gray-200 border-gray-300"
-                                                                )}
-                                                            />
-                                                            <div className="flex-1">
-                                                                <div className="text-xs font-semibold text-gray-800">{r.label}</div>
-                                                                <div className="text-[11px] text-gray-600">
-                                                                    {r.at ? formatDateTimeLocal(r.at) : "-"}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-
-                                                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                    {isAdmin ? (
-                                                        <>
-                                                            <WorkflowActionButton
-                                                                title="Admin: Received from client"
-                                                                subtitle="Record the time the sample arrived at the admin desk."
-                                                                onClick={doMarkPhysicallyReceived}
-                                                                disabled={!canWfAdminReceive || wfBusy}
-                                                                busy={wfBusy}
-                                                                variant="neutral"
-                                                            />
-
-                                                            <WorkflowActionButton
-                                                                title="Admin: Hand off to Sample Collector"
-                                                                subtitle="Marks this request as In transit to Sample Collector."
-                                                                onClick={() => doPhysicalWorkflow("admin_brought_to_collector")}
-                                                                disabled={!canWfAdminBring || wfBusy}
-                                                                busy={wfBusy}
-                                                                variant="primary"
-                                                            />
-
-                                                            <WorkflowActionButton
-                                                                title="Admin: Received back from collector"
-                                                                subtitle="Record the time the collector returned the sample to admin."
-                                                                onClick={() => doPhysicalWorkflow("admin_received_from_collector")}
-                                                                disabled={!canWfAdminReceiveBack || wfBusy}
-                                                                busy={wfBusy}
-                                                                variant="neutral"
-                                                            />
-
-                                                            <WorkflowActionButton
-                                                                title="Admin: Client picked up"
-                                                                subtitle="Final step for returned samples — record pickup time."
-                                                                onClick={() => doPhysicalWorkflow("client_picked_up")}
-                                                                disabled={!canWfClientPickup || wfBusy}
-                                                                busy={wfBusy}
-                                                                variant="neutral"
-                                                            />
-                                                        </>
-                                                    ) : null}
-
-                                                    {isCollector ? (
-                                                        <>
-                                                            <WorkflowActionButton
-                                                                title="Collector: Received"
-                                                                subtitle="Confirm you received the sample from admin. Status becomes Under inspection."
-                                                                onClick={() => doPhysicalWorkflow("collector_received")}
-                                                                disabled={!canWfCollectorReceive || wfBusy}
-                                                                busy={wfBusy}
-                                                                variant="primary"
-                                                            />
-
-                                                            <WorkflowActionButton
-                                                                title="Collector: Intake checklist"
-                                                                subtitle="Complete the intake checks. All categories must pass."
-                                                                onClick={() => setIntakeOpen(true)}
-                                                                disabled={!canOpenIntakeChecklist || wfBusy}
-                                                                busy={wfBusy}
-                                                                variant="neutral"
-                                                            />
-
-                                                            <WorkflowActionButton
-                                                                title="Collector: Returned to Admin"
-                                                                subtitle="Return the sample to admin after inspection failed."
-                                                                onClick={() => doPhysicalWorkflow("collector_returned_to_admin")}
-                                                                disabled={!canWfCollectorReturnToAdmin || wfBusy}
-                                                                busy={wfBusy}
-                                                                variant="primary"
-                                                            />
-                                                        </>
-                                                    ) : null}
-                                                </div>
+                                            <div className="text-[11px] text-gray-500">
+                                                You are: <span className="font-semibold">{roleLabel}</span>
                                             </div>
                                         </div>
-                                    </>
+
+                                        <div className="px-5 py-4">
+                                            {wfError && (
+                                                <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-3">
+                                                    {wfError}
+                                                </div>
+                                            )}
+
+                                            <div className="mt-2 space-y-2">
+                                                {[
+                                                    { label: "Admin: received from client", at: adminReceivedFromClientAt },
+                                                    { label: "Admin: brought to collector", at: adminBroughtToCollectorAt },
+                                                    { label: "Collector: received", at: collectorReceivedAt },
+                                                    { label: "Collector: intake completed", at: collectorIntakeCompletedAt },
+                                                    { label: "Collector: returned to admin", at: collectorReturnedToAdminAt },
+                                                    { label: "Admin: received from collector", at: adminReceivedFromCollectorAt },
+                                                    { label: "Client: picked up", at: clientPickedUpAt },
+                                                ].map((r, idx) => (
+                                                    <div key={`${r.label}-${idx}`} className="flex items-start gap-3">
+                                                        <div
+                                                            className={cx(
+                                                                "mt-1 h-2.5 w-2.5 rounded-full border",
+                                                                r.at ? "bg-emerald-500 border-emerald-600" : "bg-gray-200 border-gray-300"
+                                                            )}
+                                                        />
+                                                        <div className="flex-1">
+                                                            <div className="text-xs font-semibold text-gray-800">{r.label}</div>
+                                                            <div className="text-[11px] text-gray-600">
+                                                                {r.at ? formatDateTimeLocal(r.at) : "-"}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                {isAdmin ? (
+                                                    <>
+                                                        <WorkflowActionButton
+                                                            title="Admin: Received from client"
+                                                            subtitle="Record the time the sample arrived at the admin desk."
+                                                            onClick={doMarkPhysicallyReceived}
+                                                            disabled={!canWfAdminReceive || wfBusy}
+                                                            busy={wfBusy}
+                                                            variant="neutral"
+                                                        />
+
+                                                        <WorkflowActionButton
+                                                            title="Admin: Hand off to Sample Collector"
+                                                            subtitle="Marks this request as In transit to Sample Collector."
+                                                            onClick={() => doPhysicalWorkflow("admin_brought_to_collector")}
+                                                            disabled={!canWfAdminBring || wfBusy}
+                                                            busy={wfBusy}
+                                                            variant="primary"
+                                                        />
+
+                                                        <WorkflowActionButton
+                                                            title="Admin: Received back from collector"
+                                                            subtitle="Record the time the collector returned the sample to admin."
+                                                            onClick={() => doPhysicalWorkflow("admin_received_from_collector")}
+                                                            disabled={!canWfAdminReceiveBack || wfBusy}
+                                                            busy={wfBusy}
+                                                            variant="neutral"
+                                                        />
+
+                                                        <WorkflowActionButton
+                                                            title="Admin: Client picked up"
+                                                            subtitle="Final step for returned samples — record pickup time."
+                                                            onClick={() => doPhysicalWorkflow("client_picked_up")}
+                                                            disabled={!canWfClientPickup || wfBusy}
+                                                            busy={wfBusy}
+                                                            variant="neutral"
+                                                        />
+                                                    </>
+                                                ) : null}
+
+                                                {isCollector ? (
+                                                    <>
+                                                        <WorkflowActionButton
+                                                            title="Collector: Received"
+                                                            subtitle="Confirm you received the sample from admin. Status becomes Under inspection."
+                                                            onClick={() => doPhysicalWorkflow("collector_received")}
+                                                            disabled={!canWfCollectorReceive || wfBusy}
+                                                            busy={wfBusy}
+                                                            variant="primary"
+                                                        />
+
+                                                        <WorkflowActionButton
+                                                            title="Collector: Intake checklist"
+                                                            subtitle="Complete the intake checks. All categories must pass."
+                                                            onClick={() => setIntakeOpen(true)}
+                                                            disabled={!canOpenIntakeChecklist || wfBusy}
+                                                            busy={wfBusy}
+                                                            variant="neutral"
+                                                        />
+
+                                                        <WorkflowActionButton
+                                                            title="Collector: Returned to Admin"
+                                                            subtitle="Return the sample to admin after inspection failed."
+                                                            onClick={() => doPhysicalWorkflow("collector_returned_to_admin")}
+                                                            disabled={!canWfCollectorReturnToAdmin || wfBusy}
+                                                            busy={wfBusy}
+                                                            variant="primary"
+                                                        />
+                                                    </>
+                                                ) : null}
+
+                                                {(isOperationalManager || isLabHead) ? (
+                                                    <>
+                                                        {canVerify ? (
+                                                            <>
+                                                                <div className="sm:col-span-2 text-xs text-amber-800 bg-amber-50 border border-amber-100 px-3 py-2 rounded-xl">
+                                                                    Status sekarang <span className="font-semibold">awaiting_verification</span>.{" "}
+                                                                    Setelah <span className="font-semibold">Verify</span>, sistem otomatis assign{" "}
+                                                                    <span className="font-semibold">Sample ID (BML)</span> dan request akan pindah ke halaman{" "}
+                                                                    <span className="font-semibold">Samples</span>.
+                                                                </div>
+
+                                                                <div className="sm:col-span-2">
+                                                                    <WorkflowActionButton
+                                                                        title="Verify (OM/LH)"
+                                                                        subtitle="Verify + auto-assign Sample ID (BML) + promote to lab sample."
+                                                                        onClick={doVerify}
+                                                                        disabled={!canVerify || verifyBusy}
+                                                                        busy={verifyBusy}
+                                                                        variant="primary"
+                                                                    />
+                                                                </div>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                {verifiedAt ? (
+                                                                    <div className="sm:col-span-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-xl">
+                                                                        Sudah verified pada{" "}
+                                                                        <span className="font-semibold">{formatDateTimeLocal(verifiedAt)}</span>.
+                                                                        {labSampleCode ? (
+                                                                            <>
+                                                                                {" "}Sample ID:{" "}
+                                                                                <span className="font-mono font-semibold">{labSampleCode}</span>.
+                                                                            </>
+                                                                        ) : null}
+                                                                    </div>
+                                                                ) : null}
+
+                                                                {!verifiedAt && requestStatus !== "awaiting_verification" ? (
+                                                                    <div className="sm:col-span-2 text-xs text-gray-700 bg-gray-50 border border-gray-100 px-3 py-2 rounded-xl">
+                                                                        Verification action is not available for the current status.
+                                                                    </div>
+                                                                ) : null}
+                                                            </>
+                                                        )}
+                                                    </>
+                                                ) : null}
+                                            </div>
+                                        </div>
+                                    </div>
                                 )}
                             </>
                         )}

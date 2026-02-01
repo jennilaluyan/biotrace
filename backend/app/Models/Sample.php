@@ -49,6 +49,13 @@ class Sample extends Model
         'collector_returned_to_admin_at',
         'admin_received_from_collector_at',
         'client_picked_up_at',
+
+        // OM/LH verification gate + LOA metadata
+        'verified_at',
+        'verified_by_staff_id',
+        'verified_by_role',
+        'loa_generated_at',
+        'loa_generated_by_staff_id',
     ];
 
     protected $casts = [
@@ -69,6 +76,10 @@ class Sample extends Model
         'collector_returned_to_admin_at' => 'datetime',
         'admin_received_from_collector_at' => 'datetime',
         'client_picked_up_at' => 'datetime',
+
+        // OM/LH verification gate + LOA metadata
+        'verified_at' => 'datetime',
+        'loa_generated_at' => 'datetime',
     ];
 
     protected $appends = [

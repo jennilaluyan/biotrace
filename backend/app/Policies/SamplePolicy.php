@@ -97,10 +97,11 @@ class SamplePolicy
 
     public function update(Staff $user, Sample $sample): bool
     {
-        // Untuk lulus RBACTest: admin boleh, analyst tidak boleh
         return $this->hasRoleName($user, [
             'Administrator',
-            'Laboratory Head', // optional; kalau mau ketat, hapus ini
+            'Sample Collector',
+            'Operational Manager',
+            'Laboratory Head',
         ]);
     }
 
@@ -135,5 +136,22 @@ class SamplePolicy
         }
 
         return false;
+    }
+
+    /**
+     * ✅ Step 3: Verifikasi intake oleh OM atau LH (sekali saja).
+     */
+    public function verifySampleRequest(Staff $user, Sample $sample): bool
+    {
+        // Draft request tidak boleh di-handle staff
+        $isDraftRequest = (($sample->request_status ?? null) === 'draft') && empty($sample->lab_sample_code);
+        if ($isDraftRequest) {
+            return false;
+        }
+
+        return $this->hasRoleName($user, [
+            'Operational Manager',
+            'Laboratory Head',
+        ]);
     }
 }

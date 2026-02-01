@@ -4,7 +4,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import type { Sample } from "../../services/samples";
 import { clientSampleRequestService } from "../../services/sampleRequests";
 import { listParameters, type ParameterRow } from "../../services/parameters";
-import { LoaPanelClient } from "../../components/loa/LoaPanelClient";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -557,13 +556,6 @@ export default function ClientRequestDetailPage() {
                     )}
                 </div>
             </div>
-
-            <LoaPanelClient
-                requestPayload={data as any}
-                onChanged={async () => {
-                    await load();
-                }}
-            />
         </div>
     );
 }

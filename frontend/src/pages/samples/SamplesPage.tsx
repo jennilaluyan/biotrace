@@ -93,8 +93,6 @@ export const SamplesPage = () => {
                 String(s.sample_id),
                 s.lab_sample_code,
                 s.sample_type,
-                s.client?.name,
-                s.client?.email,
                 s.current_status,
                 s.status_enum,
             ]
@@ -213,7 +211,7 @@ export const SamplesPage = () => {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="Search by sample type, code, client…"
+                                placeholder="Search by sample type, code, status…"
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
@@ -335,9 +333,6 @@ export const SamplesPage = () => {
                                                 Sample Type
                                             </th>
                                             <th className="text-left font-semibold px-4 py-3">
-                                                Client
-                                            </th>
-                                            <th className="text-left font-semibold px-4 py-3">
                                                 Status
                                             </th>
                                             <th className="text-left font-semibold px-4 py-3">
@@ -366,16 +361,6 @@ export const SamplesPage = () => {
                                                     </td>
                                                     <td className="px-4 py-3 text-gray-700">
                                                         {s.sample_type ?? "-"}
-                                                    </td>
-                                                    <td className="px-4 py-3 text-gray-700">
-                                                        <div className="flex flex-col">
-                                                            <span className="font-medium">
-                                                                {s.client?.name ?? "-"}
-                                                            </span>
-                                                            <span className="text-xs text-gray-500">
-                                                                {s.client?.email ?? "-"}
-                                                            </span>
-                                                        </div>
                                                     </td>
                                                     <td className="px-4 py-3">
                                                         <div className="flex flex-col gap-1">

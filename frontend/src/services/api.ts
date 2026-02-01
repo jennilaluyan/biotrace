@@ -227,3 +227,15 @@ export async function apiPut<T = any>(path: string, body?: unknown, options?: Ax
 export async function apiDelete<T = any>(path: string, options?: AxiosRequestConfig) {
     return handleAxios<T>(http.delete(normalizePath(path), options));
 }
+
+export const api = {
+    http,
+    get: apiGet,
+    post: apiPost,
+    patch: apiPatch,
+    put: apiPut,
+    delete: apiDelete,
+};
+
+// Backward compatible default import (some components may do: import api from "./api")
+export default http;

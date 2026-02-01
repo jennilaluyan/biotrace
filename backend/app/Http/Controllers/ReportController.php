@@ -23,12 +23,6 @@ class ReportController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        // QA (Operational Manager) or Lab Head only
-        if (!in_array((int) ($user->role_id ?? 0), [5, 6])) {
-            // 5 = OM / QA, 6 = Lab Head
-            return response()->json(['message' => 'Forbidden.'], 403);
-        }
-
         $perPage = max(1, (int) $request->query('per_page', 10));
         $q = trim((string) $request->query('q', ''));
         $date = $request->query('date');

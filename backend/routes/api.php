@@ -56,9 +56,8 @@ use App\Http\Controllers\ReportSignatureController;
 use App\Http\Controllers\CoaPdfController;
 use App\Http\Controllers\PublicCoaVerificationController;
 
-// LOA
+// LOO
 use App\Http\Controllers\LetterOfOrderController;
-use App\Http\Controllers\ClientLoaController;
 
 Route::prefix('v1')->group(function () {
 
@@ -141,9 +140,6 @@ Route::prefix('v1')->group(function () {
             Route::get('samples/{sample}', [ClientSampleRequestController::class, 'show'])->whereNumber('sample');
             Route::patch('samples/{sample}', [ClientSampleRequestController::class, 'update'])->whereNumber('sample');
             Route::post('samples/{sample}/submit', [ClientSampleRequestController::class, 'submit'])->whereNumber('sample');
-
-            // Client LOA sign (portal)
-            Route::post('loa/{loaId}/sign', [ClientLoaController::class, 'sign']);
 
             // parameters for clients
             Route::get('parameters', [ParameterController::class, 'index']);
@@ -259,12 +255,22 @@ Route::prefix('v1')->group(function () {
         Route::post('samples/{sample}/request-status', [SampleRequestStatusController::class, 'update'])->whereNumber('sample');
 
         /*
-        |--------------------------------------------------------------------------
-        | Intake
-        |--------------------------------------------------------------------------
-        */
-        Route::post('samples/{sample}/intake-checklist', [SampleIntakeChecklistController::class, 'store'])->whereNumber('sample');
-        Route::post('samples/{sample}/intake-validate', [SampleIntakeValidationController::class, 'validateIntake'])->whereNumber('sample');
+|--------------------------------------------------------------------------
+| Intake
+|--------------------------------------------------------------------------
+*/
+        Route::post('samples/{sample}/intake-checklist', [
+            SampleIntakeChecklistController::class,
+            'store'
+        ])->whereNumber('sample');
+        Route::post('samples/{sample}/verify', [
+            \App\Http\Controllers\SampleVerificationController::class,
+            'verify'
+        ])->whereNumber('sample');
+        Route::post('samples/{sample}/intake-validate', [
+            SampleIntakeValidationController::class,
+            'validateIntake'
+        ])->whereNumber('sample');
 
         /*
         |--------------------------------------------------------------------------
@@ -328,6 +334,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/reports/{report}', [ReportController::class, 'show'])->whereNumber('report');
         Route::post('/reports/{report}/sign', [ReportSignatureController::class, 'sign'])->whereNumber('report');
         Route::post('/reports/{report}/finalize', [ReportController::class, 'finalize'])->whereNumber('report');
+        Route::get('/reports/documents', [\App\Http\Controllers\ReportDocumentsController::class, 'index']);
+        Route::get('/reports/documents/{type}/{id}/pdf', [\App\Http\Controllers\ReportDocumentsController::class, 'pdf']);
 
         // COA PDF
         Route::get('/reports/{report}/pdf', [CoaPdfController::class, 'downloadByReport'])->whereNumber('report');
@@ -341,9 +349,9 @@ Route::prefix('v1')->group(function () {
         | LOA (staff)
         |--------------------------------------------------------------------------
         */
-        Route::post('/samples/{sampleId}/loa', [LetterOfOrderController::class, 'generate']);
-        Route::post('/loa/{loaId}/sign', [LetterOfOrderController::class, 'signInternal']);
-        Route::post('/loa/{loaId}/send', [LetterOfOrderController::class, 'sendToClient']);
+        Route::post('/samples/{sampleId}/loo', [LetterOfOrderController::class, 'generate']);
+        Route::post('/loo/{looId}/sign', [LetterOfOrderController::class, 'signInternal']);
+        Route::post('/loo/{looId}/send', [LetterOfOrderController::class, 'sendToClient']);
 
         /*
         |--------------------------------------------------------------------------

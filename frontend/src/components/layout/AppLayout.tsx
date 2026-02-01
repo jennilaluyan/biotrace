@@ -34,7 +34,7 @@ export const AppLayout = () => {
         roleId === ROLE_ID.OPERATIONAL_MANAGER ||
         roleId === ROLE_ID.LAB_HEAD;
 
-    const canSeeReports = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
+    const canSeeReports = isStaff;
 
     const portalItems: NavItem[] = isClient
         ? [{ label: "My Requests", path: "/portal/requests", icon: "flask" }]
@@ -58,6 +58,15 @@ export const AppLayout = () => {
         ? [
             { label: "Request Queue", path: "/samples/requests", icon: "check" },
             { label: "Samples", path: "/samples", icon: "flask" },
+        ]
+        : [];
+
+    const isOmOrLh = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
+
+    const omLhItems: NavItem[] = isOmOrLh
+        ? [
+            { label: "Request Queue", path: "/samples/requests", icon: "check" },
+            { label: "LOO Generator", path: "/loo", icon: "flask" },
         ]
         : [];
 
@@ -85,6 +94,7 @@ export const AppLayout = () => {
         if (isStaff) {
             return [
                 ...staffBaseItems,
+                ...omLhItems,
                 ...qaItems,
                 ...reportItems,
                 ...auditItems,
@@ -161,7 +171,8 @@ export const AppLayout = () => {
             item.path === "/clients/approvals" ||
             item.path === "/samples/requests" ||
             item.path === "/staff/approvals" ||
-            item.path === "/portal/requests";
+            item.path === "/portal/requests" ||
+            item.path === "/loo";
 
         return (
             <NavLink

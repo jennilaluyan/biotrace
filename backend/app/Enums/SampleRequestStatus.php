@@ -16,11 +16,11 @@ enum SampleRequestStatus: string
         // existing
     case REJECTED = 'rejected';
     case INTAKE_CHECKLIST_PASSED = 'intake_checklist_passed';
+    case AWAITING_VERIFICATION = 'awaiting_verification';
     case INTAKE_VALIDATED = 'intake_validated';
-
-        // ✅ Step 6B (new)
     case INSPECTION_FAILED = 'inspection_failed';
     case RETURNED_TO_ADMIN = 'returned_to_admin';
+
 
     /** @return string[] */
     public static function values(): array

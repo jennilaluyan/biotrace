@@ -187,7 +187,8 @@ class AuditLogger
         array $newValues,
         ?string $note = null
     ): void {
-        $actionKey = 'SAMPLE_PHYSICAL_WORKFLOW_' . strtoupper(preg_replace('/[^a-z0-9]+/i', '_', $eventKey));
+        $actionKey = 'SAMPLE_PHYSICAL_WORKFLOW_' .
+            strtoupper(preg_replace('/[^a-z0-9]+/i', '_', $eventKey));
 
         $payloadNew = array_merge($newValues, [
             'event_key' => $eventKey,
@@ -199,6 +200,36 @@ class AuditLogger
 
         self::write(
             action: $actionKey,
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: $oldValues,
+            newValues: $payloadNew
+        );
+    }
+
+    /**
+     * ✅ Step 3: Audit log untuk verifikasi request oleh OM/LH.
+     */
+    public static function logSampleRequestVerified(
+        int $staffId,
+        int $sampleId,
+        int $clientId,
+        string $verifiedByRole,
+        array $oldValues,
+        array $newValues,
+        ?string $note = null
+    ): void {
+        $payloadNew = array_merge($newValues, [
+            'verified_by_role' => $verifiedByRole,
+            'note' => $note,
+            '_meta' => [
+                'client_id' => $clientId,
+            ],
+        ]);
+
+        self::write(
+            action: 'SAMPLE_REQUEST_VERIFIED',
             staffId: $staffId,
             entityName: 'samples',
             entityId: $sampleId,
