@@ -58,6 +58,7 @@ use App\Http\Controllers\PublicCoaVerificationController;
 
 // LOO
 use App\Http\Controllers\LetterOfOrderController;
+use App\Http\Controllers\LooSignatureVerificationController;
 
 Route::prefix('v1')->group(function () {
 
@@ -361,6 +362,14 @@ Route::prefix('v1')->group(function () {
         Route::get('/loo/approvals', [\App\Http\Controllers\LooSampleApprovalController::class, 'index']);
         Route::patch('/loo/approvals/{sample}', [\App\Http\Controllers\LooSampleApprovalController::class, 'update'])
             ->whereNumber('sample');
+
+        /*
+        |--------------------------------------------------------------------------
+        | LOO Signature Verification (QR target)
+        |--------------------------------------------------------------------------
+        */
+        Route::get('/loo/signatures/verify/{hash}', [LooSignatureVerificationController::class, 'show'])
+            ->where('hash', '[A-Fa-f0-9]{64}');
 
         /*
         |--------------------------------------------------------------------------

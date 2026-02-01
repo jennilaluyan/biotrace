@@ -1,4 +1,3 @@
-{{-- L:\Campus\Final Countdown\biotrace\backend\resources\views\documents\surat_pengujian.blade.php --}}
 @extends('reports.coa.layout')
 
 @section('content')
@@ -28,23 +27,33 @@
         $omSigned = !empty(data_get($sigByRole, 'OM.signed_at'));
         $lhSigned = !empty(data_get($sigByRole, 'LH.signed_at'));
 
-        $omUrl = 'https://google.com';
-        $lhUrl = 'https://google.com';
-
-        $makeQr = function (string $url): ?string {
+        $makeQr = function (?string $payload): ?string {
             try {
+                $payload = $payload ? trim($payload) : '';
+                if ($payload === '')
+                    return null;
+
                 if (class_exists(\SimpleSoftwareIO\QrCode\Facades\QrCode::class)) {
                     $png = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('png')
-                        ->size(110)->margin(1)->generate($url);
+                        ->size(110)->margin(1)->generate($payload);
                     return 'data:image/png;base64,' . base64_encode($png);
                 }
             } catch (\Throwable $e) {
+                // ignore
             }
             return null;
         };
 
-        $omQr = $makeQr($omUrl);
-        $lhQr = $makeQr($lhUrl);
+        // Build verification URL (audit-friendly) from signature_hash
+        $omHash = (string) data_get($sigByRole, 'OM.signature_hash', '');
+        $lhHash = (string) data_get($sigByRole, 'LH.signature_hash', '');
+
+        $omVerifyUrl = $omHash !== '' ? url("/api/v1/loo/signatures/verify/{$omHash}") : null;
+        $lhVerifyUrl = $lhHash !== '' ? url("/api/v1/loo/signatures/verify/{$lhHash}") : null;
+
+        $omQr = $makeQr($omVerifyUrl);
+        $lhQr = $makeQr($lhVerifyUrl);
+
     @endphp
 
     <style>

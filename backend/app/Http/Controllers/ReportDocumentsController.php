@@ -92,20 +92,87 @@ class ReportDocumentsController extends Controller
             return response()->json(['message' => 'Document not found.'], 404);
         }
 
-        $raw = $lo->file_url ? trim((string) $lo->file_url) : '';
-        if ($raw === '') {
-            return response()->json(['message' => 'PDF file path is missing.'], 404);
+        // ✅ Step 3 gate: only allow view if there is at least 1 READY sample (OM+LH approved)
+        if (!\Illuminate\Support\Facades\Schema::hasTable('loo_sample_approvals')) {
+            return response()->json([
+                'message' => 'Approvals table not found. Run migrations.',
+                'code' => 'APPROVALS_TABLE_MISSING',
+            ], 500);
         }
 
-        $abs = $this->resolvePdfAbsolutePath($raw);
+        $payload = is_array($lo->payload) ? $lo->payload : (array) $lo->payload;
+
+        // sample_ids preferred, fallback to payload items
+        $sampleIds = [];
+        if (isset($payload['sample_ids']) && is_array($payload['sample_ids'])) {
+            $sampleIds = array_values(array_unique(array_map('intval', $payload['sample_ids'])));
+        } elseif (isset($payload['items']) && is_array($payload['items'])) {
+            foreach ($payload['items'] as $it) {
+                $sid = (int) ($it['sample_id'] ?? 0);
+                if ($sid > 0) $sampleIds[] = $sid;
+            }
+            $sampleIds = array_values(array_unique($sampleIds));
+        }
+
+        $sampleIds = array_values(array_filter($sampleIds, fn($x) => $x > 0));
+
+        if (count($sampleIds) <= 0) {
+            return response()->json([
+                'message' => 'LOO payload tidak memiliki sample_ids/items yang valid.',
+                'code' => 'LOO_SAMPLES_MISSING',
+            ], 422);
+        }
+
+        // Compute ready intersection based on current approvals
+        $rows = \Illuminate\Support\Facades\DB::table('loo_sample_approvals')
+            ->whereIn('sample_id', $sampleIds)
+            ->whereIn('role_code', ['OM', 'LH'])
+            ->whereNotNull('approved_at')
+            ->get(['sample_id', 'role_code']);
+
+        $seen = [];
+        foreach ($rows as $r) {
+            $sid = (int) $r->sample_id;
+            $rc = strtoupper((string) $r->role_code);
+            if (!isset($seen[$sid])) $seen[$sid] = ['OM' => false, 'LH' => false];
+            if ($rc === 'OM' || $rc === 'LH') $seen[$sid][$rc] = true;
+        }
+
+        $hasReady = false;
+        foreach ($seen as $st) {
+            if (!empty($st['OM']) && !empty($st['LH'])) {
+                $hasReady = true;
+                break;
+            }
+        }
+
+        // ✅ Always resolve raw file_url first (used by later path resolve / debug)
+        $raw = $lo->file_url ? trim((string) $lo->file_url) : '';
+        if ($raw === '') {
+            return response()->json([
+                'message' => 'PDF file path is missing.',
+                'code' => 'PDF_PATH_MISSING',
+            ], 404);
+        }
+
+        // ✅ Step 3 gate: only allow view if there is at least 1 READY sample (OM+LH approved)
+        // (your existing readiness computation stays here)
+        if (!$hasReady) {
+            return response()->json([
+                'message' => 'LOO tidak bisa di-view karena belum ada sampel yang Ready (OM+LH approved).',
+                'code' => 'NO_READY_SAMPLES',
+            ], 422);
+        }
+
+        $abs = $this->resolvePdfAbsolutePath(raw: $raw);
 
         if (!$abs || !is_file($abs)) {
             return response()->json([
                 'message' => 'PDF file not found on disk.',
+                'code' => 'PDF_NOT_FOUND',
                 'debug' => [
-                    'file_url' => $raw,
-                    'expected_root' => storage_path('app/private'),
-                    'hint' => 'Ensure file exists under storage/app/private/reports/loo/... and DB path resolves correctly.',
+                    'raw' => $raw,
+                    'abs' => $abs,
                 ],
             ], 404);
         }
