@@ -30,12 +30,34 @@ type Props = {
     roleLabel: string;
 };
 
+type ApprovalState = { OM: boolean; LH: boolean; ready: boolean };
+
+function normalizeRole(label: string) {
+    return String(label || "").trim().toLowerCase();
+}
+
+/**
+ * Derive role code used by backend approvals from the visible label.
+ * Keep this forgiving (labels can change slightly).
+ */
+function getActorRoleCode(roleLabel: string): "OM" | "LH" | null {
+    const r = normalizeRole(roleLabel);
+    if (r === "om" || r.includes("operational manager")) return "OM";
+    if (r === "lh" || r.includes("laboratory head") || r.includes("lab head")) return "LH";
+    return null;
+}
+
 export default function LooBatchGenerator({ roleLabel }: Props) {
+    const actorRole = getActorRoleCode(roleLabel);
+
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     const [items, setItems] = useState<CandidateSample[]>([]);
     const [q, setQ] = useState("");
+
+    // approvals
+    const [approvals, setApprovals] = useState<Record<number, ApprovalState>>({});
 
     // selection
     const [selected, setSelected] = useState<Record<number, boolean>>({});
@@ -79,6 +101,27 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
             }
             setSelected(nextSelected);
             setParamSel(nextParamSel);
+
+            // load approvals for the current list
+            try {
+                const ids = list.map((x) => x.sample_id);
+                if (ids.length) {
+                    const st = await looService.getApprovals(ids);
+                    const next: Record<number, ApprovalState> = {};
+                    for (const sid of ids) {
+                        const row = st?.[sid];
+                        next[sid] = { OM: !!row?.OM, LH: !!row?.LH, ready: !!row?.ready };
+                    }
+                    setApprovals(next);
+                } else {
+                    setApprovals({});
+                }
+            } catch {
+                // don't block render if approvals fetch fails
+                const next: Record<number, ApprovalState> = {};
+                for (const s of list) next[s.sample_id] = { OM: false, LH: false, ready: false };
+                setApprovals(next);
+            }
         } catch (err: any) {
             const msg =
                 err?.response?.data?.message ??
@@ -102,14 +145,18 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
             .filter((id) => selected[id]);
     }, [selected]);
 
-    const buildParamMap = (): Record<number, number[]> => {
+    const readySelectedIds = useMemo(() => {
+        return selectedIds.filter((sid) => !!approvals[sid]?.ready);
+    }, [selectedIds, approvals]);
+
+    const buildParamMapFor = (ids: number[]): Record<number, number[]> => {
         const out: Record<number, number[]> = {};
-        for (const sid of selectedIds) {
+        for (const sid of ids) {
             const map = paramSel[sid] ?? {};
-            const ids = Object.keys(map)
+            const pids = Object.keys(map)
                 .map((k) => Number(k))
                 .filter((pid) => map[pid]);
-            out[sid] = ids;
+            out[sid] = pids;
         }
         return out;
     };
@@ -161,16 +208,41 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
         return null;
     };
 
+    const setApprovalFor = async (sampleId: number, nextApproved: boolean) => {
+        try {
+            setBusy(true);
+            setError(null);
+            const res = await looService.setApproval(sampleId, nextApproved);
+            setApprovals((p) => ({ ...p, [sampleId]: res.state }));
+        } catch (err: any) {
+            const msg =
+                err?.response?.data?.message ??
+                err?.data?.message ??
+                err?.message ??
+                "Gagal update approval.";
+            setError(msg);
+        } finally {
+            setBusy(false);
+        }
+    };
+
     const generate = async () => {
         if (busy) return;
+
         if (!selectedIds.length) {
             setError("Pilih minimal 1 sampel.");
             return;
         }
 
-        // ensure each selected sample has at least 1 parameter selected
-        const map = buildParamMap();
-        for (const sid of selectedIds) {
+        // Step 2 gate: only intersection approved (ready)
+        if (!readySelectedIds.length) {
+            setError("Belum ada sampel yang disetujui oleh OM dan LH (Ready).");
+            return;
+        }
+
+        // ensure each READY sample has at least 1 parameter selected
+        const map = buildParamMapFor(readySelectedIds);
+        for (const sid of readySelectedIds) {
             if (!map[sid] || map[sid].length === 0) {
                 setError(`Parameter uji untuk sample #${sid} belum dipilih (minimal 1).`);
                 return;
@@ -184,7 +256,7 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
             setResultNumber(null);
             setPreviewOpen(false);
 
-            const res = await looService.generateForSamples(selectedIds, map);
+            const res = await looService.generateForSamples(readySelectedIds, map);
 
             // service biasanya balikin { message, data: { ... } }
             const obj = (res as any)?.data ?? (res as any);
@@ -207,6 +279,9 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
             }
 
             setResultUrl(url);
+
+            // refresh list (samples included in LOO should disappear from waiting room)
+            await load();
         } catch (err: any) {
             const msg =
                 err?.response?.data?.message ??
@@ -231,6 +306,18 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
         return <div className="text-sm text-gray-600">Loading LOO candidates...</div>;
     }
 
+    const legend = (
+        <div className="mt-2 text-[11px] text-gray-600">
+            <span className="inline-flex items-center gap-1">
+                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> Ready = OM & LH sudah approve
+            </span>
+            <span className="mx-2">·</span>
+            <span className="inline-flex items-center gap-1">
+                <span className="inline-block h-2 w-2 rounded-full bg-amber-500" /> Not ready = masih butuh salah satu approval
+            </span>
+        </div>
+    );
+
     return (
         <>
             <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
@@ -241,6 +328,7 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
                             Pilih sampel yang sudah <span className="font-semibold">verified</span> & punya{" "}
                             <span className="font-semibold">lab sample code</span>, lalu pilih parameter uji.
                         </div>
+                        {legend}
                     </div>
                     <div className="text-[11px] text-gray-500">
                         You are: <span className="font-semibold">{roleLabel}</span>
@@ -251,6 +339,12 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
                     {error ? (
                         <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-3">
                             {error}
+                        </div>
+                    ) : null}
+
+                    {!actorRole ? (
+                        <div className="text-sm text-amber-800 bg-amber-50 border border-amber-100 px-3 py-2 rounded-xl mb-3">
+                            Role kamu tidak dikenali sebagai <b>OM</b> atau <b>LH</b>, jadi kamu tidak bisa toggle approval.
                         </div>
                     ) : null}
 
@@ -277,6 +371,8 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
 
                     <div className="mt-4 text-xs text-gray-600">
                         Selected: <span className="font-semibold">{selectedIds.length}</span>
+                        <span className="mx-2">·</span>
+                        Ready: <span className="font-semibold">{readySelectedIds.length}</span>
                     </div>
 
                     <div className="mt-3 space-y-3">
@@ -293,6 +389,15 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
 
                                 const params = s.requested_parameters ?? [];
                                 const selMap = paramSel[sid] ?? {};
+
+                                const st = approvals[sid] ?? { OM: false, LH: false, ready: false };
+                                const canToggleOM = actorRole === "OM";
+                                const canToggleLH = actorRole === "LH";
+
+                                const chipClass = (on: boolean) =>
+                                    on
+                                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                        : "bg-gray-50 text-gray-600 border-gray-200";
 
                                 return (
                                     <div
@@ -328,6 +433,57 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
                                                     <div className="text-[11px] text-gray-500 mt-1">
                                                         Verified: {s.verified_at ? formatDateTimeLocal(s.verified_at) : "-"} ·
                                                         Received: {rx ? formatDateTimeLocal(rx) : "-"}
+                                                    </div>
+
+                                                    {/* Step 2: approvals chips */}
+                                                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                                                        <button
+                                                            type="button"
+                                                            className={cx(
+                                                                "rounded-full border px-3 py-1",
+                                                                chipClass(st.OM),
+                                                                canToggleOM ? "cursor-pointer" : "cursor-not-allowed opacity-80"
+                                                            )}
+                                                            onClick={canToggleOM ? () => setApprovalFor(sid, !st.OM) : undefined}
+                                                            disabled={!canToggleOM || busy}
+                                                            title={
+                                                                canToggleOM
+                                                                    ? "Klik untuk toggle approval OM kamu"
+                                                                    : "Hanya OM yang bisa mengubah approval OM"
+                                                            }
+                                                        >
+                                                            OM: {st.OM ? "Approved" : "Not yet"}
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            className={cx(
+                                                                "rounded-full border px-3 py-1",
+                                                                chipClass(st.LH),
+                                                                canToggleLH ? "cursor-pointer" : "cursor-not-allowed opacity-80"
+                                                            )}
+                                                            onClick={canToggleLH ? () => setApprovalFor(sid, !st.LH) : undefined}
+                                                            disabled={!canToggleLH || busy}
+                                                            title={
+                                                                canToggleLH
+                                                                    ? "Klik untuk toggle approval LH kamu"
+                                                                    : "Hanya LH yang bisa mengubah approval LH"
+                                                            }
+                                                        >
+                                                            LH: {st.LH ? "Approved" : "Not yet"}
+                                                        </button>
+
+                                                        <span
+                                                            className={cx(
+                                                                "ml-1 rounded-full px-3 py-1 border",
+                                                                st.ready
+                                                                    ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                                                                    : "bg-amber-50 text-amber-800 border-amber-200"
+                                                            )}
+                                                            title="Ready jika OM dan LH sama-sama approve"
+                                                        >
+                                                            {st.ready ? "Ready for LOO" : "Not ready"}
+                                                        </span>
                                                     </div>
                                                 </div>
                                             </label>
@@ -397,7 +553,14 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
                         >
                             Reset Result
                         </button>
-                        <button type="button" className="lims-btn-primary" onClick={generate} disabled={busy}>
+
+                        <button
+                            type="button"
+                            className="lims-btn-primary"
+                            onClick={generate}
+                            disabled={busy || readySelectedIds.length === 0}
+                            title={readySelectedIds.length === 0 ? "Butuh minimal 1 sampel Ready (OM+LH approved)" : ""}
+                        >
                             {busy ? "Generating..." : "Generate LOO PDF"}
                         </button>
                     </div>
@@ -410,16 +573,10 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
                             </div>
 
                             <div className="mt-3 flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    className="lims-btn"
-                                    onClick={() => setPreviewOpen(true)}
-                                >
+                                <button type="button" className="lims-btn" onClick={() => setPreviewOpen(true)}>
                                     Open Preview
                                 </button>
-                                <span className="text-xs text-emerald-800">
-                                    (Download bisa dari viewer di preview)
-                                </span>
+                                <span className="text-xs text-emerald-800">(Download bisa dari viewer di preview)</span>
                             </div>
                         </div>
                     ) : null}

@@ -355,6 +355,15 @@ Route::prefix('v1')->group(function () {
 
         /*
         |--------------------------------------------------------------------------
+        | LOO Approvals (OM/LH) - per sample gate
+        |--------------------------------------------------------------------------
+        */
+        Route::get('/loo/approvals', [\App\Http\Controllers\LooSampleApprovalController::class, 'index']);
+        Route::patch('/loo/approvals/{sample}', [\App\Http\Controllers\LooSampleApprovalController::class, 'update'])
+            ->whereNumber('sample');
+
+        /*
+        |--------------------------------------------------------------------------
         | Policy debug (temporary)
         |--------------------------------------------------------------------------
         */
