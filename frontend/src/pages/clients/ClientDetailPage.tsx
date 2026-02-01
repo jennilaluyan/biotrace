@@ -147,7 +147,7 @@ export const ClientDetailPage = () => {
                             <div className="flex-1 lg:max-w-sm">
                                 <div className="bg-gray-50 rounded-2xl px-5 py-6 border border-gray-100">
                                     <div className="flex items-center gap-4">
-                                        <div className="h-16 w-16 rounded-full bg-gradient-to-br from-primary to-primary-soft flex items-center justify-center text-white text-xl font-semibold shadow-sm">
+                                        <div className="h-16 w-16 rounded-full bg-linear-to-br from-primary to-primary-soft flex items-center justify-center text-white text-xl font-semibold shadow-sm">
                                             {initials}
                                         </div>
                                         <div>
@@ -281,7 +281,7 @@ export const ClientDetailPage = () => {
                             </div>
 
                             {/* Right: basic/company/personal info */}
-                            <div className="flex-[2] space-y-4">
+                            <div className="flex-2 space-y-4">
                                 {/* Basic Info card */}
                                 <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] px-5 py-5">
                                     <h3 className="lims-detail-section-title mb-3">
