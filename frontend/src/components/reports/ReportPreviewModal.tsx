@@ -14,71 +14,45 @@ type Props = {
     title?: string;
 };
 
-/**
- * Convert absolute URL to relative path to avoid CORS,
- * and normalize /api vs /v1 based on axios baseURL.
- */
-function normalizeRequestPath(requestUrl: string): string {
-    let path = String(requestUrl || "").trim();
-    if (!path) return path;
+function normalizeToSameOriginApiPath(input: string): string {
+    let s = String(input || "").trim();
+    if (!s) return s;
 
-    // Absolute -> strip origin
-    try {
-        if (/^https?:\/\//i.test(path)) {
-            const u = new URL(path);
-            path = (u.pathname || "/") + (u.search || "");
-        }
-    } catch {
-        // ignore
-    }
-
-    // Ensure starts with /
-    if (!path.startsWith("/")) path = "/" + path;
-
-    // If backend gives something like ".../api/..." inside the string, keep from /api
-    const apiIdx = path.indexOf("/api/");
-    if (apiIdx > 0) path = path.slice(apiIdx);
-
-    const v1Idx = path.indexOf("/v1/");
-    if (v1Idx > 0 && apiIdx < 0) path = path.slice(v1Idx);
-
-    // Now map /api vs /v1 depending on http.defaults.baseURL
-    const base = String(http.defaults.baseURL ?? "").replace(/\/+$/, "");
-    const baseHasApi = /\/api$/i.test(base);
-
-    // If baseURL already ends with /api, we should NOT send /api/... again
-    if (baseHasApi && path.startsWith("/api/")) {
-        path = path.replace(/^\/api/, "");
-    }
-
-    // If baseURL does NOT include /api but path starts with /v1, prefix /api
-    // (this matches your previous logic; keep it for safety)
-    if (!baseHasApi && path.startsWith("/v1/")) {
-        path = "/api" + path;
-    }
-
-    return path;
-}
-
-async function blobToUsefulError(blob: Blob): Promise<string> {
-    try {
-        const text = await blob.text();
-        if (!text) return "Request failed (empty error).";
+    // If absolute URL -> strip origin, keep pathname + search
+    if (/^https?:\/\//i.test(s)) {
         try {
-            const json = JSON.parse(text);
-            // common API error shapes
-            return (
-                json?.message ??
-                json?.error ??
-                json?.msg ??
-                text
-            );
+            const u = new URL(s);
+            s = (u.pathname || "") + (u.search || "");
         } catch {
-            return text;
+            // keep as-is if parsing fails
+            return s;
         }
-    } catch {
-        return "Request failed (unreadable error).";
     }
+
+    // normalize double slashes
+    s = s.replace(/\/{2,}/g, "/");
+
+    // avoid /api/api/...
+    s = s.replace(/^\/api\/api\//, "/api/");
+
+    // if starts with /v1 -> prefix /api
+    if (s.startsWith("/v1/")) {
+        s = "/api" + s;
+    }
+
+    // if starts with v1/ (no leading slash)
+    if (s.startsWith("v1/")) {
+        s = "/api/" + s;
+    }
+
+    // if starts with api/ (no leading slash)
+    if (s.startsWith("api/")) {
+        s = "/" + s;
+    }
+
+    // final guard
+    s = s.replace(/^\/api\/api\//, "/api/");
+    return s;
 }
 
 export const ReportPreviewModal: React.FC<Props> = ({
@@ -122,19 +96,26 @@ export const ReportPreviewModal: React.FC<Props> = ({
             });
 
             try {
-                const path = normalizeRequestPath(requestUrl);
+                const path = normalizeToSameOriginApiPath(requestUrl);
 
-                const res = await http.get(path, { responseType: "blob" });
+                // Force same-origin to avoid CORS when axios baseURL points elsewhere (dev env)
+                const res = await http.request({
+                    method: "GET",
+                    url: path,
+                    baseURL: window.location.origin,
+                    responseType: "blob",
+                    withCredentials: true,
+                });
 
                 if (cancelled) return;
 
                 const blob = res.data as Blob;
-                const ct = String(res.headers?.["content-type"] ?? "").toLowerCase();
+                const ct = String((res.headers as any)?.["content-type"] ?? "").toLowerCase();
 
-                // If server returns JSON (error), show it
-                if (ct.includes("application/json")) {
-                    const msg = await blobToUsefulError(blob);
-                    throw new Error(msg || "Server returned JSON, not a PDF.");
+                // kalau server balikin JSON (mis 401/404), tampilkan text-nya
+                if (ct.includes("application/json") || ct.includes("text/plain")) {
+                    const text = await blob.text();
+                    throw new Error(text || "Server returned non-PDF response.");
                 }
 
                 const url = URL.createObjectURL(blob);
@@ -142,19 +123,11 @@ export const ReportPreviewModal: React.FC<Props> = ({
             } catch (e: any) {
                 if (cancelled) return;
 
-                // axios error shape:
-                // - e.response.data may be a Blob (because responseType=blob)
-                const respData = e?.response?.data;
-                if (respData instanceof Blob) {
-                    const msg = await blobToUsefulError(respData);
-                    setError(String(msg));
-                } else {
-                    const msg =
-                        e?.response?.data?.message ??
-                        e?.message ??
-                        "Failed to load PDF.";
-                    setError(String(msg));
-                }
+                const msg =
+                    e?.response?.data?.message ??
+                    e?.message ??
+                    "Failed to load PDF.";
+                setError(String(msg));
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -179,31 +152,14 @@ export const ReportPreviewModal: React.FC<Props> = ({
                 {/* Header */}
                 <div className="flex items-center justify-between px-4 py-3 border-b">
                     <h2 className="text-sm font-semibold text-gray-800">{title}</h2>
-
-                    <div className="flex items-center gap-2">
-                        {blobUrl ? (
-                            <a
-                                href={blobUrl}
-                                download
-                                className="lims-btn"
-                                onClick={(e) => {
-                                    // ensure click doesn't close modal by accident
-                                    e.stopPropagation();
-                                }}
-                            >
-                                Download
-                            </a>
-                        ) : null}
-
-                        <button
-                            onClick={onClose}
-                            className="text-gray-500 hover:text-gray-700"
-                            aria-label="Close preview"
-                            type="button"
-                        >
-                            ✕
-                        </button>
-                    </div>
+                    <button
+                        onClick={onClose}
+                        className="text-gray-500 hover:text-gray-700"
+                        aria-label="Close preview"
+                        type="button"
+                    >
+                        ✕
+                    </button>
                 </div>
 
                 {/* Body */}

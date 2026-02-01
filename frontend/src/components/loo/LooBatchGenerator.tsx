@@ -30,40 +30,6 @@ type Props = {
     roleLabel: string;
 };
 
-/**
- * Normalize any absolute URL from backend into a relative path
- * so axios can use same-origin (/api proxy) and avoid CORS.
- */
-function normalizePdfUrl(input: string): string {
-    let s = String(input || "").trim();
-    if (!s) return s;
-
-    // If backend returns absolute URL, strip origin and keep path+query
-    // Example: http://backoffice.lims.localhost/api/v1/... -> /api/v1/...
-    try {
-        if (/^https?:\/\//i.test(s)) {
-            const u = new URL(s);
-            s = (u.pathname || "/") + (u.search || "");
-        }
-    } catch {
-        // ignore URL parse failures
-    }
-
-    // If it already starts with /api or /v1, keep as-is
-    if (s.startsWith("/api/") || s.startsWith("/v1/")) return s;
-
-    // If it contains "/api/" somewhere, keep from there
-    const apiIdx = s.indexOf("/api/");
-    if (apiIdx >= 0) return s.slice(apiIdx);
-
-    const v1Idx = s.indexOf("/v1/");
-    if (v1Idx >= 0) return s.slice(v1Idx);
-
-    // As a last resort, force it to look like a path
-    if (!s.startsWith("/")) s = "/" + s;
-    return s;
-}
-
 export default function LooBatchGenerator({ roleLabel }: Props) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -82,7 +48,6 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
 
     // preview modal
     const [previewOpen, setPreviewOpen] = useState(false);
-    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
     const load = async () => {
         try {
@@ -90,6 +55,7 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
             setError(null);
             setResultUrl(null);
             setResultNumber(null);
+            setPreviewOpen(false);
 
             const res = await apiGet<any>("/v1/samples/requests", {
                 params: { mode: "loo_candidates", q: q.trim() || undefined },
@@ -148,29 +114,48 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
         return out;
     };
 
-    const resolveResultUrl = (res: any): string | null => {
-        // Backend returns { message, data: {...} } in your controller.
-        // Some older services might return directly the object, so we support both.
-        const payload = res?.data ?? res;
+    const normalizeUrlToSameOriginPath = (url: string): string => {
+        const raw = String(url || "").trim();
+        if (!raw) return raw;
 
-        const dl = payload?.download_url;
-        if (typeof dl === "string" && dl.trim() !== "") return normalizePdfUrl(dl);
-
-        const pdf = payload?.pdf_url;
-        if (typeof pdf === "string" && pdf.trim() !== "") return normalizePdfUrl(pdf);
-
-        const loId = payload?.lo_id ?? payload?.loo_id ?? payload?.id;
-        if (typeof loId === "number" && loId > 0) {
-            // IMPORTANT: use /v1 path here; ReportPreviewModal will normalize baseURL vs /api
-            return `/v1/reports/documents/loo/${loId}/pdf`;
+        // If absolute, strip origin -> return pathname+search
+        if (/^https?:\/\//i.test(raw)) {
+            try {
+                const u = new URL(raw);
+                const p = (u.pathname || "") + (u.search || "");
+                return p || raw;
+            } catch {
+                return raw;
+            }
         }
 
-        const fu = payload?.file_url;
+        return raw;
+    };
+
+    const resolveResultUrl = (res: any): string | null => {
+        // backend often returns { message, data: loa }
+        const obj = res?.data ?? res;
+
+        // 1) Ideal: backend gives download_url
+        const dl = obj?.download_url ?? res?.download_url;
+        if (typeof dl === "string" && dl.trim() !== "") return normalizeUrlToSameOriginPath(dl);
+
+        // 2) Also accept pdf_url
+        const pdf = obj?.pdf_url ?? res?.pdf_url;
+        if (typeof pdf === "string" && pdf.trim() !== "") return normalizeUrlToSameOriginPath(pdf);
+
+        // 3) If we have an id, always use the secure endpoint (same-origin)
+        const loId = obj?.lo_id ?? obj?.loo_id ?? obj?.id ?? res?.lo_id ?? res?.id;
+        if (typeof loId === "number" && loId > 0) {
+            return `/api/v1/reports/documents/loo/${loId}/pdf`;
+        }
+
+        // 4) legacy fallback (only if truly public/absolute)
+        const fu = obj?.file_url ?? res?.file_url;
         if (typeof fu === "string" && fu.trim() !== "") {
-            // Only accept if it's already a proper endpoint-like URL
-            const norm = normalizePdfUrl(fu);
-            if (norm.startsWith("/api/") || norm.startsWith("/v1/")) return norm;
-            if (/^https?:\/\//i.test(fu)) return normalizePdfUrl(fu);
+            const s = normalizeUrlToSameOriginPath(fu);
+            if (/^https?:\/\//i.test(s)) return s;
+            if (s.startsWith("/api/") || s.startsWith("/v1/")) return s;
         }
 
         return null;
@@ -197,16 +182,18 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
             setError(null);
             setResultUrl(null);
             setResultNumber(null);
+            setPreviewOpen(false);
 
             const res = await looService.generateForSamples(selectedIds, map);
 
-            const payload = (res as any)?.data ?? (res as any);
+            // service biasanya balikin { message, data: { ... } }
+            const obj = (res as any)?.data ?? (res as any);
 
             const looNumber =
-                typeof payload?.number === "string"
-                    ? (payload.number as string)
-                    : typeof payload?.loo_number === "string"
-                        ? (payload.loo_number as string)
+                typeof obj?.number === "string"
+                    ? (obj.number as string)
+                    : typeof obj?.loo_number === "string"
+                        ? (obj.loo_number as string)
                         : null;
 
             setResultNumber(looNumber);
@@ -214,7 +201,7 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
             const url = resolveResultUrl(res);
             if (!url) {
                 setError(
-                    "LOO berhasil dibuat, tapi URL untuk preview/download tidak tersedia. Backend harus mengembalikan download_url/pdf_url atau lo_id."
+                    "LOO berhasil dibuat, tapi URL untuk preview/download tidak tersedia. Pastikan backend mengembalikan download_url atau lo_id."
                 );
                 return;
             }
@@ -340,7 +327,6 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
                                                     </div>
                                                     <div className="text-[11px] text-gray-500 mt-1">
                                                         Verified: {s.verified_at ? formatDateTimeLocal(s.verified_at) : "-"} ·
-                                                        {" "}
                                                         Received: {rx ? formatDateTimeLocal(rx) : "-"}
                                                     </div>
                                                 </div>
@@ -359,8 +345,7 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
                                                             const pid = p.parameter_id;
                                                             const on = !!selMap[pid];
                                                             const label =
-                                                                (p.code ? `${p.code} — ` : "") +
-                                                                (p.name ?? `Parameter #${pid}`);
+                                                                (p.code ? `${p.code} — ` : "") + (p.name ?? `Parameter #${pid}`);
 
                                                             return (
                                                                 <button
@@ -407,7 +392,6 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
                                 setResultUrl(null);
                                 setResultNumber(null);
                                 setPreviewOpen(false);
-                                setPreviewUrl(null);
                             }}
                             disabled={busy}
                         >
@@ -425,21 +409,17 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
                                 Number: <span className="font-mono">{resultNumber ?? "-"}</span>
                             </div>
 
-                            <div className="mt-3 flex items-center gap-2 flex-wrap">
+                            <div className="mt-3 flex items-center gap-2">
                                 <button
                                     type="button"
                                     className="lims-btn"
-                                    onClick={() => {
-                                        setPreviewUrl(resultUrl);
-                                        setPreviewOpen(true);
-                                    }}
+                                    onClick={() => setPreviewOpen(true)}
                                 >
-                                    Preview PDF
+                                    Open Preview
                                 </button>
-
-                                <div className="text-xs text-emerald-800">
-                                    (Preview & download pakai modal agar auth header ikut, tanpa buka tab baru)
-                                </div>
+                                <span className="text-xs text-emerald-800">
+                                    (Download bisa dari viewer di preview)
+                                </span>
                             </div>
                         </div>
                     ) : null}
@@ -449,8 +429,8 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
             <ReportPreviewModal
                 open={previewOpen}
                 onClose={() => setPreviewOpen(false)}
-                pdfUrl={previewUrl}
-                title={resultNumber ? `LOO ${resultNumber}` : "LOO PDF"}
+                pdfUrl={resultUrl}
+                title={resultNumber ? `LOO ${resultNumber}` : "LOO PDF Preview"}
             />
         </>
     );

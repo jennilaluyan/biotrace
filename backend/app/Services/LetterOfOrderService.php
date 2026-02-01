@@ -8,6 +8,7 @@ use App\Models\LoaSignature;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -68,6 +69,86 @@ class LetterOfOrderService
             ->where('sample_id', $anchorSampleId)
             ->orderByDesc('lo_id')
             ->first();
+    }
+
+    /**
+     * Force all LoO PDFs to live under storage/app/private/reports/loo/...
+     * DB must store a RELATIVE path usable by Storage::disk('local') (root storage/app/private).
+     */
+    private function forceReportsLooPath(string $pathOrAnything, string $looNumber): string
+    {
+        $p = str_replace('\\', '/', trim((string) $pathOrAnything));
+
+        // If somehow a full URL got stored, strip it
+        if (preg_match('/^https?:\/\//i', $p)) {
+            $u = parse_url($p, PHP_URL_PATH);
+            if (is_string($u) && $u !== '') $p = $u;
+        }
+
+        $p = ltrim($p, '/');
+
+        // Migrate legacy prefix
+        if (str_starts_with($p, 'letters/loo/')) {
+            $p = preg_replace('#^letters/loo/#', 'reports/loo/', $p);
+        }
+
+        // If already correct, keep
+        if (str_starts_with($p, 'reports/loo/')) {
+            return $p;
+        }
+
+        // Fall back to a guaranteed correct path
+        $year = now()->format('Y');
+        $safe = str_replace(['/', '\\'], '_', trim($looNumber));
+        $safe = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $safe) ?: 'loo';
+        return "reports/loo/{$year}/{$safe}.pdf";
+    }
+
+    /**
+     * Ensure PDF exists on disk for a given LoO, using payload snapshot (safe).
+     * Generates even for DRAFT so preview works right after generate.
+     */
+    private function ensurePdfOnDisk(LetterOfOrder $loa, array $payload, array $itemsSnapshot, bool $forceRegenerate = false): void
+    {
+        $number = (string) ($loa->number ?? data_get($payload, 'loo_number', data_get($payload, 'loa_number', '')));
+
+        if ($number === '') {
+            // must have a number
+            $number = $this->numberGen->nextNumber();
+            $loa->number = $number;
+        }
+
+        // Always enforce correct path location
+        $candidate = (string) ($loa->file_url ?? $this->pdf->buildPath($number));
+        $path = $this->forceReportsLooPath($candidate, $number);
+
+        // Decide whether to generate
+        $alreadyGenerated = !empty($payload['pdf_generated_at']);
+        $shouldGenerate = $forceRegenerate || !$alreadyGenerated || !Storage::disk('local')->exists($path);
+
+        if (!$shouldGenerate) {
+            // still normalize file_url in DB if needed
+            if ((string) $loa->file_url !== $path) {
+                $loa->file_url = $path;
+            }
+            return;
+        }
+
+        // Make sure we have signatures loaded for checkbox display
+        $loa->loadMissing(['signatures']);
+
+        $binary = $this->pdf->render('documents.surat_pengujian', [
+            'loo' => $loa,                 // blade expects $loo->number and $loo->signatures
+            'payload' => $payload,
+            'client' => null,              // intentionally omitted by design
+            'items' => $itemsSnapshot,      // use snapshot, do NOT query broken items table
+        ]);
+
+        $this->pdf->store($path, $binary);
+
+        $payload['pdf_generated_at'] = now()->toISOString();
+        $loa->payload = $payload;
+        $loa->file_url = $path;
     }
 
     public function ensureDraftForSamples(array $sampleIds, int $actorStaffId): LetterOfOrder
@@ -163,8 +244,7 @@ class LetterOfOrderService
                     return $existing;
                 }
 
-                // If draft/signed_internal/sent_to_client: keep number + file_url,
-                // but refresh payload sample_ids/items so UI matches the latest selection.
+                // Refresh payload so UI reflects latest selection
                 $payload = is_array($existing->payload) ? $existing->payload : (array) $existing->payload;
 
                 // Keep existing number for consistency
@@ -174,18 +254,20 @@ class LetterOfOrderService
                     $existing->number = $number;
                 }
 
-                // Ensure file_url exists (db constraint)
-                if (empty($existing->file_url)) {
-                    $existing->file_url = $this->pdf->buildPath($number);
-                }
-
                 $payload['loo_number'] = $number;
                 $payload['loa_number'] = $number;
                 $payload['sample_ids'] = $sampleIds;
                 $payload['items'] = $items;
 
-                // Do NOT reset pdf_generated_at if already generated
-                $payload['pdf_generated_at'] = $payload['pdf_generated_at'] ?? null;
+                // generated_at snapshot (safe)
+                $payload['generated_at'] = $payload['generated_at'] ?? now()->toISOString();
+
+                // Decide regeneration:
+                // - draft: regenerate to match latest items
+                // - signed_internal/sent_to_client: do NOT regenerate automatically (preserve signed doc intent)
+                $forceRegenerate = ((string) $existing->loa_status === 'draft');
+
+                $this->ensurePdfOnDisk($existing, $payload, $items, $forceRegenerate);
 
                 $existing->payload = $payload;
                 $existing->updated_at = now();
@@ -199,7 +281,6 @@ class LetterOfOrderService
 
             // 5) create new draft (only if none exists)
             $number = $this->numberGen->nextNumber();
-            $reservedPath = $this->pdf->buildPath($number);
 
             $payload = [
                 'loo_number' => $number,
@@ -226,8 +307,8 @@ class LetterOfOrderService
                     'generated_at' => now(),
                     'generated_by' => $actorStaffId,
 
-                    // must not be null
-                    'file_url' => $reservedPath,
+                    // placeholder (will be normalized after PDF store)
+                    'file_url' => $this->forceReportsLooPath($this->pdf->buildPath($number), $number),
 
                     'loa_status' => 'draft',
                     'payload' => $payload,
@@ -278,6 +359,12 @@ class LetterOfOrderService
                     'updated_at' => null,
                 ]);
             }
+
+            // ✅ NEW: generate PDF immediately so preview works right away
+            $loa->loadMissing(['signatures']);
+            $this->ensurePdfOnDisk($loa, $payload, $items, true);
+            $loa->updated_at = now();
+            $loa->save();
 
             // attach relations safely (avoid querying broken items table)
             $loa->loadMissing(['signatures']);
@@ -341,31 +428,10 @@ class LetterOfOrderService
                 }
 
                 $payload = is_array($loa->payload) ? $loa->payload : (array) $loa->payload;
-                $alreadyGenerated = !empty($payload['pdf_generated_at']);
 
-                if (!$alreadyGenerated) {
-                    $number = (string) $loa->number;
-
-                    $path = (string) ($loa->file_url ?? $this->pdf->buildPath($number));
-
-                    // DO NOT read $loa->items (avoid DB items table). Use payload snapshot instead.
-                    $items = (array) ($payload['items'] ?? []);
-
-                    $binary = $this->pdf->render('documents.loo.surat_perintah_pengujian_sampel', [
-                        'loo' => (object) ['number' => $number],
-                        'payload' => $payload,
-                        'client' => null,
-                        'items' => $items,
-                        'omUrl' => 'https://google.com',
-                        'lhUrl' => 'https://google.com',
-                    ]);
-
-                    $this->pdf->store($path, $binary);
-
-                    $payload['pdf_generated_at'] = now()->toISOString();
-                    $loa->payload = $payload;
-                    $loa->file_url = $path;
-                }
+                // Ensure PDF exists (and regen once after both signed, so checkbox markers are correct)
+                $items = (array) ($payload['items'] ?? []);
+                $this->ensurePdfOnDisk($loa, $payload, $items, true);
 
                 $loa->updated_at = now();
                 $loa->save();
