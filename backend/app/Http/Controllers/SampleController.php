@@ -28,9 +28,29 @@ class SampleController extends Controller
         $query = Sample::query()
             ->with(['client', 'creator', 'assignee', 'requestedParameters']);
 
-        // ✅ F1: Samples page = ONLY records that already have lab_sample_code
+        // Filter out requests: lab samples must have lab_sample_code
         if (Schema::hasColumn('samples', 'lab_sample_code')) {
             $query->whereNotNull('lab_sample_code');
+        }
+
+        // Step 1: Samples page shows only samples that are already in lab workflow OR already included in an LOO.
+        // - In-Lab workflow: has current_status (manual/legacy samples)
+        // - From waiting room: becomes visible only after it is included in letter_of_order_items
+        $hasLooItems = Schema::hasTable('letter_of_order_items') && Schema::hasColumn('letter_of_order_items', 'sample_id');
+        $hasCurrentStatus = Schema::hasColumn('samples', 'current_status');
+
+        if ($hasLooItems) {
+            $query->where(function ($w) use ($hasCurrentStatus) {
+                if ($hasCurrentStatus) {
+                    $w->whereNotNull('current_status');
+                }
+
+                $w->orWhereExists(function ($sub) {
+                    $sub->selectRaw('1')
+                        ->from('letter_of_order_items as loi')
+                        ->whereColumn('loi.sample_id', 'samples.sample_id');
+                });
+            });
         }
 
         if ($request->filled('client_id')) {
