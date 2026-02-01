@@ -341,6 +341,41 @@ class LetterOfOrderService
                 }
             }
 
+            /**
+             * ✅ Step 4: Promote samples included in LOO
+             * - mark as generated (so they disappear from LOO Generator)
+             * - ensure lab_sample_code exists (legacy-safe)
+             */
+            $now = now();
+
+            // lock rows to avoid double-assign in concurrent LOO generates
+            $samples = \App\Models\Sample::query()
+                ->whereIn('sample_id', $sampleIds)
+                ->lockForUpdate()
+                ->get(['sample_id', 'lab_sample_code']);
+
+            $codeGen = app(\App\Services\LabSampleCodeGenerator::class);
+
+            foreach ($samples as $s) {
+                $code = (string) ($s->lab_sample_code ?? '');
+                if (trim($code) === '') {
+                    $code = $codeGen->nextCode();
+                    \App\Models\Sample::query()
+                        ->where('sample_id', $s->sample_id)
+                        ->update([
+                            'lab_sample_code' => $code,
+                        ]);
+                }
+
+                // mark as included in LOO
+                \App\Models\Sample::query()
+                    ->where('sample_id', $s->sample_id)
+                    ->update([
+                        'loa_generated_at' => $now,
+                        'loa_generated_by_staff_id' => $actorStaffId,
+                    ]);
+            }
+
             // 7) create signature slots
             $roles = DB::table('loa_signature_roles')
                 ->orderBy('sort_order')
@@ -350,26 +385,19 @@ class LetterOfOrderService
                 LoaSignature::query()->create([
                     'lo_id' => (int) $loa->lo_id,
                     'role_code' => $r->role_code,
-                    'signed_by_staff' => null,
-                    'signed_by_client' => null,
-                    'signed_at' => null,
-                    'signature_hash' => null,
-                    'note' => null,
-                    'created_at' => now(),
-                    'updated_at' => null,
+                    // ...
                 ]);
             }
 
-            // ✅ NEW: generate PDF immediately so preview works right away
+            // ✅ generate PDF immediately so preview works right away
             $loa->loadMissing(['signatures']);
             $this->ensurePdfOnDisk($loa, $payload, $items, true);
             $loa->updated_at = now();
             $loa->save();
 
-            // attach relations safely (avoid querying broken items table)
+            // attach relations safely
             $loa->loadMissing(['signatures']);
             $loa->setRelation('items', $this->buildItemsModels((int) $loa->lo_id, $items));
-
             return $loa;
         }, 3);
     }

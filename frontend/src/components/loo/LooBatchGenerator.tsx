@@ -71,13 +71,18 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
     // preview modal
     const [previewOpen, setPreviewOpen] = useState(false);
 
-    const load = async () => {
+    const load = async (opts?: { resetResult?: boolean }) => {
+        const resetResult = opts?.resetResult ?? true;
+
         try {
             setLoading(true);
             setError(null);
-            setResultUrl(null);
-            setResultNumber(null);
-            setPreviewOpen(false);
+
+            if (resetResult) {
+                setResultUrl(null);
+                setResultNumber(null);
+                setPreviewOpen(false);
+            }
 
             const res = await apiGet<any>("/v1/samples/requests", {
                 params: { mode: "loo_candidates", q: q.trim() || undefined },
@@ -280,8 +285,8 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
 
             setResultUrl(url);
 
-            // refresh list (samples included in LOO should disappear from waiting room)
-            await load();
+            // ✅ Step 4: refresh list but keep generated result visible
+            await load({ resetResult: false });
         } catch (err: any) {
             const msg =
                 err?.response?.data?.message ??
@@ -355,7 +360,7 @@ export default function LooBatchGenerator({ roleLabel }: Props) {
                             placeholder="Search client / code / sample type..."
                             className="rounded-xl border border-gray-300 px-3 py-2 text-sm"
                         />
-                        <button type="button" className="lims-btn" onClick={load} disabled={loading || busy}>
+                        <button type="button" className="lims-btn" onClick={() => load()} disabled={loading || busy}>
                             Refresh
                         </button>
 

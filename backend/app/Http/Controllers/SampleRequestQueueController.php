@@ -69,7 +69,8 @@ class SampleRequestQueueController extends Controller
          */
         if ($mode === 'loo_candidates') {
             $query->whereNotNull('verified_at')
-                ->whereNotNull('lab_sample_code');
+                ->whereNotNull('lab_sample_code')
+                ->whereNull('loa_generated_at');
 
             // Waiting room only: hide samples already included in any LOO
             if (Schema::hasTable('letter_of_order_items') && Schema::hasColumn('letter_of_order_items', 'sample_id')) {
