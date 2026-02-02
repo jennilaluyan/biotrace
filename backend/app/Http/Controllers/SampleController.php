@@ -28,10 +28,67 @@ class SampleController extends Controller
         $query = Sample::query()
             ->with(['client', 'creator', 'assignee', 'requestedParameters']);
 
-        // ✅ F1: Samples page = ONLY records that already have lab_sample_code
+        // Filter out requests: lab samples must have lab_sample_code
         if (Schema::hasColumn('samples', 'lab_sample_code')) {
             $query->whereNotNull('lab_sample_code');
         }
+
+        /**
+         * Samples page should show:
+         * - in-lab workflow (current_status not null), OR
+         * - already included in LOO (loa_generated_at not null), OR
+         * - legacy fallback: exists in letter_of_order_items (if table exists)
+         */
+        $hasLooItems        = Schema::hasTable('letter_of_order_items') && Schema::hasColumn('letter_of_order_items', 'sample_id');
+        $hasCurrentStatus   = Schema::hasColumn('samples', 'current_status');
+        $hasLoaGeneratedAt  = Schema::hasColumn('samples', 'loa_generated_at');
+
+        $hasRequestStatus = Schema::hasColumn('samples', 'request_status');
+
+        $query->where(function ($w) use ($hasCurrentStatus, $hasLoaGeneratedAt, $hasLooItems, $hasRequestStatus) {
+            $any = false;
+
+            /**
+             * ✅ Rule baru:
+             * - Sample dari request workflow (punya request_status) hanya boleh tampil di /samples setelah masuk LOO (loa_generated_at) atau legacy items.
+             * - Sample legacy/manual (request_status NULL) boleh tampil jika sudah punya current_status (lab workflow).
+             */
+            if ($hasCurrentStatus) {
+                if ($hasRequestStatus) {
+                    // legacy/manual = request_status NULL
+                    $w->where(function ($qq) {
+                        $qq->whereNull('request_status')
+                            ->whereNotNull('current_status');
+                    });
+                } else {
+                    // jika kolom request_status tidak ada, fallback ke perilaku lama (anggap semua current_status = lab)
+                    $w->whereNotNull('current_status');
+                }
+                $any = true;
+            }
+
+            if ($hasLoaGeneratedAt) {
+                if ($any) $w->orWhereNotNull('loa_generated_at');
+                else $w->whereNotNull('loa_generated_at');
+                $any = true;
+            }
+
+            if ($hasLooItems) {
+                if ($any) {
+                    $w->orWhereExists(function ($sub) {
+                        $sub->selectRaw('1')
+                            ->from('letter_of_order_items as loi')
+                            ->whereColumn('loi.sample_id', 'samples.sample_id');
+                    });
+                } else {
+                    $w->whereExists(function ($sub) {
+                        $sub->selectRaw('1')
+                            ->from('letter_of_order_items as loi')
+                            ->whereColumn('loi.sample_id', 'samples.sample_id');
+                    });
+                }
+            }
+        });
 
         if ($request->filled('client_id')) {
             $query->where('client_id', $request->integer('client_id'));
@@ -41,6 +98,7 @@ class SampleController extends Controller
             $raw = strtolower((string) $request->get('status_enum'));
             $enum = SampleHighLevelStatus::tryFrom($raw);
             if ($enum) {
+                // Only meaningful if current_status exists, but safe to run anyway
                 $query->whereIn('current_status', $enum->currentStatuses());
             }
         }

@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class LoaSignature extends Model
+class LooSignature extends Model
 {
     protected $table = 'loa_signatures';
     protected $primaryKey = 'signature_id';

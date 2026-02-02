@@ -58,6 +58,7 @@ use App\Http\Controllers\PublicCoaVerificationController;
 
 // LOO
 use App\Http\Controllers\LetterOfOrderController;
+use App\Http\Controllers\LooSignatureVerificationController;
 
 Route::prefix('v1')->group(function () {
 
@@ -344,6 +345,10 @@ Route::prefix('v1')->group(function () {
         // Public COA verification
         Route::get('/verify/coa/{hash}', [PublicCoaVerificationController::class, 'verify']);
 
+        // ✅ Public LOO verification (QR target)
+        Route::get('/verify/loo/{hash}', [\App\Http\Controllers\PublicLooVerificationController::class, 'verify'])
+            ->where('hash', '[A-Fa-f0-9]{64}');
+
         /*
         |--------------------------------------------------------------------------
         | LOA (staff)
@@ -352,6 +357,23 @@ Route::prefix('v1')->group(function () {
         Route::post('/samples/{sampleId}/loo', [LetterOfOrderController::class, 'generate']);
         Route::post('/loo/{looId}/sign', [LetterOfOrderController::class, 'signInternal']);
         Route::post('/loo/{looId}/send', [LetterOfOrderController::class, 'sendToClient']);
+
+        /*
+        |--------------------------------------------------------------------------
+        | LOO Approvals (OM/LH) - per sample gate
+        |--------------------------------------------------------------------------
+        */
+        Route::get('/loo/approvals', [\App\Http\Controllers\LooSampleApprovalController::class, 'index']);
+        Route::patch('/loo/approvals/{sample}', [\App\Http\Controllers\LooSampleApprovalController::class, 'update'])
+            ->whereNumber('sample');
+
+        /*
+        |--------------------------------------------------------------------------
+        | LOO Signature Verification (QR target)
+        |--------------------------------------------------------------------------
+        */
+        Route::get('/loo/signatures/verify/{hash}', [LooSignatureVerificationController::class, 'show'])
+            ->where('hash', '[A-Fa-f0-9]{64}');
 
         /*
         |--------------------------------------------------------------------------

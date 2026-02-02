@@ -43,8 +43,8 @@ export type LooItem = {
 
 export type LetterOfOrder = {
     // keep both for compatibility (backend uses lo_id)
-    loo_id: number;       // canonical id in FE
-    lo_id?: number;       // mirror backend key (optional)
+    loo_id: number; // canonical id in FE
+    lo_id?: number; // mirror backend key (optional)
 
     sample_id: number;
 
@@ -70,7 +70,17 @@ export type LetterOfOrder = {
     items?: LooItem[] | null;
 };
 
+/**
+ * ✅ Step 2: OM/LH approval state per sample
+ */
+export type LooApprovalState = {
+    OM: boolean;
+    LH: boolean;
+    ready: boolean;
+};
+
 function unwrapData<T>(res: any): T {
+    // supports both axios-like { data: ... } and direct payload
     if (res && typeof res === "object" && "data" in res) return res.data as T;
     return res as T;
 }
@@ -108,7 +118,7 @@ function coerceLoo(maybe: any): LetterOfOrder | null {
             download_url: maybe?.download_url ?? null,
             pdf_url:
                 maybe?.pdf_url ??
-                maybe?.download_url ??         // if backend sets pdf_url=download_url
+                maybe?.download_url ?? // if backend sets pdf_url=download_url
                 maybe?.file_url ??
                 maybe?.fileUrl ??
                 maybe?.pdfUrl ??
@@ -143,7 +153,7 @@ export const looService = {
     },
 
     /**
-     * ✅ Step 8: Bulk generate for selected samples
+     * Bulk generate for selected samples
      * POST /v1/samples/:anyId/loo with { sample_ids, parameters_map? }
      * (backend uses sampleId route but accepts sample_ids[] in body)
      */
@@ -169,7 +179,7 @@ export const looService = {
     },
 
     /**
-     * ✅ Step 9: Role-specific internal sign
+     * Role-specific internal sign
      * POST /v1/loo/:looId/sign { role_code: "OM" | "LH" }
      */
     async signInternal(looId: number, roleCode: "OM" | "LH"): Promise<LetterOfOrder> {
@@ -189,5 +199,34 @@ export const looService = {
         const res = await apiPost<any>(`/v1/client/loo/${looId}/sign`);
         const data = unwrapData<any>(res);
         return (coerceLoo(data) ?? data) as LetterOfOrder;
+    },
+
+    /**
+     * ✅ Step 2: fetch approvals states for multiple samples
+     * GET /v1/loo/approvals?sample_ids[]=1&sample_ids[]=2
+     */
+    async getApprovals(sampleIds: number[]): Promise<Record<number, LooApprovalState>> {
+        if (!Array.isArray(sampleIds) || sampleIds.length === 0) return {};
+        const { apiGet } = await import("./api");
+        const res = await apiGet<any>("/v1/loo/approvals", { params: { sample_ids: sampleIds } });
+        const data = (res?.data ?? res) as any;
+        return (data?.data ?? {}) as Record<number, LooApprovalState>;
+    },
+
+    /**
+     * ✅ Step 2: set approval for current actor role (OM or LH) on a sample
+     * PATCH /v1/loo/approvals/:sampleId { approved: boolean }
+     */
+    async setApproval(sampleId: number, approved: boolean): Promise<{ sample_id: number; state: LooApprovalState }> {
+        if (!sampleId || sampleId <= 0) throw new Error("sampleId is required");
+        const { apiPatch } = await import("./api");
+        const res = await apiPatch<any>(`/v1/loo/approvals/${sampleId}`, { approved });
+        const obj = (res?.data ?? res) as any;
+        const d = obj?.data ?? obj;
+
+        return {
+            sample_id: Number(d?.sample_id ?? sampleId),
+            state: (d?.state ?? { OM: false, LH: false, ready: false }) as LooApprovalState,
+        };
     },
 };

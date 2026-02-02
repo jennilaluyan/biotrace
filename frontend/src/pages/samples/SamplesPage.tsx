@@ -438,12 +438,22 @@ export const SamplesPage = () => {
                                     </button>
                                 </div>
                             </div>
+
+                            <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                                <div className="font-semibold">Kapan sampel muncul di sini?</div>
+                                <div className="mt-1">
+                                    Sampel akan muncul di halaman ini setelah sudah dimasukkan ke <b>LOO</b>
+                                    (atau sampel lama yang memang sudah punya workflow lab).
+                                </div>
+                                <div className="mt-2 text-xs text-slate-600">
+                                    Kalau sampel baru selesai diverifikasi tapi belum muncul di sini, itu normal—cek dulu di <b>LOO Generator</b>.
+                                </div>
+                            </div>
                         </>
                     )}
                 </div>
             </div>
 
-            {/* ✅ FIX: CreateSampleModal requires clients */}
             <CreateSampleModal
                 open={createModalOpen}
                 onClose={() => setCreateModalOpen(false)}

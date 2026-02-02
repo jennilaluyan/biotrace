@@ -68,18 +68,14 @@ class SampleRequestQueueController extends Controller
          * - tujuan: dipilih OM/LH untuk generate LOO batch
          */
         if ($mode === 'loo_candidates') {
-            if (Schema::hasColumn('samples', 'verified_at')) {
-                $query->whereNotNull('verified_at');
-            }
-            if (Schema::hasColumn('samples', 'lab_sample_code')) {
-                $query->whereNotNull('lab_sample_code');
-            }
+            $query->whereNotNull('verified_at')
+                ->whereNotNull('lab_sample_code')
+                ->whereNull('loa_generated_at');
 
-            // draft tetap tidak relevan (client-private)
-            if (Schema::hasColumn('samples', 'request_status')) {
-                $query->where(function ($w) {
-                    $w->whereNull('request_status')
-                        ->orWhere('request_status', '!=', 'draft');
+            // Waiting room only: hide samples already included in any LOO
+            if (Schema::hasTable('letter_of_order_items') && Schema::hasColumn('letter_of_order_items', 'sample_id')) {
+                $query->whereNotIn('sample_id', function ($sub) {
+                    $sub->select('sample_id')->from('letter_of_order_items');
                 });
             }
         } else {

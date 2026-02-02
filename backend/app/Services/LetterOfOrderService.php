@@ -4,7 +4,7 @@ namespace App\Services;
 
 use App\Models\LetterOfOrder;
 use App\Models\LetterOfOrderItem;
-use App\Models\LoaSignature;
+use App\Models\LooSignature;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -122,9 +122,20 @@ class LetterOfOrderService
         $candidate = (string) ($loa->file_url ?? $this->pdf->buildPath($number));
         $path = $this->forceReportsLooPath($candidate, $number);
 
+        /**
+         * ✅ Template versioning:
+         * kalau template / logic PDF berubah, PDF lama jangan dipakai terus.
+         * Ini menghindari kasus "sudah ubah blade tapi preview masih PDF lama".
+         */
+        $tplVersion = 'loo_surat_pengujian_v2_qr';
+        $prevTpl = (string) ($payload['pdf_tpl_version'] ?? '');
+        if ($prevTpl !== $tplVersion) {
+            $forceRegenerate = true;
+        }
+
         // Decide whether to generate
         $alreadyGenerated = !empty($payload['pdf_generated_at']);
-        $shouldGenerate = $forceRegenerate || !$alreadyGenerated || !Storage::disk('local')->exists($path);
+        $shouldGenerate = $forceRegenerate || !$alreadyGenerated || !Storage::disk($this->pdf->disk())->exists($path);
 
         if (!$shouldGenerate) {
             // still normalize file_url in DB if needed
@@ -137,16 +148,45 @@ class LetterOfOrderService
         // Make sure we have signatures loaded for checkbox display
         $loa->loadMissing(['signatures']);
 
+        /**
+         * ✅ FIX barcode/QR not visible:
+         * Template expects signature_hash to exist.
+         * If it's empty (old drafts / older data), QR will never render and you only see placeholders.
+         * So we backfill missing hashes BEFORE render.
+         */
+        $hashBackfilled = false;
+        try {
+            foreach ($loa->signatures as $sig) {
+                $hash = (string) data_get($sig, 'signature_hash', '');
+                if ($hash === '') {
+                    $sig->signature_hash = hash('sha256', Str::uuid()->toString());
+                    $sig->updated_at = now();
+                    $sig->save();
+                    $hashBackfilled = true;
+                }
+            }
+
+            if ($hashBackfilled) {
+                $forceRegenerate = true;
+                $loa->load('signatures'); // refresh relation after mutation
+            }
+        } catch (\Throwable $e) {
+            // do not block PDF generation
+        }
+
         $binary = $this->pdf->render('documents.surat_pengujian', [
-            'loo' => $loa,                 // blade expects $loo->number and $loo->signatures
+            'loo' => $loa,
             'payload' => $payload,
-            'client' => null,              // intentionally omitted by design
-            'items' => $itemsSnapshot,      // use snapshot, do NOT query broken items table
+            'client' => null,
+            'items' => $itemsSnapshot,
         ]);
 
         $this->pdf->store($path, $binary);
 
         $payload['pdf_generated_at'] = now()->toISOString();
+        $payload['pdf_tpl_version'] = $tplVersion;
+
+        // keep in-memory updated; caller will save()
         $loa->payload = $payload;
         $loa->file_url = $path;
     }
@@ -297,7 +337,9 @@ class LetterOfOrderService
 
                 'sample_ids' => $sampleIds,
                 'items' => $items,
+
                 'pdf_generated_at' => null,
+                'pdf_tpl_version' => null,
             ];
 
             try {
@@ -341,35 +383,72 @@ class LetterOfOrderService
                 }
             }
 
-            // 7) create signature slots
+            /**
+             * ✅ Promote samples included in LOO
+             * - mark as generated (so they disappear from LOO Generator)
+             * - ensure lab_sample_code exists (legacy-safe)
+             */
+            $now = now();
+
+            // lock rows to avoid double-assign in concurrent LOO generates
+            $samples = \App\Models\Sample::query()
+                ->whereIn('sample_id', $sampleIds)
+                ->lockForUpdate()
+                ->get(['sample_id', 'lab_sample_code']);
+
+            $codeGen = app(\App\Services\LabSampleCodeGenerator::class);
+
+            foreach ($samples as $s) {
+                $code = (string) ($s->lab_sample_code ?? '');
+                if (trim($code) === '') {
+                    $code = $codeGen->nextCode();
+                    \App\Models\Sample::query()
+                        ->where('sample_id', $s->sample_id)
+                        ->update([
+                            'lab_sample_code' => $code,
+                        ]);
+                }
+
+                // mark as included in LOO
+                \App\Models\Sample::query()
+                    ->where('sample_id', $s->sample_id)
+                    ->update([
+                        'loa_generated_at' => $now,
+                        'loa_generated_by_staff_id' => $actorStaffId,
+                    ]);
+            }
+
+            // 7) create signature slots (pre-generate signature_hash so QR is visible on draft PDF)
             $roles = DB::table('loa_signature_roles')
                 ->orderBy('sort_order')
                 ->get(['role_code']);
 
             foreach ($roles as $r) {
-                LoaSignature::query()->create([
+                LooSignature::query()->create([
                     'lo_id' => (int) $loa->lo_id,
                     'role_code' => $r->role_code,
                     'signed_by_staff' => null,
                     'signed_by_client' => null,
                     'signed_at' => null,
-                    'signature_hash' => null,
+
+                    // QR depends on this hash; generate at slot creation time (even before signing)
+                    'signature_hash' => hash('sha256', Str::uuid()->toString()),
+
                     'note' => null,
                     'created_at' => now(),
                     'updated_at' => null,
                 ]);
             }
 
-            // ✅ NEW: generate PDF immediately so preview works right away
+            // ✅ generate PDF immediately so preview works right away
             $loa->loadMissing(['signatures']);
             $this->ensurePdfOnDisk($loa, $payload, $items, true);
             $loa->updated_at = now();
             $loa->save();
 
-            // attach relations safely (avoid querying broken items table)
+            // attach relations safely
             $loa->loadMissing(['signatures']);
             $loa->setRelation('items', $this->buildItemsModels((int) $loa->lo_id, $items));
-
             return $loa;
         }, 3);
     }
@@ -389,7 +468,7 @@ class LetterOfOrderService
                 throw new RuntimeException('LoA already locked.');
             }
 
-            $sig = LoaSignature::query()
+            $sig = LooSignature::query()
                 ->where('lo_id', $loId)
                 ->where('role_code', $roleCode)
                 ->firstOrFail();
@@ -403,12 +482,17 @@ class LetterOfOrderService
 
             $sig->signed_by_staff = $actorStaffId;
             $sig->signed_at = now();
-            $sig->signature_hash = hash('sha256', Str::uuid()->toString());
+
+            // ✅ don't overwrite existing hash (QR must stay stable)
+            if (empty($sig->signature_hash)) {
+                $sig->signature_hash = hash('sha256', Str::uuid()->toString());
+            }
+
             $sig->updated_at = now();
             $sig->save();
 
             // Re-check OM + LH signatures
-            $sigs = LoaSignature::query()
+            $sigs = LooSignature::query()
                 ->where('lo_id', $loId)
                 ->whereIn('role_code', ['OM', 'LH'])
                 ->get(['role_code', 'signed_at']);
@@ -429,7 +513,7 @@ class LetterOfOrderService
 
                 $payload = is_array($loa->payload) ? $loa->payload : (array) $loa->payload;
 
-                // Ensure PDF exists (and regen once after both signed, so checkbox markers are correct)
+                // regen once after both signed, so checkbox markers are correct
                 $items = (array) ($payload['items'] ?? []);
                 $this->ensurePdfOnDisk($loa, $payload, $items, true);
 
@@ -480,7 +564,7 @@ class LetterOfOrderService
                 throw new RuntimeException('LoA must be sent_to_client before client can sign.');
             }
 
-            $sig = LoaSignature::query()
+            $sig = LooSignature::query()
                 ->where('lo_id', $loId)
                 ->where('role_code', 'CLIENT')
                 ->firstOrFail();
@@ -488,7 +572,12 @@ class LetterOfOrderService
             if (!$sig->signed_at) {
                 $sig->signed_by_client = $clientId;
                 $sig->signed_at = now();
-                $sig->signature_hash = hash('sha256', Str::uuid()->toString());
+
+                // QR stable token
+                if (empty($sig->signature_hash)) {
+                    $sig->signature_hash = hash('sha256', Str::uuid()->toString());
+                }
+
                 $sig->updated_at = now();
                 $sig->save();
             }
