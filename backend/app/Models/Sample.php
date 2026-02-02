@@ -90,8 +90,12 @@ class Sample extends Model
         'sc_delivered_to_analyst_at' => 'datetime',
         'analyst_received_at' => 'datetime',
 
-        // ✅ Analyst crosscheck gate
+        // Crosscheck
         'crosschecked_at' => 'datetime',
+
+        // Return-to-SC workflow (when crosscheck failed)
+        'analyst_returned_to_sc_at' => 'datetime',
+        'sc_received_from_analyst_at' => 'datetime',
 
         'collector_returned_to_admin_at' => 'datetime',
         'admin_received_from_collector_at' => 'datetime',
