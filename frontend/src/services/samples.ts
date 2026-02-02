@@ -1,5 +1,4 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\services\samples.ts
-import { apiGet, apiPost } from "./api";
+import { apiGet, apiPost, apiPatch } from "./api";
 
 // --- backend detail statuses (current_status)
 export type SampleStatus =
@@ -100,8 +99,6 @@ export interface Sample {
     sample_type: string;
     examination_purpose: string | null;
 
-    // ❌ removed: contact_history, priority
-
     current_status: SampleStatus;
     additional_notes: string | null;
     created_by: number;
@@ -132,6 +129,12 @@ export interface Sample {
     collector_returned_to_admin_at?: string | null;
     admin_received_from_collector_at?: string | null;
     client_picked_up_at?: string | null;
+
+    crosscheck_status?: "pending" | "passed" | "failed" | (string & {}) | null;
+    crosschecked_at?: string | null;
+    crosschecked_by_staff_id?: number | null;
+    crosscheck_note?: string | null;
+    physical_label_code?: string | null;
 
     // ✅ requested parameters (pivot)
     requested_parameters?: RequestedParameter[] | null;
@@ -222,5 +225,8 @@ export const sampleService = {
     async getStatusHistory(sampleId: number): Promise<SampleStatusHistoryItem[]> {
         const res = await apiGet<any>(`/v1/samples/${sampleId}/status-history`);
         return (res?.data ?? res) as SampleStatusHistoryItem[];
+    },
+    async submitCrosscheck(sampleId: number, payload: { physical_label_code: string; note?: string | null }) {
+        return apiPatch(`/v1/samples/${sampleId}/crosscheck`, payload);
     },
 };

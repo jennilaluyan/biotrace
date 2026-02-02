@@ -8,6 +8,15 @@ type Props = {
      * (mis. setelah submit result / add tests / update status).
      */
     refreshKey?: number;
+
+    /**
+     * Optional: pass sample object dari parent supaya panel bisa menampilkan
+     * gate crosscheck (Step 2.3) secara jelas di UI.
+     *
+     * Minimal fields yang dibaca:
+     * - crosscheck_status
+     */
+    sample?: any;
 };
 
 function cx(...arr: Array<string | false | null | undefined>) {
@@ -76,10 +85,14 @@ function extractCalcView(calc: any) {
     };
 }
 
-export function ReagentCalculationPanel({ sampleId, refreshKey }: Props) {
+export function ReagentCalculationPanel({ sampleId, refreshKey, sample }: Props) {
     const [loading, setLoading] = useState(false);
     const [err, setErr] = useState<string | null>(null);
     const [calc, setCalc] = useState<any>(null);
+
+    const crosscheckStatusRaw = String(sample?.crosscheck_status ?? "");
+    const crosscheckStatus = crosscheckStatusRaw.trim().toLowerCase();
+    const crosscheckPassed = crosscheckStatus === "passed";
 
     const load = async () => {
         if (!sampleId || Number.isNaN(sampleId)) return;
@@ -139,6 +152,20 @@ export function ReagentCalculationPanel({ sampleId, refreshKey }: Props) {
                     {loading ? "Loading..." : "Refresh"}
                 </button>
             </div>
+
+            {/* ✅ Step 2.3 UI Gate: show why blocked */}
+            {!crosscheckPassed && (
+                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
+                    <div className="text-sm font-semibold text-amber-900">⛔ Blocked</div>
+                    <div className="text-xs text-amber-800 mt-1">
+                        Reagent Request / Reagent Calculation cannot proceed until crosscheck is <b>PASS</b>.
+                    </div>
+                    <div className="text-[11px] text-amber-800 mt-2">
+                        Current crosscheck:{" "}
+                        <span className="font-mono">{crosscheckStatus || "pending"}</span>
+                    </div>
+                </div>
+            )}
 
             {err && !loading && (
                 <div className="mt-4 text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">

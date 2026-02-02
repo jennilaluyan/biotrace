@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class SamplePhysicalWorkflowUpdateRequest extends FormRequest
 {
@@ -18,7 +19,24 @@ class SamplePhysicalWorkflowUpdateRequest extends FormRequest
             'action' => [
                 'required',
                 'string',
-                'in:admin_received_from_client,admin_brought_to_collector,collector_received,collector_intake_completed,sc_delivered_to_analyst,analyst_received,collector_returned_to_admin,admin_received_from_collector,client_picked_up',
+                Rule::in([
+                    // request/intake flow (existing)
+                    'admin_received_from_client',
+                    'admin_brought_to_collector',
+                    'collector_received',
+                    'collector_intake_completed',
+                    'collector_returned_to_admin',
+                    'admin_received_from_collector',
+                    'client_picked_up',
+
+                    // SC -> Analyst handoff (todo 1)
+                    'sc_delivered_to_analyst',
+                    'analyst_received',
+
+                    // Analyst crosscheck FAIL -> return to SC (todo 2 addition)
+                    'analyst_returned_to_sc',
+                    'sc_received_from_analyst',
+                ]),
             ],
             'note' => ['nullable', 'string', 'max:2000'],
         ];
@@ -28,7 +46,7 @@ class SamplePhysicalWorkflowUpdateRequest extends FormRequest
     {
         return [
             'action.required' => 'Action is required.',
-            'action.in' => 'Invalid action.',
+            'action.in'       => 'Invalid action.',
         ];
     }
 }

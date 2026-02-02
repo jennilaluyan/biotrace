@@ -51,6 +51,13 @@ class Sample extends Model
         'sc_delivered_to_analyst_at',
         'analyst_received_at',
 
+        // ✅ Analyst crosscheck gate
+        'crosscheck_status',          // pending | passed | failed
+        'physical_label_code',        // input analyst
+        'crosschecked_at',
+        'crosschecked_by_staff_id',
+        'crosscheck_note',
+
         'collector_returned_to_admin_at',
         'admin_received_from_collector_at',
         'client_picked_up_at',
@@ -82,6 +89,13 @@ class Sample extends Model
         // ✅ NEW: SC → Analyst handoff
         'sc_delivered_to_analyst_at' => 'datetime',
         'analyst_received_at' => 'datetime',
+
+        // Crosscheck
+        'crosschecked_at' => 'datetime',
+
+        // Return-to-SC workflow (when crosscheck failed)
+        'analyst_returned_to_sc_at' => 'datetime',
+        'sc_received_from_analyst_at' => 'datetime',
 
         'collector_returned_to_admin_at' => 'datetime',
         'admin_received_from_collector_at' => 'datetime',
