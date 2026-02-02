@@ -6,6 +6,7 @@ use App\Http\Requests\SampleCrosscheckSubmitRequest;
 use App\Models\Sample;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use App\Support\AuditLogger;
 
 class SampleCrosscheckController extends Controller
 {
@@ -90,6 +91,15 @@ class SampleCrosscheckController extends Controller
             }
         }
 
+        // ✅ Capture old crosscheck state for ISO-ish diff trail
+        $oldState = [
+            'crosscheck_status'        => $sample->crosscheck_status ?? null,
+            'physical_label_code'      => $sample->physical_label_code ?? null,
+            'crosschecked_at'          => $sample->crosschecked_at ?? null,
+            'crosschecked_by_staff_id' => $sample->crosschecked_by_staff_id ?? null,
+            'crosscheck_note'          => $sample->crosscheck_note ?? null,
+        ];
+
         DB::transaction(function () use ($sample, $staffId, $enteredRaw, $isMatch, $note) {
             $sample->crosscheck_status = $isMatch ? 'passed' : 'failed';
             $sample->physical_label_code = $enteredRaw;
@@ -97,10 +107,19 @@ class SampleCrosscheckController extends Controller
             $sample->crosschecked_by_staff_id = $staffId;
             $sample->crosscheck_note = $isMatch ? null : $note;
 
-            // Optional safety: kalau sebelumnya failed lalu sekarang passed, kita biarkan return timestamps tetap ada
-            // (karena itu audit). Kalau kamu mau reset saat passed, bilang nanti.
             $sample->save();
         });
+
+        // ✅ Step 2.6 — write audit log event (PASSED/FAILED)
+        AuditLogger::logSampleCrosscheck(
+            staffId: (int) $staffId,
+            sampleId: (int) $sample->sample_id,
+            result: $isMatch ? 'passed' : 'failed',
+            expectedCode: (string) $expectedRaw,
+            enteredCode: (string) $enteredRaw,
+            note: $isMatch ? null : $note,
+            oldState: $oldState
+        );
 
         return response()->json([
             'status' => 200,

@@ -237,4 +237,43 @@ class AuditLogger
             newValues: $payloadNew
         );
     }
+
+    /**
+     * ✅ Step 2.6 — Audit log untuk Analyst Crosscheck (ISO trail).
+     * Event minimal:
+     * - SAMPLE_CROSSCHECK_PASSED
+     * - SAMPLE_CROSSCHECK_FAILED
+     * data: sample_id, expected_code, entered_code, actor_id, note
+     */
+    public static function logSampleCrosscheck(
+        int $staffId,
+        int $sampleId,
+        string $result, // 'passed' | 'failed'
+        string $expectedCode,
+        string $enteredCode,
+        ?string $note = null,
+        ?array $oldState = null
+    ): void {
+        $resultNorm = strtolower(trim($result));
+        $action = $resultNorm === 'passed'
+            ? 'SAMPLE_CROSSCHECK_PASSED'
+            : 'SAMPLE_CROSSCHECK_FAILED';
+
+        $payload = [
+            'sample_id'      => $sampleId,
+            'expected_code'  => $expectedCode,
+            'entered_code'   => $enteredCode,
+            'actor_id'       => $staffId,
+            'note'           => $note,
+        ];
+
+        self::write(
+            action: $action,
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: $oldState,
+            newValues: $payload
+        );
+    }
 }
