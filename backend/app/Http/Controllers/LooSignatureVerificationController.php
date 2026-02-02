@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\LoaSignature;
+use App\Models\LooSignature;
 use Illuminate\Http\JsonResponse;
 
 class LooSignatureVerificationController extends Controller
@@ -17,8 +17,8 @@ class LooSignatureVerificationController extends Controller
     {
         $hash = trim($hash);
 
-        /** @var LoaSignature|null $sig */
-        $sig = LoaSignature::query()
+        /** @var LooSignature|null $sig */
+        $sig = LooSignature::query()
             ->where('signature_hash', $hash)
             ->with([
                 'letter',       // LetterOfOrder

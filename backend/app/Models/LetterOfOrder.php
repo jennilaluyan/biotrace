@@ -40,7 +40,7 @@ class LetterOfOrder extends Model
 
     public function signatures(): HasMany
     {
-        return $this->hasMany(LoaSignature::class, 'lo_id', 'lo_id');
+        return $this->hasMany(LooSignature::class, 'lo_id', 'lo_id');
     }
 
     public function items(): HasMany

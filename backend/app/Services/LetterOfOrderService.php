@@ -4,7 +4,7 @@ namespace App\Services;
 
 use App\Models\LetterOfOrder;
 use App\Models\LetterOfOrderItem;
-use App\Models\LoaSignature;
+use App\Models\LooSignature;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -382,7 +382,7 @@ class LetterOfOrderService
                 ->get(['role_code']);
 
             foreach ($roles as $r) {
-                LoaSignature::query()->create([
+                LooSignature::query()->create([
                     'lo_id' => (int) $loa->lo_id,
                     'role_code' => $r->role_code,
                     // ...
@@ -417,7 +417,7 @@ class LetterOfOrderService
                 throw new RuntimeException('LoA already locked.');
             }
 
-            $sig = LoaSignature::query()
+            $sig = LooSignature::query()
                 ->where('lo_id', $loId)
                 ->where('role_code', $roleCode)
                 ->firstOrFail();
@@ -436,7 +436,7 @@ class LetterOfOrderService
             $sig->save();
 
             // Re-check OM + LH signatures
-            $sigs = LoaSignature::query()
+            $sigs = LooSignature::query()
                 ->where('lo_id', $loId)
                 ->whereIn('role_code', ['OM', 'LH'])
                 ->get(['role_code', 'signed_at']);
@@ -508,7 +508,7 @@ class LetterOfOrderService
                 throw new RuntimeException('LoA must be sent_to_client before client can sign.');
             }
 
-            $sig = LoaSignature::query()
+            $sig = LooSignature::query()
                 ->where('lo_id', $loId)
                 ->where('role_code', 'CLIENT')
                 ->firstOrFail();
