@@ -345,6 +345,10 @@ Route::prefix('v1')->group(function () {
         // Public COA verification
         Route::get('/verify/coa/{hash}', [PublicCoaVerificationController::class, 'verify']);
 
+        // ✅ Public LOO verification (QR target)
+        Route::get('/verify/loo/{hash}', [\App\Http\Controllers\PublicLooVerificationController::class, 'verify'])
+            ->where('hash', '[A-Fa-f0-9]{64}');
+
         /*
         |--------------------------------------------------------------------------
         | LOA (staff)
