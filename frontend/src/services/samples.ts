@@ -1,5 +1,4 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\services\samples.ts
-import { apiGet, apiPost } from "./api";
+import { apiGet, apiPost, apiPatch } from "./api";
 
 // --- backend detail statuses (current_status)
 export type SampleStatus =
@@ -222,5 +221,8 @@ export const sampleService = {
     async getStatusHistory(sampleId: number): Promise<SampleStatusHistoryItem[]> {
         const res = await apiGet<any>(`/v1/samples/${sampleId}/status-history`);
         return (res?.data ?? res) as SampleStatusHistoryItem[];
+    },
+    async submitCrosscheck(sampleId: number, payload: { physical_label_code: string; note?: string | null }) {
+        return apiPatch(`/v1/samples/${sampleId}/crosscheck`, payload);
     },
 };

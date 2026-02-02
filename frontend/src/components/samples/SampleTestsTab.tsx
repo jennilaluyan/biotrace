@@ -504,7 +504,11 @@ export const SampleTestsTab = ({
             )}
 
             {!testsLoading && !testsError && (
-                <ReagentCalculationPanel sampleId={sampleId} refreshKey={reagentRefreshKey} />
+                <ReagentCalculationPanel
+                    sampleId={sampleId}
+                    refreshKey={reagentRefreshKey}
+                    sample={sample}
+                />
             )}
 
             {/* Bulk bar */}

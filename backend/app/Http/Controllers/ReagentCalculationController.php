@@ -10,6 +10,9 @@ use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use App\Models\Sample;
+use Illuminate\Support\Facades\Schema;
+
 
 class ReagentCalculationController extends Controller
 {
@@ -95,6 +98,25 @@ class ReagentCalculationController extends Controller
         $actorId = $user->{$user->getKeyName()} ?? $user->staff_id ?? null;
         if (!$actorId) {
             return ApiResponse::error('Unauthenticated.', 'UNAUTHENTICATED', 401, ['resource' => 'reagent_calculations']);
+        }
+
+        // ✅ Gate Step 2.3: crosscheck must PASS before reagent proposal/edit
+        $block = $this->guardCrosscheckPassedForReagentBySampleId((int) $reagentCalculation->sample_id);
+        if ($block) {
+            $this->writeAudit(
+                $request,
+                $user,
+                'reagent_calculation',
+                (int) $reagentCalculation->calc_id,
+                'REAGENT_EDIT_BLOCKED',
+                null,
+                [
+                    'reason' => 'crosscheck_required',
+                    'sample_id' => (int) $reagentCalculation->sample_id,
+                ]
+            );
+
+            return $block;
         }
 
         // kalau sudah locked=true dan sudah ada om_approved_by -> jangan boleh diedit langsung
@@ -323,5 +345,89 @@ class ReagentCalculationController extends Controller
         } catch (\Throwable $e) {
             Log::warning('AuditLog write failed: ' . $e->getMessage());
         }
+    }
+
+    private function guardCrosscheckPassedForReagentBySampleId(int $sampleId): ?JsonResponse
+    {
+        // Crosscheck fields must exist (from step 2.1)
+        if (!Schema::hasColumn('samples', 'crosscheck_status')) {
+            return \App\Support\ApiResponse::error(
+                'Crosscheck belum tersedia (migrasi crosscheck belum dijalankan).',
+                'CROSSCHECK_NOT_SUPPORTED',
+                409
+            );
+        }
+
+        $groupCandidates = [
+            'loa_generated_at',
+            'lo_id',
+            'loo_id',
+            'letter_of_order_id',
+            'request_id',
+            'sample_request_id',
+        ];
+
+        // Only select columns that actually exist (avoid SQL error)
+        $selectCols = ['sample_id', 'crosscheck_status', 'lab_sample_code'];
+        foreach ($groupCandidates as $col) {
+            if (Schema::hasColumn('samples', $col)) {
+                $selectCols[] = $col;
+            }
+        }
+
+        $anchor = Sample::query()
+            ->select(array_values(array_unique($selectCols)))
+            ->find($sampleId);
+
+        if (!$anchor) {
+            return \App\Support\ApiResponse::error(
+                'Sample not found.',
+                'SAMPLE_NOT_FOUND',
+                404
+            );
+        }
+
+        // Default: only this sample
+        $q = Sample::query()
+            ->select(['sample_id', 'crosscheck_status', 'lab_sample_code'])
+            ->where('sample_id', $anchor->sample_id);
+
+        // Best-effort “request grouping”
+        foreach ($groupCandidates as $col) {
+            if (Schema::hasColumn('samples', $col)) {
+                $val = $anchor->{$col} ?? null;
+
+                // allow grouping even if val is 0-like? (keep strict non-empty)
+                if ($val !== null && $val !== '') {
+                    $q = Sample::query()
+                        ->select(['sample_id', 'crosscheck_status', 'lab_sample_code'])
+                        ->where($col, $val);
+                    break;
+                }
+            }
+        }
+
+        $rows = $q->get();
+
+        $notPassed = $rows->filter(function ($r) {
+            return strtolower((string)($r->crosscheck_status ?? 'pending')) !== 'passed';
+        })->values();
+
+        if ($notPassed->isNotEmpty()) {
+            return \App\Support\ApiResponse::error(
+                'Reagent Request diblokir: crosscheck harus PASS untuk semua sample dalam request.',
+                'CROSSCHECK_REQUIRED',
+                409,
+                [
+                    'blocked_samples' => $notPassed->map(fn($r) => [
+                        'sample_id' => $r->sample_id,
+                        'lab_sample_code' => $r->lab_sample_code,
+                        'crosscheck_status' => $r->crosscheck_status ?? 'pending',
+                    ])->all(),
+                ]
+            );
+        }
+
+        return null;
     }
 }
