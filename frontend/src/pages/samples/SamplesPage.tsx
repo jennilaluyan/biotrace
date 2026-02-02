@@ -117,10 +117,25 @@ export const SamplesPage = () => {
         }
     };
 
-    // Step 3.1 — legacy general status detector (SamplesPage only)
-    const isLegacyGeneralStatus = (value?: string | null) => {
+    const isLegacyGeneralStatusOnSamplesList = (value?: string | null) => {
         if (!value) return false;
         return String(value).toLowerCase().startsWith("legacy_general_");
+    };
+
+    const statusLabelForSamplesList = (s: Sample) => {
+        const base = statusLabelByCurrent(s.current_status);
+        if (base !== "-") return base;
+
+        const hasLabCode = !!s.lab_sample_code;
+        if (!hasLabCode) return "Awaiting lab promotion";
+
+        const analystReceivedAt = (s as any)?.analyst_received_at ?? null;
+        if (!analystReceivedAt) return "Awaiting analyst intake";
+
+        const cs = String((s as any)?.crosscheck_status ?? "pending").toLowerCase();
+        if (cs === "failed") return "Crosscheck failed";
+        if (cs === "passed") return "Ready for reagent request";
+        return "Awaiting crosscheck";
     };
 
     const statusLabelByCurrent = (current?: Sample["current_status"]) => {
@@ -403,7 +418,7 @@ export const SamplesPage = () => {
                                     <tbody className="divide-y divide-gray-100">
                                         {visibleItems.map((s) => {
                                             const badgeClass = statusBadgeClassByEnum(s.status_enum);
-                                            const statusLabel = statusLabelForSamplesPage(s);
+                                            const statusLabel = statusLabelForSamplesList(s);
                                             const commentCount = commentCounts[s.sample_id] ?? 0;
 
                                             return (
@@ -422,7 +437,7 @@ export const SamplesPage = () => {
                                                             {(() => {
                                                                 const raw = (s as any)?.status_enum ?? null;
                                                                 if (!raw) return null;
-                                                                if (isLegacyGeneralStatus(raw)) return null;
+                                                                if (isLegacyGeneralStatusOnSamplesList(raw)) return null;
 
                                                                 return (
                                                                     <span
