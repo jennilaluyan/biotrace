@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use App\Enums\SampleRequestStatus;
+use App\Support\AuditLogger;
 
 class SamplePhysicalWorkflowController extends Controller
 {
@@ -248,20 +249,21 @@ class SamplePhysicalWorkflowController extends Controller
                 $sample->request_status = SampleRequestStatus::UNDER_INSPECTION->value;
             }
 
-            // ✅ After failed inspection, collector returns to admin (pickup required)
             if ($action === 'collector_returned_to_admin') {
                 $sample->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
             }
 
-            // ✅ When admin receives back from collector, ensure client-facing status is pickup-required
             if ($action === 'admin_received_from_collector') {
                 $sample->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
             }
 
-            // ✅ When client picked up, keep status consistent for client view
             if ($action === 'client_picked_up') {
                 $sample->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
             }
+
+            // ✅ untuk action baru ini: JANGAN ubah request_status (handoff fisik lab-side)
+            // sc_delivered_to_analyst
+            // analyst_received
 
             $sample->save();
 
@@ -275,24 +277,19 @@ class SamplePhysicalWorkflowController extends Controller
                     'user_id' => $staffId,
                     'entity_name' => 'samples',
                     'entity_id' => $sample->sample_id,
-
-                    // ✅ Keep action <= 40 chars (DB constraint)
                     'action' => 'SAMPLE_PHYSICAL_WORKFLOW_CHANGED',
-
                     'performed_at' => now(),
                     'created_at' => now(),
                     'updated_at' => now(),
-
                     'note' => $note,
                     'meta' => $note ? json_encode(['note' => $note]) : null,
-
                     'old_values' => json_encode([
                         $targetCol => $oldTargetValue,
                         'request_status' => $oldRequestStatus,
                     ]),
                     'new_values' => json_encode([
                         $targetCol => $sample->{$targetCol},
-                        'event_key' => $action,               // ✅ store the real event here
+                        'event_key' => $action,
                         'request_status' => $sample->request_status,
                     ]),
                 ];

@@ -301,12 +301,18 @@ export const SampleDetailPage = () => {
     const adminBroughtToCollectorAt = (sample as any)?.admin_brought_to_collector_at ?? null;
     const collectorReceivedAt = (sample as any)?.collector_received_at ?? null;
     const collectorIntakeCompletedAt = (sample as any)?.collector_intake_completed_at ?? null;
+
+    // ✅ NEW: SC → Analyst handoff timestamps
+    const scDeliveredToAnalystAt = (sample as any)?.sc_delivered_to_analyst_at ?? null;
+    const analystReceivedAt = (sample as any)?.analyst_received_at ?? null;
+
     const collectorReturnedToAdminAt = (sample as any)?.collector_returned_to_admin_at ?? null;
     const adminReceivedFromCollectorAt = (sample as any)?.admin_received_from_collector_at ?? null;
     const clientPickedUpAt = (sample as any)?.client_picked_up_at ?? null;
 
     const isAdmin = roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.LAB_HEAD;
     const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
+    const isAnalyst = roleId === ROLE_ID.ANALYST;
 
     const canWfAdminReceive =
         isAdmin && requestStatus.toLowerCase() === "physically_received" && !adminReceivedFromClientAt;
@@ -319,6 +325,13 @@ export const SampleDetailPage = () => {
 
     const canWfCollectorIntakeDone =
         isCollector && !!collectorReceivedAt && !collectorIntakeCompletedAt;
+
+    // ✅ NEW: handoff gating (SC delivers only after intake completed; Analyst receives only after SC delivered)
+    const canWfScDeliverToAnalyst =
+        isCollector && !!collectorIntakeCompletedAt && !scDeliveredToAnalystAt;
+
+    const canWfAnalystReceive =
+        isAnalyst && !!scDeliveredToAnalystAt && !analystReceivedAt;
 
     const canWfCollectorReturn =
         isCollector && !!collectorIntakeCompletedAt && !collectorReturnedToAdminAt;
@@ -506,7 +519,7 @@ export const SampleDetailPage = () => {
                                                 <div>
                                                     <div className="text-sm font-bold text-gray-900">Request / Intake</div>
                                                     <div className="text-xs text-gray-500 mt-1">
-                                                        Lab Head validates intake after checklist pass. Backend enforces rules; UI just guides.
+                                                        Admin ↔ Sample Collector ↔ Analyst handoff timestamps (backend enforces order).
                                                     </div>
                                                 </div>
 
@@ -596,6 +609,11 @@ export const SampleDetailPage = () => {
                                                         { label: "Admin: brought to collector", at: adminBroughtToCollectorAt },
                                                         { label: "Collector: received", at: collectorReceivedAt },
                                                         { label: "Collector: intake completed", at: collectorIntakeCompletedAt },
+
+                                                        // ✅ NEW: SC → Analyst handoff
+                                                        { label: "SC: delivered to analyst", at: scDeliveredToAnalystAt },
+                                                        { label: "Analyst: received", at: analystReceivedAt },
+
                                                         { label: "Collector: returned to admin", at: collectorReturnedToAdminAt },
                                                         { label: "Admin: received from collector", at: adminReceivedFromCollectorAt },
                                                         { label: "Client: picked up", at: clientPickedUpAt },
@@ -652,6 +670,25 @@ export const SampleDetailPage = () => {
                                                         title="Collector marks intake completed"
                                                     >
                                                         {wfBusy ? "Saving..." : "Collector: Intake Completed"}
+                                                    </SmallButton>
+
+                                                    {/* ✅ NEW: SC → Analyst handoff actions */}
+                                                    <SmallButton
+                                                        type="button"
+                                                        onClick={() => doPhysicalWorkflow("sc_delivered_to_analyst")}
+                                                        disabled={!canWfScDeliverToAnalyst || wfBusy}
+                                                        title="Sample Collector delivers sample to analyst"
+                                                    >
+                                                        {wfBusy ? "Saving..." : "SC: Delivered to Analyst"}
+                                                    </SmallButton>
+
+                                                    <SmallButton
+                                                        type="button"
+                                                        onClick={() => doPhysicalWorkflow("analyst_received")}
+                                                        disabled={!canWfAnalystReceive || wfBusy}
+                                                        title="Analyst confirms sample received"
+                                                    >
+                                                        {wfBusy ? "Saving..." : "Analyst: Received"}
                                                     </SmallButton>
 
                                                     <SmallButton
