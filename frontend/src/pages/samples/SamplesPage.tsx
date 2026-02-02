@@ -117,6 +117,12 @@ export const SamplesPage = () => {
         }
     };
 
+    // Step 3.1 — legacy general status detector (SamplesPage only)
+    const isLegacyGeneralStatus = (value?: string | null) => {
+        if (!value) return false;
+        return String(value).toLowerCase().startsWith("legacy_general_");
+    };
+
     const statusLabelByCurrent = (current?: Sample["current_status"]) => {
         switch (current) {
             case "received":
@@ -395,18 +401,26 @@ export const SamplesPage = () => {
                                                     </td>
                                                     <td className="px-4 py-3">
                                                         <div className="flex flex-col gap-1">
-                                                            <span
-                                                                className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${badgeClass}`}
-                                                            >
-                                                                {s.status_enum ?? "-"}
-                                                            </span>
+                                                            {(() => {
+                                                                const raw = (s as any)?.status_enum ?? null;
+                                                                if (!raw) return null;
+                                                                if (isLegacyGeneralStatus(raw)) return null;
+
+                                                                return (
+                                                                    <span
+                                                                        className={`inline-flex items-center px-2 py-1
+                    rounded-full text-xs font-semibold ${badgeClass}`}
+                                                                    >
+                                                                        {raw}
+                                                                    </span>
+                                                                );
+                                                            })()}
 
                                                             <span className="text-xs text-gray-500">{statusLabel}</span>
 
                                                             {(() => {
                                                                 const ops = getCrosscheckOpsLabel(s);
                                                                 if (!ops) return null;
-
                                                                 return (
                                                                     <span className={`text-xs font-semibold ${ops.className}`}>
                                                                         {ops.label}
@@ -415,7 +429,6 @@ export const SamplesPage = () => {
                                                             })()}
                                                         </div>
                                                     </td>
-
                                                     <td className="px-4 py-3 text-gray-700">
                                                         {s.received_at ? formatDate(s.received_at) : "-"}
                                                     </td>
