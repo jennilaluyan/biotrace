@@ -43,24 +43,37 @@ class SampleController extends Controller
         $hasCurrentStatus   = Schema::hasColumn('samples', 'current_status');
         $hasLoaGeneratedAt  = Schema::hasColumn('samples', 'loa_generated_at');
 
-        $query->where(function ($w) use ($hasCurrentStatus, $hasLoaGeneratedAt, $hasLooItems) {
+        $hasRequestStatus = Schema::hasColumn('samples', 'request_status');
+
+        $query->where(function ($w) use ($hasCurrentStatus, $hasLoaGeneratedAt, $hasLooItems, $hasRequestStatus) {
             $any = false;
 
+            /**
+             * ✅ Rule baru:
+             * - Sample dari request workflow (punya request_status) hanya boleh tampil di /samples setelah masuk LOO (loa_generated_at) atau legacy items.
+             * - Sample legacy/manual (request_status NULL) boleh tampil jika sudah punya current_status (lab workflow).
+             */
             if ($hasCurrentStatus) {
-                $w->whereNotNull('current_status');
+                if ($hasRequestStatus) {
+                    // legacy/manual = request_status NULL
+                    $w->where(function ($qq) {
+                        $qq->whereNull('request_status')
+                            ->whereNotNull('current_status');
+                    });
+                } else {
+                    // jika kolom request_status tidak ada, fallback ke perilaku lama (anggap semua current_status = lab)
+                    $w->whereNotNull('current_status');
+                }
                 $any = true;
             }
 
             if ($hasLoaGeneratedAt) {
-                // OR because we want either current_status OR already included in LOO
                 if ($any) $w->orWhereNotNull('loa_generated_at');
                 else $w->whereNotNull('loa_generated_at');
-
                 $any = true;
             }
 
             if ($hasLooItems) {
-                // legacy fallback (items table exists)
                 if ($any) {
                     $w->orWhereExists(function ($sub) {
                         $sub->selectRaw('1')

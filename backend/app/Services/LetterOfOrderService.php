@@ -382,10 +382,18 @@ class LetterOfOrderService
                 ->get(['role_code']);
 
             foreach ($roles as $r) {
+                $rc = strtoupper(trim((string) $r->role_code));
+
                 LooSignature::query()->create([
                     'lo_id' => (int) $loa->lo_id,
-                    'role_code' => $r->role_code,
-                    // ...
+                    'role_code' => $rc,
+
+                    // ✅ supaya QR/“barcode” bisa tampil walau belum signed
+                    // hash ini menjadi target URL verifikasi, signed_at boleh null.
+                    'signature_hash' => hash('sha256', Str::uuid()->toString()),
+
+                    'created_at' => now(),
+                    'updated_at' => null,
                 ]);
             }
 
@@ -431,7 +439,12 @@ class LetterOfOrderService
 
             $sig->signed_by_staff = $actorStaffId;
             $sig->signed_at = now();
-            $sig->signature_hash = hash('sha256', Str::uuid()->toString());
+
+            // ✅ jangan timpa hash kalau sudah ada (stabil untuk QR)
+            if (empty($sig->signature_hash)) {
+                $sig->signature_hash = hash('sha256', Str::uuid()->toString());
+            }
+
             $sig->updated_at = now();
             $sig->save();
 
