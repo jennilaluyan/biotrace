@@ -136,6 +136,37 @@ export const SamplesPage = () => {
         }
     };
 
+    // ✅ Step 2.5 — Operational status ringkas (Crosscheck dashboard label)
+    function getCrosscheckOpsLabel(s: Sample): { label: string; className: string } | null {
+        // prerequisites: sudah jadi lab sample + analyst sudah menerima fisik
+        const hasLabCode = !!s.lab_sample_code;
+        const analystReceivedAt = (s as any)?.analyst_received_at ?? null;
+
+        if (!hasLabCode || !analystReceivedAt) return null;
+
+        const cs = String((s as any)?.crosscheck_status ?? "pending").toLowerCase();
+
+        if (cs === "failed") {
+            return {
+                label: "Crosscheck failed",
+                className: "text-red-700",
+            };
+        }
+
+        if (cs === "passed") {
+            return {
+                label: "Ready for reagent request",
+                className: "text-emerald-700",
+            };
+        }
+
+        // default = pending/unknown
+        return {
+            label: "Awaiting crosscheck",
+            className: "text-amber-700",
+        };
+    }
+
     const totalPages = meta?.last_page ?? 1;
     const total = meta?.total ?? 0;
     const from =
@@ -369,11 +400,22 @@ export const SamplesPage = () => {
                                                             >
                                                                 {s.status_enum ?? "-"}
                                                             </span>
-                                                            <span className="text-xs text-gray-500">
-                                                                {statusLabel}
-                                                            </span>
+
+                                                            <span className="text-xs text-gray-500">{statusLabel}</span>
+
+                                                            {(() => {
+                                                                const ops = getCrosscheckOpsLabel(s);
+                                                                if (!ops) return null;
+
+                                                                return (
+                                                                    <span className={`text-xs font-semibold ${ops.className}`}>
+                                                                        {ops.label}
+                                                                    </span>
+                                                                );
+                                                            })()}
                                                         </div>
                                                     </td>
+
                                                     <td className="px-4 py-3 text-gray-700">
                                                         {s.received_at ? formatDate(s.received_at) : "-"}
                                                     </td>
