@@ -142,6 +142,25 @@ export const SamplesPage = () => {
         }
     };
 
+    // Step 3.2 — SamplesPage-only fallback label (biar tidak pernah kosong)
+    const statusLabelForSamplesPage = (s: Sample) => {
+        // 1) Kalau current_status sudah kebaca (Received/In Progress/etc), pakai itu dulu.
+        const base = statusLabelByCurrent(s.current_status);
+        if (base !== "-") return base;
+
+        // 2) Kalau belum ada status lab yang jelas, pakai operational fallback berbasis analyst intake + crosscheck
+        const hasLabCode = !!s.lab_sample_code;
+        if (!hasLabCode) return "Awaiting lab promotion";
+
+        const analystReceivedAt = (s as any)?.analyst_received_at ?? null;
+        if (!analystReceivedAt) return "Awaiting analyst intake";
+
+        const cs = String((s as any)?.crosscheck_status ?? "pending").toLowerCase();
+        if (cs === "failed") return "Crosscheck failed";
+        if (cs === "passed") return "Ready for reagent request";
+        return "Awaiting crosscheck";
+    };
+
     // ✅ Step 2.5 — Operational status ringkas (Crosscheck dashboard label)
     function getCrosscheckOpsLabel(s: Sample): { label: string; className: string } | null {
         // prerequisites: sudah jadi lab sample + analyst sudah menerima fisik
@@ -384,8 +403,7 @@ export const SamplesPage = () => {
                                     <tbody className="divide-y divide-gray-100">
                                         {visibleItems.map((s) => {
                                             const badgeClass = statusBadgeClassByEnum(s.status_enum);
-                                            const statusLabel = statusLabelByCurrent(s.current_status);
-
+                                            const statusLabel = statusLabelForSamplesPage(s);
                                             const commentCount = commentCounts[s.sample_id] ?? 0;
 
                                             return (
