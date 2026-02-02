@@ -7,6 +7,7 @@ use App\Http\Requests\SamplePhysicalWorkflowUpdateRequest;
 use App\Models\Sample;
 use App\Models\Staff;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use App\Enums\SampleRequestStatus;
@@ -37,6 +38,32 @@ class SamplePhysicalWorkflowController extends Controller
         $note = $data['note'] ?? null;
 
         return $this->applyEvent($sample, $action, $note);
+    }
+
+    /**
+     * POST /v1/samples/{id}/handoff/sc-delivered
+     * body: { note? }
+     */
+    public function scDelivered(Request $request, Sample $sample): JsonResponse
+    {
+        $data = $request->validate([
+            'note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        return $this->applyEvent($sample, 'sc_delivered_to_analyst', $data['note'] ?? null);
+    }
+
+    /**
+     * POST /v1/samples/{id}/handoff/analyst-received
+     * body: { note? }
+     */
+    public function analystReceived(Request $request, Sample $sample): JsonResponse
+    {
+        $data = $request->validate([
+            'note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        return $this->applyEvent($sample, 'analyst_received', $data['note'] ?? null);
     }
 
     private function applyEvent(Sample $sample, string $action, ?string $note): JsonResponse
@@ -298,6 +325,10 @@ class SamplePhysicalWorkflowController extends Controller
 
                 'collector_returned_to_admin_at' => $sample->collector_returned_to_admin_at ?? null,
                 'admin_received_from_collector_at' => $sample->admin_received_from_collector_at ?? null,
+
+                'sc_delivered_to_analyst_at' => $sample->sc_delivered_to_analyst_at ?? null,
+                'analyst_received_at' => $sample->analyst_received_at ?? null,
+
                 'client_picked_up_at' => $sample->client_picked_up_at ?? null,
             ],
         ], 200);
