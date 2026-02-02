@@ -1,4 +1,5 @@
 <?php
+// L:\Campus\Final Countdown\biotrace\backend\app\Models\ConsumableCatalogItem.php
 
 namespace App\Models;
 
@@ -28,7 +29,6 @@ class ConsumableCatalogItem extends Model
         'default_unit_id' => 'integer',
     ];
 
-    // Optional relation (kalau kamu butuh cepat di Step 4.3/4.4)
     public function defaultUnit()
     {
         return $this->belongsTo(Unit::class, 'default_unit_id', 'unit_id');

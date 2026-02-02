@@ -1,4 +1,5 @@
 <?php
+// L:\Campus\Final Countdown\biotrace\backend\app\Http\Controllers\ConsumablesCatalogController.php
 
 namespace App\Http\Controllers;
 
@@ -19,9 +20,9 @@ class ConsumablesCatalogController extends Controller
      */
     public function index(Request $request)
     {
-        $search = trim((string) $request->query('search', ''));
-        $type = $request->query('type'); // bhp|reagen|null
-        $active = $request->query('active', '1'); // default only active
+        $search  = trim((string) $request->query('search', ''));
+        $type    = $request->query('type');           // bhp|reagen|null
+        $active  = $request->query('active', '1');    // default only active
         $perPage = (int) $request->query('per_page', 25);
         $perPage = max(1, min($perPage, 100));
 
@@ -40,33 +41,44 @@ class ConsumablesCatalogController extends Controller
             $q->where('is_active', (string) $active === '1');
         }
 
-        // search (name + specification + default_unit_text)
+        // search (name + specification + category + default_unit_text + source_sheet)
         if ($search !== '') {
             $like = '%' . str_replace('%', '\\%', $search) . '%';
             $q->where(function ($sub) use ($like) {
                 $sub->where('name', 'like', $like)
                     ->orWhere('specification', 'like', $like)
-                    ->orWhere('default_unit_text', 'like', $like);
+                    ->orWhere('category', 'like', $like)
+                    ->orWhere('default_unit_text', 'like', $like)
+                    ->orWhere('source_sheet', 'like', $like);
             });
         }
 
-        // order: active first, then name asc
+        // order: active first, then type, then name asc
         $q->orderByDesc('is_active')
+            ->orderBy('item_type')
             ->orderBy('name');
 
         $p = $q->paginate($perPage);
 
-        // shape output
+        // IMPORTANT:
+        // Frontend expects:
+        // - type        (bhp|reagen)   -> from item_type
+        // - item_name   (string)       -> from name
+        // - item_code   (string)       -> from specification (Excel "kode" / "ID" values)
+        // - default_unit (string|null) -> from default_unit_text
+        // - source_sheet (string|null) -> from source_sheet
         $items = collect($p->items())->map(function ($row) {
             return [
-                'catalog_id' => $row->catalog_id,
-                'item_type' => $row->item_type,                  // bhp | reagen
-                'name' => $row->name,
-                'specification' => $row->specification,
-                'default_unit_text' => $row->default_unit_text,  // best-effort (from Excel)
-                'default_unit_id' => $row->default_unit_id,      // nullable
-                'category' => $row->category,                    // nullable
-                'is_active' => (bool) $row->is_active,
+                'catalog_id'    => $row->catalog_id,
+                'type'          => $row->item_type,                 // bhp | reagen
+                'item_name'     => (string) ($row->name ?? ''),
+                'item_code'     => (string) ($row->specification ?? ''),
+                'category'      => $row->category,
+                'default_unit'  => $row->default_unit_text,         // best-effort (from Excel)
+                'is_active'     => (bool) $row->is_active,
+                'source_sheet'  => $row->source_sheet,
+                'created_at'    => $row->created_at ?? null,
+                'updated_at'    => $row->updated_at ?? null,
             ];
         })->values();
 

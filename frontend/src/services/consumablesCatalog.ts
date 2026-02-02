@@ -1,4 +1,4 @@
-// frontend/src/services/consumablesCatalog.ts
+// L:\Campus\Final Countdown\biotrace\frontend\src\services\consumablesCatalog.ts
 import { apiGet } from "./api";
 
 const API_VER = "/v1";
@@ -8,7 +8,7 @@ export type ConsumablesCatalogType = "bhp" | "reagen";
 export type ConsumablesCatalogRow = {
     catalog_id: number;
 
-    // core
+    // normalized keys for UI
     type: ConsumablesCatalogType;
     item_name: string;
     item_code: string;
@@ -47,7 +47,6 @@ function buildListUrl(params?: ListConsumablesCatalogParams) {
     if (typeof params?.active === "boolean") qs.set("active", params.active ? "1" : "0");
 
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
-    // Endpoint dari Step 4.3
     return `${API_VER}/catalog/consumables${suffix}`;
 }
 

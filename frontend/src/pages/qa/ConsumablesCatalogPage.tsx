@@ -1,12 +1,12 @@
-// frontend/src/pages/qa/ConsumablesCatalogPage.tsx
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\qa\ConsumablesCatalogPage.tsx
 import { useEffect, useMemo, useState } from "react";
-import { useAuth } from "../..//hooks/useAuth";
-import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../..//utils/roles";
+import { useAuth } from "../../hooks/useAuth";
+import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import {
     listConsumablesCatalog,
     type ConsumablesCatalogRow,
     type ConsumablesCatalogType,
-} from "../..//services/consumablesCatalog";
+} from "../../services/consumablesCatalog";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -22,29 +22,31 @@ function useDebounced<T>(value: T, delay = 300) {
 }
 
 /**
- * Envelope-safe pager extractor.
- * Supports:
- * 1) ApiResponse: { data: paginator }
- * 2) Axios raw: { data: ApiResponse }
- * 3) Direct paginator: { data: [...], total, last_page }
- * 4) Direct array rows: [...]
+ * Supports ApiResponse::success envelope:
+ * {
+ *   data: ConsumablesCatalogRow[],
+ *   extra: { meta: { page, per_page, total, last_page } }
+ * }
  */
 function extractPager(res: any): { data: ConsumablesCatalogRow[]; total: number; last_page: number } {
     const root = res?.data ?? res;
-    const maybeWrapped = root?.data ?? root;
 
-    if (Array.isArray(maybeWrapped)) {
-        return { data: maybeWrapped as ConsumablesCatalogRow[], total: maybeWrapped.length, last_page: 1 };
-    }
-
-    if (Array.isArray(maybeWrapped?.data)) {
+    // case: apiGet returns { data: [...], extra: { meta } }
+    if (Array.isArray(root?.data)) {
+        const meta = root?.extra?.meta ?? root?.meta ?? {};
         return {
-            data: maybeWrapped.data as ConsumablesCatalogRow[],
-            total: Number(maybeWrapped.total ?? maybeWrapped.data.length ?? 0),
-            last_page: Number(maybeWrapped.last_page ?? 1),
+            data: root.data as ConsumablesCatalogRow[],
+            total: Number(meta.total ?? root.data.length ?? 0),
+            last_page: Number(meta.last_page ?? 1),
         };
     }
 
+    // case: apiGet returns array directly
+    if (Array.isArray(root)) {
+        return { data: root as ConsumablesCatalogRow[], total: root.length, last_page: 1 };
+    }
+
+    // fallback: unknown shape
     return { data: [], total: 0, last_page: 1 };
 }
 
@@ -52,7 +54,7 @@ export const ConsumablesCatalogPage = () => {
     const { user } = useAuth();
     const roleId = getUserRoleId(user);
 
-    // Viewer ini untuk verifikasi import: izinkan Admin + Analyst + OM + LH
+    // Viewer untuk verifikasi import: izinkan Admin + Analyst + OM + LH
     const canAccess = useMemo(() => {
         return (
             roleId === ROLE_ID.ADMIN ||
@@ -219,9 +221,11 @@ export const ConsumablesCatalogPage = () => {
                                         </span>
                                     </td>
 
-                                    <td className="px-4 py-3 font-mono text-xs text-gray-800">{row.item_code}</td>
+                                    <td className="px-4 py-3 font-mono text-xs text-gray-800">
+                                        {row.item_code || "-"}
+                                    </td>
 
-                                    <td className="px-4 py-3 text-gray-900">{row.item_name}</td>
+                                    <td className="px-4 py-3 text-gray-900">{row.item_name || "-"}</td>
 
                                     <td className="px-4 py-3 text-gray-700">{row.category ?? "-"}</td>
 

@@ -140,6 +140,7 @@ export const AppRouter = () => {
                         }
                     />
 
+                    {/* NEW: Consumables/Reagents Catalog viewer */}
                     <Route
                         path="/qa/consumables-catalog"
                         element={
