@@ -97,6 +97,39 @@ function SmallButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
     );
 }
 
+function WorkflowActionButton(props: {
+    title: string;
+    subtitle: string;
+    onClick: () => void;
+    disabled?: boolean;
+    variant?: "primary" | "neutral";
+    busy?: boolean;
+}) {
+    const { title, subtitle, onClick, disabled, variant = "neutral", busy } = props;
+
+    const base =
+        "w-full text-left rounded-2xl border px-4 py-3 transition " +
+        "focus:outline-none focus:ring-2 focus:ring-offset-2 " +
+        (disabled ? "opacity-60 cursor-not-allowed" : "hover:shadow-sm");
+
+    const tone =
+        variant === "primary"
+            ? "bg-amber-50 border-amber-200 focus:ring-amber-300"
+            : "bg-white border-slate-200 focus:ring-slate-300";
+
+    return (
+        <button type="button" onClick={onClick} disabled={disabled} className={`${base} ${tone}`}>
+            <div className="flex items-center justify-between gap-3">
+                <div>
+                    <div className="font-semibold text-sm text-slate-900">{busy ? "Saving..." : title}</div>
+                    <div className="text-xs text-slate-600 mt-0.5">{subtitle}</div>
+                </div>
+                <div className="text-slate-400 text-sm">{disabled ? "Locked" : "→"}</div>
+            </div>
+        </button>
+    );
+}
+
 function IconRefresh({ className }: { className?: string }) {
     return (
         <svg
@@ -297,50 +330,18 @@ export const SampleDetailPage = () => {
     };
 
     // ---------------- Step 2: Physical workflow fields ----------------
-    const adminReceivedFromClientAt = (sample as any)?.admin_received_from_client_at ?? null;
-    const adminBroughtToCollectorAt = (sample as any)?.admin_brought_to_collector_at ?? null;
-    const collectorReceivedAt = (sample as any)?.collector_received_at ?? null;
-    const collectorIntakeCompletedAt = (sample as any)?.collector_intake_completed_at ?? null;
-
-    // ✅ NEW: SC → Analyst handoff timestamps
+    // ✅ Physical workflow (Samples module) starts from SC → Analyst only
     const scDeliveredToAnalystAt = (sample as any)?.sc_delivered_to_analyst_at ?? null;
     const analystReceivedAt = (sample as any)?.analyst_received_at ?? null;
 
-    const collectorReturnedToAdminAt = (sample as any)?.collector_returned_to_admin_at ?? null;
-    const adminReceivedFromCollectorAt = (sample as any)?.admin_received_from_collector_at ?? null;
-    const clientPickedUpAt = (sample as any)?.client_picked_up_at ?? null;
-
-    const isAdmin = roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.LAB_HEAD;
     const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
     const isAnalyst = roleId === ROLE_ID.ANALYST;
 
-    const canWfAdminReceive =
-        isAdmin && requestStatus.toLowerCase() === "physically_received" && !adminReceivedFromClientAt;
-
-    const canWfAdminBring =
-        isAdmin && !!adminReceivedFromClientAt && !adminBroughtToCollectorAt;
-
-    const canWfCollectorReceive =
-        isCollector && !!adminBroughtToCollectorAt && !collectorReceivedAt;
-
-    const canWfCollectorIntakeDone =
-        isCollector && !!collectorReceivedAt && !collectorIntakeCompletedAt;
-
-    // ✅ NEW: handoff gating (SC delivers only after intake completed; Analyst receives only after SC delivered)
     const canWfScDeliverToAnalyst =
-        isCollector && !!collectorIntakeCompletedAt && !scDeliveredToAnalystAt;
+        isCollector && !scDeliveredToAnalystAt;
 
     const canWfAnalystReceive =
         isAnalyst && !!scDeliveredToAnalystAt && !analystReceivedAt;
-
-    const canWfCollectorReturn =
-        isCollector && !!collectorIntakeCompletedAt && !collectorReturnedToAdminAt;
-
-    const canWfAdminReceiveBack =
-        isAdmin && !!collectorReturnedToAdminAt && !adminReceivedFromCollectorAt;
-
-    const canWfClientPickup =
-        isAdmin && !!adminReceivedFromCollectorAt && !clientPickedUpAt;
 
     const doPhysicalWorkflow = async (action: string) => {
         if (!sampleId || Number.isNaN(sampleId)) return;
@@ -581,18 +582,17 @@ export const SampleDetailPage = () => {
                                             </div>
                                         </div>
 
-                                        {/* Step 2: Physical Workflow */}
+                                        {/* Physical Workflow */}
                                         <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                                             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
                                                 <div>
                                                     <div className="text-sm font-bold text-gray-900">Physical Workflow</div>
                                                     <div className="text-xs text-gray-500 mt-1">
-                                                        Admin ↔ Sample Collector handoff timestamps (backend enforces order).
+                                                        Lab samples start at SC → Analyst handoff.
                                                     </div>
                                                 </div>
-
                                                 <div className="text-[11px] text-gray-500">
-                                                    You are: <span className="font-semibold">{displayRole}</span>
+                                                    You are: <span className="font-semibold">{roleLabel}</span>
                                                 </div>
                                             </div>
 
@@ -603,20 +603,11 @@ export const SampleDetailPage = () => {
                                                     </div>
                                                 )}
 
+                                                {/* Timeline (only 2 steps) */}
                                                 <div className="mt-2 space-y-2">
                                                     {[
-                                                        { label: "Admin: received from client", at: adminReceivedFromClientAt },
-                                                        { label: "Admin: brought to collector", at: adminBroughtToCollectorAt },
-                                                        { label: "Collector: received", at: collectorReceivedAt },
-                                                        { label: "Collector: intake completed", at: collectorIntakeCompletedAt },
-
-                                                        // ✅ NEW: SC → Analyst handoff
                                                         { label: "SC: delivered to analyst", at: scDeliveredToAnalystAt },
                                                         { label: "Analyst: received", at: analystReceivedAt },
-
-                                                        { label: "Collector: returned to admin", at: collectorReturnedToAdminAt },
-                                                        { label: "Admin: received from collector", at: adminReceivedFromCollectorAt },
-                                                        { label: "Client: picked up", at: clientPickedUpAt },
                                                     ].map((r, idx) => (
                                                         <div key={`${r.label}-${idx}`} className="flex items-start gap-3">
                                                             <div
@@ -635,88 +626,36 @@ export const SampleDetailPage = () => {
                                                     ))}
                                                 </div>
 
-                                                <div className="mt-4 flex flex-wrap gap-2">
-                                                    <SmallPrimaryButton
-                                                        type="button"
-                                                        onClick={() => doPhysicalWorkflow("admin_received_from_client")}
-                                                        disabled={!canWfAdminReceive || wfBusy}
-                                                        title="Admin marks received from client"
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Admin: Received"}
-                                                    </SmallPrimaryButton>
+                                                {/* Actions (match SampleRequestDetail style) */}
+                                                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                    {isCollector ? (
+                                                        <WorkflowActionButton
+                                                            title="SC: Delivered to Analyst"
+                                                            subtitle="Record handoff time when sample is delivered to analyst."
+                                                            onClick={() => doPhysicalWorkflow("sc_delivered_to_analyst")}
+                                                            disabled={!canWfScDeliverToAnalyst || wfBusy}
+                                                            busy={wfBusy}
+                                                            variant="primary"
+                                                        />
+                                                    ) : null}
 
-                                                    <SmallButton
-                                                        type="button"
-                                                        onClick={() => doPhysicalWorkflow("admin_brought_to_collector")}
-                                                        disabled={!canWfAdminBring || wfBusy}
-                                                        title="Admin hands off to collector"
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Admin: To Collector"}
-                                                    </SmallButton>
+                                                    {isAnalyst ? (
+                                                        <WorkflowActionButton
+                                                            title="Analyst: Received"
+                                                            subtitle="Confirm the sample is physically received from Sample Collector."
+                                                            onClick={() => doPhysicalWorkflow("analyst_received")}
+                                                            disabled={!canWfAnalystReceive || wfBusy}
+                                                            busy={wfBusy}
+                                                            variant="primary"
+                                                        />
+                                                    ) : null}
 
-                                                    <SmallButton
-                                                        type="button"
-                                                        onClick={() => doPhysicalWorkflow("collector_received")}
-                                                        disabled={!canWfCollectorReceive || wfBusy}
-                                                        title="Collector confirms receipt"
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Collector: Received"}
-                                                    </SmallButton>
-
-                                                    <SmallButton
-                                                        type="button"
-                                                        onClick={() => doPhysicalWorkflow("collector_intake_completed")}
-                                                        disabled={!canWfCollectorIntakeDone || wfBusy}
-                                                        title="Collector marks intake completed"
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Collector: Intake Completed"}
-                                                    </SmallButton>
-
-                                                    {/* ✅ NEW: SC → Analyst handoff actions */}
-                                                    <SmallButton
-                                                        type="button"
-                                                        onClick={() => doPhysicalWorkflow("sc_delivered_to_analyst")}
-                                                        disabled={!canWfScDeliverToAnalyst || wfBusy}
-                                                        title="Sample Collector delivers sample to analyst"
-                                                    >
-                                                        {wfBusy ? "Saving..." : "SC: Delivered to Analyst"}
-                                                    </SmallButton>
-
-                                                    <SmallButton
-                                                        type="button"
-                                                        onClick={() => doPhysicalWorkflow("analyst_received")}
-                                                        disabled={!canWfAnalystReceive || wfBusy}
-                                                        title="Analyst confirms sample received"
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Analyst: Received"}
-                                                    </SmallButton>
-
-                                                    <SmallButton
-                                                        type="button"
-                                                        onClick={() => doPhysicalWorkflow("collector_returned_to_admin")}
-                                                        disabled={!canWfCollectorReturn || wfBusy}
-                                                        title="Collector returns to admin"
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Collector: Return to Admin"}
-                                                    </SmallButton>
-
-                                                    <SmallButton
-                                                        type="button"
-                                                        onClick={() => doPhysicalWorkflow("admin_received_from_collector")}
-                                                        disabled={!canWfAdminReceiveBack || wfBusy}
-                                                        title="Admin confirms receipt back"
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Admin: Received Back"}
-                                                    </SmallButton>
-
-                                                    <SmallButton
-                                                        type="button"
-                                                        onClick={() => doPhysicalWorkflow("client_picked_up")}
-                                                        disabled={!canWfClientPickup || wfBusy}
-                                                        title="Admin records client pickup"
-                                                    >
-                                                        {wfBusy ? "Saving..." : "Admin: Client Picked Up"}
-                                                    </SmallButton>
+                                                    {/* Kalau role bukan SC/Analyst, kasih info read-only */}
+                                                    {!isCollector && !isAnalyst ? (
+                                                        <div className="sm:col-span-2 text-xs text-gray-700 bg-gray-50 border border-gray-100 px-3 py-2 rounded-xl">
+                                                            Only Sample Collector can deliver, and Analyst can receive.
+                                                        </div>
+                                                    ) : null}
                                                 </div>
                                             </div>
                                         </div>
