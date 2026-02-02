@@ -77,6 +77,17 @@ class SamplePhysicalWorkflowController extends Controller
                 'col_candidates' => ['collector_intake_completed_at', 'collector_completed_at'],
                 'requires' => ['collector_received'],
             ],
+
+            // ✅ NEW: SC → Analyst handoff (lab-side physical handoff evidence)
+            'sc_delivered_to_analyst' => [
+                'col_candidates' => ['sc_delivered_to_analyst_at'],
+                'requires' => ['collector_intake_completed'],
+            ],
+            'analyst_received' => [
+                'col_candidates' => ['analyst_received_at'],
+                'requires' => ['sc_delivered_to_analyst'],
+            ],
+
             'collector_returned_to_admin' => [
                 'col_candidates' => ['collector_returned_to_admin_at'],
                 'requires' => ['collector_intake_completed'],
