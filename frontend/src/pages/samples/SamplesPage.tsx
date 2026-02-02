@@ -417,7 +417,6 @@ export const SamplesPage = () => {
 
                                     <tbody className="divide-y divide-gray-100">
                                         {visibleItems.map((s) => {
-                                            const badgeClass = statusBadgeClassByEnum(s.status_enum);
                                             const statusLabel = statusLabelForSamplesList(s);
                                             const commentCount = commentCounts[s.sample_id] ?? 0;
 
@@ -434,22 +433,9 @@ export const SamplesPage = () => {
                                                     </td>
                                                     <td className="px-4 py-3">
                                                         <div className="flex flex-col gap-1">
-                                                            {(() => {
-                                                                const raw = (s as any)?.status_enum ?? null;
-                                                                if (!raw) return null;
-                                                                if (isLegacyGeneralStatusOnSamplesList(raw)) return null;
-
-                                                                return (
-                                                                    <span
-                                                                        className={`inline-flex items-center px-2 py-1
-                    rounded-full text-xs font-semibold ${badgeClass}`}
-                                                                    >
-                                                                        {raw}
-                                                                    </span>
-                                                                );
-                                                            })()}
-
-                                                            <span className="text-xs text-gray-500">{statusLabel}</span>
+                                                            <span className="text-sm font-semibold text-gray-800">
+                                                                {statusLabel}
+                                                            </span>
 
                                                             {(() => {
                                                                 const ops = getCrosscheckOpsLabel(s);
