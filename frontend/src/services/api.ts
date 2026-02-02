@@ -228,6 +228,25 @@ export async function apiDelete<T = any>(path: string, options?: AxiosRequestCon
     return handleAxios<T>(http.delete(normalizePath(path), options));
 }
 
+/**
+ * RAW helpers (tidak unwrap)
+ * Dipakai khusus saat FE butuh meta pagination dsb.
+ */
+export async function apiGetRaw<T = any>(path: string, options?: AxiosRequestConfig): Promise<T> {
+    const res = await http.get(normalizePath(path), options);
+    return normalizeData(res.data) as T;
+}
+
+export async function apiPostRaw<T = any>(path: string, body?: any, options?: AxiosRequestConfig): Promise<T> {
+    const res = await http.post(normalizePath(path), body, options);
+    return normalizeData(res.data) as T;
+}
+
+export async function apiPatchRaw<T = any>(path: string, body?: any, options?: AxiosRequestConfig): Promise<T> {
+    const res = await http.patch(normalizePath(path), body, options);
+    return normalizeData(res.data) as T;
+}
+
 export const api = {
     http,
     get: apiGet,

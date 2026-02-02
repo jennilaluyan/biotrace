@@ -1,5 +1,4 @@
 <?php
-// L:\Campus\Final Countdown\biotrace\backend\app\Http\Controllers\ConsumablesCatalogController.php
 
 namespace App\Http\Controllers;
 
@@ -20,9 +19,9 @@ class ConsumablesCatalogController extends Controller
      */
     public function index(Request $request)
     {
-        $search  = trim((string) $request->query('search', ''));
-        $type    = $request->query('type');           // bhp|reagen|null
-        $active  = $request->query('active', '1');    // default only active
+        $search = trim((string) $request->query('search', ''));
+        $type = $request->query('type'); // bhp|reagen|null
+        $active = (string) $request->query('active', '1'); // default only active
         $perPage = (int) $request->query('per_page', 25);
         $perPage = max(1, min($perPage, 100));
 
@@ -38,50 +37,45 @@ class ConsumablesCatalogController extends Controller
         // active=0 => is_active false
         // active=all => no filter
         if ($active !== 'all') {
-            $q->where('is_active', (string) $active === '1');
+            $q->where('is_active', $active === '1');
         }
 
-        // search (name + specification + category + default_unit_text + source_sheet)
+        // search (name + specification + category + default_unit_text)
         if ($search !== '') {
             $like = '%' . str_replace('%', '\\%', $search) . '%';
             $q->where(function ($sub) use ($like) {
                 $sub->where('name', 'like', $like)
                     ->orWhere('specification', 'like', $like)
                     ->orWhere('category', 'like', $like)
-                    ->orWhere('default_unit_text', 'like', $like)
-                    ->orWhere('source_sheet', 'like', $like);
+                    ->orWhere('default_unit_text', 'like', $like);
             });
         }
 
-        // order: active first, then type, then name asc
+        // stable ordering (important for consistent pagination)
         $q->orderByDesc('is_active')
             ->orderBy('item_type')
-            ->orderBy('name');
+            ->orderBy('name')
+            ->orderBy('catalog_id');
 
         $p = $q->paginate($perPage);
 
-        // IMPORTANT:
-        // Frontend expects:
-        // - type        (bhp|reagen)   -> from item_type
-        // - item_name   (string)       -> from name
-        // - item_code   (string)       -> from specification (Excel "kode" / "ID" values)
-        // - default_unit (string|null) -> from default_unit_text
-        // - source_sheet (string|null) -> from source_sheet
+        // rows for UI
         $items = collect($p->items())->map(function ($row) {
             return [
-                'catalog_id'    => $row->catalog_id,
-                'type'          => $row->item_type,                 // bhp | reagen
-                'item_name'     => (string) ($row->name ?? ''),
-                'item_code'     => (string) ($row->specification ?? ''),
-                'category'      => $row->category,
-                'default_unit'  => $row->default_unit_text,         // best-effort (from Excel)
-                'is_active'     => (bool) $row->is_active,
-                'source_sheet'  => $row->source_sheet,
-                'created_at'    => $row->created_at ?? null,
-                'updated_at'    => $row->updated_at ?? null,
+                'catalog_id'   => (int) $row->catalog_id,
+                'type'         => $row->item_type,               // bhp | reagen
+                'item_name'    => $row->name,
+                'item_code'    => $row->specification ?? '',     // Excel "code/spec" best-effort
+                'category'     => $row->category,
+                'default_unit' => $row->default_unit_text,
+                'is_active'    => (bool) $row->is_active,
+                'source_sheet' => $row->source_sheet,
             ];
         })->values();
 
+        // IMPORTANT:
+        // Keep rows in `data`, put paginator meta in `extra.meta`
+        // (prevents ApiResponse helper from unwrapping/flattening our payload)
         return ApiResponse::success(
             data: $items,
             message: 'Consumables catalog',

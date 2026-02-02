@@ -1,5 +1,4 @@
 <?php
-// L:\Campus\Final Countdown\biotrace\backend\app\Models\ConsumableCatalogItem.php
 
 namespace App\Models;
 

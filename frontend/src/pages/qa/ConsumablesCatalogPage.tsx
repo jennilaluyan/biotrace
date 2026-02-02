@@ -1,4 +1,4 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\qa\ConsumablesCatalogPage.tsx
+// frontend/src/pages/qa/ConsumablesCatalogPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
@@ -22,39 +22,51 @@ function useDebounced<T>(value: T, delay = 300) {
 }
 
 /**
- * Supports ApiResponse::success envelope:
+ * Expected API (RAW ApiResponse):
  * {
- *   data: ConsumablesCatalogRow[],
- *   extra: { meta: { page, per_page, total, last_page } }
+ *   data: rows[],
+ *   message, status,
+ *   extra: { meta: { total, last_page, page, per_page, filters } }
  * }
  */
 function extractPager(res: any): { data: ConsumablesCatalogRow[]; total: number; last_page: number } {
-    const root = res?.data ?? res;
-
-    // case: apiGet returns { data: [...], extra: { meta } }
-    if (Array.isArray(root?.data)) {
-        const meta = root?.extra?.meta ?? root?.meta ?? {};
-        return {
-            data: root.data as ConsumablesCatalogRow[],
-            total: Number(meta.total ?? root.data.length ?? 0),
-            last_page: Number(meta.last_page ?? 1),
-        };
+    // Case A: api wrapper keburu unwrap -> res adalah array
+    if (Array.isArray(res)) {
+        return { data: res as ConsumablesCatalogRow[], total: res.length, last_page: 1 };
     }
 
-    // case: apiGet returns array directly
-    if (Array.isArray(root)) {
-        return { data: root as ConsumablesCatalogRow[], total: root.length, last_page: 1 };
-    }
+    // Case B: normal ApiResponse dari backend: { data: [], meta: {} } atau { data: [], extra: { meta:{} } }
+    const hasPagerMeta = !!(res?.meta || res?.extra?.meta);
+    const root = (res && typeof res === "object" && hasPagerMeta) ? res : (res?.data ?? res);
 
-    // fallback: unknown shape
-    return { data: [], total: 0, last_page: 1 };
+    const rows =
+        Array.isArray(root?.data) ? root.data :
+            Array.isArray(root) ? root :
+                [];
+
+    const meta = root?.extra?.meta ?? root?.meta ?? null;
+
+    const total = Number(
+        meta?.total ??
+        root?.total ??
+        (Array.isArray(rows) ? rows.length : 0) ??
+        0
+    );
+
+    const last_page = Number(
+        meta?.last_page ??
+        root?.last_page ??
+        1
+    );
+
+    return { data: rows as ConsumablesCatalogRow[], total, last_page };
 }
 
 export const ConsumablesCatalogPage = () => {
     const { user } = useAuth();
     const roleId = getUserRoleId(user);
 
-    // Viewer untuk verifikasi import: izinkan Admin + Analyst + OM + LH
+    // Viewer ini untuk verifikasi import: izinkan Admin + Analyst + OM + LH
     const canAccess = useMemo(() => {
         return (
             roleId === ROLE_ID.ADMIN ||
@@ -68,7 +80,9 @@ export const ConsumablesCatalogPage = () => {
     const qDebounced = useDebounced(q, 300);
 
     const [typeFilter, setTypeFilter] = useState<"" | ConsumablesCatalogType>("");
-    const [activeFilter, setActiveFilter] = useState<"" | "1" | "0">("1");
+
+    // IMPORTANT: "All" = 'all' (biar ngirim active=all ke backend)
+    const [activeFilter, setActiveFilter] = useState<"all" | "1" | "0">("1");
 
     const [page, setPage] = useState(1);
     const [items, setItems] = useState<ConsumablesCatalogRow[]>([]);
@@ -87,7 +101,7 @@ export const ConsumablesCatalogPage = () => {
                 perPage: 20,
                 search: qDebounced || undefined,
                 type: (typeFilter || undefined) as any,
-                active: activeFilter === "" ? undefined : activeFilter === "1",
+                active: activeFilter === "all" ? "all" : activeFilter === "1",
             });
 
             const pager = extractPager(res);
@@ -162,7 +176,7 @@ export const ConsumablesCatalogPage = () => {
                         value={activeFilter}
                         onChange={(e) => setActiveFilter(e.target.value as any)}
                     >
-                        <option value="">All</option>
+                        <option value="all">All</option>
                         <option value="1">Active</option>
                         <option value="0">Inactive</option>
                     </select>
@@ -221,9 +235,7 @@ export const ConsumablesCatalogPage = () => {
                                         </span>
                                     </td>
 
-                                    <td className="px-4 py-3 font-mono text-xs text-gray-800">
-                                        {row.item_code || "-"}
-                                    </td>
+                                    <td className="px-4 py-3 font-mono text-xs text-gray-800">{row.item_code || "-"}</td>
 
                                     <td className="px-4 py-3 text-gray-900">{row.item_name || "-"}</td>
 
@@ -275,7 +287,7 @@ export const ConsumablesCatalogPage = () => {
             </div>
 
             <div className="mt-3 text-xs text-gray-500">
-                Note: This page is read-only by design. Any fixes should be done by re-importing Excel (Step 4.2).
+                Note: This page is read-only by design. Any fixes should be done by re-importing Excel.
             </div>
         </div>
     );
