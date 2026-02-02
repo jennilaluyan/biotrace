@@ -35,6 +35,7 @@ use App\Http\Controllers\ParameterController;
 use App\Http\Controllers\MethodController;
 use App\Http\Controllers\ReagentController;
 use App\Http\Controllers\UnitController;
+use App\Http\Controllers\ConsumablesCatalogController;
 
 // Sample Tests & Results
 use App\Http\Controllers\SampleTestBulkController;
@@ -184,6 +185,13 @@ Route::prefix('v1')->group(function () {
 
         // Units
         Route::get('units', [UnitController::class, 'index']);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Catalog (Consumables/Reagents)
+        |--------------------------------------------------------------------------
+        */
+        Route::get('catalog/consumables', [ConsumablesCatalogController::class, 'index']);
 
         /*
         |--------------------------------------------------------------------------

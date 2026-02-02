@@ -22,6 +22,10 @@ enum AuditAction: string
     case QC_EVALUATED = 'QC_EVALUATED';
     case REAGENT_CALC_APPROVED = 'REAGENT_CALC_APPROVED';
 
+        // Catalog (Consumables/Reagents)
+    case CATALOG_ITEM_IMPORTED = 'CATALOG_ITEM_IMPORTED';
+    case CATALOG_IMPORT_SUMMARY = 'CATALOG_IMPORT_SUMMARY';
+
         // Reporting
     case REPORT_GENERATED = 'REPORT_GENERATED';
     case REPORT_FINALIZED = 'REPORT_FINALIZED';

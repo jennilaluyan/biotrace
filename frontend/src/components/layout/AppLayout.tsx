@@ -77,6 +77,7 @@ export const AppLayout = () => {
         ? [
             { label: "QA Parameters", path: "/qa/parameters", icon: "check" },
             { label: "QA Methods", path: "/qa/methods", icon: "check" },
+            { label: "Consumables Catalog", path: "/qa/consumables-catalog", icon: "check" },
         ]
         : [];
 
@@ -166,6 +167,7 @@ export const AppLayout = () => {
             item.path === "/portal" ||
             item.path === "/qa/parameters" ||
             item.path === "/qa/methods" ||
+            item.path === "/qa/consumables-catalog" ||
             item.path === "/reports" ||
             item.path === "/audit-logs" ||
             item.path === "/clients/approvals" ||
