@@ -113,6 +113,7 @@ class SamplePolicy
         $role = (string) ($user->role?->name ?? '');
         $adminRoles = ['Administrator', 'Laboratory Head'];
         $collectorRoles = ['Sample Collector'];
+        $analystRoles = ['Analyst'];
 
         $adminActions = [
             'admin_received_from_client',
@@ -125,16 +126,24 @@ class SamplePolicy
             'collector_received',
             'collector_intake_completed',
             'collector_returned_to_admin',
+            // ✅ NEW: SC delivers to analyst
+            'sc_delivered_to_analyst',
+        ];
+
+        $analystActions = [
+            // ✅ NEW: analyst confirms received
+            'analyst_received',
         ];
 
         if (in_array($action, $adminActions, true)) {
             return in_array($role, $adminRoles, true);
         }
-
         if (in_array($action, $collectorActions, true)) {
             return in_array($role, $collectorRoles, true);
         }
-
+        if (in_array($action, $analystActions, true)) {
+            return in_array($role, $analystRoles, true);
+        }
         return false;
     }
 

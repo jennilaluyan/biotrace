@@ -236,7 +236,20 @@ Route::prefix('v1')->group(function () {
             ->whereNumber('sample');
         Route::patch('/samples/{sample}/physical-workflow', [SamplePhysicalWorkflowController::class, 'update'])
             ->whereNumber('sample');
-        Route::post('/samples/{sample}/custody', [SamplePhysicalWorkflowController::class, 'store'])
+        Route::post(
+            '/samples/{sample}/custody',
+            [SamplePhysicalWorkflowController::class, 'store']
+        )
+            ->whereNumber('sample');
+        Route::post(
+            '/samples/{sample}/handoff/sc-delivered',
+            [SamplePhysicalWorkflowController::class, 'scDelivered']
+        )
+            ->whereNumber('sample');
+        Route::post(
+            '/samples/{sample}/handoff/analyst-received',
+            [SamplePhysicalWorkflowController::class, 'analystReceived']
+        )
             ->whereNumber('sample');
 
         // Sample status & history

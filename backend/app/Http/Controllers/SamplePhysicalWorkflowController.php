@@ -7,9 +7,11 @@ use App\Http\Requests\SamplePhysicalWorkflowUpdateRequest;
 use App\Models\Sample;
 use App\Models\Staff;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use App\Enums\SampleRequestStatus;
+use App\Support\AuditLogger;
 
 class SamplePhysicalWorkflowController extends Controller
 {
@@ -37,6 +39,32 @@ class SamplePhysicalWorkflowController extends Controller
         $note = $data['note'] ?? null;
 
         return $this->applyEvent($sample, $action, $note);
+    }
+
+    /**
+     * POST /v1/samples/{id}/handoff/sc-delivered
+     * body: { note? }
+     */
+    public function scDelivered(Request $request, Sample $sample): JsonResponse
+    {
+        $data = $request->validate([
+            'note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        return $this->applyEvent($sample, 'sc_delivered_to_analyst', $data['note'] ?? null);
+    }
+
+    /**
+     * POST /v1/samples/{id}/handoff/analyst-received
+     * body: { note? }
+     */
+    public function analystReceived(Request $request, Sample $sample): JsonResponse
+    {
+        $data = $request->validate([
+            'note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        return $this->applyEvent($sample, 'analyst_received', $data['note'] ?? null);
     }
 
     private function applyEvent(Sample $sample, string $action, ?string $note): JsonResponse
@@ -77,6 +105,17 @@ class SamplePhysicalWorkflowController extends Controller
                 'col_candidates' => ['collector_intake_completed_at', 'collector_completed_at'],
                 'requires' => ['collector_received'],
             ],
+
+            // ✅ NEW: SC → Analyst handoff (lab-side physical handoff evidence)
+            'sc_delivered_to_analyst' => [
+                'col_candidates' => ['sc_delivered_to_analyst_at'],
+                'requires' => ['collector_intake_completed'],
+            ],
+            'analyst_received' => [
+                'col_candidates' => ['analyst_received_at'],
+                'requires' => ['sc_delivered_to_analyst'],
+            ],
+
             'collector_returned_to_admin' => [
                 'col_candidates' => ['collector_returned_to_admin_at'],
                 'requires' => ['collector_intake_completed'],
@@ -210,20 +249,21 @@ class SamplePhysicalWorkflowController extends Controller
                 $sample->request_status = SampleRequestStatus::UNDER_INSPECTION->value;
             }
 
-            // ✅ After failed inspection, collector returns to admin (pickup required)
             if ($action === 'collector_returned_to_admin') {
                 $sample->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
             }
 
-            // ✅ When admin receives back from collector, ensure client-facing status is pickup-required
             if ($action === 'admin_received_from_collector') {
                 $sample->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
             }
 
-            // ✅ When client picked up, keep status consistent for client view
             if ($action === 'client_picked_up') {
                 $sample->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
             }
+
+            // ✅ untuk action baru ini: JANGAN ubah request_status (handoff fisik lab-side)
+            // sc_delivered_to_analyst
+            // analyst_received
 
             $sample->save();
 
@@ -237,24 +277,19 @@ class SamplePhysicalWorkflowController extends Controller
                     'user_id' => $staffId,
                     'entity_name' => 'samples',
                     'entity_id' => $sample->sample_id,
-
-                    // ✅ Keep action <= 40 chars (DB constraint)
                     'action' => 'SAMPLE_PHYSICAL_WORKFLOW_CHANGED',
-
                     'performed_at' => now(),
                     'created_at' => now(),
                     'updated_at' => now(),
-
                     'note' => $note,
                     'meta' => $note ? json_encode(['note' => $note]) : null,
-
                     'old_values' => json_encode([
                         $targetCol => $oldTargetValue,
                         'request_status' => $oldRequestStatus,
                     ]),
                     'new_values' => json_encode([
                         $targetCol => $sample->{$targetCol},
-                        'event_key' => $action,               // ✅ store the real event here
+                        'event_key' => $action,
                         'request_status' => $sample->request_status,
                     ]),
                 ];
@@ -287,6 +322,10 @@ class SamplePhysicalWorkflowController extends Controller
 
                 'collector_returned_to_admin_at' => $sample->collector_returned_to_admin_at ?? null,
                 'admin_received_from_collector_at' => $sample->admin_received_from_collector_at ?? null,
+
+                'sc_delivered_to_analyst_at' => $sample->sc_delivered_to_analyst_at ?? null,
+                'analyst_received_at' => $sample->analyst_received_at ?? null,
+
                 'client_picked_up_at' => $sample->client_picked_up_at ?? null,
             ],
         ], 200);

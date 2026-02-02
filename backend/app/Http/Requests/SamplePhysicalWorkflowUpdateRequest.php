@@ -18,7 +18,7 @@ class SamplePhysicalWorkflowUpdateRequest extends FormRequest
             'action' => [
                 'required',
                 'string',
-                'in:admin_received_from_client,admin_brought_to_collector,collector_received,collector_intake_completed,collector_returned_to_admin,admin_received_from_collector,client_picked_up',
+                'in:admin_received_from_client,admin_brought_to_collector,collector_received,collector_intake_completed,sc_delivered_to_analyst,analyst_received,collector_returned_to_admin,admin_received_from_collector,client_picked_up',
             ],
             'note' => ['nullable', 'string', 'max:2000'],
         ];

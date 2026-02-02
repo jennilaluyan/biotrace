@@ -46,6 +46,11 @@ class Sample extends Model
         'admin_brought_to_collector_at',
         'collector_received_at',
         'collector_intake_completed_at',
+
+        // ✅ NEW: SC → Analyst handoff
+        'sc_delivered_to_analyst_at',
+        'analyst_received_at',
+
         'collector_returned_to_admin_at',
         'admin_received_from_collector_at',
         'client_picked_up_at',
@@ -73,6 +78,11 @@ class Sample extends Model
         'admin_brought_to_collector_at' => 'datetime',
         'collector_received_at' => 'datetime',
         'collector_intake_completed_at' => 'datetime',
+
+        // ✅ NEW: SC → Analyst handoff
+        'sc_delivered_to_analyst_at' => 'datetime',
+        'analyst_received_at' => 'datetime',
+
         'collector_returned_to_admin_at' => 'datetime',
         'admin_received_from_collector_at' => 'datetime',
         'client_picked_up_at' => 'datetime',
