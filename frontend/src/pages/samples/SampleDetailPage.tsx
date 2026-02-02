@@ -7,7 +7,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import { formatDate, formatDateTimeLocal } from "../../utils/date";
 import { sampleService, Sample } from "../../services/samples";
-import { apiGet, apiPost } from "../../services/api";
+import { apiGet, apiPatch } from "../../services/api";
 
 import { validateIntake } from "../../services/intake";
 import { SampleTestsTab } from "../../components/samples/SampleTestsTab";
@@ -342,23 +342,17 @@ export const SampleDetailPage = () => {
 
     const canWfAnalystReceive =
         isAnalyst && !!scDeliveredToAnalystAt && !analystReceivedAt;
-
     const doPhysicalWorkflow = async (action: string) => {
         if (!sampleId || Number.isNaN(sampleId)) return;
-
         try {
             setWfBusy(true);
             setWfError(null);
 
-            // ✅ no prompt/alert note
-            // backend tetap source of truth
-            await apiPost<any>(`/v1/samples/${sampleId}/physical-workflow`, {
-                action,
-                note: null,
-            });
+            await apiPatch<any>(`/v1/samples/${sampleId}/physical-workflow`, { action, note: null });
 
             await loadSample({ silent: true });
             await loadHistory();
+
         } catch (err: any) {
             const msg =
                 err?.response?.data?.message ??
