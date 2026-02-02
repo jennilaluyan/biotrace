@@ -22,6 +22,7 @@ import { LooGeneratorPage } from "../pages/loo/LooGeneratorPage";
 import { StaffApprovalsPage } from "../pages/staff/StaffApprovalsPage";
 import { QAParametersPage } from "../pages/qa/QAParametersPage";
 import { QAMethodsPage } from "../pages/qa/QAMethodsPage";
+import { ConsumablesCatalogPage } from "../pages/qa/ConsumablesCatalogPage";
 import { AuditLogsPage } from "../pages/audit/AuditLogsPage";
 import { ReportsPage } from "../pages/reports/ReportsPage";
 
@@ -135,6 +136,15 @@ export const AppRouter = () => {
                         element={
                             <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST]}>
                                 <QAMethodsPage />
+                            </RoleGuard>
+                        }
+                    />
+
+                    <Route
+                        path="/qa/consumables-catalog"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST]}>
+                                <ConsumablesCatalogPage />
                             </RoleGuard>
                         }
                     />
