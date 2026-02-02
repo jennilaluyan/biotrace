@@ -15,6 +15,27 @@ import type { Sample, SampleStatusEnum } from "../../services/samples";
 
 type StatusFilter = "all" | SampleStatusEnum;
 
+type ReagentReqStatus =
+    | "draft"
+    | "submitted"
+    | "approved"
+    | "rejected"
+    | "denied"
+    | "cancelled"
+    | string;
+
+const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
+    // Support beberapa bentuk payload yang mungkin ada
+    const direct = s?.reagent_request_status ?? s?.reagentRequestStatus ?? null;
+    if (direct) return String(direct).toLowerCase();
+
+    const rr = s?.reagent_request ?? s?.reagentRequest ?? s?.reagentRequestLatest ?? null;
+    const nested = rr?.status ?? rr?.request_status ?? null;
+    if (nested) return String(nested).toLowerCase();
+
+    return null;
+};
+
 export const SamplesPage = () => {
     const [dateFrom, setDateFrom] = useState<string>(""); // YYYY-MM-DD
     const [dateTo, setDateTo] = useState<string>(""); // YYYY-MM-DD
@@ -117,6 +138,81 @@ export const SamplesPage = () => {
         }
     };
 
+    const isLegacyGeneralStatusOnSamplesList = (value?: string | null) => {
+        if (!value) return false;
+        return String(value).toLowerCase().startsWith("legacy_general_");
+    };
+
+    const statusChipClass = (tone: "gray" | "blue" | "yellow" | "green" | "red") => {
+        switch (tone) {
+            case "blue":
+                return "bg-blue-50 text-blue-700";
+            case "yellow":
+                return "bg-yellow-50 text-yellow-800";
+            case "green":
+                return "bg-green-50 text-green-700";
+            case "red":
+                return "bg-red-50 text-red-700";
+            default:
+                return "bg-gray-100 text-gray-700";
+        }
+    };
+
+    const getSamplesListStatusChip = (s: Sample): { label: string; className: string } => {
+        const anyS = s as any;
+
+        // 0) Reagent request stage has highest priority once it exists
+        const rrStatus = getReagentRequestStatus(anyS);
+        if (rrStatus) {
+            if (rrStatus === "draft") {
+                return { label: "Reagent request (draft)", className: statusChipClass("gray") };
+            }
+            if (rrStatus === "submitted") {
+                return { label: "Reagent request (submitted)", className: statusChipClass("yellow") };
+            }
+            if (rrStatus === "approved") {
+                return { label: "Reagent request (approved)", className: statusChipClass("green") };
+            }
+            if (rrStatus === "rejected" || rrStatus === "denied") {
+                return { label: "Reagent request (denied)", className: statusChipClass("red") };
+            }
+            // fallback untuk status lain yang mungkin kamu tambahkan nanti
+            return { label: `Reagent request (${rrStatus})`, className: statusChipClass("gray") };
+        }
+
+        // 1) Crosscheck status (analyst gate)
+        const cs = String(anyS?.crosscheck_status ?? "pending").toLowerCase();
+        if (cs === "failed") {
+            return { label: "Crosscheck failed", className: statusChipClass("red") };
+        }
+        if (cs === "passed") {
+            return { label: "Crosscheck passed", className: statusChipClass("green") };
+        }
+
+        // 2) Analyst intake fallback (kalau kamu punya analyst_received_at)
+        const hasLabCode = !!s.lab_sample_code;
+        if (!hasLabCode) {
+            return { label: "Awaiting lab promotion", className: statusChipClass("gray") };
+        }
+
+        const analystReceivedAt = anyS?.analyst_received_at ?? null;
+        if (!analystReceivedAt) {
+            return { label: "Awaiting analyst intake", className: statusChipClass("yellow") };
+        }
+
+        // 3) current_status fallback (lab workflow)
+        const current = String(s.current_status ?? "").toLowerCase();
+        if (current === "received") return { label: "Received", className: statusChipClass("blue") };
+        if (current === "in_progress") return { label: "In progress", className: statusChipClass("blue") };
+        if (current === "testing_completed") return { label: "Testing completed", className: statusChipClass("blue") };
+        if (current === "verified") return { label: "Verified", className: statusChipClass("green") };
+        if (current === "validated") return { label: "Validated", className: statusChipClass("green") };
+        if (current === "reported") return { label: "Reported", className: statusChipClass("green") };
+
+        // 4) Default
+        return { label: "Awaiting crosscheck", className: statusChipClass("yellow") };
+    };
+
     const statusLabelByCurrent = (current?: Sample["current_status"]) => {
         switch (current) {
             case "received":
@@ -134,6 +230,25 @@ export const SamplesPage = () => {
             default:
                 return "-";
         }
+    };
+
+    // Step 3.2 — SamplesPage-only fallback label (biar tidak pernah kosong)
+    const statusLabelForSamplesPage = (s: Sample) => {
+        // 1) Kalau current_status sudah kebaca (Received/In Progress/etc), pakai itu dulu.
+        const base = statusLabelByCurrent(s.current_status);
+        if (base !== "-") return base;
+
+        // 2) Kalau belum ada status lab yang jelas, pakai operational fallback berbasis analyst intake + crosscheck
+        const hasLabCode = !!s.lab_sample_code;
+        if (!hasLabCode) return "Awaiting lab promotion";
+
+        const analystReceivedAt = (s as any)?.analyst_received_at ?? null;
+        if (!analystReceivedAt) return "Awaiting analyst intake";
+
+        const cs = String((s as any)?.crosscheck_status ?? "pending").toLowerCase();
+        if (cs === "failed") return "Crosscheck failed";
+        if (cs === "passed") return "Ready for reagent request";
+        return "Awaiting crosscheck";
     };
 
     // ✅ Step 2.5 — Operational status ringkas (Crosscheck dashboard label)
@@ -377,9 +492,6 @@ export const SamplesPage = () => {
 
                                     <tbody className="divide-y divide-gray-100">
                                         {visibleItems.map((s) => {
-                                            const badgeClass = statusBadgeClassByEnum(s.status_enum);
-                                            const statusLabel = statusLabelByCurrent(s.current_status);
-
                                             const commentCount = commentCounts[s.sample_id] ?? 0;
 
                                             return (
@@ -394,26 +506,14 @@ export const SamplesPage = () => {
                                                         {s.sample_type ?? "-"}
                                                     </td>
                                                     <td className="px-4 py-3">
-                                                        <div className="flex flex-col gap-1">
-                                                            <span
-                                                                className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${badgeClass}`}
-                                                            >
-                                                                {s.status_enum ?? "-"}
-                                                            </span>
-
-                                                            <span className="text-xs text-gray-500">{statusLabel}</span>
-
-                                                            {(() => {
-                                                                const ops = getCrosscheckOpsLabel(s);
-                                                                if (!ops) return null;
-
-                                                                return (
-                                                                    <span className={`text-xs font-semibold ${ops.className}`}>
-                                                                        {ops.label}
-                                                                    </span>
-                                                                );
-                                                            })()}
-                                                        </div>
+                                                        {(() => {
+                                                            const chip = getSamplesListStatusChip(s);
+                                                            return (
+                                                                <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${chip.className}`}>
+                                                                    {chip.label}
+                                                                </span>
+                                                            );
+                                                        })()}
                                                     </td>
 
                                                     <td className="px-4 py-3 text-gray-700">
