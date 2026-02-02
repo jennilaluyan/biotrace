@@ -241,13 +241,11 @@ Route::prefix('v1')->group(function () {
             [SamplePhysicalWorkflowController::class, 'store']
         )
             ->whereNumber('sample');
-
         Route::post(
             '/samples/{sample}/handoff/sc-delivered',
             [SamplePhysicalWorkflowController::class, 'scDelivered']
         )
             ->whereNumber('sample');
-
         Route::post(
             '/samples/{sample}/handoff/analyst-received',
             [SamplePhysicalWorkflowController::class, 'analystReceived']
