@@ -67,6 +67,29 @@ function StatusPill({ value }: { value?: string | null }) {
     );
 }
 
+function CrosscheckPill({ value }: { value?: string | null }) {
+    const v = (value ?? "pending").toLowerCase();
+    const tones: Record<string, string> = {
+        pending: "bg-slate-50 text-slate-700 border-slate-200",
+        passed: "bg-emerald-50 text-emerald-800 border-emerald-200",
+        failed: "bg-red-50 text-red-800 border-red-200",
+    };
+    const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
+    const label =
+        v === "passed" ? "Passed" : v === "failed" ? "Failed" : "Pending";
+    return (
+        <span
+            className={cx(
+                "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border",
+                tone
+            )}
+            title={value ?? "pending"}
+        >
+            {label}
+        </span>
+    );
+}
+
 function SmallPrimaryButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
     const { className, ...rest } = props;
     return (
@@ -213,6 +236,23 @@ export const SampleDetailPage = () => {
     const [wfBusy, setWfBusy] = useState(false);
     const [wfError, setWfError] = useState<string | null>(null);
 
+    // Crosscheck UI state (Analyst)
+    const [ccBusy, setCcBusy] = useState(false);
+    const [ccError, setCcError] = useState<string | null>(null);
+    const [ccSuccess, setCcSuccess] = useState<string | null>(null);
+    const [ccPhysicalCode, setCcPhysicalCode] = useState<string>("");
+    const [ccReason, setCcReason] = useState<string>("");
+
+    // Crosscheck derived fields (defensive)
+    const crossStatus = String((sample as any)?.crosscheck_status ?? "pending").toLowerCase();
+    const crossAt = (sample as any)?.crosschecked_at ?? null;
+    const crossBy = (sample as any)?.crosschecked_by_staff_id ?? null;
+    const crossSavedPhysical = (sample as any)?.physical_label_code ?? null;
+    const crossSavedNote = (sample as any)?.crosscheck_note ?? null;
+
+    // Crosscheck prerequisites
+    const expectedLabCode = String((sample as any)?.lab_sample_code ?? "");
+
     const loadSample = async (opts?: { silent?: boolean }) => {
         if (!canViewSamples) {
             setLoading(false);
@@ -268,6 +308,12 @@ export const SampleDetailPage = () => {
             setHistoryLoading(false);
         }
     };
+    useEffect(() => {
+        if (!sample) return;
+        const existing = String((sample as any)?.physical_label_code ?? "");
+        setCcPhysicalCode((prev) => (prev && prev.trim() ? prev : existing));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sampleId, sample]);
 
     useEffect(() => {
         loadSample();
@@ -336,12 +382,14 @@ export const SampleDetailPage = () => {
 
     const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
     const isAnalyst = roleId === ROLE_ID.ANALYST;
+    const canDoCrosscheck = isAnalyst && !!analystReceivedAt && !!expectedLabCode;
 
     const canWfScDeliverToAnalyst =
         isCollector && !scDeliveredToAnalystAt;
 
     const canWfAnalystReceive =
         isAnalyst && !!scDeliveredToAnalystAt && !analystReceivedAt;
+
     const doPhysicalWorkflow = async (action: string) => {
         if (!sampleId || Number.isNaN(sampleId)) return;
         try {
@@ -363,6 +411,74 @@ export const SampleDetailPage = () => {
             setWfError(msg);
         } finally {
             setWfBusy(false);
+        }
+    };
+
+    const submitCrosscheck = async (mode: "pass" | "fail") => {
+        if (!sampleId || Number.isNaN(sampleId)) return;
+
+        const enteredRaw = String(ccPhysicalCode ?? "");
+        const entered = enteredRaw.trim().toUpperCase();
+        const expected = expectedLabCode.trim().toUpperCase();
+
+        setCcError(null);
+        setCcSuccess(null);
+
+        if (!entered) {
+            setCcError("Physical label code is required.");
+            return;
+        }
+        if (!expected) {
+            setCcError("Expected Lab Code is missing; crosscheck cannot be performed.");
+            return;
+        }
+
+        const isMatch = entered === expected;
+
+        // UX sesuai spec: tombol PASS/FAIL
+        if (mode === "pass") {
+            if (!isMatch) {
+                setCcError(
+                    `Mismatch detected. Expected: ${expectedLabCode}. Entered: ${enteredRaw}. Please provide a reason and click FAIL.`
+                );
+                return;
+            }
+        } else {
+            // fail
+            const note = String(ccReason ?? "").trim();
+            if (isMatch) {
+                setCcError("Entered code matches expected. Use PASS (Fail is for mismatch cases).");
+                return;
+            }
+            if (!note) {
+                setCcError("Reason is required when FAIL.");
+                return;
+            }
+        }
+
+        try {
+            setCcBusy(true);
+
+            await sampleService.submitCrosscheck(sampleId, {
+                physical_label_code: enteredRaw,
+                note: mode === "fail" ? String(ccReason ?? "").trim() : null,
+            });
+
+            await loadSample({ silent: true });
+            await loadHistory();
+
+            setCcSuccess(mode === "pass" ? "Crosscheck PASSED." : "Crosscheck FAILED recorded.");
+            if (mode === "fail") setCcReason(""); // optional: reset reason after fail submit
+        } catch (err: any) {
+            const msg =
+                err?.data?.message ??
+                err?.response?.data?.message ??
+                err?.data?.error ??
+                err?.message ??
+                "Failed to submit crosscheck.";
+            setCcError(msg);
+        } finally {
+            setCcBusy(false);
         }
     };
 
@@ -650,6 +766,113 @@ export const SampleDetailPage = () => {
                                                             Only Sample Collector can deliver, and Analyst can receive.
                                                         </div>
                                                     ) : null}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Analyst Crosscheck (Expected vs Physical label) */}
+                                        <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
+                                            <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
+                                                <div>
+                                                    <div className="text-sm font-bold text-gray-900">Analyst Crosscheck</div>
+                                                    <div className="text-xs text-gray-500 mt-1">
+                                                        Match expected Lab Code (LOO/BML) with physical label before continuing.
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-2">
+                                                    <CrosscheckPill value={crossStatus} />
+                                                    {crossAt ? (
+                                                        <span className="text-[11px] text-gray-500">
+                                                            {formatDateTimeLocal(crossAt)}
+                                                            {crossBy ? ` • Staff #${crossBy}` : ""}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[11px] text-gray-500">Not submitted yet</span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="px-5 py-4">
+                                                {ccError && (
+                                                    <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-3">
+                                                        {ccError}
+                                                    </div>
+                                                )}
+                                                {ccSuccess && (
+                                                    <div className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-xl mb-3">
+                                                        {ccSuccess}
+                                                    </div>
+                                                )}
+
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div>
+                                                        <div className="text-xs text-gray-500">Expected Lab Code</div>
+                                                        <div className="mt-1 font-mono text-sm bg-white border border-gray-200 rounded-xl px-3 py-2">
+                                                            {expectedLabCode || "-"}
+                                                        </div>
+
+                                                        <div className="mt-3 text-xs text-gray-500">Last submitted physical label</div>
+                                                        <div className="mt-1 font-mono text-sm bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+                                                            {crossSavedPhysical ? String(crossSavedPhysical) : "-"}
+                                                        </div>
+
+                                                        {crossStatus === "failed" && crossSavedNote ? (
+                                                            <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-2">
+                                                                <div className="text-xs font-semibold text-red-900">Fail reason</div>
+                                                                <div className="text-xs text-red-800 mt-1">{String(crossSavedNote)}</div>
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+
+                                                    <div>
+                                                        <label className="block text-xs text-gray-500">Physical label code</label>
+                                                        <input
+                                                            value={ccPhysicalCode}
+                                                            onChange={(e) => setCcPhysicalCode(e.target.value)}
+                                                            placeholder="Type the code from the physical label…"
+                                                            className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                                            disabled={!canDoCrosscheck || ccBusy}
+                                                        />
+
+                                                        <label className="block text-xs text-gray-500 mt-3">
+                                                            Reason (required when FAIL)
+                                                        </label>
+                                                        <textarea
+                                                            value={ccReason}
+                                                            onChange={(e) => setCcReason(e.target.value)}
+                                                            placeholder="Explain mismatch / label issue…"
+                                                            className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm min-h-24 focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                                            disabled={!canDoCrosscheck || ccBusy}
+                                                        />
+
+                                                        <div className="mt-3 flex items-center gap-2 flex-wrap">
+                                                            <SmallPrimaryButton
+                                                                type="button"
+                                                                onClick={() => submitCrosscheck("pass")}
+                                                                disabled={!canDoCrosscheck || ccBusy}
+                                                                title={!canDoCrosscheck ? "Available only after Analyst received + Lab code exists" : "Submit PASS"}
+                                                            >
+                                                                {ccBusy ? "Saving..." : "Pass"}
+                                                            </SmallPrimaryButton>
+
+                                                            <SmallButton
+                                                                type="button"
+                                                                onClick={() => submitCrosscheck("fail")}
+                                                                disabled={!canDoCrosscheck || ccBusy}
+                                                                title={!canDoCrosscheck ? "Available only after Analyst received + Lab code exists" : "Submit FAIL"}
+                                                                className="border-red-200 text-red-700 hover:bg-red-50"
+                                                            >
+                                                                {ccBusy ? "Saving..." : "Fail"}
+                                                            </SmallButton>
+
+                                                            {!canDoCrosscheck ? (
+                                                                <div className="text-xs text-gray-500 italic">
+                                                                    Crosscheck can be submitted only by Analyst after “Analyst: received”, and when Lab Code (BML) exists.
+                                                                </div>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>

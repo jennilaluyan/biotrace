@@ -99,8 +99,6 @@ export interface Sample {
     sample_type: string;
     examination_purpose: string | null;
 
-    // ❌ removed: contact_history, priority
-
     current_status: SampleStatus;
     additional_notes: string | null;
     created_by: number;
@@ -131,6 +129,12 @@ export interface Sample {
     collector_returned_to_admin_at?: string | null;
     admin_received_from_collector_at?: string | null;
     client_picked_up_at?: string | null;
+
+    crosscheck_status?: "pending" | "passed" | "failed" | (string & {}) | null;
+    crosschecked_at?: string | null;
+    crosschecked_by_staff_id?: number | null;
+    crosscheck_note?: string | null;
+    physical_label_code?: string | null;
 
     // ✅ requested parameters (pivot)
     requested_parameters?: RequestedParameter[] | null;
