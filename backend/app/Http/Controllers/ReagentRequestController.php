@@ -445,6 +445,76 @@ class ReagentRequestController extends Controller
         return ApiResponse::success($result['payload'], 'Submitted');
     }
 
+    /**
+     * POST /v1/reagent-requests/{id}/approve
+     * OM/LH approves a submitted reagent request.
+     *
+     * Rules:
+     * - Only OM/LH
+     * - Only when current status = submitted
+     * - Sets approved_at + approved_by_staff_id + status=approved
+     */
+    public function approve(Request $request, int $id): JsonResponse
+    {
+        $this->assertOmOrLh($request);
+
+        $actorStaffId = $this->resolveActorStaffId($request);
+
+        return DB::transaction(function () use ($id, $actorStaffId) {
+            $affected = DB::table('reagent_requests')
+                ->where('reagent_request_id', $id)
+                ->where('status', 'submitted')
+                ->update([
+                    'status' => 'approved',
+                    'approved_at' => now(),
+                    'approved_by_staff_id' => $actorStaffId,
+
+                    // clear rejection fields (safety)
+                    'rejected_at' => null,
+                    'rejected_by_staff_id' => null,
+                    'reject_note' => null,
+
+                    'updated_at' => now(),
+                ]);
+
+            if ($affected < 1) {
+                // Either not found, or status is not submitted (already approved/rejected/draft)
+                abort(422, 'Only submitted reagent requests can be approved.');
+            }
+
+            // Return refreshed payload (whatever your controller already uses)
+            // If you have $this->payload($id) from step 6, reuse it.
+            if (method_exists($this, 'payload')) {
+                return ApiResponse::success($this->payload($id), 'Approved');
+            }
+
+            // Fallback: return the row if payload() not available
+            $row = DB::table('reagent_requests')->where('reagent_request_id', $id)->first();
+            return ApiResponse::success(['request' => $row], 'Approved');
+        });
+    }
+
+    /**
+     * Resolve actor staff_id from authenticated user.
+     * We must store approved_by_staff_id referencing staffs.staff_id.:contentReference[oaicite:1]{index=1}
+     */
+    private function resolveActorStaffId(Request $request): int
+    {
+        $user = $request->user();
+
+        // Common shapes:
+        // 1) user has staff_id directly
+        if (!empty($user->staff_id)) return (int) $user->staff_id;
+
+        // 2) user has staff relation
+        if (isset($user->staff) && !empty($user->staff->staff_id)) return (int) $user->staff->staff_id;
+
+        // 3) user id equals staff id (some apps do this)
+        if (!empty($user->id)) return (int) $user->id;
+
+        abort(500, 'Cannot resolve actor staff_id for approval.');
+    }
+
     private function payload(int $requestId): array
     {
         $req = DB::table('reagent_requests')
