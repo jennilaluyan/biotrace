@@ -11,6 +11,7 @@ import {
 import { apiGet } from "../../services/api";
 import { searchEquipmentCatalog, EquipmentCatalogItem } from "../../services/equipmentCatalog";
 import { useDebouncedValue } from "../../utils/useDebouncedValue";
+import ReagentRequestCartModal from "../../components/reagents/ReagentRequestCartModal";
 
 type CatalogRow = {
     catalog_id: number;
@@ -33,42 +34,13 @@ function cx(...arr: Array<string | false | null | undefined>) {
 function unwrapApi(res: any) {
     let x = res?.data ?? res;
     for (let i = 0; i < 5; i++) {
-        if (x && typeof x === "object" && "data" in x && x.data != null) {
-            x = x.data;
+        if (x && typeof x === "object" && "data" in x && (x as any).data != null) {
+            x = (x as any).data;
             continue;
         }
         break;
     }
     return x;
-}
-
-function pad2(n: number) {
-    return String(n).padStart(2, "0");
-}
-
-function isoToLocalInput(iso?: string | null) {
-    if (!iso) return "";
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return "";
-    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(
-        d.getMinutes()
-    )}`;
-}
-
-function localInputToIso(value?: string | null) {
-    if (!value) return null;
-    const d = new Date(value); // local time
-    if (Number.isNaN(d.getTime())) return null;
-    return d.toISOString();
-}
-
-function uniqUnits(...units: Array<string | null | undefined>) {
-    const set = new Set<string>();
-    for (const u of units) {
-        const s = (u ?? "").trim();
-        if (s) set.add(s);
-    }
-    return Array.from(set);
 }
 
 export default function ReagentRequestBuilderPage() {
@@ -81,7 +53,7 @@ export default function ReagentRequestBuilderPage() {
     const [items, setItems] = useState<ReagentRequestItemRow[]>([]);
     const [bookings, setBookings] = useState<EquipmentBookingRow[]>([]);
 
-    // Catalog browser (show all by default + search + filter + paging)
+    // Catalog browser
     const [catalogSearch, setCatalogSearch] = useState("");
     const debouncedCatalogSearch = useDebouncedValue(catalogSearch, 300);
     const [catalogType, setCatalogType] = useState<"all" | "bhp" | "reagen">("all");
@@ -92,7 +64,7 @@ export default function ReagentRequestBuilderPage() {
     const [catalogLoading, setCatalogLoading] = useState(false);
     const [catalogMeta, setCatalogMeta] = useState<any>(null);
 
-    // Equipment browser (show all by default + search + paging)
+    // Equipment browser
     const [equipSearch, setEquipSearch] = useState("");
     const debouncedEquipSearch = useDebouncedValue(equipSearch, 300);
     const [equipPage, setEquipPage] = useState(1);
@@ -107,6 +79,9 @@ export default function ReagentRequestBuilderPage() {
     const [submitting, setSubmitting] = useState(false);
     const [errorText, setErrorText] = useState<string | null>(null);
     const [gateDetails, setGateDetails] = useState<any>(null);
+
+    // Modal state
+    const [cartOpen, setCartOpen] = useState(false);
 
     useEffect(() => {
         if (!Number.isFinite(loId) || loId <= 0) return;
@@ -154,7 +129,6 @@ export default function ReagentRequestBuilderPage() {
             .then((res: any) => {
                 const payload = unwrapApi(res);
 
-                // biasanya: { data: [...], meta: {...} }
                 const rows = Array.isArray(payload)
                     ? payload
                     : Array.isArray(payload?.data)
@@ -179,8 +153,7 @@ export default function ReagentRequestBuilderPage() {
                         type: r.type ?? r.item_type ?? null,
                         name: r.name ?? r.item_name ?? r.title ?? null,
                         specification: r.specification ?? r.spec ?? r.description ?? null,
-                        default_unit_text:
-                            r.default_unit_text ?? r.default_unit ?? r.unit_text ?? r.unit ?? null,
+                        default_unit_text: r.default_unit_text ?? r.default_unit ?? r.unit_text ?? r.unit ?? null,
                     };
                 });
 
@@ -228,9 +201,7 @@ export default function ReagentRequestBuilderPage() {
             .finally(() => setEquipLoading(false));
     }, [debouncedEquipSearch, equipPage]);
 
-    const canSubmit = useMemo(() => {
-        return items.length > 0 || bookings.length > 0;
-    }, [items, bookings]);
+    const canSubmit = useMemo(() => items.length > 0 || bookings.length > 0, [items, bookings]);
 
     const canLoadMoreCatalog = useMemo(() => {
         if (catalogLoading) return false;
@@ -270,6 +241,9 @@ export default function ReagentRequestBuilderPage() {
                 },
             ];
         });
+
+        // buka modal otomatis biar user yakin item masuk
+        setCartOpen(true);
     }
 
     function removeItem(idx: number) {
@@ -295,6 +269,8 @@ export default function ReagentRequestBuilderPage() {
                 ...(equip.name ? ({ equipment_name: equip.name } as any) : null),
             } as any,
         ]);
+
+        setCartOpen(true);
     }
 
     function removeBooking(idx: number) {
@@ -320,7 +296,7 @@ export default function ReagentRequestBuilderPage() {
                     note: it.note ?? null,
                 })),
                 bookings: bookings.map((b) => ({
-                    booking_id: b.booking_id,
+                    booking_id: (b as any)?.booking_id,
                     equipment_id: Number(b.equipment_id),
                     planned_start_at: b.planned_start_at,
                     planned_end_at: b.planned_end_at,
@@ -344,6 +320,7 @@ export default function ReagentRequestBuilderPage() {
     async function onSubmit() {
         if (!request?.reagent_request_id) {
             setErrorText("No request found. Save draft first.");
+            setCartOpen(true);
             return;
         }
 
@@ -367,10 +344,15 @@ export default function ReagentRequestBuilderPage() {
             if (resp?.code === "crosscheck_not_passed" || String(msg).toLowerCase().includes("crosscheck")) {
                 setGateDetails(detail);
             }
+
+            setCartOpen(true);
         } finally {
             setSubmitting(false);
         }
     }
+
+    const totalSelected = items.reduce((sum, it) => sum + Number(it.qty ?? 0), 0);
+    const hasAnySelection = items.length > 0 || bookings.length > 0;
 
     if (loading) {
         return <div className="p-4">Loading reagent request…</div>;
@@ -398,7 +380,23 @@ export default function ReagentRequestBuilderPage() {
                     )}
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setCartOpen(true)}
+                        className={cx("rounded-xl border px-4 py-2 text-sm font-semibold hover:bg-gray-50")}
+                        title="Lihat & edit request items"
+                    >
+                        Request{" "}
+                        {hasAnySelection ? (
+                            <span className="ml-2 inline-flex items-center rounded-full bg-gray-900 px-2 py-0.5 text-xs font-semibold text-white">
+                                {items.length} item • {bookings.length} alat
+                            </span>
+                        ) : (
+                            <span className="ml-2 text-xs text-gray-500">(empty)</span>
+                        )}
+                    </button>
+
                     <button
                         className={cx(
                             "rounded-xl border px-4 py-2 text-sm font-semibold",
@@ -406,6 +404,7 @@ export default function ReagentRequestBuilderPage() {
                         )}
                         disabled={saving}
                         onClick={onSaveDraft}
+                        type="button"
                     >
                         {saving ? "Saving…" : "Save Draft"}
                     </button>
@@ -420,6 +419,7 @@ export default function ReagentRequestBuilderPage() {
                         disabled={!canSubmit || submitting}
                         onClick={onSubmit}
                         title={!canSubmit ? "Add at least 1 item or 1 booking" : ""}
+                        type="button"
                     >
                         {submitting ? "Submitting…" : "Submit"}
                     </button>
@@ -449,398 +449,199 @@ export default function ReagentRequestBuilderPage() {
                 </div>
             )}
 
-            {/* 2-panel layout */}
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-                {/* LEFT: Browser */}
-                <div className="lg:col-span-7 space-y-4">
-                    {/* Catalog */}
-                    <div className="rounded-2xl border bg-white shadow-sm">
-                        <div className="border-b px-4 py-3">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                <div className="font-semibold text-gray-900">Catalog Items (BHP/Reagen)</div>
+            {/* Full-width layout */}
+            <div className="grid grid-cols-1 gap-4">
+                {/* Catalog */}
+                <div className="rounded-2xl border bg-white shadow-sm">
+                    <div className="border-b px-4 py-3">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="font-semibold text-gray-900">Catalog Items (BHP/Reagen)</div>
 
-                                <div className="flex gap-2">
-                                    <button
-                                        className={cx(
-                                            "rounded-full px-3 py-1 text-xs font-semibold border",
-                                            catalogType === "all"
-                                                ? "bg-gray-900 text-white border-gray-900"
-                                                : "bg-white hover:bg-gray-50"
-                                        )}
-                                        onClick={() => setCatalogType("all")}
-                                        type="button"
-                                    >
-                                        All
-                                    </button>
-                                    <button
-                                        className={cx(
-                                            "rounded-full px-3 py-1 text-xs font-semibold border",
-                                            catalogType === "bhp"
-                                                ? "bg-gray-900 text-white border-gray-900"
-                                                : "bg-white hover:bg-gray-50"
-                                        )}
-                                        onClick={() => setCatalogType("bhp")}
-                                        type="button"
-                                    >
-                                        BHP
-                                    </button>
-                                    <button
-                                        className={cx(
-                                            "rounded-full px-3 py-1 text-xs font-semibold border",
-                                            catalogType === "reagen"
-                                                ? "bg-gray-900 text-white border-gray-900"
-                                                : "bg-white hover:bg-gray-50"
-                                        )}
-                                        onClick={() => setCatalogType("reagen")}
-                                        type="button"
-                                    >
-                                        Reagen
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div className="mt-3">
-                                <input
-                                    className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft"
-                                    placeholder="Search catalog items…"
-                                    value={catalogSearch}
-                                    onChange={(e) => setCatalogSearch(e.target.value)}
-                                />
-                                <div className="mt-1 text-xs text-gray-500">Semua item tampil; search hanya untuk mempercepat.</div>
+                            <div className="flex gap-2">
+                                <button
+                                    className={cx(
+                                        "rounded-full px-3 py-1 text-xs font-semibold border",
+                                        catalogType === "all"
+                                            ? "bg-gray-900 text-white border-gray-900"
+                                            : "bg-white hover:bg-gray-50"
+                                    )}
+                                    onClick={() => setCatalogType("all")}
+                                    type="button"
+                                >
+                                    All
+                                </button>
+                                <button
+                                    className={cx(
+                                        "rounded-full px-3 py-1 text-xs font-semibold border",
+                                        catalogType === "bhp"
+                                            ? "bg-gray-900 text-white border-gray-900"
+                                            : "bg-white hover:bg-gray-50"
+                                    )}
+                                    onClick={() => setCatalogType("bhp")}
+                                    type="button"
+                                >
+                                    BHP
+                                </button>
+                                <button
+                                    className={cx(
+                                        "rounded-full px-3 py-1 text-xs font-semibold border",
+                                        catalogType === "reagen"
+                                            ? "bg-gray-900 text-white border-gray-900"
+                                            : "bg-white hover:bg-gray-50"
+                                    )}
+                                    onClick={() => setCatalogType("reagen")}
+                                    type="button"
+                                >
+                                    Reagen
+                                </button>
                             </div>
                         </div>
 
-                        <div className="max-h-[420px] overflow-auto">
-                            {catalogLoading && catalogResults.length === 0 ? (
-                                <div className="p-4 text-sm text-gray-600">Loading catalog…</div>
-                            ) : catalogResults.length === 0 ? (
-                                <div className="p-4 text-sm text-gray-600">No catalog items found.</div>
-                            ) : (
-                                <div className="divide-y">
-                                    {catalogResults.map((c) => (
-                                        <button
-                                            key={c.catalog_id}
-                                            className="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-start justify-between gap-3"
-                                            onClick={() => addCatalogToItems(c)}
-                                            type="button"
-                                        >
-                                            <div className="min-w-0">
-                                                <div className="font-semibold text-sm text-gray-900 truncate">
-                                                    {c.name ?? "-"}
-                                                </div>
-                                                <div className="text-xs text-gray-500 truncate">
-                                                    #{c.catalog_id} • {String(c.type ?? "-").toUpperCase()} • unit:{" "}
-                                                    {c.default_unit_text ?? "-"}
-                                                </div>
-                                                {c.specification ? (
-                                                    <div className="mt-1 text-xs text-gray-600 truncate">{c.specification}</div>
-                                                ) : null}
-                                            </div>
-
-                                            <span className="shrink-0 rounded-lg border px-3 py-1 text-xs font-semibold hover:bg-white">
-                                                Add
-                                            </span>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="border-t px-4 py-3 flex items-center justify-between">
-                            <div className="text-xs text-gray-500">
-                                Showing {catalogResults.length} items
-                                {catalogMeta?.total ? ` • total ${catalogMeta.total}` : ""}
+                        <div className="mt-3">
+                            <input
+                                className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft"
+                                placeholder="Search catalog items…"
+                                value={catalogSearch}
+                                onChange={(e) => setCatalogSearch(e.target.value)}
+                            />
+                            <div className="mt-1 text-xs text-gray-500">
+                                Semua item tampil; search hanya untuk mempercepat. Klik item untuk masuk ke Request.
                             </div>
-                            <button
-                                type="button"
-                                className="rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                                onClick={() => setCatalogPage((p) => p + 1)}
-                                disabled={!canLoadMoreCatalog}
-                                title={!canLoadMoreCatalog ? "No more pages" : ""}
-                            >
-                                {catalogLoading ? "Loading…" : "Load more"}
-                            </button>
                         </div>
                     </div>
 
-                    {/* Equipment */}
-                    <div className="rounded-2xl border bg-white shadow-sm">
-                        <div className="border-b px-4 py-3">
-                            <div className="font-semibold text-gray-900">Equipment</div>
-                            <div className="mt-3">
-                                <input
-                                    className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft"
-                                    placeholder="Search equipment…"
-                                    value={equipSearch}
-                                    onChange={(e) => setEquipSearch(e.target.value)}
-                                />
-                                <div className="mt-1 text-xs text-gray-500">Semua alat tampil; search hanya untuk mempercepat.</div>
-                            </div>
-                        </div>
-
-                        <div className="max-h-80 overflow-auto">
-                            {equipLoading && equipResults.length === 0 ? (
-                                <div className="p-4 text-sm text-gray-600">Loading equipment…</div>
-                            ) : equipResults.length === 0 ? (
-                                <div className="p-4 text-sm text-gray-600">No equipment found.</div>
-                            ) : (
-                                <div className="divide-y">
-                                    {equipResults.map((eq) => (
-                                        <button
-                                            key={eq.equipment_id}
-                                            className="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-start justify-between gap-3"
-                                            onClick={() => addBooking(eq)}
-                                            type="button"
-                                        >
-                                            <div className="min-w-0">
-                                                <div className="font-semibold text-sm text-gray-900 truncate">
-                                                    {(eq.code ? `${eq.code} • ` : "") + (eq.name ?? "Equipment")}
-                                                </div>
-                                                <div className="text-xs text-gray-500 truncate">equipment_id: {eq.equipment_id}</div>
+                    <div className="max-h-[560px] overflow-auto">
+                        {catalogLoading && catalogResults.length === 0 ? (
+                            <div className="p-4 text-sm text-gray-600">Loading catalog…</div>
+                        ) : catalogResults.length === 0 ? (
+                            <div className="p-4 text-sm text-gray-600">No catalog items found.</div>
+                        ) : (
+                            <div className="divide-y">
+                                {catalogResults.map((c) => (
+                                    <button
+                                        key={c.catalog_id}
+                                        className="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-start justify-between gap-3"
+                                        onClick={() => addCatalogToItems(c)}
+                                        type="button"
+                                    >
+                                        <div className="min-w-0">
+                                            <div className="font-semibold text-sm text-gray-900 truncate">{c.name ?? "-"}</div>
+                                            <div className="text-xs text-gray-500 truncate">
+                                                #{c.catalog_id} • {String(c.type ?? "-").toUpperCase()} • unit:{" "}
+                                                {c.default_unit_text ?? "-"}
                                             </div>
+                                            {c.specification ? (
+                                                <div className="mt-1 text-xs text-gray-600 truncate">{c.specification}</div>
+                                            ) : null}
+                                        </div>
 
-                                            <span className="shrink-0 rounded-lg border px-3 py-1 text-xs font-semibold hover:bg-white">
-                                                Add booking
-                                            </span>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="border-t px-4 py-3 flex items-center justify-between">
-                            <div className="text-xs text-gray-500">
-                                Showing {equipResults.length} items
-                                {equipMeta?.total ? ` • total ${equipMeta.total}` : ""}
+                                        <span className="shrink-0 rounded-lg border px-3 py-1 text-xs font-semibold hover:bg-white">
+                                            Add
+                                        </span>
+                                    </button>
+                                ))}
                             </div>
-                            <button
-                                type="button"
-                                className="rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                                onClick={() => setEquipPage((p) => p + 1)}
-                                disabled={!canLoadMoreEquip}
-                                title={!canLoadMoreEquip ? "No more pages" : ""}
-                            >
-                                {equipLoading ? "Loading…" : "Load more"}
-                            </button>
+                        )}
+                    </div>
+
+                    <div className="border-t px-4 py-3 flex items-center justify-between">
+                        <div className="text-xs text-gray-500">
+                            Showing {catalogResults.length} items{catalogMeta?.total ? ` • total ${catalogMeta.total}` : ""}
                         </div>
+                        <button
+                            type="button"
+                            className="rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                            onClick={() => setCatalogPage((p) => p + 1)}
+                            disabled={!canLoadMoreCatalog}
+                            title={!canLoadMoreCatalog ? "No more pages" : ""}
+                        >
+                            {catalogLoading ? "Loading…" : "Load more"}
+                        </button>
                     </div>
                 </div>
 
-                {/* RIGHT: Request cart */}
-                <div className="lg:col-span-5 space-y-4">
-                    {/* Cart Items */}
-                    <div className="rounded-2xl border bg-white shadow-sm">
-                        <div className="border-b px-4 py-3">
-                            <div className="font-semibold text-gray-900">Request Items</div>
-                            <div className="text-xs text-gray-500 mt-1">Nama • Jumlah (±) • Satuan • Note</div>
+                {/* Equipment */}
+                <div className="rounded-2xl border bg-white shadow-sm">
+                    <div className="border-b px-4 py-3">
+                        <div className="font-semibold text-gray-900">Equipment</div>
+                        <div className="mt-3">
+                            <input
+                                className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft"
+                                placeholder="Search equipment…"
+                                value={equipSearch}
+                                onChange={(e) => setEquipSearch(e.target.value)}
+                            />
+                            <div className="mt-1 text-xs text-gray-500">Klik equipment untuk masuk ke booking di Request.</div>
                         </div>
+                    </div>
 
-                        {items.length === 0 ? (
-                            <div className="p-4 text-sm text-gray-600">No items selected yet.</div>
+                    <div className="max-h-[420px] overflow-auto">
+                        {equipLoading && equipResults.length === 0 ? (
+                            <div className="p-4 text-sm text-gray-600">Loading equipment…</div>
+                        ) : equipResults.length === 0 ? (
+                            <div className="p-4 text-sm text-gray-600">No equipment found.</div>
                         ) : (
-                            <div className="overflow-x-auto">
-                                <table className="min-w-full text-sm">
-                                    <thead className="bg-gray-50 text-gray-700">
-                                        <tr>
-                                            <th className="px-4 py-2 text-left font-semibold">Name</th>
-                                            <th className="px-4 py-2 text-left font-semibold w-[120px]">Qty</th>
-                                            <th className="px-4 py-2 text-left font-semibold w-[140px]">Unit</th>
-                                            <th className="px-4 py-2 text-left font-semibold">Note</th>
-                                            <th className="px-4 py-2 text-right font-semibold w-[60px]"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y">
-                                        {items.map((it, idx) => {
-                                            const unitOptions = uniqUnits(
-                                                it.unit_text ?? null,
-                                                (it as any)?.default_unit_text ?? null,
-                                                "pcs",
-                                                "box",
-                                                "bottle",
-                                                "mL",
-                                                "L",
-                                                "g",
-                                                "kg"
-                                            );
+                            <div className="divide-y">
+                                {equipResults.map((eq) => (
+                                    <button
+                                        key={eq.equipment_id}
+                                        className="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-start justify-between gap-3"
+                                        onClick={() => addBooking(eq)}
+                                        type="button"
+                                    >
+                                        <div className="min-w-0">
+                                            <div className="font-semibold text-sm text-gray-900 truncate">
+                                                {(eq.code ? `${eq.code} • ` : "") + (eq.name ?? "Equipment")}
+                                            </div>
+                                            <div className="text-xs text-gray-500 truncate">equipment_id: {eq.equipment_id}</div>
+                                        </div>
 
-                                            const qty = Number(it.qty ?? 0);
-
-                                            return (
-                                                <tr key={idx}>
-                                                    <td className="px-4 py-3">
-                                                        <div className="font-semibold text-gray-900">{it.item_name}</div>
-                                                        <div className="text-xs text-gray-500">
-                                                            #{it.catalog_item_id} • {String(it.item_type ?? "-").toUpperCase()}
-                                                        </div>
-                                                    </td>
-
-                                                    <td className="px-4 py-3">
-                                                        <div className="flex items-center gap-2">
-                                                            <button
-                                                                className="h-8 w-8 rounded-lg border hover:bg-gray-50"
-                                                                onClick={() => updateItem(idx, { qty: Math.max(0, qty - 1) })}
-                                                                type="button"
-                                                            >
-                                                                −
-                                                            </button>
-                                                            <input
-                                                                className="h-8 w-14 rounded-lg border text-center"
-                                                                type="number"
-                                                                min="0"
-                                                                step="1"
-                                                                value={qty}
-                                                                onChange={(e) => updateItem(idx, { qty: Number(e.target.value) })}
-                                                            />
-                                                            <button
-                                                                className="h-8 w-8 rounded-lg border hover:bg-gray-50"
-                                                                onClick={() => updateItem(idx, { qty: qty + 1 })}
-                                                                type="button"
-                                                            >
-                                                                +
-                                                            </button>
-                                                        </div>
-                                                    </td>
-
-                                                    <td className="px-4 py-3">
-                                                        <select
-                                                            className="h-8 w-full rounded-lg border px-2"
-                                                            value={it.unit_text ?? ""}
-                                                            onChange={(e) => updateItem(idx, { unit_text: e.target.value })}
-                                                        >
-                                                            {unitOptions.map((u) => (
-                                                                <option key={u} value={u}>
-                                                                    {u}
-                                                                </option>
-                                                            ))}
-                                                            <option value="">(empty)</option>
-                                                        </select>
-                                                    </td>
-
-                                                    <td className="px-4 py-3">
-                                                        <input
-                                                            className="h-8 w-full rounded-lg border px-2"
-                                                            value={it.note ?? ""}
-                                                            onChange={(e) => updateItem(idx, { note: e.target.value })}
-                                                            placeholder="optional…"
-                                                        />
-                                                    </td>
-
-                                                    <td className="px-4 py-3 text-right">
-                                                        <button
-                                                            className="rounded-lg px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
-                                                            onClick={() => removeItem(idx)}
-                                                            type="button"
-                                                        >
-                                                            Remove
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
+                                        <span className="shrink-0 rounded-lg border px-3 py-1 text-xs font-semibold hover:bg-white">
+                                            Add booking
+                                        </span>
+                                    </button>
+                                ))}
                             </div>
                         )}
                     </div>
 
-                    {/* Cart Bookings */}
-                    <div className="rounded-2xl border bg-white shadow-sm">
-                        <div className="border-b px-4 py-3">
-                            <div className="font-semibold text-gray-900">Equipment Bookings</div>
-                            <div className="text-xs text-gray-500 mt-1">Nama alat • Mulai • Selesai • Note</div>
+                    <div className="border-t px-4 py-3 flex items-center justify-between">
+                        <div className="text-xs text-gray-500">
+                            Showing {equipResults.length} items{equipMeta?.total ? ` • total ${equipMeta.total}` : ""}
                         </div>
-
-                        {bookings.length === 0 ? (
-                            <div className="p-4 text-sm text-gray-600">No bookings selected yet.</div>
-                        ) : (
-                            <div className="overflow-x-auto">
-                                <table className="min-w-full text-sm">
-                                    <thead className="bg-gray-50 text-gray-700">
-                                        <tr>
-                                            <th className="px-4 py-2 text-left font-semibold">Equipment</th>
-                                            <th className="px-4 py-2 text-left font-semibold w-[180px]">Start</th>
-                                            <th className="px-4 py-2 text-left font-semibold w-[180px]">End</th>
-                                            <th className="px-4 py-2 text-left font-semibold">Note</th>
-                                            <th className="px-4 py-2 text-right font-semibold w-[60px]"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y">
-                                        {bookings.map((b, idx) => {
-                                            const displayName =
-                                                (b as any)?.equipment_name ||
-                                                (b as any)?.equipment_code ||
-                                                `equipment_id: ${b.equipment_id}`;
-
-                                            return (
-                                                <tr key={idx}>
-                                                    <td className="px-4 py-3">
-                                                        <div className="font-semibold text-gray-900">{displayName}</div>
-                                                        {b.booking_id ? (
-                                                            <div className="text-xs text-gray-500">booking_id: {b.booking_id}</div>
-                                                        ) : (
-                                                            <div className="text-xs text-gray-500">new booking</div>
-                                                        )}
-                                                    </td>
-
-                                                    <td className="px-4 py-3">
-                                                        <input
-                                                            className="h-8 w-full rounded-lg border px-2"
-                                                            type="datetime-local"
-                                                            value={isoToLocalInput(b.planned_start_at)}
-                                                            onChange={(e) => {
-                                                                const iso = localInputToIso(e.target.value);
-                                                                updateBooking(idx, { planned_start_at: iso ?? b.planned_start_at });
-                                                            }}
-                                                        />
-                                                    </td>
-
-                                                    <td className="px-4 py-3">
-                                                        <input
-                                                            className="h-8 w-full rounded-lg border px-2"
-                                                            type="datetime-local"
-                                                            value={isoToLocalInput(b.planned_end_at)}
-                                                            onChange={(e) => {
-                                                                const iso = localInputToIso(e.target.value);
-                                                                updateBooking(idx, { planned_end_at: iso ?? b.planned_end_at });
-                                                            }}
-                                                        />
-                                                    </td>
-
-                                                    <td className="px-4 py-3">
-                                                        <input
-                                                            className="h-8 w-full rounded-lg border px-2"
-                                                            value={b.note ?? ""}
-                                                            onChange={(e) => updateBooking(idx, { note: e.target.value })}
-                                                            placeholder="optional…"
-                                                        />
-                                                    </td>
-
-                                                    <td className="px-4 py-3 text-right">
-                                                        <button
-                                                            className="rounded-lg px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
-                                                            onClick={() => removeBooking(idx)}
-                                                            type="button"
-                                                        >
-                                                            Remove
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                        <div className="font-semibold">Tips</div>
-                        <div className="mt-1">
-                            Pilih item/alat dari panel kiri → otomatis masuk ke “Request” di kanan → atur jumlah/unit/waktu → Save Draft → Submit.
-                        </div>
+                        <button
+                            type="button"
+                            className="rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                            onClick={() => setEquipPage((p) => p + 1)}
+                            disabled={!canLoadMoreEquip}
+                            title={!canLoadMoreEquip ? "No more pages" : ""}
+                        >
+                            {equipLoading ? "Loading…" : "Load more"}
+                        </button>
                     </div>
                 </div>
             </div>
+
+            {/* Modal: Request cart */}
+            <ReagentRequestCartModal
+                open={cartOpen}
+                onClose={() => setCartOpen(false)}
+                loId={loId}
+                requestStatus={request?.status ?? null}
+                cycleNo={request?.cycle_no ?? null}
+                items={items}
+                bookings={bookings}
+                saving={saving}
+                submitting={submitting}
+                canSubmit={canSubmit}
+                totalSelectedQty={totalSelected}
+                onSaveDraft={onSaveDraft}
+                onSubmit={onSubmit}
+                onRemoveItem={removeItem}
+                onUpdateItem={updateItem}
+                onRemoveBooking={removeBooking}
+                onUpdateBooking={updateBooking}
+            />
         </div>
     );
 }
