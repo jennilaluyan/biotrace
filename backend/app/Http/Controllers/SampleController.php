@@ -7,9 +7,10 @@ use App\Http\Requests\SampleStatusUpdateRequest;
 use App\Http\Requests\SampleStoreRequest;
 use App\Models\Sample;
 use App\Models\Staff;
-use App\Http\Controllers\Parameter;
+use App\Models\Parameter;
 use App\Support\AuditLogger;
 use App\Support\SampleStatusTransitions;
+use App\Support\WorkflowGroupResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -193,73 +194,32 @@ class SampleController extends Controller
     {
         $parameterIds = array_values(array_unique(array_map('intval', $parameterIds)));
 
-        // sync pivot
+        // pivot sync
         $sample->requestedParameters()->sync($parameterIds);
 
-        // ✅ NEW: persist workflow_group on samples table
-        $sample->workflow_group = $this->resolveWorkflowGroupFromParameters($parameterIds);
-        $sample->save();
-    }
+        // ✅ Step 9.1 source-of-truth resolver (ranges + exclude param 18)
+        $oldGroup = $sample->workflow_group;
 
-    /**
-     * Best-effort resolver:
-     * - biomolekuler: PCR/TCM/Genexpert/Sequensing/Metagenomik/Antigen/Antibodi/etc
-     * - mikrobiologi: kultur/biakan/sensitivity/susceptibility/etc
-     * - mixed: kalau ketemu lebih dari 1 kelompok
-     * - unknown: fallback
-     *
-     * Catatan: Kalau di step 9.1 kamu sudah bikin resolver/mapping yang lebih “resmi”,
-     * tinggal ganti isi fungsi ini supaya pakai mapping itu (tapi signature tetap).
-     */
-    private function resolveWorkflowGroupFromParameters(array $parameterIds): ?string
-    {
-        if (count($parameterIds) === 0) return null;
+        $resolved = WorkflowGroupResolver::resolveFromParameterIds($parameterIds);
+        $newGroup = $resolved?->value; // stored as string in samples.workflow_group
 
-        $params = Parameter::query()
-            ->whereIn('parameter_id', $parameterIds)
-            ->get(['parameter_id', 'code', 'name', 'method_ref']);
+        // Only write & audit when changed (anti-spam)
+        if ($newGroup !== $oldGroup) {
+            $sample->workflow_group = $newGroup;
+            $sample->save();
 
-        if ($params->isEmpty()) return null;
+            /** @var Staff|null $staff */
+            $staff = Auth::user();
 
-        $hitGroups = [];
-
-        foreach ($params as $p) {
-            $hay = strtolower(trim(
-                ($p->code ?? '') . ' ' . ($p->name ?? '') . ' ' . ($p->method_ref ?? '')
-            ));
-
-            // biomolekuler-ish keywords
-            $isBioMol =
-                str_contains($hay, 'pcr') ||
-                str_contains($hay, 'tcm') ||
-                str_contains($hay, 'genexpert') ||
-                str_contains($hay, 'sequens') ||     // sequencing / sequensing typo-safe
-                str_contains($hay, 'metagen') ||
-                str_contains($hay, 'antigen') ||
-                str_contains($hay, 'antibodi') ||
-                str_contains($hay, 'sars') ||
-                str_contains($hay, 'hpv') ||
-                str_contains($hay, 'covid');
-
-            // mikrobiologi-ish keywords
-            $isMicro =
-                str_contains($hay, 'kultur') ||
-                str_contains($hay, 'biakan') ||
-                str_contains($hay, 'sensitivity') ||
-                str_contains($hay, 'suscept') ||
-                str_contains($hay, 'corynebacterium') ||
-                str_contains($hay, 'candida') ||
-                str_contains($hay, 'cryptococcus');
-
-            if ($isBioMol) $hitGroups['biomolekuler'] = true;
-            if ($isMicro)  $hitGroups['mikrobiologi'] = true;
+            AuditLogger::logWorkflowGroupChanged(
+                staffId: $staff instanceof Staff ? (int) $staff->staff_id : null,
+                sampleId: (int) $sample->sample_id,
+                clientId: (int) $sample->client_id,
+                oldGroup: $oldGroup,
+                newGroup: $newGroup,
+                parameterIds: $parameterIds,
+            );
         }
-
-        $groups = array_keys($hitGroups);
-
-        if (count($groups) === 0) return 'unknown';
-        if (count($groups) === 1) return $groups[0];
-        return 'mixed';
     }
 
     public function store(SampleStoreRequest $request): JsonResponse

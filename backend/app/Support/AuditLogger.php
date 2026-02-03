@@ -276,4 +276,28 @@ class AuditLogger
             newValues: $payload
         );
     }
+
+    public static function logWorkflowGroupChanged(
+        ?int $staffId,
+        int $sampleId,
+        int $clientId,
+        ?string $oldGroup,
+        ?string $newGroup,
+        array $parameterIds
+    ): void {
+        // Reuse core logger mechanism kamu yang sudah ada (sesuai implementasi AuditLogger di project)
+        self::log(
+            action: 'workflow_group_changed',
+            entityType: 'sample',
+            entityId: (string) $sampleId,
+            staffId: $staffId,
+            clientId: $clientId,
+            oldValues: ['workflow_group' => $oldGroup],
+            newValues: ['workflow_group' => $newGroup],
+            meta: [
+                'sample_id' => $sampleId,
+                'parameter_ids' => array_values(array_unique(array_map('intval', $parameterIds))),
+            ],
+        );
+    }
 }
