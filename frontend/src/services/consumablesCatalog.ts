@@ -1,4 +1,3 @@
-// frontend/src/services/consumablesCatalog.ts
 import { apiGetRaw } from "./api";
 
 const API_VER = "/v1";
