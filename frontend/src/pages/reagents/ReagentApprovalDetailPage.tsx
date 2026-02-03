@@ -34,6 +34,27 @@ function getHttpStatus(err: any): number | null {
     return typeof s === "number" ? s : null;
 }
 
+/**
+ * Best-effort PDF href builder.
+ * Backend may return:
+ * - absolute URL (https://...)
+ * - relative path (documents/... or storage/...)
+ */
+function normalizePdfHref(raw: any): string | null {
+    const v = String(raw ?? "").trim();
+    if (!v) return null;
+
+    // already absolute
+    if (v.startsWith("http://") || v.startsWith("https://")) return v;
+
+    // if backend returns "/storage/..." keep it
+    if (v.startsWith("/")) return v;
+
+    // common Laravel public disk pattern
+    // if you store to public disk, files are served via /storage/<path>
+    return `/storage/${v.replace(/^storage\//, "")}`;
+}
+
 type LooDetail = {
     lo_id: number;
     number?: string | null;
@@ -166,6 +187,12 @@ export default function ReagentApprovalDetailPage() {
 
     const canAct = String(request?.status ?? "") === "submitted";
 
+    const pdfHref = useMemo(() => {
+        // prefer file_url (from step 8.2), fallback to pdf_url if you later rename
+        const raw = (request as any)?.file_url ?? (request as any)?.pdf_url ?? null;
+        return normalizePdfHref(raw);
+    }, [request]);
+
     function openApprove() {
         setDecisionMode("approve");
         setModalOpen(true);
@@ -271,6 +298,45 @@ export default function ReagentApprovalDetailPage() {
                     </button>
                 </div>
             </div>
+
+            {String(request?.status ?? "") === "approved" ? (
+                <div className="mb-4 rounded-2xl border bg-white shadow-sm px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <div className="text-sm font-semibold text-gray-900">Reagent Request PDF</div>
+                            <div className="text-xs text-gray-500 mt-0.5">
+                                {pdfHref ? "PDF tersedia untuk dibuka/diunduh." : "PDF belum tersedia (file_url kosong)."}
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                className={cx("btn-outline", !pdfHref ? "opacity-60 cursor-not-allowed" : "")}
+                                disabled={!pdfHref}
+                                onClick={() => {
+                                    if (!pdfHref) return;
+                                    window.open(pdfHref, "_blank", "noopener,noreferrer");
+                                }}
+                                title={!pdfHref ? "PDF belum tersedia" : "Buka PDF di tab baru"}
+                            >
+                                View PDF
+                            </button>
+
+                            <a
+                                className={cx("lims-btn-primary", !pdfHref ? "opacity-60 pointer-events-none" : "")}
+                                href={pdfHref ?? "#"}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                download
+                                title={!pdfHref ? "PDF belum tersedia" : "Unduh PDF"}
+                            >
+                                Download
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
 
             {success && (
                 <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
