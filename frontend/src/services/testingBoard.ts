@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPatch } from "./api";
+import { apiGet, apiPost, apiPatch, apiPut } from "./api";
 import type { Sample, PaginatedResponse } from "./samples";
 
 export type TestingBoardColumn = {
@@ -55,26 +55,30 @@ function unwrapData<T>(res: any): T {
  * - fallback: build simple "board" using /v1/samples?status_enum=testing
  */
 export async function fetchTestingBoard(opts?: { group?: string }) {
-    const group = (opts?.group ?? "").trim();
-    const effectiveGroup = group || "pcr_sars_cov_2";
+    const raw = (opts?.group ?? "").trim();
+
+    // ✅ dropdown kamu masih pakai "default" → map ke group real yang ada di DB
+    const group =
+        !raw || raw === "default"
+            ? "pcr_sars_cov_2"
+            : raw;
+
     try {
         const res = await apiGet<any>(`${BOARD_BASE}/${encodeURIComponent(group)}`);
         const payload = unwrapData<any>(res);
+
+        // ✅ kalau backend balikin { message: "Board not found." } → paksa fallback
+        if (payload?.message && !payload?.columns) {
+            throw new Error(payload.message);
+        }
 
         const columns = safeArr<TestingBoardColumn>(payload?.columns);
         const cards = safeArr<TestingBoardCard>(payload?.cards);
 
         if (columns.length > 0) {
-            return {
-                mode: "backend" as const,
-                group,
-                board: payload as TestingBoardPayload,
-                columns,
-                cards,
-            };
+            return { mode: "backend" as const, group, board: payload as TestingBoardPayload, columns, cards };
         }
 
-        // If payload shape is weird: still fallback
         throw new Error("Board payload missing columns.");
     } catch {
         // fallback: samples in testing
@@ -137,5 +141,5 @@ export async function addTestingColumn(payload: { group: string; name: string; p
 
 export async function reorderTestingColumns(payload: { group: string; column_ids: number[] }) {
     const { group, ...body } = payload;
-    return apiPost(`${BOARD_BASE}/${encodeURIComponent(group)}/columns/reorder`, body);
+    return apiPut(`${BOARD_BASE}/${encodeURIComponent(group)}/columns/reorder`, body);
 }
