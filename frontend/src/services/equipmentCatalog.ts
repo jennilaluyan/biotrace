@@ -8,11 +8,21 @@ export type EquipmentCatalogItem = {
     status?: string | null;
 };
 
-export async function searchEquipmentCatalog(search: string) {
+/**
+ * List/search equipment catalog.
+ * - search kosong => list semua (default)
+ * - support paging (page/per_page)
+ */
+export async function searchEquipmentCatalog(search?: string, page = 1, perPage = 60) {
     // NOTE: kalau endpoint backend kamu beda, ganti string path ini saja.
-    // Saran endpoint: GET /v1/equipment/catalog?search=...
+    // Endpoint saat ini: GET /v1/equipment/catalog?search=...&page=...&per_page=...
     const qs = new URLSearchParams();
-    if (search) qs.set("search", search);
-    qs.set("per_page", "20");
+
+    const q = (search ?? "").trim();
+    if (q) qs.set("search", q);
+
+    qs.set("page", String(page));
+    qs.set("per_page", String(perPage));
+
     return apiGet(`/v1/equipment/catalog?${qs.toString()}`);
 }

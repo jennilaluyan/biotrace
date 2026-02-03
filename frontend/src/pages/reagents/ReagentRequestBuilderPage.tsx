@@ -24,6 +24,24 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
+/**
+ * Normalize berbagai bentuk wrapper response:
+ * - axios: { data: ... }
+ * - ApiResponse: { data: { ... } }
+ * - nested: { data: { data: { ... } } }
+ */
+function unwrapApi(res: any) {
+    let x = res?.data ?? res;
+    for (let i = 0; i < 5; i++) {
+        if (x && typeof x === "object" && "data" in x && x.data != null) {
+            x = x.data;
+            continue;
+        }
+        break;
+    }
+    return x;
+}
+
 function pad2(n: number) {
     return String(n).padStart(2, "0");
 }
@@ -32,7 +50,6 @@ function isoToLocalInput(iso?: string | null) {
     if (!iso) return "";
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "";
-    // format: YYYY-MM-DDTHH:mm (LOCAL time)
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(
         d.getMinutes()
     )}`;
@@ -40,9 +57,9 @@ function isoToLocalInput(iso?: string | null) {
 
 function localInputToIso(value?: string | null) {
     if (!value) return null;
-    const d = new Date(value); // treated as local time
+    const d = new Date(value); // local time
     if (Number.isNaN(d.getTime())) return null;
-    return d.toISOString(); // backend should accept ISO Z
+    return d.toISOString();
 }
 
 function uniqUnits(...units: Array<string | null | undefined>) {
@@ -73,6 +90,7 @@ export default function ReagentRequestBuilderPage() {
 
     const [catalogResults, setCatalogResults] = useState<CatalogRow[]>([]);
     const [catalogLoading, setCatalogLoading] = useState(false);
+    const [catalogMeta, setCatalogMeta] = useState<any>(null);
 
     // Equipment browser (show all by default + search + paging)
     const [equipSearch, setEquipSearch] = useState("");
@@ -82,6 +100,7 @@ export default function ReagentRequestBuilderPage() {
 
     const [equipResults, setEquipResults] = useState<EquipmentCatalogItem[]>([]);
     const [equipLoading, setEquipLoading] = useState(false);
+    const [equipMeta, setEquipMeta] = useState<any>(null);
 
     // UI feedback
     const [saving, setSaving] = useState(false);
@@ -98,8 +117,7 @@ export default function ReagentRequestBuilderPage() {
 
         getReagentRequestByLoo(loId)
             .then((res: any) => {
-                const data = res?.data ?? res; // depending on ApiResponse wrapper
-                const payload = data?.data ?? data; // extra safety
+                const payload = unwrapApi(res);
                 const rr = payload?.request ?? null;
                 const it = payload?.items ?? [];
                 const bk = payload?.bookings ?? [];
@@ -114,16 +132,17 @@ export default function ReagentRequestBuilderPage() {
             .finally(() => setLoading(false));
     }, [loId]);
 
-    // Search catalog items
+    // Reset catalog paging when search/type changes
     useEffect(() => {
-        // reset paging when search/type changes
         setCatalogPage(1);
     }, [debouncedCatalogSearch, catalogType]);
 
+    // Fetch catalog (show all by default)
     useEffect(() => {
+        setCatalogLoading(true);
+
         const q = (debouncedCatalogSearch ?? "").trim();
 
-        setCatalogLoading(true);
         const qs = new URLSearchParams();
         qs.set("active", "1");
         qs.set("per_page", String(CATALOG_PER_PAGE));
@@ -133,60 +152,101 @@ export default function ReagentRequestBuilderPage() {
 
         apiGet(`/v1/catalog/consumables?${qs.toString()}`)
             .then((res: any) => {
-                const data = res?.data ?? res;
-                const payload = data?.data ?? data;
-                const rows = payload?.data ?? payload?.items ?? payload ?? [];
+                const payload = unwrapApi(res);
 
-                const normalized = (rows as any[]).map((r) => ({
-                    catalog_id: r.catalog_id ?? r.id ?? r.catalogId,
-                    type: r.type ?? null,
-                    name: r.name ?? null,
-                    specification: r.specification ?? r.spec ?? null,
-                    default_unit_text: r.default_unit_text ?? r.unit_text ?? null,
-                }));
+                // biasanya: { data: [...], meta: {...} }
+                const rows = Array.isArray(payload)
+                    ? payload
+                    : Array.isArray(payload?.data)
+                        ? payload.data
+                        : Array.isArray(payload?.items)
+                            ? payload.items
+                            : [];
 
-                // page=1 replace, next pages append
+                const meta = payload?.meta ?? payload?.pagination ?? null;
+                setCatalogMeta(meta);
+
+                const normalized: CatalogRow[] = (rows as any[]).map((r) => {
+                    const catalogId =
+                        r.catalog_id ??
+                        r.catalogId ??
+                        r.id ??
+                        r.consumables_catalog_id ??
+                        r.consumable_catalog_id;
+
+                    return {
+                        catalog_id: Number(catalogId),
+                        type: r.type ?? r.item_type ?? null,
+                        name: r.name ?? r.item_name ?? r.title ?? null,
+                        specification: r.specification ?? r.spec ?? r.description ?? null,
+                        default_unit_text:
+                            r.default_unit_text ?? r.default_unit ?? r.unit_text ?? r.unit ?? null,
+                    };
+                });
+
                 setCatalogResults((prev) => (catalogPage === 1 ? normalized : [...prev, ...normalized]));
             })
             .catch(() => {
                 if (catalogPage === 1) setCatalogResults([]);
+                setCatalogMeta(null);
             })
             .finally(() => setCatalogLoading(false));
     }, [debouncedCatalogSearch, catalogType, catalogPage]);
 
-    // Search equipment catalog
+    // Reset equipment paging when search changes
     useEffect(() => {
         setEquipPage(1);
     }, [debouncedEquipSearch]);
 
+    // Fetch equipment (show all by default)
     useEffect(() => {
-        const q = (debouncedEquipSearch ?? "").trim();
-
         setEquipLoading(true);
 
-        // kalau service kamu cuma support search string, kita pakai trick:
-        // - q kosong => cari "*" (atau "a") supaya keluar list default
-        // - idealnya: service diupgrade support per_page/page. untuk sekarang keep simple.
-        const query = q || "a";
+        const q = (debouncedEquipSearch ?? "").trim();
 
-        searchEquipmentCatalog(query)
+        searchEquipmentCatalog(q || undefined, equipPage, EQUIP_PER_PAGE)
             .then((res: any) => {
-                const data = res?.data ?? res;
-                const payload = data?.data ?? data;
-                const rows = payload?.data ?? payload?.items ?? payload ?? [];
+                const payload = unwrapApi(res);
 
-                // kalau "a" terlalu banyak, list ini minimal sudah tidak kosong.
-                setEquipResults(rows);
+                const rows = Array.isArray(payload)
+                    ? payload
+                    : Array.isArray(payload?.data)
+                        ? payload.data
+                        : Array.isArray(payload?.items)
+                            ? payload.items
+                            : [];
+
+                const meta = payload?.meta ?? payload?.pagination ?? null;
+                setEquipMeta(meta);
+
+                setEquipResults((prev) => (equipPage === 1 ? rows : [...prev, ...rows]));
             })
-            .catch(() => setEquipResults([]))
+            .catch(() => {
+                if (equipPage === 1) setEquipResults([]);
+                setEquipMeta(null);
+            })
             .finally(() => setEquipLoading(false));
     }, [debouncedEquipSearch, equipPage]);
 
     const canSubmit = useMemo(() => {
-        const hasItems = items.length > 0;
-        const hasBookings = bookings.length > 0;
-        return hasItems || hasBookings;
+        return items.length > 0 || bookings.length > 0;
     }, [items, bookings]);
+
+    const canLoadMoreCatalog = useMemo(() => {
+        if (catalogLoading) return false;
+        const cur = Number(catalogMeta?.current_page ?? catalogPage);
+        const last = Number(catalogMeta?.last_page ?? 0);
+        if (last && cur >= last) return false;
+        return true;
+    }, [catalogLoading, catalogMeta, catalogPage]);
+
+    const canLoadMoreEquip = useMemo(() => {
+        if (equipLoading) return false;
+        const cur = Number(equipMeta?.current_page ?? equipPage);
+        const last = Number(equipMeta?.last_page ?? 0);
+        if (last && cur >= last) return false;
+        return true;
+    }, [equipLoading, equipMeta, equipPage]);
 
     function addCatalogToItems(cat: CatalogRow) {
         const name = cat.name ?? "(unnamed)";
@@ -228,18 +288,13 @@ export default function ReagentRequestBuilderPage() {
             ...prev,
             {
                 equipment_id: equip.equipment_id,
-                // simpan ISO untuk backend, tapi inputnya nanti kita render jadi datetime-local
                 planned_start_at: start.toISOString(),
                 planned_end_at: end.toISOString(),
                 note: null,
-
-                // extra display-only (aman walau backend tidak peduli)
-                ...(equip.code ? { equipment_code: equip.code } : null),
-                ...(equip.name ? { equipment_name: equip.name } : null),
+                ...(equip.code ? ({ equipment_code: equip.code } as any) : null),
+                ...(equip.name ? ({ equipment_name: equip.name } as any) : null),
             } as any,
         ]);
-
-        setEquipSearch("");
     }
 
     function removeBooking(idx: number) {
@@ -274,10 +329,9 @@ export default function ReagentRequestBuilderPage() {
             };
 
             const res: any = await saveReagentRequestDraft(payload);
-            const data = res?.data ?? res;
-            const payload2 = data?.data ?? data;
+            const payload2 = unwrapApi(res);
 
-            setRequest(payload2?.request ?? payload2?.data?.request ?? payload2?.request ?? request);
+            setRequest(payload2?.request ?? payload2?.data?.request ?? request);
             setItems(payload2?.items ?? payload2?.data?.items ?? items);
             setBookings(payload2?.bookings ?? payload2?.data?.bookings ?? bookings);
         } catch (e: any) {
@@ -299,21 +353,18 @@ export default function ReagentRequestBuilderPage() {
 
         try {
             const res: any = await submitReagentRequest(request.reagent_request_id);
-            const data = res?.data ?? res;
-            const payload = data?.data ?? data;
+            const payload = unwrapApi(res);
 
             setRequest(payload?.request ?? payload?.data?.request ?? request);
             setItems(payload?.items ?? payload?.data?.items ?? items);
             setBookings(payload?.bookings ?? payload?.data?.bookings ?? bookings);
         } catch (e: any) {
-            // ApiResponse error biasanya punya: status, code, message, data/context
             const resp = e?.response?.data ?? null;
             const msg = resp?.message ?? e?.message ?? "Submit failed";
             setErrorText(msg);
 
-            // jika gate fail, backend kirim detail (tergantung format ApiResponse)
             const detail = resp?.data ?? resp?.context ?? null;
-            if (resp?.code === "crosscheck_not_passed" || msg.toLowerCase().includes("crosscheck")) {
+            if (resp?.code === "crosscheck_not_passed" || String(msg).toLowerCase().includes("crosscheck")) {
                 setGateDetails(detail);
             }
         } finally {
@@ -400,9 +451,9 @@ export default function ReagentRequestBuilderPage() {
 
             {/* 2-panel layout */}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-                {/* LEFT: Catalog browser */}
+                {/* LEFT: Browser */}
                 <div className="lg:col-span-7 space-y-4">
-                    {/* Catalog Items */}
+                    {/* Catalog */}
                     <div className="rounded-2xl border bg-white shadow-sm">
                         <div className="border-b px-4 py-3">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -412,27 +463,36 @@ export default function ReagentRequestBuilderPage() {
                                     <button
                                         className={cx(
                                             "rounded-full px-3 py-1 text-xs font-semibold border",
-                                            catalogType === "all" ? "bg-gray-900 text-white border-gray-900" : "bg-white hover:bg-gray-50"
+                                            catalogType === "all"
+                                                ? "bg-gray-900 text-white border-gray-900"
+                                                : "bg-white hover:bg-gray-50"
                                         )}
                                         onClick={() => setCatalogType("all")}
+                                        type="button"
                                     >
                                         All
                                     </button>
                                     <button
                                         className={cx(
                                             "rounded-full px-3 py-1 text-xs font-semibold border",
-                                            catalogType === "bhp" ? "bg-gray-900 text-white border-gray-900" : "bg-white hover:bg-gray-50"
+                                            catalogType === "bhp"
+                                                ? "bg-gray-900 text-white border-gray-900"
+                                                : "bg-white hover:bg-gray-50"
                                         )}
                                         onClick={() => setCatalogType("bhp")}
+                                        type="button"
                                     >
                                         BHP
                                     </button>
                                     <button
                                         className={cx(
                                             "rounded-full px-3 py-1 text-xs font-semibold border",
-                                            catalogType === "reagen" ? "bg-gray-900 text-white border-gray-900" : "bg-white hover:bg-gray-50"
+                                            catalogType === "reagen"
+                                                ? "bg-gray-900 text-white border-gray-900"
+                                                : "bg-white hover:bg-gray-50"
                                         )}
                                         onClick={() => setCatalogType("reagen")}
+                                        type="button"
                                     >
                                         Reagen
                                     </button>
@@ -446,9 +506,7 @@ export default function ReagentRequestBuilderPage() {
                                     value={catalogSearch}
                                     onChange={(e) => setCatalogSearch(e.target.value)}
                                 />
-                                <div className="mt-1 text-xs text-gray-500">
-                                    Semua item tampil; search hanya untuk mempercepat.
-                                </div>
+                                <div className="mt-1 text-xs text-gray-500">Semua item tampil; search hanya untuk mempercepat.</div>
                             </div>
                         </div>
 
@@ -464,6 +522,7 @@ export default function ReagentRequestBuilderPage() {
                                             key={c.catalog_id}
                                             className="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-start justify-between gap-3"
                                             onClick={() => addCatalogToItems(c)}
+                                            type="button"
                                         >
                                             <div className="min-w-0">
                                                 <div className="font-semibold text-sm text-gray-900 truncate">
@@ -474,9 +533,7 @@ export default function ReagentRequestBuilderPage() {
                                                     {c.default_unit_text ?? "-"}
                                                 </div>
                                                 {c.specification ? (
-                                                    <div className="mt-1 text-xs text-gray-600 truncate">
-                                                        {c.specification}
-                                                    </div>
+                                                    <div className="mt-1 text-xs text-gray-600 truncate">{c.specification}</div>
                                                 ) : null}
                                             </div>
 
@@ -489,16 +546,17 @@ export default function ReagentRequestBuilderPage() {
                             )}
                         </div>
 
-                        {/* optional load more kalau paging */}
                         <div className="border-t px-4 py-3 flex items-center justify-between">
                             <div className="text-xs text-gray-500">
                                 Showing {catalogResults.length} items
+                                {catalogMeta?.total ? ` • total ${catalogMeta.total}` : ""}
                             </div>
                             <button
                                 type="button"
-                                className="rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-gray-50"
+                                className="rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
                                 onClick={() => setCatalogPage((p) => p + 1)}
-                                disabled={catalogLoading}
+                                disabled={!canLoadMoreCatalog}
+                                title={!canLoadMoreCatalog ? "No more pages" : ""}
                             >
                                 {catalogLoading ? "Loading…" : "Load more"}
                             </button>
@@ -516,9 +574,7 @@ export default function ReagentRequestBuilderPage() {
                                     value={equipSearch}
                                     onChange={(e) => setEquipSearch(e.target.value)}
                                 />
-                                <div className="mt-1 text-xs text-gray-500">
-                                    Semua alat tampil; search hanya untuk mempercepat.
-                                </div>
+                                <div className="mt-1 text-xs text-gray-500">Semua alat tampil; search hanya untuk mempercepat.</div>
                             </div>
                         </div>
 
@@ -534,15 +590,15 @@ export default function ReagentRequestBuilderPage() {
                                             key={eq.equipment_id}
                                             className="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-start justify-between gap-3"
                                             onClick={() => addBooking(eq)}
+                                            type="button"
                                         >
                                             <div className="min-w-0">
                                                 <div className="font-semibold text-sm text-gray-900 truncate">
                                                     {(eq.code ? `${eq.code} • ` : "") + (eq.name ?? "Equipment")}
                                                 </div>
-                                                <div className="text-xs text-gray-500 truncate">
-                                                    equipment_id: {eq.equipment_id}
-                                                </div>
+                                                <div className="text-xs text-gray-500 truncate">equipment_id: {eq.equipment_id}</div>
                                             </div>
+
                                             <span className="shrink-0 rounded-lg border px-3 py-1 text-xs font-semibold hover:bg-white">
                                                 Add booking
                                             </span>
@@ -550,6 +606,22 @@ export default function ReagentRequestBuilderPage() {
                                     ))}
                                 </div>
                             )}
+                        </div>
+
+                        <div className="border-t px-4 py-3 flex items-center justify-between">
+                            <div className="text-xs text-gray-500">
+                                Showing {equipResults.length} items
+                                {equipMeta?.total ? ` • total ${equipMeta.total}` : ""}
+                            </div>
+                            <button
+                                type="button"
+                                className="rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                onClick={() => setEquipPage((p) => p + 1)}
+                                disabled={!canLoadMoreEquip}
+                                title={!canLoadMoreEquip ? "No more pages" : ""}
+                            >
+                                {equipLoading ? "Loading…" : "Load more"}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -560,9 +632,7 @@ export default function ReagentRequestBuilderPage() {
                     <div className="rounded-2xl border bg-white shadow-sm">
                         <div className="border-b px-4 py-3">
                             <div className="font-semibold text-gray-900">Request Items</div>
-                            <div className="text-xs text-gray-500 mt-1">
-                                Nama • Jumlah (±) • Satuan • Note
-                            </div>
+                            <div className="text-xs text-gray-500 mt-1">Nama • Jumlah (±) • Satuan • Note</div>
                         </div>
 
                         {items.length === 0 ? (
@@ -593,6 +663,8 @@ export default function ReagentRequestBuilderPage() {
                                                 "kg"
                                             );
 
+                                            const qty = Number(it.qty ?? 0);
+
                                             return (
                                                 <tr key={idx}>
                                                     <td className="px-4 py-3">
@@ -606,7 +678,7 @@ export default function ReagentRequestBuilderPage() {
                                                         <div className="flex items-center gap-2">
                                                             <button
                                                                 className="h-8 w-8 rounded-lg border hover:bg-gray-50"
-                                                                onClick={() => updateItem(idx, { qty: Math.max(0, Number(it.qty ?? 0) - 1) })}
+                                                                onClick={() => updateItem(idx, { qty: Math.max(0, qty - 1) })}
                                                                 type="button"
                                                             >
                                                                 −
@@ -616,12 +688,12 @@ export default function ReagentRequestBuilderPage() {
                                                                 type="number"
                                                                 min="0"
                                                                 step="1"
-                                                                value={Number(it.qty ?? 0)}
+                                                                value={qty}
                                                                 onChange={(e) => updateItem(idx, { qty: Number(e.target.value) })}
                                                             />
                                                             <button
                                                                 className="h-8 w-8 rounded-lg border hover:bg-gray-50"
-                                                                onClick={() => updateItem(idx, { qty: Number(it.qty ?? 0) + 1 })}
+                                                                onClick={() => updateItem(idx, { qty: qty + 1 })}
                                                                 type="button"
                                                             >
                                                                 +
@@ -761,7 +833,6 @@ export default function ReagentRequestBuilderPage() {
                         )}
                     </div>
 
-                    {/* hint */}
                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
                         <div className="font-semibold">Tips</div>
                         <div className="mt-1">
