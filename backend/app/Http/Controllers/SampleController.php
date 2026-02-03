@@ -7,8 +7,10 @@ use App\Http\Requests\SampleStatusUpdateRequest;
 use App\Http\Requests\SampleStoreRequest;
 use App\Models\Sample;
 use App\Models\Staff;
+use App\Models\Parameter;
 use App\Support\AuditLogger;
 use App\Support\SampleStatusTransitions;
+use App\Support\WorkflowGroupResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -190,11 +192,34 @@ class SampleController extends Controller
 
     private function syncRequestedParameters(Sample $sample, array $parameterIds): void
     {
-        if (!Schema::hasTable('sample_requested_parameters')) return;
-        if (!method_exists($sample, 'requestedParameters')) return;
+        $parameterIds = array_values(array_unique(array_map('intval', $parameterIds)));
 
-        $ids = array_values(array_unique(array_map('intval', $parameterIds)));
-        $sample->requestedParameters()->sync($ids);
+        // pivot sync
+        $sample->requestedParameters()->sync($parameterIds);
+
+        // ✅ Step 9.1 source-of-truth resolver (ranges + exclude param 18)
+        $oldGroup = $sample->workflow_group;
+
+        $resolved = WorkflowGroupResolver::resolveFromParameterIds($parameterIds);
+        $newGroup = $resolved?->value; // stored as string in samples.workflow_group
+
+        // Only write & audit when changed (anti-spam)
+        if ($newGroup !== $oldGroup) {
+            $sample->workflow_group = $newGroup;
+            $sample->save();
+
+            /** @var Staff|null $staff */
+            $staff = Auth::user();
+
+            AuditLogger::logWorkflowGroupChanged(
+                staffId: $staff instanceof Staff ? (int) $staff->staff_id : null,
+                sampleId: (int) $sample->sample_id,
+                clientId: (int) $sample->client_id,
+                oldGroup: $oldGroup,
+                newGroup: $newGroup,
+                parameterIds: $parameterIds,
+            );
+        }
     }
 
     public function store(SampleStoreRequest $request): JsonResponse

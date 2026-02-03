@@ -27,6 +27,7 @@ class Sample extends Model
 
         'current_status',
         'request_status',
+        'workflow_group',
         'submitted_at',
         'reviewed_at',
         'ready_at',

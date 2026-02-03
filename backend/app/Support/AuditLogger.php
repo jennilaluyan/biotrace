@@ -276,4 +276,38 @@ class AuditLogger
             newValues: $payload
         );
     }
+
+    public static function logWorkflowGroupChanged(
+        ?int $staffId,
+        int $sampleId,
+        int $clientId,
+        ?string $oldGroup,
+        ?string $newGroup,
+        array $parameterIds
+    ): void {
+        // write() akan auto-skip jika staffId/entityId null
+        $oldValues = [
+            'workflow_group' => $oldGroup,
+            '_meta' => [
+                'client_id' => $clientId,
+            ],
+        ];
+
+        $newValues = [
+            'workflow_group' => $newGroup,
+            'parameter_ids' => array_values(array_unique(array_map('intval', $parameterIds))),
+            '_meta' => [
+                'client_id' => $clientId,
+            ],
+        ];
+
+        self::write(
+            action: 'WORKFLOW_GROUP_CHANGED',
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: $oldValues,
+            newValues: $newValues
+        );
+    }
 }
