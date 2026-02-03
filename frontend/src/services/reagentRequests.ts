@@ -72,3 +72,46 @@ export async function saveReagentRequestDraft(payload: DraftSavePayload) {
 export async function submitReagentRequest(requestId: number) {
     return apiPost(`/v1/reagent-requests/${requestId}/submit`, {});
 }
+
+export type ApproverInboxRow = ReagentRequestRow & {
+    loo_number?: string | null;
+    client_name?: string | null;
+    created_by_name?: string | null;
+    submitted_by_name?: string | null;
+    items_count?: number | null;
+    bookings_count?: number | null;
+};
+
+export type ApproverInboxResponse = {
+    data: ApproverInboxRow[];
+    meta: {
+        page: number;
+        per_page: number;
+        total: number;
+        total_pages: number;
+    };
+};
+
+export async function getReagentApproverInbox(params?: {
+    status?: "submitted" | "approved" | "rejected" | "draft" | "all";
+    search?: string;
+    page?: number;
+    per_page?: number;
+}) {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set("status", params.status);
+    if (params?.search) qs.set("search", params.search);
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.per_page) qs.set("per_page", String(params.per_page));
+
+    const q = qs.toString();
+    return apiGet(`/v1/reagent-requests${q ? `?${q}` : ""}`);
+}
+
+export async function approveReagentRequest(requestId: number) {
+    return apiPost(`/v1/reagent-requests/${requestId}/approve`, {});
+}
+
+export async function rejectReagentRequest(requestId: number, reject_note: string) {
+    return apiPost(`/v1/reagent-requests/${requestId}/reject`, { reject_note });
+}

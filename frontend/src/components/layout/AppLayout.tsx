@@ -63,12 +63,16 @@ export const AppLayout = () => {
 
     const isOmOrLh = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
 
-    const omLhItems: NavItem[] = isOmOrLh
-        ? [
-            { label: "Request Queue", path: "/samples/requests", icon: "check" },
-            { label: "LOO Generator", path: "/loo", icon: "flask" },
-        ]
-        : [];
+    const omLhItems: NavItem[] =
+        isOmOrLh
+            ? [
+                { label: "Request Queue", path: "/samples/requests", icon: "check" },
+                { label: "LOO Generator", path: "/loo", icon: "flask" },
+
+                // NEW (7.4)
+                { label: "Reagent Approvals", path: "/reagents/approvals", icon: "check" },
+            ]
+            : [];
 
     const labHeadItems: NavItem[] =
         roleId === ROLE_ID.LAB_HEAD ? [{ label: "Staff Approvals", path: "/staff/approvals", icon: "check" }] : [];
