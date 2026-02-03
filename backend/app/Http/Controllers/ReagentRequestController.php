@@ -245,6 +245,106 @@ class ReagentRequestController extends Controller
     }
 
     /**
+     * GET /v1/reagent-requests
+     * Approver inbox listing (OM/LH).
+     *
+     * Query:
+     * - status=submitted|approved|rejected|draft|all (default: submitted)
+     * - search=... (optional; matches LOO number or client name)
+     * - page=1 (default)
+     * - per_page=25 (default, max 100)
+     */
+    public function indexApproverInbox(Request $request): JsonResponse
+    {
+        $this->assertOmOrLh($request);
+
+        $status  = strtolower((string) $request->query('status', 'submitted'));
+        $search  = trim((string) $request->query('search', ''));
+        $page    = max(1, (int) $request->query('page', 1));
+        $perPage = (int) $request->query('per_page', 25);
+        $perPage = max(1, min(100, $perPage));
+
+        $allowedStatus = ['submitted', 'approved', 'rejected', 'draft', 'all'];
+        if (!in_array($status, $allowedStatus, true)) {
+            abort(422, "Invalid status. Allowed: " . implode(', ', $allowedStatus));
+        }
+
+        $base = DB::table('reagent_requests as rr')
+            ->leftJoin('letters_of_order as lo', 'lo.lo_id', '=', 'rr.lo_id')
+            ->leftJoin('samples as s', 's.sample_id', '=', 'lo.sample_id')
+            ->leftJoin('clients as c', 'c.client_id', '=', 's.client_id')
+            ->leftJoin('staffs as creator', 'creator.staff_id', '=', 'rr.created_by_staff_id')
+            ->leftJoin('staffs as submitter', 'submitter.staff_id', '=', 'rr.submitted_by_staff_id')
+            ->when($status !== 'all', fn($q) => $q->where('rr.status', $status))
+            ->when($search !== '', function ($q) use ($search) {
+                $like = '%' . $search . '%';
+                $q->where(function ($w) use ($like) {
+                    $w->where('lo.number', 'like', $like)
+                        ->orWhere('c.name', 'like', $like);
+                });
+            })
+            ->select([
+                'rr.reagent_request_id',
+                'rr.lo_id',
+                'rr.cycle_no',
+                'rr.status',
+                'rr.created_by_staff_id',
+                'rr.submitted_at',
+                'rr.submitted_by_staff_id',
+                'rr.approved_at',
+                'rr.approved_by_staff_id',
+                'rr.rejected_at',
+                'rr.rejected_by_staff_id',
+                'rr.reject_note',
+                'rr.locked_at',
+                'rr.created_at',
+                'rr.updated_at',
+
+                DB::raw('lo.number as loo_number'),
+                DB::raw('c.name as client_name'),
+                DB::raw('creator.name as created_by_name'),
+                DB::raw('submitter.name as submitted_by_name'),
+
+                DB::raw('(select count(*) from reagent_request_items rri where rri.reagent_request_id = rr.reagent_request_id) as items_count'),
+                DB::raw('(select count(*) from equipment_bookings eb where eb.reagent_request_id = rr.reagent_request_id) as bookings_count'),
+            ])
+            ->orderByDesc(DB::raw("coalesce(rr.submitted_at, rr.updated_at)"));
+
+        $total = (clone $base)->count();
+
+        $rows = $base
+            ->forPage($page, $perPage)
+            ->get();
+
+        return ApiResponse::success([
+            'data' => $rows,
+            'meta' => [
+                'page' => $page,
+                'per_page' => $perPage,
+                'total' => (int) $total,
+                'total_pages' => $perPage > 0 ? (int) ceil($total / $perPage) : 1,
+            ],
+        ], 'OK');
+    }
+
+    /**
+     * Only OM/LH may access approver inbox.
+     * FE roles.ts: OPERATIONAL_MANAGER=5, LAB_HEAD=6.
+     */
+    private function assertOmOrLh(Request $request): void
+    {
+        $user = $request->user();
+
+        // support multiple shapes of auth user (safe fallback)
+        $roleId =
+            (int) ($user->role_id ?? 0);
+
+        if (!in_array($roleId, [5, 6], true)) {
+            abort(403, 'Only OM/LH can access reagent request approver inbox.');
+        }
+    }
+
+    /**
      * POST /v1/reagent-requests/{id}/submit
      * Submit locks the draft and enforces:
      * - at least 1 item OR 1 equipment booking
