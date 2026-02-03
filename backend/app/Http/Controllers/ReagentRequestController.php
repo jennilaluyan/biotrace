@@ -7,7 +7,8 @@ use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
+use App\Models\Staff;
+use Illuminate\Support\Facades\Auth;
 
 class ReagentRequestController extends Controller
 {
@@ -50,7 +51,7 @@ class ReagentRequestController extends Controller
             if (!$existing || !in_array($existing->status, ['draft', 'rejected'], true)) {
                 $requestId = DB::table('reagent_requests')->insertGetId([
                     'lo_id' => $loId,
-                    'requested_by_staff_id' => $staffId,
+                    'created_by_staff_id' => $staffId,
                     'status' => 'draft',
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -217,20 +218,22 @@ class ReagentRequestController extends Controller
      * - coba header X-Staff-Id
      * - fallback ke auth user -> staff
      */
-    private function resolveStaffId(Request $request): int
+    private function resolveStaffId(Request $request): ?int
     {
-        $hdr = $request->header('X-Staff-Id');
-        if ($hdr && is_numeric($hdr)) return (int) $hdr;
+        $u = $request->user();
 
-        $user = $request->user();
-        if (!$user) abort(401, 'Unauthenticated');
+        // Normal path: EnsureStaff makes $request->user() a Staff instance
+        if ($u instanceof Staff) {
+            return (int) $u->staff_id;
+        }
 
-        $staffId = DB::table('staffs')
-            ->where('user_id', $user->id)
-            ->value('staff_id');
+        // Fallback: if still has staff_id property
+        if ($u && isset($u->staff_id) && is_numeric($u->staff_id)) {
+            return (int) $u->staff_id;
+        }
 
-        if (!$staffId) abort(403, 'No staff mapping for this user');
-
-        return (int) $staffId;
+        // Last fallback: if Auth is using Staff guard, Auth::id() is staff_id
+        $id = Auth::id();
+        return is_numeric($id) ? (int) $id : null;
     }
 }
