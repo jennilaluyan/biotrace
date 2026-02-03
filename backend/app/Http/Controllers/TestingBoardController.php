@@ -8,9 +8,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use App\Http\Requests\TestingBoardMoveRequest;
 use App\Models\TestingBoard;
-use App\Http\Requests\TestingBoard\TestingBoardRenameColumnRequest;
-use App\Http\Requests\TestingBoard\TestingBoardAddColumnRequest;
-use App\Http\Requests\TestingBoard\TestingBoardReorderColumnsRequest;
+use App\Http\Requests\TestingBoardRenameColumnRequest;
+use App\Http\Requests\TestingBoardAddColumnRequest;
+use App\Http\Requests\TestingBoardReorderColumnsRequest;
 use App\Services\TestingBoardColumnsService;
 
 class TestingBoardController extends Controller
