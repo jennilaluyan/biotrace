@@ -21,20 +21,20 @@ class EquipmentCatalogController extends Controller
         $perPage = (int) $request->query('per_page', 60);
         $perPage = max(1, min(200, $perPage));
 
-        // ✅ Source of truth sesuai DB kamu: equipment_catalog
+        // Source of truth sesuai DB kamu
         $q = DB::table('equipment_catalog')
             ->select([
                 'equipment_id',
                 DB::raw('equipment_code as code'),
                 'name',
-                // kolom opsional (aman kalau ada)
-                DB::raw("COALESCE(location, NULL) as location"),
-                DB::raw("COALESCE(status, NULL) as status"),
+
+                // kolom ini TIDAK ada di tabel kamu → amanin dengan NULL alias
+                DB::raw('NULL::text as location'),
+                DB::raw('NULL::text as status'),
             ])
             ->orderBy('equipment_id', 'asc');
 
         if ($search !== '') {
-            // PostgreSQL case-insensitive
             $like = '%' . str_replace('%', '\\%', $search) . '%';
 
             $q->where(function ($w) use ($like) {

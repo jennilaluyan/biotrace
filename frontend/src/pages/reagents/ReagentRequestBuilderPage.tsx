@@ -171,6 +171,13 @@ export default function ReagentRequestBuilderPage() {
         setEquipPage(1);
     }, [debouncedEquipSearch]);
 
+    // Reset equipment browser when switching LOO (avoid stale paging like page=7)
+    useEffect(() => {
+        setEquipPage(1);
+        setEquipResults([]);
+        setEquipMeta(null);
+    }, [loId]);
+
     // Fetch equipment (show all by default)
     useEffect(() => {
         setEquipLoading(true);
@@ -192,8 +199,17 @@ export default function ReagentRequestBuilderPage() {
                 const meta = payload?.meta ?? payload?.pagination ?? null;
                 setEquipMeta(meta);
 
+                const last = Number(meta?.last_page ?? 0);
+
+                // ✅ If FE requested page beyond last_page, clamp and refetch
+                if (last > 0 && equipPage > last) {
+                    setEquipPage(last); // or setEquipPage(1) if you prefer always back to first
+                    return;
+                }
+
                 setEquipResults((prev) => (equipPage === 1 ? rows : [...prev, ...rows]));
             })
+
             .catch(() => {
                 if (equipPage === 1) setEquipResults([]);
                 setEquipMeta(null);
