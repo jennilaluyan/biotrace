@@ -4,25 +4,29 @@
 @section('content')
     @php
         /**
-         * View receives:
-         * - $payload (array): mapped pdf fields
-         * - $items (collection/array): reagent_request_items rows
-         * - $bookings (collection/array): equipment_bookings rows (+ equipment_name best-effort)
+         * View data shape (controller injects):
+         * - $request: reagent_requests row (optional)
+         * - $items: reagent_request_items rows (collection/array)
+         * - $bookings: equipment_bookings rows (collection/array)
+         * - $payload: misc payload, includes om_qr_src, requester_name, coordinator_name, etc.
          */
         $payload = $payload ?? [];
-        $itemsRaw = $items ?? [];
-        $bookingsRaw = $bookings ?? [];
 
-        // normalize items/bookings into arrays (dompdf friendly)
+        // Normalize items/bookings into plain arrays for predictable count()/index usage
+        $itemsRaw = $items ?? [];
         if ($itemsRaw instanceof \Illuminate\Support\Collection)
             $itemsRaw = $itemsRaw->values()->all();
         if (!is_array($itemsRaw))
             $itemsRaw = [];
 
+        $bookingsRaw = $bookings ?? [];
         if ($bookingsRaw instanceof \Illuminate\Support\Collection)
             $bookingsRaw = $bookingsRaw->values()->all();
         if (!is_array($bookingsRaw))
             $bookingsRaw = [];
+
+        $hasItems = count($itemsRaw) > 0;
+        $hasBookings = count($bookingsRaw) > 0;
 
         $recordNo = data_get($payload, 'record_no', 'REK/LAB-BM/TKS/11');
         $recordSuffix = data_get($payload, 'record_suffix', '');
@@ -40,110 +44,20 @@
         $requesterName = data_get($payload, 'requester_name', '-');
         $requesterDiv = data_get($payload, 'requester_division', '-');
 
-        // ✅ sesuai instruksi: koordinator analis fixed
-        $coordName = 'Rendy V. Worotikan, S.Si';
+        // Koordinator analis: kamu mau pakai nama template "Rendy..." -> controller bisa inject tetap,
+        // tapi di view kita tetap baca dari payload (fallback ke hardcode)
+        $coordName = data_get($payload, 'coordinator_name', 'Rendy V. Worotikan, S.Si');
 
+        // OM info default ikut template
         $omName = data_get($payload, 'om_name', 'dr. Olivia A. Waworuntu, MPH, Sp.MK');
         $omNip = data_get($payload, 'om_nip', '197910242008012006');
 
+        // QR src injected by controller approve()
         $omQrSrc = data_get($payload, 'om_qr_src', null);
-        $omVerifyUrl = data_get($payload, 'om_verify_url', null);
-
-        // ✅ PERMINTAAN BARU:
-        // HAPUS tabel REAGEN -> semua items masuk tabel BHP / CONSUMABLE
-        $itemsBhp = $itemsRaw;
-
-        // helper format qty => "1 box"
-        $fmtQty = function ($qty, $unitText): string {
-            if ($qty === null || $qty === '')
-                return '';
-            $n = rtrim(rtrim(number_format((float) $qty, 3, '.', ''), '0'), '.');
-            $u = trim((string) $unitText);
-            return trim($n . ($u !== '' ? ' ' . $u : ''));
-        };
-
-        // helper format datetime
-        $fmtDt = function ($v): string {
-            $v = $v ? (string) $v : '';
-            if (trim($v) === '')
-                return '';
-            try {
-                return \Illuminate\Support\Carbon::parse($v)->translatedFormat('d F Y H:i');
-            } catch (\Throwable) {
-                return $v;
-            }
-        };
-
-        // Fallback generator for OM QR if controller could not embed
-        $makeQrDataUri = function (?string $payload): ?string {
-            $payload = $payload ? trim($payload) : '';
-            if ($payload === '')
-                return null;
-
-            // 1) Try PNG via SimpleSoftwareIO
-            try {
-                if (class_exists(\SimpleSoftwareIO\QrCode\Facades\QrCode::class)) {
-                    $png = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('png')
-                        ->size(110)->margin(1)->generate($payload);
-
-                    if (is_string($png) && $png !== '') {
-                        return 'data:image/png;base64,' . base64_encode($png);
-                    }
-                }
-            } catch (\Throwable) {
-            }
-
-            // 2) SVG via SimpleSoftwareIO
-            try {
-                if (class_exists(\SimpleSoftwareIO\QrCode\Facades\QrCode::class)) {
-                    $svg = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('svg')
-                        ->size(110)->margin(0)->generate($payload);
-
-                    if (is_string($svg) && trim($svg) !== '') {
-                        $svg2 = $svg;
-                        if (stripos($svg2, 'width=') === false) {
-                            $svg2 = preg_replace('/<svg\b/', '<svg width="110" height="110"', $svg2, 1);
-                        }
-                        return 'data:image/svg+xml;base64,' . base64_encode($svg2);
-                    }
-                }
-            } catch (\Throwable) {
-            }
-
-            // 3) BaconQrCode SVG fallback
-            try {
-                if (
-                    class_exists(\BaconQrCode\Writer::class) &&
-                    class_exists(\BaconQrCode\Renderer\ImageRenderer::class) &&
-                    class_exists(\BaconQrCode\Renderer\RendererStyle\RendererStyle::class) &&
-                    class_exists(\BaconQrCode\Renderer\Image\SvgImageBackEnd::class)
-                ) {
-                    $style = new \BaconQrCode\Renderer\RendererStyle\RendererStyle(110);
-                    $backend = new \BaconQrCode\Renderer\Image\SvgImageBackEnd();
-                    $renderer = new \BaconQrCode\Renderer\ImageRenderer($style, $backend);
-                    $writer = new \BaconQrCode\Writer($renderer);
-
-                    $svg = $writer->writeString($payload);
-                    if (is_string($svg) && trim($svg) !== '') {
-                        $svg2 = $svg;
-                        if (stripos($svg2, 'width=') === false) {
-                            $svg2 = preg_replace('/<svg\b/', '<svg width="110" height="110"', $svg2, 1);
-                        }
-                        return 'data:image/svg+xml;base64,' . base64_encode($svg2);
-                    }
-                }
-            } catch (\Throwable) {
-            }
-
-            return null;
-        };
-
-        if (!$omQrSrc && $omVerifyUrl) {
-            $omQrSrc = $makeQrDataUri($omVerifyUrl);
-        }
     @endphp
 
     <style>
+        /* DOMPDF safest */
         body {
             font-family: DejaVu Sans, Arial, sans-serif;
             font-size: 11px;
@@ -188,8 +102,8 @@
 
         .section-title {
             margin-top: 10px;
+            margin-bottom: 4px;
             font-weight: bold;
-            text-transform: uppercase;
         }
 
         .table-items {
@@ -211,7 +125,7 @@
         }
 
         .sign-row {
-            margin-top: 18px;
+            margin-top: 26px;
             width: 100%;
         }
 
@@ -233,10 +147,7 @@
             text-decoration: underline;
         }
 
-        .nip-line {
-            margin-top: 2px;
-        }
-
+        /* QR box DOMPDF-friendly (no flex) */
         .qr-box {
             width: 110px;
             height: 110px;
@@ -263,7 +174,7 @@
         }
     </style>
 
-    {{-- HEADER --}}
+    {{-- HEADER (ikuti dokumen existing) --}}
     <table width="100%" cellspacing="0" cellpadding="0">
         <tr>
             <td width="15%" align="left" style="vertical-align: middle;">
@@ -316,90 +227,105 @@
         </tr>
     </table>
 
-    {{-- ✅ ONLY TABLE: BHP / CONSUMABLE (rows dynamic) --}}
-    <div class="section-title">BHP / CONSUMABLE</div>
-    <table class="table-items">
-        <thead>
-            <tr>
-                <th width="6%">NO</th>
-                <th width="54%">NAMA REAGEN</th>
-                <th width="18%">JUMLAH</th>
-                <th width="22%">KETERANGAN</th>
-            </tr>
-        </thead>
-        <tbody>
-            @if (count($itemsBhp) === 0)
+    {{-- =========================
+    BHP/REAGEN (only if exists)
+    ========================= --}}
+    @if ($hasItems)
+        <div class="section-title">BHP/REAGEN</div>
+
+        <table class="table-items">
+            <thead>
                 <tr>
-                    <td align="center">1</td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
+                    <th width="6%">NO</th>
+                    <th width="54%">NAMA REAGEN</th>
+                    <th width="18%">JUMLAH</th>
+                    <th width="22%">KETERANGAN</th>
                 </tr>
-            @else
-                @foreach ($itemsBhp as $idx => $row)
+            </thead>
+            <tbody>
+                @foreach ($itemsRaw as $idx => $row)
                     @php
-                        $no = $idx + 1;
+                        $i = $idx + 1;
                         $itemName = (string) data_get($row, 'item_name', '');
                         $qty = data_get($row, 'qty', null);
                         $unitText = (string) data_get($row, 'unit_text', '');
                         $note = (string) data_get($row, 'note', '');
-                        $qtyText = $fmtQty($qty, $unitText);
+
+                        $qtyText = '';
+                        if ($qty !== null && $qty !== '') {
+                            $qtyText = rtrim(rtrim(number_format((float) $qty, 3, '.', ''), '0'), '.');
+                            if ($unitText !== '')
+                                $qtyText .= ' ' . $unitText;
+                        }
                     @endphp
                     <tr>
-                        <td align="center">{{ $no }}</td>
+                        <td align="center">{{ $i }}</td>
                         <td>{{ $itemName }}</td>
                         <td>{{ $qtyText }}</td>
                         <td>{{ $note }}</td>
                     </tr>
                 @endforeach
-            @endif
-        </tbody>
-    </table>
+            </tbody>
+        </table>
+    @endif
 
-    {{-- TABLE: ALAT (rows dynamic) --}}
-    <div class="section-title">ALAT</div>
-    <table class="table-items">
-        <thead>
-            <tr>
-                <th width="6%">NO</th>
-                <th width="40%">NAMA ALAT</th>
-                <th width="20%">WAKTU MULAI</th>
-                <th width="20%">WAKTU SELESAI</th>
-                <th width="14%">KETERANGAN</th>
-            </tr>
-        </thead>
-        <tbody>
-            @if (count($bookingsRaw) === 0)
+    {{-- =========================
+    ALAT (only if exists)
+    ========================= --}}
+    @if ($hasBookings)
+        <div class="section-title" style="margin-top: 14px;">ALAT</div>
+
+        <table class="table-items">
+            <thead>
                 <tr>
-                    <td align="center">1</td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
+                    <th width="6%">NO</th>
+                    <th width="40%">NAMA ALAT</th>
+                    <th width="20%">WAKTU MULAI</th>
+                    <th width="20%">WAKTU SELESAI</th>
+                    <th width="14%">KETERANGAN</th>
                 </tr>
-            @else
-                @foreach ($bookingsRaw as $idx => $row)
+            </thead>
+            <tbody>
+                @foreach ($bookingsRaw as $idx => $b)
                     @php
-                        $no = $idx + 1;
-                        $equipName = (string) (data_get($row, 'equipment_name')
-                            ?? data_get($row, 'equipment_code')
-                            ?? ('Alat #' . (int) data_get($row, 'equipment_id', 0)));
+                        $i = $idx + 1;
 
-                        $start = $fmtDt(data_get($row, 'planned_start_at'));
-                        $end = $fmtDt(data_get($row, 'planned_end_at'));
-                        $note = (string) data_get($row, 'note', '');
+                        // We might only have equipment_id + timestamps in bookings table.
+                        // If controller later enriches equipment_name, this will pick it up.
+                        $equipName = (string) data_get($b, 'equipment_name', '');
+                        if ($equipName === '') {
+                            $eid = (int) data_get($b, 'equipment_id', 0);
+                            $equipName = $eid > 0 ? ('Equipment #' . $eid) : '';
+                        }
+
+                        $start = data_get($b, 'planned_start_at', null);
+                        $end = data_get($b, 'planned_end_at', null);
+
+                        try {
+                            $startText = $start ? \Illuminate\Support\Carbon::parse($start)->translatedFormat('d F Y H:i') : '';
+                        } catch (\Throwable $e) {
+                            $startText = is_string($start) ? $start : '';
+                        }
+
+                        try {
+                            $endText = $end ? \Illuminate\Support\Carbon::parse($end)->translatedFormat('d F Y H:i') : '';
+                        } catch (\Throwable $e) {
+                            $endText = is_string($end) ? $end : '';
+                        }
+
+                        $note = (string) data_get($b, 'note', '');
                     @endphp
                     <tr>
-                        <td align="center">{{ $no }}</td>
+                        <td align="center">{{ $i }}</td>
                         <td>{{ $equipName }}</td>
-                        <td>{{ $start }}</td>
-                        <td>{{ $end }}</td>
+                        <td>{{ $startText }}</td>
+                        <td>{{ $endText }}</td>
                         <td>{{ $note }}</td>
                     </tr>
                 @endforeach
-            @endif
-        </tbody>
-    </table>
+            </tbody>
+        </table>
+    @endif
 
     {{-- SIGNATURES --}}
     <table class="sign-row" cellspacing="0" cellpadding="0">
