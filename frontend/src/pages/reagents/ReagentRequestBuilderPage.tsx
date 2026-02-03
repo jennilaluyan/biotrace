@@ -78,7 +78,14 @@ export default function ReagentRequestBuilderPage() {
     const [saving, setSaving] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [errorText, setErrorText] = useState<string | null>(null);
+    const [successText, setSuccessText] = useState<string | null>(null);
     const [gateDetails, setGateDetails] = useState<any>(null);
+
+    // helper: auto-dismiss success banner
+    function flashSuccess(msg: string) {
+        setSuccessText(msg);
+        window.setTimeout(() => setSuccessText(null), 2500);
+    }
 
     // Modal state
     const [cartOpen, setCartOpen] = useState(false);
@@ -88,6 +95,7 @@ export default function ReagentRequestBuilderPage() {
 
         setLoading(true);
         setErrorText(null);
+        setSuccessText(null);
         setGateDetails(null);
 
         getReagentRequestByLoo(loId)
@@ -311,6 +319,7 @@ export default function ReagentRequestBuilderPage() {
 
         setSaving(true);
         setErrorText(null);
+        setSuccessText(null);
         setGateDetails(null);
 
         try {
@@ -337,6 +346,9 @@ export default function ReagentRequestBuilderPage() {
             setRequest(payload2?.request ?? payload2?.data?.request ?? request);
             setItems(payload2?.items ?? payload2?.data?.items ?? items);
             setBookings(payload2?.bookings ?? payload2?.data?.bookings ?? bookings);
+
+            flashSuccess("Draft berhasil disimpan.");
+
         } catch (e: any) {
             setErrorText(e?.message ?? "Failed to save draft");
         } finally {
@@ -366,6 +378,7 @@ export default function ReagentRequestBuilderPage() {
 
         setSubmitting(true);
         setErrorText(null);
+        setSuccessText(null);
         setGateDetails(null);
 
         try {
@@ -375,6 +388,9 @@ export default function ReagentRequestBuilderPage() {
             setRequest(payload?.request ?? payload?.data?.request ?? request);
             setItems(payload?.items ?? payload?.data?.items ?? items);
             setBookings(payload?.bookings ?? payload?.data?.bookings ?? bookings);
+
+            flashSuccess("Berhasil submit reagent request.");
+
         } catch (e: any) {
             const resp = e?.response?.data ?? null;
             const msg = resp?.message ?? e?.message ?? "Submit failed";
@@ -473,6 +489,12 @@ export default function ReagentRequestBuilderPage() {
 
                 </div>
             </div>
+
+            {successText && (
+                <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                    {successText}
+                </div>
+            )}
 
             {errorText && (
                 <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

@@ -179,6 +179,7 @@ export const AppLayout = () => {
             item.path === "/staff/approvals" ||
             item.path === "/portal/requests" ||
             item.path === "/loo";
+        item.path === "/reagents/approvals";
 
         return (
             <NavLink
