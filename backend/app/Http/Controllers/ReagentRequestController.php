@@ -495,6 +495,59 @@ class ReagentRequestController extends Controller
     }
 
     /**
+     * POST /v1/reagent-requests/{id}/reject
+     * OM/LH rejects a submitted reagent request (reject_note required).
+     *
+     * Body: { reject_note: string }
+     *
+     * Rules:
+     * - Only OM/LH
+     * - Only when current status = submitted
+     * - reject_note is mandatory
+     * - Sets rejected_at + rejected_by_staff_id + status=rejected
+     */
+    public function reject(Request $request, int $id): JsonResponse
+    {
+        $this->assertOmOrLh($request);
+
+        $data = $request->validate([
+            'reject_note' => ['required', 'string', 'min:3'],
+        ]);
+
+        $actorStaffId = $this->resolveActorStaffId($request);
+        $note = trim($data['reject_note']);
+
+        return DB::transaction(function () use ($id, $actorStaffId, $note) {
+            $affected = DB::table('reagent_requests')
+                ->where('reagent_request_id', $id)
+                ->where('status', 'submitted')
+                ->update([
+                    'status' => 'rejected',
+                    'rejected_at' => now(),
+                    'rejected_by_staff_id' => $actorStaffId,
+                    'reject_note' => $note,
+
+                    // clear approval fields (safety)
+                    'approved_at' => null,
+                    'approved_by_staff_id' => null,
+
+                    'updated_at' => now(),
+                ]);
+
+            if ($affected < 1) {
+                abort(422, 'Only submitted reagent requests can be rejected.');
+            }
+
+            if (method_exists($this, 'payload')) {
+                return ApiResponse::success($this->payload($id), 'Rejected');
+            }
+
+            $row = DB::table('reagent_requests')->where('reagent_request_id', $id)->first();
+            return ApiResponse::success(['request' => $row], 'Rejected');
+        });
+    }
+
+    /**
      * Resolve actor staff_id from authenticated user.
      * We must store approved_by_staff_id referencing staffs.staff_id.:contentReference[oaicite:1]{index=1}
      */

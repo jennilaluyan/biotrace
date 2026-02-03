@@ -206,11 +206,13 @@ Route::prefix('v1')->group(function () {
         Route::patch('equipment-bookings/{bookingId}', [EquipmentBookingController::class, 'update']);
         Route::patch('equipment-bookings/{bookingId}/actual', [EquipmentBookingController::class, 'updateActual']);
         Route::get('equipment/catalog', [EquipmentCatalogController::class, 'index']);
+
         Route::get('/reagent-requests', [ReagentRequestController::class, 'indexApproverInbox']);
         Route::get('/reagent-requests/loo/{loId}', [ReagentRequestController::class, 'showByLoo']);
         Route::post('/reagent-requests/draft', [ReagentRequestController::class, 'saveDraft']);
         Route::post('/reagent-requests/{id}/submit', [ReagentRequestController::class, 'submit']);
         Route::post('/reagent-requests/{id}/approve', [ReagentRequestController::class, 'approve']);
+        Route::post('/reagent-requests/{id}/reject', [ReagentRequestController::class, 'reject']);
 
         /*
         |--------------------------------------------------------------------------
