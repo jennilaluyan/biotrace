@@ -6,10 +6,12 @@ use App\Http\Requests\ReagentRequestDraftSaveRequest;
 use App\Models\Staff;
 use App\Support\ApiResponse;
 use App\Support\AuditLogger;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class ReagentRequestController extends Controller
 {
@@ -483,6 +485,7 @@ class ReagentRequestController extends Controller
                 'rejected_at' => $req->rejected_at,
                 'rejected_by_staff_id' => $req->rejected_by_staff_id,
                 'reject_note' => $req->reject_note,
+                'file_url' => $req->file_url ?? null,
             ];
 
             $approvedAt = now();
@@ -502,6 +505,48 @@ class ReagentRequestController extends Controller
                     'updated_at' => now(),
                 ]);
 
+            // ✅ Build payload for PDF (fresh after update)
+            $payload = $this->payload((int) $id);
+
+            // enrich (template biasanya butuh nama peminta/approver/LOO)
+            $payload['requested_by'] = !empty($payload['request']?->created_by_staff_id)
+                ? DB::table('staffs')->where('staff_id', (int) $payload['request']->created_by_staff_id)->first()
+                : null;
+
+            $payload['approved_by'] = DB::table('staffs')->where('staff_id', (int) $actorStaffId)->first();
+
+            $payload['loo'] = !empty($payload['request']?->lo_id)
+                ? DB::table('letters_of_order')->where('lo_id', (int) $payload['request']->lo_id)->first()
+                : null;
+
+            // ✅ Render PDF -> store -> write file_url
+            $disk = (string) config('reagent_request.storage_disk', 'local');
+            $base = trim((string) config('reagent_request.storage_path', 'documents/reagent_requests'), '/');
+            $year = now()->format('Y');
+
+            $looNumber = (string) ($payload['loo']?->number ?? ('LOO-' . (int) $payload['request']->lo_id));
+            $safeNo = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $looNumber) ?: ('LOO_' . (int) $payload['request']->lo_id);
+            $safeNo = str_replace('/', '_', $safeNo);
+
+            $cycleNo = (int) ($payload['request']->cycle_no ?? 1);
+            $fileName = "reagent_request_{$safeNo}_C{$cycleNo}_{$id}.pdf";
+            $path = "{$base}/{$year}/{$fileName}";
+
+            $view = (string) config('reagent_request.pdf_view', 'documents.reagent_request');
+
+            $bytes = Pdf::loadView($view, $payload)
+                ->setPaper('a4', 'portrait')
+                ->output();
+
+            Storage::disk($disk)->put($path, $bytes);
+
+            DB::table('reagent_requests')
+                ->where('reagent_request_id', $id)
+                ->update([
+                    'file_url' => $path,
+                    'updated_at' => now(),
+                ]);
+
             $newValues = [
                 'reagent_request_id' => (int) $req->reagent_request_id,
                 'lo_id' => (int) $req->lo_id,
@@ -511,6 +556,7 @@ class ReagentRequestController extends Controller
                 'rejected_at' => null,
                 'rejected_by_staff_id' => null,
                 'reject_note' => null,
+                'file_url' => $path,
             ];
 
             AuditLogger::write(
