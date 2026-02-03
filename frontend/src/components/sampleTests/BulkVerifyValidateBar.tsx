@@ -1,4 +1,3 @@
-// frontend/src/components/sampleTests/BulkVerifyValidateBar.tsx
 import { useMemo, useState } from "react";
 
 type Props = {
