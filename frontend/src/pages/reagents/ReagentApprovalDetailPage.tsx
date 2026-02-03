@@ -29,6 +29,11 @@ function unwrapApi(res: any) {
     return x;
 }
 
+function getHttpStatus(err: any): number | null {
+    const s = err?.response?.status ?? err?.status ?? null;
+    return typeof s === "number" ? s : null;
+}
+
 type LooDetail = {
     lo_id: number;
     number?: string | null;
@@ -43,11 +48,43 @@ type LooDetail = {
     client?: any;
 };
 
+async function fetchLooDetailBestEffort(loId: number): Promise<LooDetail | null> {
+    if (!Number.isFinite(loId) || loId <= 0) return null;
+
+    // Backend tiap project suka beda-beda naming endpoint.
+    // Kita coba beberapa yang umum.
+    const candidates = [
+        `/v1/letters-of-order/${loId}`,
+        `/v1/loo/${loId}`,
+    ];
+
+    let sawNon404 = false;
+
+    for (const url of candidates) {
+        try {
+            const res = await apiGet(url);
+            const payload = unwrapApi(res);
+            if (payload) return payload as LooDetail;
+        } catch (e: any) {
+            const status = getHttpStatus(e);
+            if (status !== 404) sawNon404 = true;
+            // lanjut coba kandidat berikutnya
+            continue;
+        }
+    }
+
+    // kalau semua 404 => kemungkinan LOO id memang tidak ada
+    // kalau ada non-404 => kemungkinan endpoint/format tidak match / error server
+    return sawNon404 ? null : null;
+
+}
+
 export default function ReagentApprovalDetailPage() {
     const params = useParams();
     const nav = useNavigate();
 
-    const id = Number(params.requestId);
+    // Route detail: /reagents/approvals/loo/:loId
+    const loId = Number((params as any).loId);
 
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState<string | null>(null);
@@ -58,6 +95,7 @@ export default function ReagentApprovalDetailPage() {
     const [bookings, setBookings] = useState<EquipmentBookingRow[]>([]);
 
     const [loo, setLoo] = useState<LooDetail | null>(null);
+    const [looWarn, setLooWarn] = useState<string | null>(null);
 
     // decision modal
     const [modalOpen, setModalOpen] = useState(false);
@@ -70,15 +108,16 @@ export default function ReagentApprovalDetailPage() {
     }
 
     async function load() {
-        if (!Number.isFinite(id) || id <= 0) return;
+        if (!Number.isFinite(loId) || loId <= 0) return;
 
         setLoading(true);
         setErr(null);
         setSuccess(null);
+        setLooWarn(null);
 
+        // 1) WAJIB: reagent request detail
         try {
-            // 1) load reagent request detail
-            const res = await getReagentRequestByLoo(id);
+            const res = await getReagentRequestByLoo(loId);
             const payload = unwrapApi(res);
 
             const rr = payload?.request ?? null;
@@ -88,18 +127,28 @@ export default function ReagentApprovalDetailPage() {
             setRequest(rr);
             setItems(it);
             setBookings(bk);
+        } catch (e: any) {
+            setRequest(null);
+            setItems([]);
+            setBookings([]);
+            setErr(getErrorMessage(e, "Failed to load approval detail"));
+            setLoading(false);
+            return;
+        }
 
-            // 2) load LOO detail to show sample list
-            const loId = Number(rr?.lo_id ?? 0);
-            if (loId > 0) {
-                const looRes = await apiGet(`/v1/loo/${loId}`);
-                const looPayload = unwrapApi(looRes);
-                setLoo(looPayload ?? null);
+        // 2) OPTIONAL: LOO detail (GAGAL => jangan bikin page error)
+        try {
+            const looPayload = await fetchLooDetailBestEffort(loId);
+            if (looPayload) {
+                setLoo(looPayload);
+                setLooWarn(null);
             } else {
                 setLoo(null);
+                setLooWarn("LOO detail tidak tersedia / endpoint tidak cocok. List sample tidak bisa ditampilkan.");
             }
-        } catch (e: any) {
-            setErr(getErrorMessage(e, "Failed to load approval detail"));
+        } catch {
+            setLoo(null);
+            setLooWarn("LOO detail gagal dimuat. List sample tidak bisa ditampilkan.");
         } finally {
             setLoading(false);
         }
@@ -108,12 +157,12 @@ export default function ReagentApprovalDetailPage() {
     useEffect(() => {
         load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [id]);
+    }, [loId]);
 
     const title = useMemo(() => {
         const looNum = (loo as any)?.number ?? (request as any)?.loo_number ?? null;
-        return looNum ? `Reagent Approval • ${looNum}` : `Reagent Approval • #${id}`;
-    }, [loo, request, id]);
+        return looNum ? `Reagent Approval • ${looNum}` : `Reagent Approval • LOO #${loId}`;
+    }, [loo, request, loId]);
 
     const canAct = String(request?.status ?? "") === "submitted";
 
@@ -158,8 +207,8 @@ export default function ReagentApprovalDetailPage() {
         }
     }
 
-    if (!Number.isFinite(id) || id <= 0) {
-        return <div className="p-4 text-red-600">Invalid requestId</div>;
+    if (!Number.isFinite(loId) || loId <= 0) {
+        return <div className="p-4 text-red-600">Invalid id</div>;
     }
 
     if (loading) {
@@ -172,7 +221,10 @@ export default function ReagentApprovalDetailPage() {
                 <div>
                     <h1 className="text-2xl font-semibold text-gray-900">{title}</h1>
                     <div className="mt-1 text-sm text-gray-600">
-                        request_id: <span className="font-semibold">{request?.reagent_request_id ?? id}</span>
+                        lo_id: <span className="font-semibold">{loId}</span>
+                        {request?.reagent_request_id ? (
+                            <span className="text-gray-500"> • request_id {request.reagent_request_id}</span>
+                        ) : null}
                         {request?.cycle_no ? <span className="text-gray-500"> • cycle {request.cycle_no}</span> : null}
                     </div>
                     <div className="mt-2">
@@ -249,6 +301,12 @@ export default function ReagentApprovalDetailPage() {
                     </div>
 
                     <div className="p-4">
+                        {looWarn ? (
+                            <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                {looWarn}
+                            </div>
+                        ) : null}
+
                         {loo?.items?.length ? (
                             <div className="space-y-2">
                                 {loo.items.map((it: any, idx: number) => (

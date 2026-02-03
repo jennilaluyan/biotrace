@@ -171,7 +171,7 @@ export const AppRouter = () => {
                     />
 
                     <Route
-                        path="/reagents/approvals/:requestId"
+                        path="/reagents/approvals/loo/:loId"
                         element={
                             <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
                                 <ReagentApprovalDetailPage />

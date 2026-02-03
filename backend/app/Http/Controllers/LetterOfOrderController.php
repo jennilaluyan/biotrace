@@ -7,6 +7,7 @@ use App\Services\LetterOfOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Models\LetterOfOrder;
 
 class LetterOfOrderController extends Controller
 {
@@ -125,6 +126,45 @@ class LetterOfOrderController extends Controller
             'message' => 'LoO generated.',
             'data' => $loa,
         ], 201);
+    }
+
+    public function show(int $looId): JsonResponse
+    {
+        /** @var Staff $staff */
+        $staff = Auth::user();
+        if (!$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
+        // Optional: batasi siapa boleh lihat detail LOO
+        // OM(5) / LH(6) / Analyst(4?) -> sesuaikan kalau perlu.
+        // Kalau kamu mau semua staff bisa lihat: hapus blok ini.
+        // $this->assertStaffRoleAllowed($staff, [4, 5, 6]);
+
+        // Backend kamu konsisten pakai lo_id (lihat generate: $loa->lo_id)
+        $loa = LetterOfOrder::query()
+            ->where('lo_id', (int) $looId)
+            ->first();
+
+        if (!$loa) {
+            return response()->json([
+                'message' => 'LOO not found.',
+                'code' => 'LOO_NOT_FOUND',
+            ], 404);
+        }
+
+        // Load relations yang kamu sudah pakai di generate()
+        $loa = $loa->loadMissing(['signatures', 'items']);
+
+        // expose only via API endpoint (private file) – sama seperti generate()
+        $downloadUrl = url("/api/v1/reports/documents/loo/{$loa->lo_id}/pdf");
+        $loa->setAttribute('download_url', $downloadUrl);
+        $loa->setAttribute('pdf_url', $downloadUrl);
+
+        return response()->json([
+            'message' => 'OK',
+            'data' => $loa,
+        ]);
     }
 
     public function signInternal(Request $request, int $loaId): JsonResponse

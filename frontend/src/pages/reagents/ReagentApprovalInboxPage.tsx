@@ -29,6 +29,25 @@ function unwrapApi(res: any) {
     return x;
 }
 
+function EyeIcon() {
+    return (
+        <svg
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+        >
+            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+            <circle cx="12" cy="12" r="3" />
+        </svg>
+    );
+}
+
 export default function ReagentApprovalInboxPage() {
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState<string | null>(null);
@@ -92,7 +111,7 @@ export default function ReagentApprovalInboxPage() {
         setPage(1);
     }, [status, search]);
 
-    // reload when status/page changes (search triggers reset page -> this hook will run)
+    // reload when status/page changes
     useEffect(() => {
         load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -217,11 +236,14 @@ export default function ReagentApprovalInboxPage() {
                                         <th className="px-4 py-3 text-right">Actions</th>
                                     </tr>
                                 </thead>
+
                                 <tbody>
                                     {rows.map((r) => {
                                         const busy = busyId === r.reagent_request_id;
                                         const st = String(r.status ?? "");
                                         const canAct = st === "submitted";
+
+                                        const loId = Number((r as any).lo_id ?? 0); // wajib: detail fetch by LOO id
 
                                         return (
                                             <tr key={r.reagent_request_id} className="border-t border-gray-100 hover:bg-gray-50/60">
@@ -260,12 +282,17 @@ export default function ReagentApprovalInboxPage() {
 
                                                 <td className="px-4 py-3 text-right">
                                                     <div className="inline-flex items-center gap-2">
-                                                        <Link
-                                                            to={`/reagents/approvals/${r.reagent_request_id}`}
-                                                            className="rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-gray-50"
-                                                            title="View details"
+                                                        <Link to={`/reagents/approvals/loo/${loId}`}
+                                                            className={cx(
+                                                                "inline-flex items-center justify-center rounded-xl border px-3 py-2 text-xs font-semibold",
+                                                                loId > 0 ? "hover:bg-gray-50" : "opacity-50 cursor-not-allowed"
+                                                            )}
+                                                            title={loId > 0 ? "View details" : "Missing LOO id"}
+                                                            onClick={(e) => {
+                                                                if (!(loId > 0)) e.preventDefault();
+                                                            }}
                                                         >
-                                                            👁
+                                                            <EyeIcon />
                                                         </Link>
 
                                                         {canAct ? (
