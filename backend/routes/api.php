@@ -205,10 +205,14 @@ Route::prefix('v1')->group(function () {
         Route::post('equipment-bookings', [EquipmentBookingController::class, 'store']);
         Route::patch('equipment-bookings/{bookingId}', [EquipmentBookingController::class, 'update']);
         Route::patch('equipment-bookings/{bookingId}/actual', [EquipmentBookingController::class, 'updateActual']);
+        Route::get('equipment/catalog', [EquipmentCatalogController::class, 'index']);
+
+        Route::get('/reagent-requests', [ReagentRequestController::class, 'indexApproverInbox']);
         Route::get('/reagent-requests/loo/{loId}', [ReagentRequestController::class, 'showByLoo']);
         Route::post('/reagent-requests/draft', [ReagentRequestController::class, 'saveDraft']);
         Route::post('/reagent-requests/{id}/submit', [ReagentRequestController::class, 'submit']);
-        Route::get('equipment/catalog', [EquipmentCatalogController::class, 'index']);
+        Route::post('/reagent-requests/{id}/approve', [ReagentRequestController::class, 'approve']);
+        Route::post('/reagent-requests/{id}/reject', [ReagentRequestController::class, 'reject']);
 
         /*
         |--------------------------------------------------------------------------
@@ -403,11 +407,20 @@ Route::prefix('v1')->group(function () {
             ->where('hash', '[A-Fa-f0-9]{64}');
 
         /*
-        |--------------------------------------------------------------------------
+        |-------------------------------------------------------------------------- 
         | LOO (staff)
-        |--------------------------------------------------------------------------
+        |-------------------------------------------------------------------------- 
         */
         Route::post('samples/{sampleId}/loo', [LetterOfOrderController::class, 'generate']);
+
+        // ✅ ADD: fetch LOO detail by id (used by Reagent Approval detail page)
+        Route::get('letters-of-order/{looId}', [LetterOfOrderController::class, 'show'])
+            ->whereNumber('looId');
+
+        // (optional alias, kalau mau konsisten dengan /v1/loo/*)
+        Route::get('loo/{looId}', [LetterOfOrderController::class, 'show'])
+            ->whereNumber('looId');
+
         Route::post('loo/{looId}/sign', [LetterOfOrderController::class, 'signInternal']);
         Route::post('loo/{looId}/send', [LetterOfOrderController::class, 'sendToClient']);
 

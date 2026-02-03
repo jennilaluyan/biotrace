@@ -116,17 +116,13 @@ class SamplePhysicalWorkflowController extends Controller
                 'requires' => ['sc_delivered_to_analyst'],
             ],
 
-            [
-                'action'   => 'analyst_returned_to_sc',
-                'column'   => 'analyst_returned_to_sc_at',
-                'role'     => 'analyst',
-                'requires' => ['analyst_received_at'],
+            'analyst_returned_to_sc' => [
+                'col_candidates' => ['analyst_returned_to_sc_at'],
+                'requires' => ['analyst_received'],
             ],
-            [
-                'action'   => 'sc_received_from_analyst',
-                'column'   => 'sc_received_from_analyst_at',
-                'role'     => 'sample_collector',
-                'requires' => ['analyst_returned_to_sc_at'],
+            'sc_received_from_analyst' => [
+                'col_candidates' => ['sc_received_from_analyst_at'],
+                'requires' => ['analyst_returned_to_sc'],
             ],
 
             'collector_returned_to_admin' => [

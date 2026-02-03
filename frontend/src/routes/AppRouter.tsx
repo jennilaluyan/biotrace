@@ -26,6 +26,8 @@ import { ConsumablesCatalogPage } from "../pages/qa/ConsumablesCatalogPage";
 import { AuditLogsPage } from "../pages/audit/AuditLogsPage";
 import { ReportsPage } from "../pages/reports/ReportsPage";
 import ReagentRequestBuilderPage from "../pages/reagents/ReagentRequestBuilderPage";
+import ReagentApprovalInboxPage from "../pages/reagents/ReagentApprovalInboxPage";
+import ReagentApprovalDetailPage from "../pages/reagents/ReagentApprovalDetailPage";
 
 import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
 import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
@@ -155,6 +157,24 @@ export const AppRouter = () => {
                         element={
                             <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST]}>
                                 <ReagentRequestBuilderPage />
+                            </RoleGuard>
+                        }
+                    />
+
+                    <Route
+                        path="/reagents/approvals"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
+                                <ReagentApprovalInboxPage />
+                            </RoleGuard>
+                        }
+                    />
+
+                    <Route
+                        path="/reagents/approvals/loo/:loId"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
+                                <ReagentApprovalDetailPage />
                             </RoleGuard>
                         }
                     />
