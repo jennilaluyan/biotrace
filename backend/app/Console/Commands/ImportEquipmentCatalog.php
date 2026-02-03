@@ -150,7 +150,7 @@ class ImportEquipmentCatalog extends Command
                 }
 
                 // Other optional fields from Excel (best-effort)
-                $brand = $this->normalizeString($row[$colMap['MEREK'] ?? null] ?? null);
+                $manufacturer = $this->normalizeString($row[$colMap['MANUFAKTUR'] ?? null] ?? null);
                 $model = $this->normalizeString($row[$colMap['TIPE_MODEL'] ?? null] ?? null);
                 $sn = $this->normalizeString($row[$colMap['SN'] ?? null] ?? null);
                 $distributor = $this->normalizeString($row[$colMap['DISTRIBUTOR'] ?? null] ?? null);
@@ -159,23 +159,24 @@ class ImportEquipmentCatalog extends Command
                 $location = $this->normalizeString($row[$colMap['LOKASI'] ?? null] ?? null);
                 $status = $this->normalizeString($row[$colMap['STATUS'] ?? null] ?? null);
 
-                // Prepare payload with schema-safe filtering
+                // Prepare payload
                 $payloadAll = [
                     $colCode => $code,
                     $colName => $name,
 
-                    // Common optional columns (written only if exist)
-                    'brand' => $brand !== '' ? $brand : null,
-                    'manufacturer' => $brand !== '' ? $brand : null, // alias (some schemas use manufacturer)
+                    // Use manufacturer from Excel "MANUFAKTUR"
+                    'manufacturer' => $manufacturer !== '' ? $manufacturer : null,
+
                     'model' => $model !== '' ? $model : null,
                     'serial_number' => $sn !== '' ? $sn : null,
                     'distributor' => $distributor !== '' ? $distributor : null,
-                    'condition' => $condition !== '' ? $condition : null,
-                    'physical_condition' => $physical !== '' ? $physical : null,
-                    'location' => $location !== '' ? $location : null,
-                    'status' => $status !== '' ? $status : null,
 
-                    // Traceability (align with your consumables pattern)
+                    'condition_tool' => $condition !== '' ? $condition : null,
+                    'condition_physical' => $physical !== '' ? $physical : null,
+
+                    'location' => $location !== '' ? $location : null,
+                    'owner_status' => $status !== '' ? $status : null,
+
                     'is_active' => true,
                     'source_file' => $sourceFile,
                     'source_sheet' => (string) $sheetName,
@@ -202,7 +203,10 @@ class ImportEquipmentCatalog extends Command
                         $existing = DB::table('equipment_catalog')->where($colCode, $code)->first();
 
                         if (!$existing) {
-                            $newId = DB::table('equipment_catalog')->insertGetId($payload);
+                            // Postgres: insertGetId default returns "id" — our PK is equipment_id
+                            $returnCol = $pkCol ?: 'equipment_id';
+                            $newId = DB::table('equipment_catalog')->insertGetId($payload, $returnCol);
+
                             $summary['created']++;
                             $sheetStats['created']++;
 
@@ -358,13 +362,40 @@ class ImportEquipmentCatalog extends Command
 
             // Core columns
             if ($h === 'NO' || $h === 'NOMOR') $map['NO'] = $col;
-            if (str_contains($h, 'NAMAPERALATAN')) $map['NAMA_PERALATAN'] = $col;
-            if ($h === 'MEREK' || str_contains($h, 'MERK')) $map['MEREK'] = $col;
-            if (str_contains($h, 'TIPEMODEL') || str_contains($h, 'TYPEMODEL') || $h === 'MODEL') $map['TIPE_MODEL'] = $col;
-            if ($h === 'SN' || str_contains($h, 'SERIAL')) $map['SN'] = $col;
+
+            // Name column in your Excel is "NAMA INSTRUMEN"
+            if (
+                str_contains($h, 'NAMAINSTRUMEN') ||
+                str_contains($h, 'NAMAINSTRUMENT') ||
+                str_contains($h, 'NAMAALAT') ||
+                str_contains($h, 'NAMAPERALATAN')
+            ) {
+                $map['NAMA_PERALATAN'] = $col;
+            }
+
+            // Manufacturer in your Excel is "MANUFAKTUR"
+            if ($h === 'MANUFAKTUR' || str_contains($h, 'MANUFACTURER')) {
+                $map['MANUFAKTUR'] = $col;
+            }
+
+            // Model column can be "TIPE/MODEL"
+            if (str_contains($h, 'TIPEMODEL') || str_contains($h, 'TYPEMODEL') || $h === 'MODEL') {
+                $map['TIPE_MODEL'] = $col;
+            }
+
+            // Serial number column often "NOMOR SERIAL"
+            if ($h === 'SN' || str_contains($h, 'NOMORSERIAL') || str_contains($h, 'SERIALNUMBER') || str_contains($h, 'SERIAL')) {
+                $map['SN'] = $col;
+            }
+
+            // Distributor column "DISTRIBUTOR DAN CONTACT PERSON"
             if (str_contains($h, 'DISTRIBUTOR')) $map['DISTRIBUTOR'] = $col;
-            if ($h === 'KONDISI') $map['KONDISI'] = $col;
+
+            // Conditions
+            if ($h === 'KONDISI' || str_contains($h, 'KONDISIALAT')) $map['KONDISI'] = $col;
             if (str_contains($h, 'KONDISIFISIK')) $map['KONDISI_FISIK'] = $col;
+
+            // Location + status + code
             if ($h === 'LOKASI' || str_contains($h, 'LOCATION')) $map['LOKASI'] = $col;
             if ($h === 'STATUS') $map['STATUS'] = $col;
             if (str_contains($h, 'KODEALAT')) $map['KODE_ALAT'] = $col;

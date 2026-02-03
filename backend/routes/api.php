@@ -36,6 +36,7 @@ use App\Http\Controllers\MethodController;
 use App\Http\Controllers\ReagentController;
 use App\Http\Controllers\UnitController;
 use App\Http\Controllers\ConsumablesCatalogController;
+use App\Http\Controllers\EquipmentBookingController;
 
 // Sample Tests & Results
 use App\Http\Controllers\SampleTestBulkController;
@@ -192,6 +193,16 @@ Route::prefix('v1')->group(function () {
         |--------------------------------------------------------------------------
         */
         Route::get('catalog/consumables', [ConsumablesCatalogController::class, 'index']);
+
+        /*
+        |--------------------------------------------------------------------------
+        |
+        | Equipment Bookings (planned vs actual)
+        |--------------------------------------------------------------------------
+        */
+        Route::post('equipment-bookings', [EquipmentBookingController::class, 'store']);
+        Route::patch('equipment-bookings/{bookingId}', [EquipmentBookingController::class, 'update']);
+        Route::patch('equipment-bookings/{bookingId}/actual', [EquipmentBookingController::class, 'updateActual']);
 
         /*
         |--------------------------------------------------------------------------
