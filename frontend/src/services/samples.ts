@@ -130,6 +130,13 @@ export interface Sample {
     admin_received_from_collector_at?: string | null;
     client_picked_up_at?: string | null;
 
+    lo_id?: number | null;
+    lo_number?: string | null;
+    lo_generated_at?: string | null;
+
+    reagent_request_id?: number | null;
+    reagent_request_status?: string | null;
+
     crosscheck_status?: "pending" | "passed" | "failed" | (string & {}) | null;
     crosschecked_at?: string | null;
     crosschecked_by_staff_id?: number | null;
