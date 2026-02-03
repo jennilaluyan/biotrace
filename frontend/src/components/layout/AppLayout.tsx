@@ -84,12 +84,6 @@ export const AppLayout = () => {
         ]
         : [];
 
-    // ✅ NEW: Analyst Testing Board menu (only analyst)
-    const analystBoardItems: NavItem[] =
-        roleId === ROLE_ID.ANALYST
-            ? [{ label: "Testing Board", path: "/testing-board", icon: "flask" }]
-            : [];
-
     const reportItems: NavItem[] = canSeeReports
         ? [{ label: "Reports", path: "/reports", icon: "check" }]
         : [];
@@ -107,7 +101,6 @@ export const AppLayout = () => {
             return [
                 ...staffBaseItems,
                 ...omLhItems,
-                ...analystBoardItems,
                 ...qaItems,
                 ...reportItems,
                 ...auditItems,
@@ -211,8 +204,8 @@ export const AppLayout = () => {
     };
 
     return (
-        <div className="min-h-screen bg-cream flex">
-            <aside className="hidden lg:flex lg:flex-col lg:w-64 bg-primary text-white min-h-screen">
+        <div className="h-screen bg-cream flex overflow-hidden">
+            <aside className="hidden lg:flex lg:flex-col lg:w-64 bg-primary text-white shrink-0 sticky top-0 h-screen overflow-y-auto">
                 <div className="px-6 py-5 border-b border-black/10 flex items-center">
                     <img src={BiotraceLogo} alt="Biotrace" className="h-10 w-auto" />
                 </div>
@@ -246,9 +239,9 @@ export const AppLayout = () => {
                 </nav>
             </aside>
 
-            <div className="flex-1 flex flex-col min-h-screen">
+            <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
                 <Topbar onOpenNav={() => setSidebarOpen(true)} />
-                <main className="flex-1 px-4 md:px-6 pb-6 pt-4">
+                <main className="flex-1 px-4 md:px-6 pb-6 pt-4 overflow-y-auto min-w-0">
                     <Outlet />
                 </main>
             </div>

@@ -32,8 +32,6 @@ import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
 import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
 import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
 
-import AnalystTestingBoardPage from "../pages/testing/AnalystTestingBoardPage";
-
 export const AppRouter = () => {
     return (
         <Routes>
@@ -110,16 +108,6 @@ export const AppRouter = () => {
                                 ]}
                             >
                                 <SampleDetailPage />
-                            </RoleGuard>
-                        }
-                    />
-
-                    {/* ✅ NEW: Analyst Testing Board (Kanban “In Testing”) */}
-                    <Route
-                        path="/testing-board"
-                        element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST]}>
-                                <AnalystTestingBoardPage />
                             </RoleGuard>
                         }
                     />

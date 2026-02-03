@@ -9,7 +9,7 @@ import { sampleService, Sample } from "../../services/samples";
 import { apiGet, apiPatch } from "../../services/api";
 
 import { validateIntake } from "../../services/intake";
-import { SampleTestsTab } from "../../components/samples/SampleTestsTab";
+import { SampleTestingKanbanTab } from "../../components/samples/SampleTestingKanbanTab";
 
 /* ----------------------------- Local Types ----------------------------- */
 type HistoryActor = {
@@ -238,6 +238,13 @@ export const SampleDetailPage = () => {
     const [historyError, setHistoryError] = useState<string | null>(null);
 
     const [tab, setTab] = useState<"overview" | "tests">("overview");
+
+    const reagentRequestStatus = String((sample as any)?.reagent_request_status ?? "").toLowerCase();
+    const canSeeTestsTab = reagentRequestStatus === "approved";
+
+    useEffect(() => {
+        if (tab === "tests" && !canSeeTestsTab) setTab("overview");
+    }, [tab, canSeeTestsTab]);
 
     // Documents (Reports repository)
     const [docsLoading, setDocsLoading] = useState(false);
@@ -654,18 +661,20 @@ export const SampleDetailPage = () => {
                                     >
                                         Overview
                                     </button>
-                                    <button
-                                        type="button"
-                                        className={cx(
-                                            "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                            tab === "tests"
-                                                ? "bg-white shadow-sm text-gray-900"
-                                                : "text-gray-600 hover:text-gray-800"
-                                        )}
-                                        onClick={() => setTab("tests")}
-                                    >
-                                        Tests
-                                    </button>
+                                    {canSeeTestsTab && (
+                                        <button
+                                            type="button"
+                                            className={cx(
+                                                "px-4 py-2 rounded-xl text-sm font-semibold transition",
+                                                tab === "tests"
+                                                    ? "bg-white shadow-sm text-gray-900"
+                                                    : "text-gray-600 hover:text-gray-800"
+                                            )}
+                                            onClick={() => setTab("tests")}
+                                        >
+                                            Tests
+                                        </button>
+                                    )}
                                 </div>
                             </div>
 
@@ -1124,13 +1133,8 @@ export const SampleDetailPage = () => {
                                     </div>
                                 )}
 
-                                {tab === "tests" && (
-                                    <SampleTestsTab
-                                        sampleId={sampleId}
-                                        roleId={roleId}
-                                        sample={sample}
-                                        defaultAssignedTo={myStaffId}
-                                    />
+                                {tab === "tests" && canSeeTestsTab && (
+                                    <SampleTestingKanbanTab sampleId={sampleId} sample={sample} roleId={roleId} />
                                 )}
                             </div>
                         </div>
