@@ -285,19 +285,29 @@ class AuditLogger
         ?string $newGroup,
         array $parameterIds
     ): void {
-        // Reuse core logger mechanism kamu yang sudah ada (sesuai implementasi AuditLogger di project)
-        self::log(
-            action: 'workflow_group_changed',
-            entityType: 'sample',
-            entityId: (string) $sampleId,
-            staffId: $staffId,
-            clientId: $clientId,
-            oldValues: ['workflow_group' => $oldGroup],
-            newValues: ['workflow_group' => $newGroup],
-            meta: [
-                'sample_id' => $sampleId,
-                'parameter_ids' => array_values(array_unique(array_map('intval', $parameterIds))),
+        // write() akan auto-skip jika staffId/entityId null
+        $oldValues = [
+            'workflow_group' => $oldGroup,
+            '_meta' => [
+                'client_id' => $clientId,
             ],
+        ];
+
+        $newValues = [
+            'workflow_group' => $newGroup,
+            'parameter_ids' => array_values(array_unique(array_map('intval', $parameterIds))),
+            '_meta' => [
+                'client_id' => $clientId,
+            ],
+        ];
+
+        self::write(
+            action: 'WORKFLOW_GROUP_CHANGED',
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: $oldValues,
+            newValues: $newValues
         );
     }
 }
