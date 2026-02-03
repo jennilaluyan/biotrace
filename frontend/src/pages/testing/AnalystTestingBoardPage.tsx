@@ -301,12 +301,23 @@ export default function AnalystTestingBoardPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [group]);
 
-    // ✅ Step 10.5: filter “In Testing”
     const inTestingCards = useMemo(() => {
         return (cards ?? []).filter((c) => {
             const se = String(c.status_enum ?? "").toLowerCase();
-            // if backend already filters, this still safe
-            return !se || se === "testing" || se === "in_testing";
+            const cs = String(c.current_status ?? "").toLowerCase();
+
+            // ✅ match beberapa kemungkinan status
+            const isTestingStatus =
+                se === "testing" || se === "in_testing" || se === "in test" ||
+                cs === "testing" || cs === "in_testing";
+
+            // ✅ kalau backend punya field testing_column_id, ini paling valid
+            const hasTestingColumn = c.testing_column_id != null;
+
+            // kalau status kosong (beberapa API ga kirim status_enum), jangan buang dulu
+            const unknownButMaybeTesting = (!se && !cs) && hasTestingColumn;
+
+            return isTestingStatus || hasTestingColumn || unknownButMaybeTesting;
         });
     }, [cards]);
 

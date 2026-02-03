@@ -55,9 +55,10 @@ function unwrapData<T>(res: any): T {
  * - fallback: build simple "board" using /v1/samples?status_enum=testing
  */
 export async function fetchTestingBoard(opts?: { group?: string }) {
-    const group = (opts?.group ?? "default").trim() || "default";
+    const group = (opts?.group ?? "").trim();
+    const effectiveGroup = group || "pcr_sars_cov_2";
     try {
-        const res = await apiGet<any>(`${BOARD_BASE}?group=${encodeURIComponent(group)}`);
+        const res = await apiGet<any>(`${BOARD_BASE}/${encodeURIComponent(group)}`);
         const payload = unwrapData<any>(res);
 
         const columns = safeArr<TestingBoardColumn>(payload?.columns);
@@ -130,9 +131,11 @@ export async function renameTestingColumn(columnId: number, name: string) {
 }
 
 export async function addTestingColumn(payload: { group: string; name: string; position?: number }) {
-    return apiPost(`${BOARD_BASE}/columns`, payload);
+    const { group, ...body } = payload;
+    return apiPost(`${BOARD_BASE}/${encodeURIComponent(group)}/columns`, body);
 }
 
-export async function reorderTestingColumns(payload: { group: string; column_ids_in_order: number[] }) {
-    return apiPost(`${BOARD_BASE}/columns/reorder`, payload);
+export async function reorderTestingColumns(payload: { group: string; column_ids: number[] }) {
+    const { group, ...body } = payload;
+    return apiPost(`${BOARD_BASE}/${encodeURIComponent(group)}/columns/reorder`, body);
 }
