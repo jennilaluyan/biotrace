@@ -8,14 +8,26 @@ export type EquipmentCatalogItem = {
     status?: string | null;
 };
 
+function is404(e: any) {
+    const httpStatus = e?.response?.status;
+    const status1 = e?.status;
+    const status2 = e?.response?.data?.status;
+    const code = e?.code ?? e?.response?.data?.code;
+    const msg = String(e?.message ?? e?.response?.data?.message ?? "");
+    return (
+        httpStatus === 404 ||
+        status1 === 404 ||
+        status2 === 404 ||
+        code === "HTTP_404" ||
+        msg.toLowerCase().includes("404") ||
+        msg.toLowerCase().includes("could not be found")
+    );
+}
+
 /**
  * List/search equipment catalog (robust fallback).
  * - search kosong => list semua (default)
  * - support paging (page/per_page)
- *
- * NOTE:
- * Devtools kamu menunjukkan /v1/equipment/catalog = 404.
- * Jadi kita coba beberapa kandidat endpoint yang umum dipakai.
  */
 export async function searchEquipmentCatalog(search?: string, page = 1, perPage = 60) {
     const qs = new URLSearchParams();
@@ -26,8 +38,11 @@ export async function searchEquipmentCatalog(search?: string, page = 1, perPage 
 
     const query = qs.toString();
 
+    // Tambah kandidat yang lebih mungkin (banyak backend taruh "catalog" di depan)
     const candidates = [
         `/v1/equipment/catalog?${query}`,
+        `/v1/catalog/equipment?${query}`,
+        `/v1/catalog/equipments?${query}`,
         `/v1/equipment-catalog?${query}`,
         `/v1/equipment-catalog/search?${query}`,
         `/v1/equipments/catalog?${query}`,
@@ -42,14 +57,10 @@ export async function searchEquipmentCatalog(search?: string, page = 1, perPage 
             return await apiGet(url);
         } catch (e: any) {
             lastErr = e;
-            const status = e?.response?.status;
-            // Kalau 404, coba endpoint berikutnya
-            if (status === 404) continue;
-            // Kalau bukan 404 (401/500), jangan ditutupin
-            throw e;
+            if (is404(e)) continue; // coba endpoint berikutnya
+            throw e; // selain 404 jangan ditutupi
         }
     }
 
-    // Semua kandidat 404
     throw lastErr ?? new Error("No equipment catalog endpoint matched");
 }
