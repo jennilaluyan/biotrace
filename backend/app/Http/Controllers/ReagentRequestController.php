@@ -3,13 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ReagentRequestDraftSaveRequest;
+use App\Models\Staff;
 use App\Support\ApiResponse;
 use App\Support\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use App\Models\Staff;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class ReagentRequestController extends Controller
 {
@@ -336,8 +336,7 @@ class ReagentRequestController extends Controller
         $user = $request->user();
 
         // support multiple shapes of auth user (safe fallback)
-        $roleId =
-            (int) ($user->role_id ?? 0);
+        $roleId = (int) ($user->role_id ?? 0);
 
         if (!in_array($roleId, [5, 6], true)) {
             abort(403, 'Only OM/LH can access reagent request approver inbox.');
@@ -453,6 +452,7 @@ class ReagentRequestController extends Controller
      * - Only OM/LH
      * - Only when current status = submitted
      * - Sets approved_at + approved_by_staff_id + status=approved
+     * - Writes immutable audit log
      */
     public function approve(Request $request, int $id): JsonResponse
     {
@@ -460,13 +460,38 @@ class ReagentRequestController extends Controller
 
         $actorStaffId = $this->resolveActorStaffId($request);
 
-        return DB::transaction(function () use ($id, $actorStaffId) {
-            $affected = DB::table('reagent_requests')
+        $result = DB::transaction(function () use ($id, $actorStaffId) {
+            $req = DB::table('reagent_requests')
                 ->where('reagent_request_id', $id)
-                ->where('status', 'submitted')
+                ->lockForUpdate()
+                ->first();
+
+            if (!$req) {
+                abort(404, 'Reagent request not found');
+            }
+
+            if ($req->status !== 'submitted') {
+                abort(422, 'Only submitted reagent requests can be approved.');
+            }
+
+            $oldValues = [
+                'reagent_request_id' => (int) $req->reagent_request_id,
+                'lo_id' => (int) $req->lo_id,
+                'status' => (string) $req->status,
+                'approved_at' => $req->approved_at,
+                'approved_by_staff_id' => $req->approved_by_staff_id,
+                'rejected_at' => $req->rejected_at,
+                'rejected_by_staff_id' => $req->rejected_by_staff_id,
+                'reject_note' => $req->reject_note,
+            ];
+
+            $approvedAt = now();
+
+            DB::table('reagent_requests')
+                ->where('reagent_request_id', $id)
                 ->update([
                     'status' => 'approved',
-                    'approved_at' => now(),
+                    'approved_at' => $approvedAt,
                     'approved_by_staff_id' => $actorStaffId,
 
                     // clear rejection fields (safety)
@@ -477,21 +502,30 @@ class ReagentRequestController extends Controller
                     'updated_at' => now(),
                 ]);
 
-            if ($affected < 1) {
-                // Either not found, or status is not submitted (already approved/rejected/draft)
-                abort(422, 'Only submitted reagent requests can be approved.');
-            }
+            $newValues = [
+                'reagent_request_id' => (int) $req->reagent_request_id,
+                'lo_id' => (int) $req->lo_id,
+                'status' => 'approved',
+                'approved_at' => $approvedAt->toISOString(),
+                'approved_by_staff_id' => (int) $actorStaffId,
+                'rejected_at' => null,
+                'rejected_by_staff_id' => null,
+                'reject_note' => null,
+            ];
 
-            // Return refreshed payload (whatever your controller already uses)
-            // If you have $this->payload($id) from step 6, reuse it.
-            if (method_exists($this, 'payload')) {
-                return ApiResponse::success($this->payload($id), 'Approved');
-            }
+            AuditLogger::write(
+                'REAGENT_REQUEST_APPROVED',
+                (int) $actorStaffId,
+                'reagent_requests',
+                (int) $id,
+                $oldValues,
+                $newValues
+            );
 
-            // Fallback: return the row if payload() not available
-            $row = DB::table('reagent_requests')->where('reagent_request_id', $id)->first();
-            return ApiResponse::success(['request' => $row], 'Approved');
+            return $this->payload((int) $id);
         });
+
+        return ApiResponse::success($result, 'Approved');
     }
 
     /**
@@ -505,6 +539,7 @@ class ReagentRequestController extends Controller
      * - Only when current status = submitted
      * - reject_note is mandatory
      * - Sets rejected_at + rejected_by_staff_id + status=rejected
+     * - Writes immutable audit log
      */
     public function reject(Request $request, int $id): JsonResponse
     {
@@ -517,13 +552,38 @@ class ReagentRequestController extends Controller
         $actorStaffId = $this->resolveActorStaffId($request);
         $note = trim($data['reject_note']);
 
-        return DB::transaction(function () use ($id, $actorStaffId, $note) {
-            $affected = DB::table('reagent_requests')
+        $result = DB::transaction(function () use ($id, $actorStaffId, $note) {
+            $req = DB::table('reagent_requests')
                 ->where('reagent_request_id', $id)
-                ->where('status', 'submitted')
+                ->lockForUpdate()
+                ->first();
+
+            if (!$req) {
+                abort(404, 'Reagent request not found');
+            }
+
+            if ($req->status !== 'submitted') {
+                abort(422, 'Only submitted reagent requests can be rejected.');
+            }
+
+            $oldValues = [
+                'reagent_request_id' => (int) $req->reagent_request_id,
+                'lo_id' => (int) $req->lo_id,
+                'status' => (string) $req->status,
+                'approved_at' => $req->approved_at,
+                'approved_by_staff_id' => $req->approved_by_staff_id,
+                'rejected_at' => $req->rejected_at,
+                'rejected_by_staff_id' => $req->rejected_by_staff_id,
+                'reject_note' => $req->reject_note,
+            ];
+
+            $rejectedAt = now();
+
+            DB::table('reagent_requests')
+                ->where('reagent_request_id', $id)
                 ->update([
                     'status' => 'rejected',
-                    'rejected_at' => now(),
+                    'rejected_at' => $rejectedAt,
                     'rejected_by_staff_id' => $actorStaffId,
                     'reject_note' => $note,
 
@@ -534,22 +594,35 @@ class ReagentRequestController extends Controller
                     'updated_at' => now(),
                 ]);
 
-            if ($affected < 1) {
-                abort(422, 'Only submitted reagent requests can be rejected.');
-            }
+            $newValues = [
+                'reagent_request_id' => (int) $req->reagent_request_id,
+                'lo_id' => (int) $req->lo_id,
+                'status' => 'rejected',
+                'rejected_at' => $rejectedAt->toISOString(),
+                'rejected_by_staff_id' => (int) $actorStaffId,
+                'reject_note' => (string) $note,
+                'approved_at' => null,
+                'approved_by_staff_id' => null,
+            ];
 
-            if (method_exists($this, 'payload')) {
-                return ApiResponse::success($this->payload($id), 'Rejected');
-            }
+            AuditLogger::write(
+                'REAGENT_REQUEST_REJECTED',
+                (int) $actorStaffId,
+                'reagent_requests',
+                (int) $id,
+                $oldValues,
+                $newValues
+            );
 
-            $row = DB::table('reagent_requests')->where('reagent_request_id', $id)->first();
-            return ApiResponse::success(['request' => $row], 'Rejected');
+            return $this->payload((int) $id);
         });
+
+        return ApiResponse::success($result, 'Rejected');
     }
 
     /**
      * Resolve actor staff_id from authenticated user.
-     * We must store approved_by_staff_id referencing staffs.staff_id.:contentReference[oaicite:1]{index=1}
+     * We must store approved_by_staff_id / rejected_by_staff_id referencing staffs.staff_id.
      */
     private function resolveActorStaffId(Request $request): int
     {
