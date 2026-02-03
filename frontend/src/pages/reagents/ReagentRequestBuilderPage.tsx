@@ -217,7 +217,12 @@ export default function ReagentRequestBuilderPage() {
             .finally(() => setEquipLoading(false));
     }, [debouncedEquipSearch, equipPage]);
 
-    const canSubmit = useMemo(() => items.length > 0 || bookings.length > 0, [items, bookings]);
+    const hasContent = useMemo(() => items.length > 0 || bookings.length > 0, [items, bookings]);
+
+    const requestStatus = String(request?.status ?? "draft");
+    const isLocked = requestStatus === "submitted" || requestStatus === "approved";
+    const canEditDraft = !isLocked;
+    const canSubmit = hasContent && requestStatus === "draft";
 
     const canLoadMoreCatalog = useMemo(() => {
         if (catalogLoading) return false;
@@ -298,6 +303,12 @@ export default function ReagentRequestBuilderPage() {
     }
 
     async function onSaveDraft() {
+        if (isLocked) {
+            setErrorText(`Request sudah ${requestStatus}. Tidak bisa edit / save draft.`);
+            setCartOpen(true);
+            return;
+        }
+
         setSaving(true);
         setErrorText(null);
         setGateDetails(null);
@@ -336,6 +347,19 @@ export default function ReagentRequestBuilderPage() {
     async function onSubmit() {
         if (!request?.reagent_request_id) {
             setErrorText("No request found. Save draft first.");
+            setCartOpen(true);
+            return;
+        }
+
+        // ✅ prevent resubmitting locked/non-draft requests
+        if (requestStatus !== "draft") {
+            setErrorText(`Tidak bisa submit. Status sekarang: ${requestStatus}.`);
+            setCartOpen(true);
+            return;
+        }
+
+        if (!hasContent) {
+            setErrorText("Add at least 1 item or 1 booking before submit.");
             setCartOpen(true);
             return;
         }
@@ -416,11 +440,12 @@ export default function ReagentRequestBuilderPage() {
                     <button
                         className={cx(
                             "rounded-xl border px-4 py-2 text-sm font-semibold",
-                            saving ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-50"
+                            saving || !canEditDraft ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-50"
                         )}
-                        disabled={saving}
+                        disabled={saving || !canEditDraft}
                         onClick={onSaveDraft}
                         type="button"
+                        title={!canEditDraft ? `Request sudah ${requestStatus}. Edit dikunci.` : ""}
                     >
                         {saving ? "Saving…" : "Save Draft"}
                     </button>
@@ -434,11 +459,18 @@ export default function ReagentRequestBuilderPage() {
                         )}
                         disabled={!canSubmit || submitting}
                         onClick={onSubmit}
-                        title={!canSubmit ? "Add at least 1 item or 1 booking" : ""}
+                        title={
+                            requestStatus !== "draft"
+                                ? "Hanya status draft yang bisa submit."
+                                : !hasContent
+                                    ? "Add at least 1 item or 1 booking"
+                                    : ""
+                        }
                         type="button"
                     >
-                        {submitting ? "Submitting…" : "Submit"}
+                        {submitting ? "Submitting…" : requestStatus === "submitted" ? "Submitted" : "Submit"}
                     </button>
+
                 </div>
             </div>
 
