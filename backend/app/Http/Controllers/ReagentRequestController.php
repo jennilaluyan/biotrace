@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use SimpleSoftwareIO\QrCode\Facades\QrCode;
 
 class ReagentRequestController extends Controller
 {
@@ -531,6 +532,53 @@ class ReagentRequestController extends Controller
             $cycleNo = (int) ($payload['request']->cycle_no ?? 1);
             $fileName = "reagent_request_{$safeNo}_C{$cycleNo}_{$id}.pdf";
             $path = "{$base}/{$year}/{$fileName}";
+
+            // ✅ Step 8.3: embed OM QR signature (prefer verify URL from loa_signatures hash)
+            $signatures = DB::table('loa_signatures')
+                ->where('lo_id', (int) $payload['request']->lo_id)
+                ->get();
+
+            $pickSig = function (array $roleCodes) use ($signatures) {
+                foreach ($roleCodes as $code) {
+                    $row = $signatures->firstWhere('role_code', $code);
+                    if ($row) return $row;
+                }
+                return null;
+            };
+
+            // role_code yang dianggap OM (samakan dengan pola existing LOO)
+            $omSig = $pickSig(['OM', 'OPERATIONAL_MANAGER', 'OP_MANAGER', 'MANAGER_OPERASIONAL', 'MANAGER_OPS']);
+            $omHash = trim((string) ($omSig->signature_hash ?? ''));
+
+            // kalau ada hash -> pakai endpoint verify internal (audit-friendly)
+            // kalau tidak -> fallback ke URL default (sesuai requirement kamu: google.com)
+            $omQrUrl = $omHash !== ''
+                ? url("/api/v1/loo/signatures/verify/{$omHash}")
+                : (string) config('reagent_request.om_qr_fallback_url', 'https://google.com');
+
+            $omQrSrc = null;
+            try {
+                if (class_exists(QrCode::class)) {
+                    $png = QrCode::format('png')
+                        ->size(110)
+                        ->margin(0)
+                        ->generate($omQrUrl);
+
+                    if (is_string($png) && $png !== '') {
+                        $omQrSrc = 'data:image/png;base64,' . base64_encode($png);
+                    }
+                }
+            } catch (\Throwable $e) {
+                // best-effort: kalau QR generator gagal, PDF tetap bisa dibuat tanpa QR
+                $omQrSrc = null;
+            }
+
+            // Inject ke payload dengan dua bentuk supaya template kamu aman walau aksesnya beda
+            $payload['om_qr_src'] = $omQrSrc;
+            if (!isset($payload['payload']) || !is_array($payload['payload'])) {
+                $payload['payload'] = [];
+            }
+            $payload['payload']['om_qr_src'] = $omQrSrc;
 
             $view = (string) config('reagent_request.pdf_view', 'documents.reagent_request');
 
