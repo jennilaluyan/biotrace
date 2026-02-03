@@ -345,6 +345,8 @@ Route::prefix('v1')->group(function () {
         |--------------------------------------------------------------------------
         */
         Route::post('testing-board/move', [\App\Http\Controllers\TestingBoardController::class, 'move']);
+        Route::get('testing-board/{workflowGroup}', [\App\Http\Controllers\TestingBoardController::class, 'show'])
+            ->where('workflowGroup', '^[a-z0-9_]+$');
 
         /*
         |--------------------------------------------------------------------------

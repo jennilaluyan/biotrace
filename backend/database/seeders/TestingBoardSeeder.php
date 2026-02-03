@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use App\Enums\WorkflowGroup;
 
 class TestingBoardSeeder extends Seeder
 {
@@ -18,29 +19,22 @@ class TestingBoardSeeder extends Seeder
          * - Kalau kamu sudah pakai enum WorkflowGroup.php, samakan stringnya di bawah.
          */
         $defaults = [
-            // 1) PCR Sars Cov 2 (params 1-11)
-            'PCR_SARS_COV_2' => [
+            WorkflowGroup::PCR_SARS_COV_2->value => [
                 'Ekstraksi',
                 'Mixing',
                 'PCR',
             ],
-
-            // 2) Whole Genome Sequence Sars Cov 2 (params 12-17)
-            'WGS_SARS_COV_2' => [
+            WorkflowGroup::WGS_SARS_COV_2->value => [
                 'Ekstraksi',
                 'Library Preparation',
                 'Sequencing',
                 'Bioinformatics Analysis',
             ],
-
-            // 3) Parameter 19-22
-            'PARAM_19_22' => [
+            WorkflowGroup::GROUP_19_22->value => [
                 'Preparasi Sample',
                 'Analysis',
             ],
-
-            // 4) Parameter 23-32
-            'PARAM_23_32' => [
+            WorkflowGroup::GROUP_23_32->value => [
                 'Preparasi Sample',
                 'Kultur',
                 'Analysis Cat.',

@@ -174,7 +174,84 @@ class TestingBoardService
 
             if (count($out) > 0) return $out;
         }
+        // Fallback: try DB-derived parameters for legacy samples
+        $dbOut = $this->extractParameterIdsFromDbFallback($sample);
+        if (count($dbOut) > 0) return $dbOut;
 
         return [];
+    }
+
+    /**
+     * Strong fallback for legacy samples:
+     * Try to derive parameter IDs from DB relations commonly used in this project.
+     *
+     * @return array<int, int|string|null>
+     */
+    private function extractParameterIdsFromDbFallback(Sample $sample): array
+    {
+        $sampleId = (int) $sample->getKey();
+        $out = [];
+
+        // 1) sample_tests table (common)
+        if (Schema::hasTable('sample_tests') && Schema::hasColumn('sample_tests', 'sample_id')) {
+            $rows = DB::table('sample_tests')->where('sample_id', $sampleId)->get();
+
+            foreach ($rows as $r) {
+                // a) single parameter_id
+                if (property_exists($r, 'parameter_id') && $r->parameter_id !== null) {
+                    $out[] = $r->parameter_id;
+                }
+
+                // b) json arrays
+                foreach (['parameter_ids', 'parameters'] as $jsonField) {
+                    if (!property_exists($r, $jsonField)) continue;
+                    $val = $r->{$jsonField};
+                    if (!$val) continue;
+
+                    if (is_string($val)) {
+                        $decoded = json_decode($val, true);
+                        if (json_last_error() === JSON_ERROR_NONE) $val = $decoded;
+                    }
+
+                    if (!is_array($val)) continue;
+
+                    foreach ($val as $item) {
+                        if (is_int($item) || is_string($item)) $out[] = $item;
+                        if (is_array($item) && array_key_exists('parameter_id', $item)) $out[] = $item['parameter_id'];
+                    }
+                }
+            }
+        }
+
+        // 2) letter_of_order_items.parameters (very likely in your project)
+        if (
+            Schema::hasTable('letter_of_order_items') &&
+            Schema::hasColumn('letter_of_order_items', 'sample_id') &&
+            Schema::hasColumn('letter_of_order_items', 'parameters')
+        ) {
+            $items = DB::table('letter_of_order_items')
+                ->where('sample_id', $sampleId)
+                ->get(['parameters']);
+
+            foreach ($items as $it) {
+                $val = $it->parameters ?? null;
+                if (!$val) continue;
+
+                if (is_string($val)) {
+                    $decoded = json_decode($val, true);
+                    if (json_last_error() === JSON_ERROR_NONE) $val = $decoded;
+                }
+
+                // parameters might be array of ids OR array of objects
+                if (is_array($val)) {
+                    foreach ($val as $p) {
+                        if (is_int($p) || is_string($p)) $out[] = $p;
+                        if (is_array($p) && array_key_exists('parameter_id', $p)) $out[] = $p['parameter_id'];
+                    }
+                }
+            }
+        }
+
+        return $out;
     }
 }
