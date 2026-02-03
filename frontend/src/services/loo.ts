@@ -1,4 +1,3 @@
-// frontend/src/services/loo.ts
 import { apiPost } from "./api";
 
 export type LooStatus =
