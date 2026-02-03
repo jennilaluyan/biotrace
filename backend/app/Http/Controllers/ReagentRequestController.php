@@ -6,10 +6,13 @@ use App\Http\Requests\ReagentRequestDraftSaveRequest;
 use App\Models\Staff;
 use App\Support\ApiResponse;
 use App\Support\AuditLogger;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use SimpleSoftwareIO\QrCode\Facades\QrCode;
 
 class ReagentRequestController extends Controller
 {
@@ -224,7 +227,6 @@ class ReagentRequestController extends Controller
     /**
      * GET /v1/reagent-requests/loo/{loId}
      * Load latest request for a LOO (draft/submitted/approved/rejected) + items + bookings.
-     * Ini penting buat FE nanti (Step 6.4) biar bisa load draft yang sudah tersimpan.
      */
     public function showByLoo(Request $request, int $loId): JsonResponse
     {
@@ -247,12 +249,6 @@ class ReagentRequestController extends Controller
     /**
      * GET /v1/reagent-requests
      * Approver inbox listing (OM/LH).
-     *
-     * Query:
-     * - status=submitted|approved|rejected|draft|all (default: submitted)
-     * - search=... (optional; matches LOO number or client name)
-     * - page=1 (default)
-     * - per_page=25 (default, max 100)
      */
     public function indexApproverInbox(Request $request): JsonResponse
     {
@@ -334,8 +330,6 @@ class ReagentRequestController extends Controller
     private function assertOmOrLh(Request $request): void
     {
         $user = $request->user();
-
-        // support multiple shapes of auth user (safe fallback)
         $roleId = (int) ($user->role_id ?? 0);
 
         if (!in_array($roleId, [5, 6], true)) {
@@ -345,9 +339,6 @@ class ReagentRequestController extends Controller
 
     /**
      * POST /v1/reagent-requests/{id}/submit
-     * Submit locks the draft and enforces:
-     * - at least 1 item OR 1 equipment booking
-     * - all samples under the LOO must have crosscheck_status = passed
      */
     public function submit(Request $request, int $id): JsonResponse
     {
@@ -362,28 +353,16 @@ class ReagentRequestController extends Controller
                 ->lockForUpdate()
                 ->first();
 
-            if (!$req) {
-                abort(404, 'Reagent request not found');
-            }
+            if (!$req) abort(404, 'Reagent request not found');
+            if ($req->status !== 'draft') abort(409, "Only draft requests can be submitted (current: {$req->status})");
 
-            if ($req->status !== 'draft') {
-                abort(409, "Only draft requests can be submitted (current: {$req->status})");
-            }
-
-            // Validate minimal content: items OR bookings
-            $itemsCount = (int) DB::table('reagent_request_items')
-                ->where('reagent_request_id', $id)
-                ->count();
-
-            $bookingsCount = (int) DB::table('equipment_bookings')
-                ->where('reagent_request_id', $id)
-                ->count();
+            $itemsCount = (int) DB::table('reagent_request_items')->where('reagent_request_id', $id)->count();
+            $bookingsCount = (int) DB::table('equipment_bookings')->where('reagent_request_id', $id)->count();
 
             if ($itemsCount < 1 && $bookingsCount < 1) {
                 abort(422, 'Cannot submit: add at least 1 item or 1 equipment booking');
             }
 
-            // Crosscheck gate
             $gate = $this->assertCrosscheckPassedForLoo((int) $req->lo_id);
             if (!$gate['ok']) {
                 return [
@@ -401,7 +380,6 @@ class ReagentRequestController extends Controller
                 'submitted_at' => $req->submitted_at,
             ];
 
-            // Lock + submit
             DB::table('reagent_requests')
                 ->where('reagent_request_id', $id)
                 ->update([
@@ -436,7 +414,6 @@ class ReagentRequestController extends Controller
             ];
         });
 
-        // If gate failed, return 422 with payload
         if (isset($result['ok']) && $result['ok'] === false) {
             return ApiResponse::error('Crosscheck gate not passed', 'crosscheck_not_passed', 422, $result['details']);
         }
@@ -446,13 +423,7 @@ class ReagentRequestController extends Controller
 
     /**
      * POST /v1/reagent-requests/{id}/approve
-     * OM/LH approves a submitted reagent request.
-     *
-     * Rules:
-     * - Only OM/LH
-     * - Only when current status = submitted
-     * - Sets approved_at + approved_by_staff_id + status=approved
-     * - Writes immutable audit log
+     * OM/LH approves a submitted reagent request and generates PDF.
      */
     public function approve(Request $request, int $id): JsonResponse
     {
@@ -466,13 +437,8 @@ class ReagentRequestController extends Controller
                 ->lockForUpdate()
                 ->first();
 
-            if (!$req) {
-                abort(404, 'Reagent request not found');
-            }
-
-            if ($req->status !== 'submitted') {
-                abort(422, 'Only submitted reagent requests can be approved.');
-            }
+            if (!$req) abort(404, 'Reagent request not found');
+            if ($req->status !== 'submitted') abort(422, 'Only submitted reagent requests can be approved.');
 
             $oldValues = [
                 'reagent_request_id' => (int) $req->reagent_request_id,
@@ -483,6 +449,7 @@ class ReagentRequestController extends Controller
                 'rejected_at' => $req->rejected_at,
                 'rejected_by_staff_id' => $req->rejected_by_staff_id,
                 'reject_note' => $req->reject_note,
+                'file_url' => $req->file_url ?? null,
             ];
 
             $approvedAt = now();
@@ -494,7 +461,6 @@ class ReagentRequestController extends Controller
                     'approved_at' => $approvedAt,
                     'approved_by_staff_id' => $actorStaffId,
 
-                    // clear rejection fields (safety)
                     'rejected_at' => null,
                     'rejected_by_staff_id' => null,
                     'reject_note' => null,
@@ -502,6 +468,119 @@ class ReagentRequestController extends Controller
                     'updated_at' => now(),
                 ]);
 
+            // Build payload for PDF (fresh after update)
+            $payload = $this->payload((int) $id);
+
+            $payload['requested_by'] = !empty($payload['request']?->created_by_staff_id)
+                ? DB::table('staffs')->where('staff_id', (int) $payload['request']->created_by_staff_id)->first()
+                : null;
+
+            $payload['approved_by'] = DB::table('staffs')->where('staff_id', (int) $actorStaffId)->first();
+
+            $payload['loo'] = !empty($payload['request']?->lo_id)
+                ? DB::table('letters_of_order')->where('lo_id', (int) $payload['request']->lo_id)->first()
+                : null;
+
+            // Render PDF -> store -> write file_url
+            $disk = (string) config('reagent_request.storage_disk', 'local');
+            $base = trim((string) config('reagent_request.storage_path', 'documents/reagent_requests'), '/');
+            $year = now()->format('Y');
+
+            $looNumber = (string) ($payload['loo']?->number ?? ('LOO-' . (int) $payload['request']->lo_id));
+            $safeNo = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $looNumber) ?: ('LOO_' . (int) $payload['request']->lo_id);
+            $safeNo = str_replace('/', '_', $safeNo);
+
+            $cycleNo = (int) ($payload['request']->cycle_no ?? 1);
+            $fileName = "reagent_request_{$safeNo}_C{$cycleNo}_{$id}.pdf";
+            $path = "{$base}/{$year}/{$fileName}";
+
+            // Embed OM QR signature (prefer verify URL from loa_signatures hash)
+            $signatures = DB::table('loa_signatures')
+                ->where('lo_id', (int) $payload['request']->lo_id)
+                ->get();
+
+            $pickSig = function (array $roleCodes) use ($signatures) {
+                foreach ($roleCodes as $code) {
+                    $row = $signatures->firstWhere('role_code', $code);
+                    if ($row) return $row;
+                }
+                return null;
+            };
+
+            $omSig = $pickSig(['OM', 'OPERATIONAL_MANAGER', 'OP_MANAGER', 'MANAGER_OPERASIONAL', 'MANAGER_OPS']);
+            $omHash = trim((string) ($omSig->signature_hash ?? ''));
+
+            $omQrUrl = $omHash !== ''
+                ? url("/api/v1/loo/signatures/verify/{$omHash}")
+                : (string) config('reagent_request.om_qr_fallback_url', 'https://google.com');
+
+            $omQrSrc = null;
+            try {
+                if (class_exists(QrCode::class)) {
+                    $png = QrCode::format('png')
+                        ->size(110)
+                        ->margin(0)
+                        ->generate($omQrUrl);
+
+                    if (is_string($png) && $png !== '') {
+                        $omQrSrc = 'data:image/png;base64,' . base64_encode($png);
+                    }
+                }
+            } catch (\Throwable $e) {
+                $omQrSrc = null;
+            }
+
+            $payload['om_qr_src'] = $omQrSrc;
+            if (!isset($payload['payload']) || !is_array($payload['payload'])) {
+                $payload['payload'] = [];
+            }
+            $payload['payload']['om_qr_src'] = $omQrSrc;
+
+            $view = (string) config('reagent_request.pdf_view', 'documents.reagent_request');
+
+            $bytes = Pdf::loadView($view, $payload)
+                ->setPaper('a4', 'portrait')
+                ->output();
+
+            Storage::disk($disk)->put($path, $bytes);
+
+            // ✅ 8.5 — Audit log: PDF generated (ONLY after file stored + file_url updated)
+            $pdfGeneratedAt = now();
+
+            $beforePdf = [
+                'reagent_request_id' => (int) $req->reagent_request_id,
+                'lo_id' => (int) $req->lo_id,
+                'status' => 'approved',
+                'file_url' => $req->file_url ?? null,
+            ];
+
+            DB::table('reagent_requests')
+                ->where('reagent_request_id', $id)
+                ->update([
+                    'file_url' => $path,
+                    'updated_at' => $pdfGeneratedAt,
+                ]);
+
+            $afterPdf = [
+                'reagent_request_id' => (int) $req->reagent_request_id,
+                'lo_id' => (int) $req->lo_id,
+                'status' => 'approved',
+                'file_url' => $path,
+                'pdf_generated_at' => $pdfGeneratedAt->toISOString(),
+                'storage_disk' => $disk,
+                'pdf_view' => $view,
+            ];
+
+            AuditLogger::write(
+                'REAGENT_REQUEST_PDF_GENERATED',
+                (int) $actorStaffId,
+                'reagent_requests',
+                (int) $id,
+                $beforePdf,
+                $afterPdf
+            );
+
+            // Keep approval audit as-is (immutable approval record)
             $newValues = [
                 'reagent_request_id' => (int) $req->reagent_request_id,
                 'lo_id' => (int) $req->lo_id,
@@ -511,6 +590,7 @@ class ReagentRequestController extends Controller
                 'rejected_at' => null,
                 'rejected_by_staff_id' => null,
                 'reject_note' => null,
+                'file_url' => $path,
             ];
 
             AuditLogger::write(
@@ -530,16 +610,6 @@ class ReagentRequestController extends Controller
 
     /**
      * POST /v1/reagent-requests/{id}/reject
-     * OM/LH rejects a submitted reagent request (reject_note required).
-     *
-     * Body: { reject_note: string }
-     *
-     * Rules:
-     * - Only OM/LH
-     * - Only when current status = submitted
-     * - reject_note is mandatory
-     * - Sets rejected_at + rejected_by_staff_id + status=rejected
-     * - Writes immutable audit log
      */
     public function reject(Request $request, int $id): JsonResponse
     {
@@ -558,13 +628,8 @@ class ReagentRequestController extends Controller
                 ->lockForUpdate()
                 ->first();
 
-            if (!$req) {
-                abort(404, 'Reagent request not found');
-            }
-
-            if ($req->status !== 'submitted') {
-                abort(422, 'Only submitted reagent requests can be rejected.');
-            }
+            if (!$req) abort(404, 'Reagent request not found');
+            if ($req->status !== 'submitted') abort(422, 'Only submitted reagent requests can be rejected.');
 
             $oldValues = [
                 'reagent_request_id' => (int) $req->reagent_request_id,
@@ -587,7 +652,6 @@ class ReagentRequestController extends Controller
                     'rejected_by_staff_id' => $actorStaffId,
                     'reject_note' => $note,
 
-                    // clear approval fields (safety)
                     'approved_at' => null,
                     'approved_by_staff_id' => null,
 
@@ -622,20 +686,13 @@ class ReagentRequestController extends Controller
 
     /**
      * Resolve actor staff_id from authenticated user.
-     * We must store approved_by_staff_id / rejected_by_staff_id referencing staffs.staff_id.
      */
     private function resolveActorStaffId(Request $request): int
     {
         $user = $request->user();
 
-        // Common shapes:
-        // 1) user has staff_id directly
         if (!empty($user->staff_id)) return (int) $user->staff_id;
-
-        // 2) user has staff relation
         if (isset($user->staff) && !empty($user->staff->staff_id)) return (int) $user->staff->staff_id;
-
-        // 3) user id equals staff id (some apps do this)
         if (!empty($user->id)) return (int) $user->id;
 
         abort(500, 'Cannot resolve actor staff_id for approval.');
@@ -664,16 +721,6 @@ class ReagentRequestController extends Controller
         ];
     }
 
-    /**
-     * Crosscheck gate:
-     * all samples under this LOO must have samples.crosscheck_status = 'passed'
-     *
-     * Returns:
-     * - ok: bool
-     * - total: int
-     * - passed: int
-     * - not_passed_samples: array of {sample_id, lab_sample_code, crosscheck_status}
-     */
     private function assertCrosscheckPassedForLoo(int $loId): array
     {
         $sampleIds = DB::table('letter_of_order_items')
@@ -725,17 +772,14 @@ class ReagentRequestController extends Controller
     {
         $u = $request->user();
 
-        // Normal path: EnsureStaff makes $request->user() a Staff instance
         if ($u instanceof Staff) {
             return (int) $u->staff_id;
         }
 
-        // Fallback: if still has staff_id property
         if ($u && isset($u->staff_id) && is_numeric($u->staff_id)) {
             return (int) $u->staff_id;
         }
 
-        // Last fallback: if Auth is using Staff guard, Auth::id() is staff_id
         $id = Auth::id();
         return is_numeric($id) ? (int) $id : null;
     }

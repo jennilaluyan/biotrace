@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -31,6 +30,19 @@ type SampleStatusHistoryItem = {
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
+}
+
+// unwrap like other pages (handles {data: ...} nesting)
+function unwrapApi(res: any) {
+    let x = res?.data ?? res;
+    for (let i = 0; i < 5; i++) {
+        if (x && typeof x === "object" && "data" in x && (x as any).data != null) {
+            x = (x as any).data;
+            continue;
+        }
+        break;
+    }
+    return x;
 }
 
 /* ----------------------------- UI atoms ----------------------------- */
@@ -227,6 +239,11 @@ export const SampleDetailPage = () => {
 
     const [tab, setTab] = useState<"overview" | "tests">("overview");
 
+    // Documents (Reports repository)
+    const [docsLoading, setDocsLoading] = useState(false);
+    const [docsError, setDocsError] = useState<string | null>(null);
+    const [docs, setDocs] = useState<any[]>([]);
+
     // Intake validate UI state
     const [intakeValidating, setIntakeValidating] = useState(false);
     const [intakeError, setIntakeError] = useState<string | null>(null);
@@ -308,6 +325,31 @@ export const SampleDetailPage = () => {
             setHistoryLoading(false);
         }
     };
+
+    const loadDocs = async () => {
+        if (!sampleId || Number.isNaN(sampleId)) return;
+
+        try {
+            setDocsLoading(true);
+            setDocsError(null);
+
+            const res = await apiGet<any>(`/v1/reports/documents?sample_id=${sampleId}`);
+            const payload = unwrapApi(res);
+
+            setDocs(Array.isArray(payload) ? payload : []);
+        } catch (err: any) {
+            const msg =
+                err?.data?.message ??
+                err?.response?.data?.message ??
+                err?.message ??
+                "Failed to load documents.";
+            setDocsError(msg);
+            setDocs([]);
+        } finally {
+            setDocsLoading(false);
+        }
+    };
+
     useEffect(() => {
         if (!sample) return;
         const existing = String((sample as any)?.physical_label_code ?? "");
@@ -321,7 +363,10 @@ export const SampleDetailPage = () => {
     }, [canViewSamples, sampleId]);
 
     useEffect(() => {
-        if (!loading && !error && sample) loadHistory();
+        if (!loading && !error && sample) {
+            loadHistory();
+            loadDocs();
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sampleId, loading, error, sample]);
 
@@ -332,6 +377,7 @@ export const SampleDetailPage = () => {
             setPageRefreshing(true);
             await loadSample({ silent: true });
             await loadHistory();
+            await loadDocs();
         } finally {
             setPageRefreshing(false);
         }
@@ -361,6 +407,7 @@ export const SampleDetailPage = () => {
 
             await loadSample({ silent: true });
             await loadHistory();
+            await loadDocs();
 
             setIntakeSuccess("Intake validated successfully. Lab workflow should be active now.");
         } catch (err: any) {
@@ -400,6 +447,7 @@ export const SampleDetailPage = () => {
 
             await loadSample({ silent: true });
             await loadHistory();
+            await loadDocs();
 
         } catch (err: any) {
             const msg =
@@ -466,9 +514,10 @@ export const SampleDetailPage = () => {
 
             await loadSample({ silent: true });
             await loadHistory();
+            await loadDocs();
 
             setCcSuccess(mode === "pass" ? "Crosscheck PASSED." : "Crosscheck FAILED recorded.");
-            if (mode === "fail") setCcReason(""); // optional: reset reason after fail submit
+            if (mode === "fail") setCcReason("");
         } catch (err: any) {
             const msg =
                 err?.data?.message ??
@@ -692,6 +741,70 @@ export const SampleDetailPage = () => {
                                             </div>
                                         </div>
 
+                                        {/* Documents */}
+                                        <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
+                                            <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
+                                                <div>
+                                                    <div className="text-sm font-bold text-gray-900">Documents</div>
+                                                    <div className="text-xs text-gray-500 mt-1">
+                                                        Dokumen terkait sample (LOO, Reagent Request, dll) dari repository Reports.
+                                                    </div>
+                                                </div>
+                                                <div className="text-xs text-gray-500">
+                                                    {docsLoading ? "Loading…" : `${docs.length} item(s)`}
+                                                </div>
+                                            </div>
+
+                                            <div className="px-5 py-4">
+                                                {docsError ? (
+                                                    <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-3">
+                                                        {docsError}
+                                                    </div>
+                                                ) : null}
+
+                                                {docsLoading ? (
+                                                    <div className="text-sm text-gray-600">Loading documents…</div>
+                                                ) : docs.length === 0 ? (
+                                                    <div className="text-sm text-gray-600">No documents yet.</div>
+                                                ) : (
+                                                    <div className="space-y-2">
+                                                        {docs.map((d, idx) => {
+                                                            const name = d?.document_name ?? d?.type ?? "Document";
+                                                            const no = d?.number ?? d?.document_code ?? "-";
+                                                            const status = d?.status ?? "-";
+                                                            const url = d?.download_url ?? null;
+
+                                                            return (
+                                                                <div
+                                                                    key={`${d?.type ?? "doc"}-${d?.id ?? idx}`}
+                                                                    className="rounded-xl border px-3 py-2 flex items-center justify-between gap-3"
+                                                                >
+                                                                    <div>
+                                                                        <div className="text-sm font-semibold text-gray-900">{name}</div>
+                                                                        <div className="text-xs text-gray-600 mt-0.5">
+                                                                            {no} • <span className="capitalize">{String(status)}</span>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {url ? (
+                                                                        <button
+                                                                            type="button"
+                                                                            className="px-3 py-1 rounded-full text-xs bg-primary text-white hover:opacity-90 whitespace-nowrap"
+                                                                            onClick={() => window.open(String(url), "_blank", "noopener,noreferrer")}
+                                                                        >
+                                                                            Open PDF
+                                                                        </button>
+                                                                    ) : (
+                                                                        <span className="text-xs text-gray-400 whitespace-nowrap">No file</span>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
                                         {/* Physical Workflow */}
                                         <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                                             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
@@ -702,7 +815,7 @@ export const SampleDetailPage = () => {
                                                     </div>
                                                 </div>
                                                 <div className="text-[11px] text-gray-500">
-                                                    You are: <span className="font-semibold">{roleLabel}</span>
+                                                    You are: <span className="font-semibold">{displayRole}</span>
                                                 </div>
                                             </div>
 
@@ -736,7 +849,7 @@ export const SampleDetailPage = () => {
                                                     ))}
                                                 </div>
 
-                                                {/* Actions (match SampleRequestDetail style) */}
+                                                {/* Actions */}
                                                 <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
                                                     {isCollector ? (
                                                         <WorkflowActionButton
@@ -760,7 +873,6 @@ export const SampleDetailPage = () => {
                                                         />
                                                     ) : null}
 
-                                                    {/* Kalau role bukan SC/Analyst, kasih info read-only */}
                                                     {!isCollector && !isAnalyst ? (
                                                         <div className="sm:col-span-2 text-xs text-gray-700 bg-gray-50 border border-gray-100 px-3 py-2 rounded-xl">
                                                             Only Sample Collector can deliver, and Analyst can receive.
@@ -877,7 +989,7 @@ export const SampleDetailPage = () => {
                                             </div>
                                         </div>
 
-                                        {/* Sample Info + Client & Creator + History (tetap seperti kamu) */}
+                                        {/* Sample Info + Client & Creator + History */}
                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                             <div>
                                                 <h3 className="lims-detail-section-title mb-3">Sample Info</h3>

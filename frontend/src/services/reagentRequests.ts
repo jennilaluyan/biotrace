@@ -15,6 +15,8 @@ export type ReagentRequestRow = {
     rejected_at?: string | null;
     rejected_by_staff_id?: number | null;
     reject_note?: string | null;
+    pdf_url?: string | null;
+    pdf_generated_at?: string | null;
     locked_at?: string | null;
     created_at?: string;
     updated_at?: string;

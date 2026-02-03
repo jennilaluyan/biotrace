@@ -76,7 +76,6 @@ async function fetchLooDetailBestEffort(loId: number): Promise<LooDetail | null>
     // kalau semua 404 => kemungkinan LOO id memang tidak ada
     // kalau ada non-404 => kemungkinan endpoint/format tidak match / error server
     return sawNon404 ? null : null;
-
 }
 
 export default function ReagentApprovalDetailPage() {
