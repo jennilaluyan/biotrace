@@ -396,7 +396,7 @@ export default function AnalystTestingBoardPage() {
     };
 
     const onReorder = async (ids: number[]) => {
-        await reorderTestingColumns({ group, column_ids_in_order: ids });
+        await reorderTestingColumns({ group, column_ids: ids });
         await load();
     };
 
