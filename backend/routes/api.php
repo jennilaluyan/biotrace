@@ -347,6 +347,12 @@ Route::prefix('v1')->group(function () {
         Route::post('testing-board/move', [\App\Http\Controllers\TestingBoardController::class, 'move']);
         Route::get('testing-board/{workflowGroup}', [\App\Http\Controllers\TestingBoardController::class, 'show'])
             ->where('workflowGroup', '^[a-z0-9_]+$');
+        Route::patch('testing-board/columns/{columnId}', [\App\Http\Controllers\TestingBoardController::class, 'renameColumn'])
+            ->whereNumber('columnId');
+        Route::post('testing-board/{workflowGroup}/columns', [\App\Http\Controllers\TestingBoardController::class, 'addColumn'])
+            ->where('workflowGroup', '^[a-z0-9_]+$');
+        Route::put('testing-board/{workflowGroup}/columns/reorder', [\App\Http\Controllers\TestingBoardController::class, 'reorderColumns'])
+            ->where('workflowGroup', '^[a-z0-9_]+$');
 
         /*
         |--------------------------------------------------------------------------

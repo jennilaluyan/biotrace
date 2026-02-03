@@ -8,6 +8,10 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use App\Http\Requests\TestingBoardMoveRequest;
 use App\Models\TestingBoard;
+use App\Http\Requests\TestingBoard\TestingBoardRenameColumnRequest;
+use App\Http\Requests\TestingBoard\TestingBoardAddColumnRequest;
+use App\Http\Requests\TestingBoard\TestingBoardReorderColumnsRequest;
+use App\Services\TestingBoardColumnsService;
 
 class TestingBoardController extends Controller
 {
@@ -64,6 +68,62 @@ class TestingBoardController extends Controller
                     'name' => $c->name,
                     'position' => $c->position,
                 ])->values(),
+            ],
+        ]);
+    }
+    public function renameColumn(
+        TestingBoardRenameColumnRequest $request,
+        int $columnId,
+        TestingBoardColumnsService $svc
+    ): JsonResponse {
+        $col = $svc->renameColumn($columnId, (string) $request->validated('name'));
+
+        return response()->json([
+            'message' => 'Column renamed.',
+            'data' => [
+                'column_id' => (int) $col->column_id,
+                'name' => $col->name,
+                'position' => (int) $col->position,
+                'board_id' => (int) $col->board_id,
+            ],
+        ]);
+    }
+
+    public function addColumn(
+        TestingBoardAddColumnRequest $request,
+        string $workflowGroup,
+        TestingBoardColumnsService $svc
+    ): JsonResponse {
+        $name = (string) $request->validated('name');
+        $pos = $request->validated('position');
+
+        $col = $svc->addColumn($workflowGroup, $name, $pos ? (int) $pos : null);
+
+        return response()->json([
+            'message' => 'Column added.',
+            'data' => [
+                'column_id' => (int) $col->column_id,
+                'name' => $col->name,
+                'position' => (int) $col->position,
+                'board_id' => (int) $col->board_id,
+            ],
+        ], 201);
+    }
+
+    public function reorderColumns(
+        TestingBoardReorderColumnsRequest $request,
+        string $workflowGroup,
+        TestingBoardColumnsService $svc
+    ): JsonResponse {
+        $ids = $request->validated('column_ids');
+
+        $ordered = $svc->reorderColumns($workflowGroup, array_map('intval', $ids));
+
+        return response()->json([
+            'message' => 'Columns reordered.',
+            'data' => [
+                'workflow_group' => $workflowGroup,
+                'column_ids' => $ordered,
             ],
         ]);
     }
