@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import ReagentApprovalDecisionModal from "../../components/reagents/ReagentApprovalDecisionModal";
 import {
     approveReagentRequest,
     rejectReagentRequest,
@@ -44,6 +46,10 @@ export default function ReagentApprovalInboxPage() {
 
     const [busyId, setBusyId] = useState<number | null>(null);
 
+    const [modalOpen, setModalOpen] = useState(false);
+    const [modalMode, setModalMode] = useState<"approve" | "reject">("approve");
+    const [activeRow, setActiveRow] = useState<ApproverInboxRow | null>(null);
+
     function flash(msg: string) {
         setSuccess(msg);
         window.setTimeout(() => setSuccess(null), 2500);
@@ -81,11 +87,12 @@ export default function ReagentApprovalInboxPage() {
         }
     }
 
-    // reload when filters change
+    // reset page when filters change
     useEffect(() => {
         setPage(1);
     }, [status, search]);
 
+    // reload when status/page changes (search triggers reset page -> this hook will run)
     useEffect(() => {
         load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -99,42 +106,38 @@ export default function ReagentApprovalInboxPage() {
     const canPrev = page > 1;
     const canNext = meta?.total_pages ? page < meta.total_pages : rows.length === perPage;
 
-    async function onApprove(id: number) {
-        if (!confirm("Approve reagent request ini?")) return;
-
-        setBusyId(id);
-        setErr(null);
-        setSuccess(null);
-
-        try {
-            await approveReagentRequest(id);
-            flash("Approved.");
-            await load();
-        } catch (e: any) {
-            setErr(getErrorMessage(e, "Failed to approve reagent request"));
-        } finally {
-            setBusyId(null);
-        }
+    function openDecision(row: ApproverInboxRow, mode: "approve" | "reject") {
+        setActiveRow(row);
+        setModalMode(mode);
+        setModalOpen(true);
     }
 
-    async function onReject(id: number) {
-        const note = (window.prompt("Reject note (wajib, min 3 karakter):") ?? "").trim();
-        if (note.length < 3) {
-            setErr("Reject note wajib diisi (min 3 karakter).");
-            return;
-        }
-        if (!confirm("Reject reagent request ini?")) return;
+    async function confirmDecision(note?: string) {
+        if (!activeRow?.reagent_request_id) return;
 
-        setBusyId(id);
+        setBusyId(activeRow.reagent_request_id);
         setErr(null);
         setSuccess(null);
 
         try {
-            await rejectReagentRequest(id, note);
-            flash("Rejected.");
+            if (modalMode === "approve") {
+                await approveReagentRequest(activeRow.reagent_request_id);
+                flash("Approved.");
+            } else {
+                const n = String(note ?? "").trim();
+                if (n.length < 3) {
+                    setErr("Reject note wajib diisi (min 3 karakter).");
+                    setBusyId(null);
+                    return;
+                }
+                await rejectReagentRequest(activeRow.reagent_request_id, n);
+                flash("Rejected.");
+            }
+
+            setModalOpen(false);
             await load();
         } catch (e: any) {
-            setErr(getErrorMessage(e, "Failed to reject reagent request"));
+            setErr(getErrorMessage(e, `Failed to ${modalMode}`));
         } finally {
             setBusyId(null);
         }
@@ -221,14 +224,9 @@ export default function ReagentApprovalInboxPage() {
                                         const canAct = st === "submitted";
 
                                         return (
-                                            <tr
-                                                key={r.reagent_request_id}
-                                                className="border-t border-gray-100 hover:bg-gray-50/60"
-                                            >
+                                            <tr key={r.reagent_request_id} className="border-t border-gray-100 hover:bg-gray-50/60">
                                                 <td className="px-4 py-3">
-                                                    <div className="font-medium text-gray-900">
-                                                        {r.loo_number ?? `LOO #${r.lo_id}`}
-                                                    </div>
+                                                    <div className="font-medium text-gray-900">{r.loo_number ?? `LOO #${r.lo_id}`}</div>
                                                     <div className="text-[11px] text-gray-500">
                                                         req_id: {r.reagent_request_id} • cycle {r.cycle_no}
                                                     </div>
@@ -261,28 +259,38 @@ export default function ReagentApprovalInboxPage() {
                                                 </td>
 
                                                 <td className="px-4 py-3 text-right">
-                                                    {canAct ? (
-                                                        <div className="inline-flex items-center gap-2">
-                                                            <button
-                                                                type="button"
-                                                                disabled={busy}
-                                                                className="lims-btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                                                                onClick={() => onApprove(r.reagent_request_id)}
-                                                            >
-                                                                {busy ? "..." : "Approve"}
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                disabled={busy}
-                                                                className="lims-btn-danger disabled:opacity-50 disabled:cursor-not-allowed"
-                                                                onClick={() => onReject(r.reagent_request_id)}
-                                                            >
-                                                                {busy ? "..." : "Reject"}
-                                                            </button>
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-xs text-gray-500">—</span>
-                                                    )}
+                                                    <div className="inline-flex items-center gap-2">
+                                                        <Link
+                                                            to={`/reagents/approvals/${r.reagent_request_id}`}
+                                                            className="rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-gray-50"
+                                                            title="View details"
+                                                        >
+                                                            👁
+                                                        </Link>
+
+                                                        {canAct ? (
+                                                            <>
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={busy}
+                                                                    className="lims-btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                    onClick={() => openDecision(r, "approve")}
+                                                                >
+                                                                    {busy ? "..." : "Approve"}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={busy}
+                                                                    className="lims-btn-danger disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                    onClick={() => openDecision(r, "reject")}
+                                                                >
+                                                                    {busy ? "..." : "Reject"}
+                                                                </button>
+                                                            </>
+                                                        ) : (
+                                                            <span className="text-xs text-gray-500">—</span>
+                                                        )}
+                                                    </div>
                                                 </td>
                                             </tr>
                                         );
@@ -325,6 +333,20 @@ export default function ReagentApprovalInboxPage() {
                     </div>
                 </div>
             </div>
+
+            {/* Modal */}
+            <ReagentApprovalDecisionModal
+                open={modalOpen}
+                mode={modalMode}
+                busy={busyId != null}
+                request={activeRow as any}
+                looNumber={(activeRow as any)?.loo_number ?? null}
+                clientName={(activeRow as any)?.client_name ?? null}
+                itemsCount={(activeRow as any)?.items_count ?? 0}
+                bookingsCount={(activeRow as any)?.bookings_count ?? 0}
+                onClose={() => (busyId != null ? null : setModalOpen(false))}
+                onConfirm={confirmDecision}
+            />
         </div>
     );
 }
