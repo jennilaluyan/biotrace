@@ -31,15 +31,28 @@ class TestingBoardColumnsService
         $insertPos = $position ? max(1, $position) : ($maxPos + 1);
 
         return DB::transaction(function () use ($board, $name, $insertPos) {
-            // shift positions to make room if inserting in middle
+            $boardId = (int) $board->board_id;
+
+            // 1) Move affected positions to a safe temporary range (avoid unique collisions)
+            // Example: if inserting at 2, move positions >=2 to +1000 first
             TestingColumn::query()
-                ->where('board_id', $board->board_id)
+                ->where('board_id', $boardId)
                 ->where('position', '>=', $insertPos)
-                ->increment('position');
+                ->update([
+                    'position' => DB::raw('position + 1000'),
+                ]);
+
+            // 2) Bring them back shifted by +1 (still safe because they are in 1000+ range)
+            TestingColumn::query()
+                ->where('board_id', $boardId)
+                ->where('position', '>=', $insertPos + 1000)
+                ->update([
+                    'position' => DB::raw('position - 999'),
+                ]);
 
             /** @var TestingColumn $col */
             $col = TestingColumn::query()->create([
-                'board_id' => (int) $board->board_id,
+                'board_id' => $boardId,
                 'name' => $name,
                 'position' => (int) $insertPos,
             ]);
