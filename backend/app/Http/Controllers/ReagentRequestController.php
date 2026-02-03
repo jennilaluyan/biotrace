@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ReagentRequestDraftSaveRequest;
 use App\Support\ApiResponse;
+use App\Support\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -35,8 +36,13 @@ class ReagentRequestController extends Controller
         $bookings = $data['bookings'] ?? [];
 
         $staffId = $this->resolveStaffId($request);
+        if (!$staffId) {
+            return ApiResponse::error('Unauthorized: cannot resolve staff actor', 'unauthorized', 401);
+        }
 
         $result = DB::transaction(function () use ($loId, $staffId, $items, $bookings) {
+            $created = false;
+
             // 1) Ambil draft terakhir untuk LOO (kalau ada)
             $existing = DB::table('reagent_requests')
                 ->where('lo_id', $loId)
@@ -47,8 +53,31 @@ class ReagentRequestController extends Controller
                 abort(409, 'Reagent request already submitted/approved. Create a new revision after rejection.');
             }
 
+            // Old snapshot for audit (best-effort)
+            $oldValues = null;
+            if ($existing) {
+                $oldItemsCount = (int) DB::table('reagent_request_items')
+                    ->where('reagent_request_id', (int) $existing->reagent_request_id)
+                    ->count();
+
+                $oldBookingsCount = (int) DB::table('equipment_bookings')
+                    ->where('reagent_request_id', (int) $existing->reagent_request_id)
+                    ->count();
+
+                $oldValues = [
+                    'reagent_request_id' => (int) $existing->reagent_request_id,
+                    'lo_id' => (int) $existing->lo_id,
+                    'status' => (string) $existing->status,
+                    'cycle_no' => (int) ($existing->cycle_no ?? 1),
+                    'items_count' => $oldItemsCount,
+                    'bookings_count' => $oldBookingsCount,
+                ];
+            }
+
             // 2) Create/update request row
             if (!$existing || !in_array($existing->status, ['draft', 'rejected'], true)) {
+                $created = true;
+
                 $requestId = DB::table('reagent_requests')->insertGetId([
                     'lo_id' => $loId,
                     'created_by_staff_id' => $staffId,
@@ -112,7 +141,6 @@ class ReagentRequestController extends Controller
             }
 
             // 4) Sync bookings: (a) update existing (b) create new (c) delete removed
-            // NOTE: ini butuh kolom equipment_bookings.reagent_request_id (migration A)
             $keepBookingIds = [];
 
             foreach ($bookings as $b) {
@@ -161,7 +189,33 @@ class ReagentRequestController extends Controller
                 ->when(!empty($keepBookingIds), fn($q) => $q->whereNotIn('booking_id', $keepBookingIds))
                 ->delete();
 
-            return $this->payload($requestId);
+            // Audit (created/updated)
+            $newItemsCount = (int) DB::table('reagent_request_items')
+                ->where('reagent_request_id', $requestId)
+                ->count();
+
+            $newBookingsCount = (int) DB::table('equipment_bookings')
+                ->where('reagent_request_id', $requestId)
+                ->count();
+
+            $newValues = [
+                'reagent_request_id' => (int) $requestId,
+                'lo_id' => (int) $loId,
+                'status' => 'draft',
+                'items_count' => $newItemsCount,
+                'bookings_count' => $newBookingsCount,
+            ];
+
+            AuditLogger::write(
+                $created ? 'REAGENT_REQUEST_CREATED' : 'REAGENT_REQUEST_UPDATED',
+                (int) $staffId,
+                'reagent_requests',
+                (int) $requestId,
+                $oldValues,
+                $newValues
+            );
+
+            return $this->payload((int) $requestId);
         });
 
         return ApiResponse::success($result, 'Draft saved');
@@ -233,13 +287,20 @@ class ReagentRequestController extends Controller
             // Crosscheck gate
             $gate = $this->assertCrosscheckPassedForLoo((int) $req->lo_id);
             if (!$gate['ok']) {
-                // return 422 with details for FE
                 return [
                     'ok' => false,
                     'reason' => 'crosscheck_not_passed',
                     'details' => $gate,
                 ];
             }
+
+            $oldValues = [
+                'reagent_request_id' => (int) $req->reagent_request_id,
+                'lo_id' => (int) $req->lo_id,
+                'status' => (string) $req->status,
+                'locked_at' => $req->locked_at,
+                'submitted_at' => $req->submitted_at,
+            ];
 
             // Lock + submit
             DB::table('reagent_requests')
@@ -251,6 +312,24 @@ class ReagentRequestController extends Controller
                     'locked_at' => now(),
                     'updated_at' => now(),
                 ]);
+
+            $newValues = [
+                'reagent_request_id' => (int) $req->reagent_request_id,
+                'lo_id' => (int) $req->lo_id,
+                'status' => 'submitted',
+                'submitted_by_staff_id' => (int) $staffId,
+                'locked_at' => now()->toISOString(),
+                'submitted_at' => now()->toISOString(),
+            ];
+
+            AuditLogger::write(
+                'REAGENT_REQUEST_SUBMITTED',
+                (int) $staffId,
+                'reagent_requests',
+                (int) $req->reagent_request_id,
+                $oldValues,
+                $newValues
+            );
 
             return [
                 'ok' => true,
@@ -301,8 +380,6 @@ class ReagentRequestController extends Controller
      */
     private function assertCrosscheckPassedForLoo(int $loId): array
     {
-        // Your system has letter_of_order_items with sample_id.
-        // We derive sample list from there.
         $sampleIds = DB::table('letter_of_order_items')
             ->where('lo_id', $loId)
             ->pluck('sample_id')
@@ -312,7 +389,6 @@ class ReagentRequestController extends Controller
             ->all();
 
         if (empty($sampleIds)) {
-            // If no samples in LOO, block submit (safer)
             return [
                 'ok' => false,
                 'total' => 0,
