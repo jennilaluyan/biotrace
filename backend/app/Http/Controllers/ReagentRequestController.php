@@ -11,8 +11,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use SimpleSoftwareIO\QrCode\Facades\QrCode;
 
 class ReagentRequestController extends Controller
 {
@@ -120,10 +120,6 @@ class ReagentRequestController extends Controller
                         abort(422, "Invalid catalog_id: {$catalogId}");
                     }
 
-                    // ⚠️ catalog schema kamu pakai "item_type", tapi beberapa env mungkin "type".
-                    // Kita snapshot dengan fallback aman.
-                    $catType = $cat->item_type ?? ($cat->type ?? null);
-
                     $unitText = $it['unit_text'] ?? ($cat->default_unit_text ?? null);
                     $note = $it['note'] ?? null;
 
@@ -131,9 +127,9 @@ class ReagentRequestController extends Controller
                         'reagent_request_id' => $requestId,
                         'catalog_item_id' => $catalogId,
 
-                        // snapshot fields
+                        // snapshot fields (biar nanti submit bisa lock snapshot dengan rapi)
                         'item_name' => $cat->name ?? null,
-                        'item_type' => $catType,
+                        'item_type' => $cat->type ?? null,
 
                         'qty' => $qty,
                         'unit_text' => $unitText,
@@ -165,6 +161,7 @@ class ReagentRequestController extends Controller
                 ];
 
                 if ($bookingId) {
+                    // Only allow update if the booking belongs to this request (safety)
                     $exists = DB::table('equipment_bookings')
                         ->where('booking_id', $bookingId)
                         ->where('reagent_request_id', $requestId)
@@ -189,12 +186,13 @@ class ReagentRequestController extends Controller
                 }
             }
 
+            // Delete bookings removed from payload (only those belonging to this request)
             DB::table('equipment_bookings')
                 ->where('reagent_request_id', $requestId)
                 ->when(!empty($keepBookingIds), fn($q) => $q->whereNotIn('booking_id', $keepBookingIds))
                 ->delete();
 
-            // Audit
+            // Audit (created/updated)
             $newItemsCount = (int) DB::table('reagent_request_items')
                 ->where('reagent_request_id', $requestId)
                 ->count();
@@ -228,6 +226,7 @@ class ReagentRequestController extends Controller
 
     /**
      * GET /v1/reagent-requests/loo/{loId}
+     * Load latest request for a LOO (draft/submitted/approved/rejected) + items + bookings.
      */
     public function showByLoo(Request $request, int $loId): JsonResponse
     {
@@ -324,6 +323,10 @@ class ReagentRequestController extends Controller
         ], 'OK');
     }
 
+    /**
+     * Only OM/LH may access approver inbox.
+     * FE roles.ts: OPERATIONAL_MANAGER=5, LAB_HEAD=6.
+     */
     private function assertOmOrLh(Request $request): void
     {
         $user = $request->user();
@@ -420,7 +423,7 @@ class ReagentRequestController extends Controller
 
     /**
      * POST /v1/reagent-requests/{id}/approve
-     * OM/LH approves a submitted reagent request.
+     * OM/LH approves a submitted reagent request and generates PDF.
      */
     public function approve(Request $request, int $id): JsonResponse
     {
@@ -457,26 +460,43 @@ class ReagentRequestController extends Controller
                     'status' => 'approved',
                     'approved_at' => $approvedAt,
                     'approved_by_staff_id' => $actorStaffId,
+
                     'rejected_at' => null,
                     'rejected_by_staff_id' => null,
                     'reject_note' => null,
+
                     'updated_at' => now(),
                 ]);
 
-            // ✅ Build payload for PDF (fresh)
-            $data = $this->payload((int) $id);
+            // Build payload for PDF (fresh after update)
+            $payload = $this->payload((int) $id);
 
-            $requestedBy = !empty($data['request']?->created_by_staff_id)
-                ? DB::table('staffs')->where('staff_id', (int) $data['request']->created_by_staff_id)->first()
+            $payload['requested_by'] = !empty($payload['request']?->created_by_staff_id)
+                ? DB::table('staffs')->where('staff_id', (int) $payload['request']->created_by_staff_id)->first()
                 : null;
 
-            $loo = !empty($data['request']?->lo_id)
-                ? DB::table('letters_of_order')->where('lo_id', (int) $data['request']->lo_id)->first()
+            $payload['approved_by'] = DB::table('staffs')->where('staff_id', (int) $actorStaffId)->first();
+
+            $payload['loo'] = !empty($payload['request']?->lo_id)
+                ? DB::table('letters_of_order')->where('lo_id', (int) $payload['request']->lo_id)->first()
                 : null;
 
-            // ===== QR OM (pakai pola surat_pengujian: robust) =====
+            // Render PDF -> store -> write file_url
+            $disk = (string) config('reagent_request.storage_disk', 'local');
+            $base = trim((string) config('reagent_request.storage_path', 'documents/reagent_requests'), '/');
+            $year = now()->format('Y');
+
+            $looNumber = (string) ($payload['loo']?->number ?? ('LOO-' . (int) $payload['request']->lo_id));
+            $safeNo = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $looNumber) ?: ('LOO_' . (int) $payload['request']->lo_id);
+            $safeNo = str_replace('/', '_', $safeNo);
+
+            $cycleNo = (int) ($payload['request']->cycle_no ?? 1);
+            $fileName = "reagent_request_{$safeNo}_C{$cycleNo}_{$id}.pdf";
+            $path = "{$base}/{$year}/{$fileName}";
+
+            // Embed OM QR signature (prefer verify URL from loa_signatures hash)
             $signatures = DB::table('loa_signatures')
-                ->where('lo_id', (int) $data['request']->lo_id)
+                ->where('lo_id', (int) $payload['request']->lo_id)
                 ->get();
 
             $pickSig = function (array $roleCodes) use ($signatures) {
@@ -490,146 +510,77 @@ class ReagentRequestController extends Controller
             $omSig = $pickSig(['OM', 'OPERATIONAL_MANAGER', 'OP_MANAGER', 'MANAGER_OPERASIONAL', 'MANAGER_OPS']);
             $omHash = trim((string) ($omSig->signature_hash ?? ''));
 
-            $omVerifyUrl = $omHash !== ''
+            $omQrUrl = $omHash !== ''
                 ? url("/api/v1/loo/signatures/verify/{$omHash}")
                 : (string) config('reagent_request.om_qr_fallback_url', 'https://google.com');
 
-            $makeQrDataUri = function (?string $payload): ?string {
-                $payload = $payload ? trim($payload) : '';
-                if ($payload === '') return null;
-
-                // 1) Try PNG via SimpleSoftwareIO
-                try {
-                    if (class_exists(\SimpleSoftwareIO\QrCode\Facades\QrCode::class)) {
-                        $png = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('png')
-                            ->size(110)->margin(1)->generate($payload);
-
-                        if (is_string($png) && $png !== '') {
-                            return 'data:image/png;base64,' . base64_encode($png);
-                        }
-                    }
-                } catch (\Throwable) {
-                    // ignore -> fallback svg
-                }
-
-                // 2) SVG via SimpleSoftwareIO
-                try {
-                    if (class_exists(\SimpleSoftwareIO\QrCode\Facades\QrCode::class)) {
-                        $svg = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('svg')
-                            ->size(110)->margin(0)->generate($payload);
-
-                        if (is_string($svg) && trim($svg) !== '') {
-                            $svg2 = $svg;
-                            if (stripos($svg2, 'width=') === false) {
-                                $svg2 = preg_replace('/<svg\b/', '<svg width="110" height="110"', $svg2, 1);
-                            }
-                            return 'data:image/svg+xml;base64,' . base64_encode($svg2);
-                        }
-                    }
-                } catch (\Throwable) {
-                    // ignore -> fallback bacon
-                }
-
-                // 3) BaconQrCode SVG fallback
-                try {
-                    if (
-                        class_exists(\BaconQrCode\Writer::class) &&
-                        class_exists(\BaconQrCode\Renderer\ImageRenderer::class) &&
-                        class_exists(\BaconQrCode\Renderer\RendererStyle\RendererStyle::class) &&
-                        class_exists(\BaconQrCode\Renderer\Image\SvgImageBackEnd::class)
-                    ) {
-                        $style = new \BaconQrCode\Renderer\RendererStyle\RendererStyle(110);
-                        $backend = new \BaconQrCode\Renderer\Image\SvgImageBackEnd();
-                        $renderer = new \BaconQrCode\Renderer\ImageRenderer($style, $backend);
-                        $writer = new \BaconQrCode\Writer($renderer);
-
-                        $svg = $writer->writeString($payload);
-                        if (is_string($svg) && trim($svg) !== '') {
-                            $svg2 = $svg;
-                            if (stripos($svg2, 'width=') === false) {
-                                $svg2 = preg_replace('/<svg\b/', '<svg width="110" height="110"', $svg2, 1);
-                            }
-                            return 'data:image/svg+xml;base64,' . base64_encode($svg2);
-                        }
-                    }
-                } catch (\Throwable) {
-                    // ignore
-                }
-
-                return null;
-            };
-
-            $omQrSrc = $makeQrDataUri($omVerifyUrl);
-
-            // ===== PDF payload mapping (yang template kamu expect) =====
-            $requestedAt = $data['request']?->submitted_at ?? $data['request']?->created_at ?? now();
-
-            $recordNo = 'REK/LAB-BM/TKS/11';
-            $recordSuffix = '';
+            $omQrSrc = null;
             try {
-                $recordSuffix = \Illuminate\Support\Carbon::parse($requestedAt)->format('d-m-y'); // contoh: 21-10-24
-            } catch (\Throwable) {
-                $recordSuffix = '';
+                if (class_exists(QrCode::class)) {
+                    $png = QrCode::format('png')
+                        ->size(110)
+                        ->margin(0)
+                        ->generate($omQrUrl);
+
+                    if (is_string($png) && $png !== '') {
+                        $omQrSrc = 'data:image/png;base64,' . base64_encode($png);
+                    }
+                }
+            } catch (\Throwable $e) {
+                $omQrSrc = null;
             }
 
-            $roleName = $this->resolveRoleNameForStaff($requestedBy);
-
-            $pdfPayload = [
-                'record_no' => $recordNo,
-                'record_suffix' => $recordSuffix,
-                'form_rev_code' => 'FORM/LAB-BM/TKS/11.Rev00.31-01-24',
-
-                'requested_at' => $requestedAt,
-
-                // ✅ “Yang meminta” = nama staff yang bikin request
-                'requester_name' => (string) ($requestedBy->name ?? '-'),
-
-                // ✅ “Bagian” = role name (best-effort)
-                'requester_division' => $roleName ?: '-',
-
-                // ✅ Hardcode sesuai template foto
-                'coordinator_name' => 'Rendy V. Worotikan, S.Si',
-
-                // OM identity sesuai template
-                'om_name' => 'dr. Olivia A. Waworuntu, MPH, Sp.MK',
-                'om_nip' => '197910242008012006',
-
-                // QR OM
-                'om_qr_src' => $omQrSrc,
-                'om_verify_url' => $omVerifyUrl, // fallback kalau view mau generate ulang
-            ];
-
-            // Inject payload ke view dengan key "payload"
-            $data['payload'] = $pdfPayload;
-
-            // ✅ Render PDF -> store -> write file_url
-            $disk = (string) config('reagent_request.storage_disk', 'local');
-            $base = trim((string) config('reagent_request.storage_path', 'documents/reagent_requests'), '/');
-            $year = now()->format('Y');
-
-            $looNumber = (string) ($loo?->number ?? ('LOO-' . (int) $data['request']->lo_id));
-            $safeNo = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $looNumber) ?: ('LOO_' . (int) $data['request']->lo_id);
-            $safeNo = str_replace('/', '_', $safeNo);
-
-            $cycleNo = (int) ($data['request']->cycle_no ?? 1);
-            $fileName = "reagent_request_{$safeNo}_C{$cycleNo}_{$id}.pdf";
-            $path = "{$base}/{$year}/{$fileName}";
+            $payload['om_qr_src'] = $omQrSrc;
+            if (!isset($payload['payload']) || !is_array($payload['payload'])) {
+                $payload['payload'] = [];
+            }
+            $payload['payload']['om_qr_src'] = $omQrSrc;
 
             $view = (string) config('reagent_request.pdf_view', 'documents.reagent_request');
 
-            $bytes = Pdf::loadView($view, $data)
+            $bytes = Pdf::loadView($view, $payload)
                 ->setPaper('a4', 'portrait')
                 ->output();
 
             Storage::disk($disk)->put($path, $bytes);
 
+            // ✅ 8.5 — Audit log: PDF generated (ONLY after file stored + file_url updated)
+            $pdfGeneratedAt = now();
+
+            $beforePdf = [
+                'reagent_request_id' => (int) $req->reagent_request_id,
+                'lo_id' => (int) $req->lo_id,
+                'status' => 'approved',
+                'file_url' => $req->file_url ?? null,
+            ];
+
             DB::table('reagent_requests')
                 ->where('reagent_request_id', $id)
                 ->update([
                     'file_url' => $path,
-                    'updated_at' => now(),
+                    'updated_at' => $pdfGeneratedAt,
                 ]);
 
+            $afterPdf = [
+                'reagent_request_id' => (int) $req->reagent_request_id,
+                'lo_id' => (int) $req->lo_id,
+                'status' => 'approved',
+                'file_url' => $path,
+                'pdf_generated_at' => $pdfGeneratedAt->toISOString(),
+                'storage_disk' => $disk,
+                'pdf_view' => $view,
+            ];
+
+            AuditLogger::write(
+                'REAGENT_REQUEST_PDF_GENERATED',
+                (int) $actorStaffId,
+                'reagent_requests',
+                (int) $id,
+                $beforePdf,
+                $afterPdf
+            );
+
+            // Keep approval audit as-is (immutable approval record)
             $newValues = [
                 'reagent_request_id' => (int) $req->reagent_request_id,
                 'lo_id' => (int) $req->lo_id,
@@ -733,6 +684,9 @@ class ReagentRequestController extends Controller
         return ApiResponse::success($result, 'Rejected');
     }
 
+    /**
+     * Resolve actor staff_id from authenticated user.
+     */
     private function resolveActorStaffId(Request $request): int
     {
         $user = $request->user();
@@ -744,10 +698,6 @@ class ReagentRequestController extends Controller
         abort(500, 'Cannot resolve actor staff_id for approval.');
     }
 
-    /**
-     * Payload untuk FE + PDF.
-     * NOTE: bookings diperkaya dengan equipment_name kalau tabel equipments ada.
-     */
     private function payload(int $requestId): array
     {
         $req = DB::table('reagent_requests')
@@ -759,31 +709,10 @@ class ReagentRequestController extends Controller
             ->orderBy('item_name')
             ->get();
 
-        // bookings + equipment_name (best-effort)
-        try {
-            if (Schema::hasTable('equipments')) {
-                $bookings = DB::table('equipment_bookings as eb')
-                    ->leftJoin('equipments as e', 'e.equipment_id', '=', 'eb.equipment_id')
-                    ->where('eb.reagent_request_id', $requestId)
-                    ->orderBy('eb.planned_start_at')
-                    ->select([
-                        'eb.*',
-                        DB::raw('e.name as equipment_name'),
-                        DB::raw('e.code as equipment_code'),
-                    ])
-                    ->get();
-            } else {
-                $bookings = DB::table('equipment_bookings')
-                    ->where('reagent_request_id', $requestId)
-                    ->orderBy('planned_start_at')
-                    ->get();
-            }
-        } catch (\Throwable) {
-            $bookings = DB::table('equipment_bookings')
-                ->where('reagent_request_id', $requestId)
-                ->orderBy('planned_start_at')
-                ->get();
-        }
+        $bookings = DB::table('equipment_bookings')
+            ->where('reagent_request_id', $requestId)
+            ->orderBy('planned_start_at')
+            ->get();
 
         return [
             'request' => $req,
@@ -834,6 +763,11 @@ class ReagentRequestController extends Controller
         ];
     }
 
+    /**
+     * Copy pola dari controller lain:
+     * - coba header X-Staff-Id
+     * - fallback ke auth user -> staff
+     */
     private function resolveStaffId(Request $request): ?int
     {
         $u = $request->user();
@@ -848,40 +782,5 @@ class ReagentRequestController extends Controller
 
         $id = Auth::id();
         return is_numeric($id) ? (int) $id : null;
-    }
-
-    /**
-     * Best-effort role name:
-     * - kalau ada table roles: ambil name/title
-     * - kalau tidak: fallback mapping
-     */
-    private function resolveRoleNameForStaff($staffRow): ?string
-    {
-        if (!$staffRow) return null;
-
-        $roleId = (int) ($staffRow->role_id ?? 0);
-        if ($roleId <= 0) return null;
-
-        try {
-            if (Schema::hasTable('roles')) {
-                $role = DB::table('roles')->where('role_id', $roleId)->first();
-                $name = $role->name ?? ($role->role_name ?? null);
-                if (is_string($name) && trim($name) !== '') return trim($name);
-            }
-        } catch (\Throwable) {
-            // ignore
-        }
-
-        // fallback (sesuaikan kalau kamu punya mapping final)
-        $map = [
-            1 => 'Admin',
-            2 => 'Staff',
-            3 => 'Analis',
-            4 => 'QA',
-            5 => 'Manajer Operasional',
-            6 => 'Kepala Laboratorium',
-        ];
-
-        return $map[$roleId] ?? null;
     }
 }
