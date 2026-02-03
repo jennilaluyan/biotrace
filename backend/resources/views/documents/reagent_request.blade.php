@@ -4,28 +4,25 @@
 @section('content')
     @php
         /**
-         * Expected view data shape (step 8.1 mapping only; step 8.2+ will feed real data):
-         *
-         * $payload = [
-         *   'record_no' => 'REK/LAB-BM/TKS/11',
-         *   'record_suffix' => '...optional...',
-         *   'form_rev_code' => 'FORM/LAB-BM/TKS/11.Rev00.31-01-24',
-         *   'requested_at' => '2026-02-03T10:00:00Z' | '2026-02-03',
-         *   'requester_name' => '...',
-         *   'requester_division' => 'Analis',
-         *   'coordinator_name' => '...',
-         *   'om_name' => '...',
-         *   'om_nip' => '...',
-         *   'om_qr_src' => 'data:image/png;base64,...' (optional placeholder; step 8.3 will ensure QR)
-         * ];
-         *
-         * $items = [
-         *   ['item_name'=>'...', 'qty'=>1, 'unit_text'=>'box', 'note'=>'...'],
-         *   ...
-         * ];
+         * View receives:
+         * - $payload (array): mapped pdf fields
+         * - $items (collection/array): reagent_request_items rows
+         * - $bookings (collection/array): equipment_bookings rows (+ equipment_name best-effort)
          */
         $payload = $payload ?? [];
-        $items = $items ?? [];
+        $itemsRaw = $items ?? [];
+        $bookingsRaw = $bookings ?? [];
+
+        // normalize items/bookings into arrays (dompdf friendly)
+        if ($itemsRaw instanceof \Illuminate\Support\Collection)
+            $itemsRaw = $itemsRaw->values()->all();
+        if (!is_array($itemsRaw))
+            $itemsRaw = [];
+
+        if ($bookingsRaw instanceof \Illuminate\Support\Collection)
+            $bookingsRaw = $bookingsRaw->values()->all();
+        if (!is_array($bookingsRaw))
+            $bookingsRaw = [];
 
         $recordNo = data_get($payload, 'record_no', 'REK/LAB-BM/TKS/11');
         $recordSuffix = data_get($payload, 'record_suffix', '');
@@ -43,17 +40,110 @@
         $requesterName = data_get($payload, 'requester_name', '-');
         $requesterDiv = data_get($payload, 'requester_division', '-');
 
-        $coordName = data_get($payload, 'coordinator_name', '-');
+        // ✅ sesuai instruksi: koordinator analis fixed
+        $coordName = 'Rendy V. Worotikan, S.Si';
 
-        // Default mengikuti template yang kamu sudah hardcode di dokumen lain (nanti bisa dipindah ke config)
         $omName = data_get($payload, 'om_name', 'dr. Olivia A. Waworuntu, MPH, Sp.MK');
         $omNip = data_get($payload, 'om_nip', '197910242008012006');
 
         $omQrSrc = data_get($payload, 'om_qr_src', null);
+        $omVerifyUrl = data_get($payload, 'om_verify_url', null);
+
+        // ✅ PERMINTAAN BARU:
+        // HAPUS tabel REAGEN -> semua items masuk tabel BHP / CONSUMABLE
+        $itemsBhp = $itemsRaw;
+
+        // helper format qty => "1 box"
+        $fmtQty = function ($qty, $unitText): string {
+            if ($qty === null || $qty === '')
+                return '';
+            $n = rtrim(rtrim(number_format((float) $qty, 3, '.', ''), '0'), '.');
+            $u = trim((string) $unitText);
+            return trim($n . ($u !== '' ? ' ' . $u : ''));
+        };
+
+        // helper format datetime
+        $fmtDt = function ($v): string {
+            $v = $v ? (string) $v : '';
+            if (trim($v) === '')
+                return '';
+            try {
+                return \Illuminate\Support\Carbon::parse($v)->translatedFormat('d F Y H:i');
+            } catch (\Throwable) {
+                return $v;
+            }
+        };
+
+        // Fallback generator for OM QR if controller could not embed
+        $makeQrDataUri = function (?string $payload): ?string {
+            $payload = $payload ? trim($payload) : '';
+            if ($payload === '')
+                return null;
+
+            // 1) Try PNG via SimpleSoftwareIO
+            try {
+                if (class_exists(\SimpleSoftwareIO\QrCode\Facades\QrCode::class)) {
+                    $png = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('png')
+                        ->size(110)->margin(1)->generate($payload);
+
+                    if (is_string($png) && $png !== '') {
+                        return 'data:image/png;base64,' . base64_encode($png);
+                    }
+                }
+            } catch (\Throwable) {
+            }
+
+            // 2) SVG via SimpleSoftwareIO
+            try {
+                if (class_exists(\SimpleSoftwareIO\QrCode\Facades\QrCode::class)) {
+                    $svg = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('svg')
+                        ->size(110)->margin(0)->generate($payload);
+
+                    if (is_string($svg) && trim($svg) !== '') {
+                        $svg2 = $svg;
+                        if (stripos($svg2, 'width=') === false) {
+                            $svg2 = preg_replace('/<svg\b/', '<svg width="110" height="110"', $svg2, 1);
+                        }
+                        return 'data:image/svg+xml;base64,' . base64_encode($svg2);
+                    }
+                }
+            } catch (\Throwable) {
+            }
+
+            // 3) BaconQrCode SVG fallback
+            try {
+                if (
+                    class_exists(\BaconQrCode\Writer::class) &&
+                    class_exists(\BaconQrCode\Renderer\ImageRenderer::class) &&
+                    class_exists(\BaconQrCode\Renderer\RendererStyle\RendererStyle::class) &&
+                    class_exists(\BaconQrCode\Renderer\Image\SvgImageBackEnd::class)
+                ) {
+                    $style = new \BaconQrCode\Renderer\RendererStyle\RendererStyle(110);
+                    $backend = new \BaconQrCode\Renderer\Image\SvgImageBackEnd();
+                    $renderer = new \BaconQrCode\Renderer\ImageRenderer($style, $backend);
+                    $writer = new \BaconQrCode\Writer($renderer);
+
+                    $svg = $writer->writeString($payload);
+                    if (is_string($svg) && trim($svg) !== '') {
+                        $svg2 = $svg;
+                        if (stripos($svg2, 'width=') === false) {
+                            $svg2 = preg_replace('/<svg\b/', '<svg width="110" height="110"', $svg2, 1);
+                        }
+                        return 'data:image/svg+xml;base64,' . base64_encode($svg2);
+                    }
+                }
+            } catch (\Throwable) {
+            }
+
+            return null;
+        };
+
+        if (!$omQrSrc && $omVerifyUrl) {
+            $omQrSrc = $makeQrDataUri($omVerifyUrl);
+        }
     @endphp
 
     <style>
-        /* DOMPDF safest */
         body {
             font-family: DejaVu Sans, Arial, sans-serif;
             font-size: 11px;
@@ -96,6 +186,12 @@
             width: 75%;
         }
 
+        .section-title {
+            margin-top: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
         .table-items {
             width: 100%;
             border-collapse: collapse;
@@ -115,7 +211,7 @@
         }
 
         .sign-row {
-            margin-top: 26px;
+            margin-top: 18px;
             width: 100%;
         }
 
@@ -141,7 +237,6 @@
             margin-top: 2px;
         }
 
-        /* QR box DOMPDF-friendly (no flex) */
         .qr-box {
             width: 110px;
             height: 110px;
@@ -168,7 +263,7 @@
         }
     </style>
 
-    {{-- HEADER (ikuti dokumen existing) --}}
+    {{-- HEADER --}}
     <table width="100%" cellspacing="0" cellpadding="0">
         <tr>
             <td width="15%" align="left" style="vertical-align: middle;">
@@ -221,7 +316,8 @@
         </tr>
     </table>
 
-    {{-- ITEMS TABLE (fixed 10 rows like paper form) --}}
+    {{-- ✅ ONLY TABLE: BHP / CONSUMABLE (rows dynamic) --}}
+    <div class="section-title">BHP / CONSUMABLE</div>
     <table class="table-items">
         <thead>
             <tr>
@@ -232,29 +328,76 @@
             </tr>
         </thead>
         <tbody>
-            @for ($i = 1; $i <= 10; $i++)
-                @php
-                    $row = $items[$i - 1] ?? null;
-                    $itemName = $row ? (string) data_get($row, 'item_name', '') : '';
-                    $qty = $row ? data_get($row, 'qty', null) : null;
-                    $unitText = $row ? (string) data_get($row, 'unit_text', '') : '';
-                    $note = $row ? (string) data_get($row, 'note', '') : '';
-
-                    $qtyText = '';
-                    if ($qty !== null && $qty !== '') {
-                        // Keep it human-friendly: "1 box", "2.5 mL", etc.
-                        $qtyText = rtrim(rtrim(number_format((float) $qty, 3, '.', ''), '0'), '.');
-                        if ($unitText !== '')
-                            $qtyText .= ' ' . $unitText;
-                    }
-                @endphp
+            @if (count($itemsBhp) === 0)
                 <tr>
-                    <td align="center">{{ $i }}</td>
-                    <td>{{ $itemName }}</td>
-                    <td>{{ $qtyText }}</td>
-                    <td>{{ $note }}</td>
+                    <td align="center">1</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
                 </tr>
-            @endfor
+            @else
+                @foreach ($itemsBhp as $idx => $row)
+                    @php
+                        $no = $idx + 1;
+                        $itemName = (string) data_get($row, 'item_name', '');
+                        $qty = data_get($row, 'qty', null);
+                        $unitText = (string) data_get($row, 'unit_text', '');
+                        $note = (string) data_get($row, 'note', '');
+                        $qtyText = $fmtQty($qty, $unitText);
+                    @endphp
+                    <tr>
+                        <td align="center">{{ $no }}</td>
+                        <td>{{ $itemName }}</td>
+                        <td>{{ $qtyText }}</td>
+                        <td>{{ $note }}</td>
+                    </tr>
+                @endforeach
+            @endif
+        </tbody>
+    </table>
+
+    {{-- TABLE: ALAT (rows dynamic) --}}
+    <div class="section-title">ALAT</div>
+    <table class="table-items">
+        <thead>
+            <tr>
+                <th width="6%">NO</th>
+                <th width="40%">NAMA ALAT</th>
+                <th width="20%">WAKTU MULAI</th>
+                <th width="20%">WAKTU SELESAI</th>
+                <th width="14%">KETERANGAN</th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (count($bookingsRaw) === 0)
+                <tr>
+                    <td align="center">1</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                </tr>
+            @else
+                @foreach ($bookingsRaw as $idx => $row)
+                    @php
+                        $no = $idx + 1;
+                        $equipName = (string) (data_get($row, 'equipment_name')
+                            ?? data_get($row, 'equipment_code')
+                            ?? ('Alat #' . (int) data_get($row, 'equipment_id', 0)));
+
+                        $start = $fmtDt(data_get($row, 'planned_start_at'));
+                        $end = $fmtDt(data_get($row, 'planned_end_at'));
+                        $note = (string) data_get($row, 'note', '');
+                    @endphp
+                    <tr>
+                        <td align="center">{{ $no }}</td>
+                        <td>{{ $equipName }}</td>
+                        <td>{{ $start }}</td>
+                        <td>{{ $end }}</td>
+                        <td>{{ $note }}</td>
+                    </tr>
+                @endforeach
+            @endif
         </tbody>
     </table>
 
