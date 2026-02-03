@@ -2,16 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\TestingBoardAddColumnRequest;
+use App\Http\Requests\TestingBoardMoveRequest;
+use App\Http\Requests\TestingBoardRenameColumnRequest;
+use App\Http\Requests\TestingBoardReorderColumnsRequest;
 use App\Models\Staff;
+use App\Models\TestingBoard;
+use App\Models\TestingColumn;
+use App\Services\TestingBoardColumnsService;
 use App\Services\TestingBoardService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
-use App\Http\Requests\TestingBoardMoveRequest;
-use App\Models\TestingBoard;
-use App\Http\Requests\TestingBoardRenameColumnRequest;
-use App\Http\Requests\TestingBoardAddColumnRequest;
-use App\Http\Requests\TestingBoardReorderColumnsRequest;
-use App\Services\TestingBoardColumnsService;
+use Illuminate\Support\Facades\DB;
 
 class TestingBoardController extends Controller
 {
@@ -60,17 +62,18 @@ class TestingBoardController extends Controller
 
         return response()->json([
             'data' => [
-                'board_id' => $board->board_id,
+                'board_id' => (int) $board->board_id,
                 'workflow_group' => $board->workflow_group,
                 'name' => $board->name,
                 'columns' => $board->columns->map(fn($c) => [
-                    'column_id' => $c->column_id,
+                    'column_id' => (int) $c->column_id,
                     'name' => $c->name,
-                    'position' => $c->position,
+                    'position' => (int) $c->position,
                 ])->values(),
             ],
         ]);
     }
+
     public function renameColumn(
         TestingBoardRenameColumnRequest $request,
         int $columnId,
@@ -110,20 +113,76 @@ class TestingBoardController extends Controller
         ], 201);
     }
 
+    /**
+     * PUT /v1/testing-board/{workflowGroup}/columns/reorder
+     * Body:
+     * - column_ids: int[] (MUST contain all column ids of the board exactly once)
+     *
+     * IMPORTANT:
+     * board has unique constraint (board_id, position) so we must "shift" positions first
+     * to avoid collisions during reorder.
+     */
     public function reorderColumns(
         TestingBoardReorderColumnsRequest $request,
-        string $workflowGroup,
-        TestingBoardColumnsService $svc
+        string $workflowGroup
     ): JsonResponse {
         $ids = $request->validated('column_ids');
+        $columnIds = array_values(array_map('intval', (array) $ids));
 
-        $ordered = $svc->reorderColumns($workflowGroup, array_map('intval', $ids));
+        /** @var TestingBoard|null $board */
+        $board = TestingBoard::query()
+            ->where('workflow_group', $workflowGroup)
+            ->first();
+
+        if (!$board) {
+            return response()->json(['message' => 'Board not found.'], 404);
+        }
+
+        $boardId = (int) $board->board_id;
+
+        // Validate: payload must contain ALL board columns exactly once
+        $existingIds = TestingColumn::query()
+            ->where('board_id', $boardId)
+            ->pluck('column_id')
+            ->map(fn($v) => (int) $v)
+            ->values()
+            ->all();
+
+        sort($existingIds);
+        $payloadSorted = $columnIds;
+        sort($payloadSorted);
+
+        if ($existingIds !== $payloadSorted) {
+            return response()->json([
+                'message' => 'column_ids must contain all column ids of the board exactly once.',
+                'context' => [
+                    'workflow_group' => $workflowGroup,
+                    'expected_column_ids' => $existingIds,
+                    'received_column_ids' => $columnIds,
+                ],
+            ], 422);
+        }
+
+        DB::transaction(function () use ($boardId, $columnIds) {
+            // 1) Move all existing positions out of the way (avoid unique collisions)
+            TestingColumn::query()
+                ->where('board_id', $boardId)
+                ->update(['position' => DB::raw('position + 1000')]);
+
+            // 2) Apply new order (1..N)
+            foreach (array_values($columnIds) as $idx => $columnId) {
+                TestingColumn::query()
+                    ->where('board_id', $boardId)
+                    ->where('column_id', (int) $columnId)
+                    ->update(['position' => $idx + 1]);
+            }
+        });
 
         return response()->json([
             'message' => 'Columns reordered.',
             'data' => [
                 'workflow_group' => $workflowGroup,
-                'column_ids' => $ordered,
+                'column_ids' => $columnIds,
             ],
         ]);
     }

@@ -30,17 +30,21 @@ class TestingBoardService
             /** @var Sample $sample */
             $sample = Sample::query()->lockForUpdate()->findOrFail($sampleId);
 
-            // 1) Extract parameter IDs from sample payload
+            // 1) Extract parameter IDs (best effort)
             $parameterIds = $this->extractParameterIdsFromSample($sample);
 
-            // 2) Resolve workflow group (via Services adapter -> Support resolver)
+            // 2) Resolve group
             $groupEnum = $this->workflowGroupResolver->resolveFromParameterIds($parameterIds);
             if (!$groupEnum) {
                 abort(422, 'Cannot resolve workflow group from sample parameters.');
             }
-            $workflowGroup = $groupEnum->value;
 
-            // 3) Find board for resolved group
+            // Support enum or string resolver return
+            $workflowGroup = is_object($groupEnum) && property_exists($groupEnum, 'value')
+                ? (string) $groupEnum->value
+                : (string) $groupEnum;
+
+            // 3) Find board for that group
             /** @var TestingBoard|null $board */
             $board = TestingBoard::query()
                 ->where('workflow_group', $workflowGroup)
@@ -60,47 +64,50 @@ class TestingBoardService
 
             $now = Carbon::now();
 
-            // 5) Determine from_column_id (best effort)
+            // Find current column (best effort)
             $fromColumnId = null;
 
-            // Prefer cached value on samples if it exists
             if (Schema::hasColumn('samples', 'testing_column_id')) {
                 $fromColumnId = $sample->getAttribute('testing_column_id');
             }
 
-            // Fallback: last move event's to_column_id
             if (!$fromColumnId) {
+                // fallback from latest event
                 $latest = TestingCardEvent::query()
                     ->where('sample_id', $sampleId)
-                    ->orderByDesc('event_id')
+                    ->orderByDesc('id')
                     ->first();
 
                 if ($latest) {
-                    $fromColumnId = $latest->to_column_id ?? null;
+                    $fromColumnId = $latest->to_column_id
+                        ?? $latest->testing_column_id
+                        ?? $latest->column_id
+                        ?? null;
                 }
             }
 
-            // 6) Close previous open event if schema supports exited_at
+            // Close previous open event if schema supports exited_at
             if (Schema::hasColumn('testing_card_events', 'exited_at')) {
                 TestingCardEvent::query()
                     ->where('sample_id', $sampleId)
                     ->whereNull('exited_at')
-                    ->orderByDesc('event_id')
+                    ->orderByDesc('id')
                     ->limit(1)
                     ->update(['exited_at' => $now]);
             }
 
-            // 7) Insert new movement event
+            // Create new movement event (best effort for schema variants)
             $eventData = [
                 'board_id' => (int) $board->board_id,
                 'sample_id' => (int) $sampleId,
                 'from_column_id' => $fromColumnId ? (int) $fromColumnId : null,
                 'to_column_id' => (int) $toColumnId,
                 'moved_by_staff_id' => (int) $actorStaffId,
-                'moved_at' => $now,
             ];
 
-            // Optional extra timestamp columns if you later add them (not required by step 10.1)
+            if (Schema::hasColumn('testing_card_events', 'moved_at')) {
+                $eventData['moved_at'] = $now;
+            }
             if (Schema::hasColumn('testing_card_events', 'entered_at')) {
                 $eventData['entered_at'] = $now;
             }
@@ -108,7 +115,7 @@ class TestingBoardService
             /** @var TestingCardEvent $created */
             $created = TestingCardEvent::query()->create($eventData);
 
-            // 8) Cache current column on sample (optional, only if schema exists)
+            // Update sample current column if column exists
             if (Schema::hasColumn('samples', 'testing_column_id')) {
                 $sample->setAttribute('testing_column_id', (int) $toColumnId);
                 $sample->save();
@@ -120,8 +127,159 @@ class TestingBoardService
                 'board_id' => (int) $board->board_id,
                 'from_column_id' => $fromColumnId ? (int) $fromColumnId : null,
                 'to_column_id' => (int) $toColumnId,
-                'event_id' => (int) $created->event_id,
+                'event_id' => (int) ($created->event_id ?? $created->getKey()),
                 'moved_at' => $now->toISOString(),
+            ];
+        });
+    }
+
+    /**
+     * Add a new column to a workflow group board (with safe position shifting).
+     */
+    public function addColumn(string $workflowGroup, string $name, int $position): array
+    {
+        return DB::transaction(function () use ($workflowGroup, $name, $position) {
+            /** @var TestingBoard|null $board */
+            $board = TestingBoard::query()
+                ->where('workflow_group', $workflowGroup)
+                ->first();
+
+            if (!$board) {
+                abort(422, "Testing board not found for workflow_group: {$workflowGroup}");
+            }
+
+            $position = max(1, (int) $position);
+
+            $maxPos = (int) TestingColumn::query()
+                ->where('board_id', $board->board_id)
+                ->max('position');
+
+            // clamp position (allow append)
+            if ($maxPos > 0) {
+                $position = min($position, $maxPos + 1);
+            }
+
+            // Safe shift to prevent unique(board_id, position) collision
+            // Step A: move affected positions out of the way
+            TestingColumn::query()
+                ->where('board_id', $board->board_id)
+                ->where('position', '>=', $position)
+                ->update(['position' => DB::raw('position + 1000')]);
+
+            // Step B: bring them back with +1 net shift
+            TestingColumn::query()
+                ->where('board_id', $board->board_id)
+                ->where('position', '>=', $position + 1000)
+                ->update(['position' => DB::raw('position - 999')]); // (pos+1000) - 999 = pos+1
+
+            /** @var TestingColumn $col */
+            $col = TestingColumn::query()->create([
+                'board_id' => (int) $board->board_id,
+                'name' => $name,
+                'position' => $position,
+            ]);
+
+            return [
+                'column_id' => (int) ($col->column_id ?? $col->getKey()),
+                'name' => (string) $col->name,
+                'position' => (int) $col->position,
+                'board_id' => (int) $board->board_id,
+            ];
+        });
+    }
+
+    /**
+     * Rename a column by id.
+     */
+    public function renameColumn(int $columnId, string $name): array
+    {
+        /** @var TestingColumn $col */
+        $col = TestingColumn::query()->findOrFail($columnId);
+        $col->name = $name;
+        $col->save();
+
+        return [
+            'column_id' => (int) ($col->column_id ?? $col->getKey()),
+            'name' => (string) $col->name,
+            'position' => (int) $col->position,
+            'board_id' => (int) $col->board_id,
+        ];
+    }
+
+    /**
+     * Reorder columns for a workflow group board.
+     *
+     * Rule: column_ids must contain ALL columns of the board EXACTLY ONCE.
+     */
+    public function reorderColumns(string $workflowGroup, array $columnIds): array
+    {
+        return DB::transaction(function () use ($workflowGroup, $columnIds) {
+            /** @var TestingBoard|null $board */
+            $board = TestingBoard::query()
+                ->where('workflow_group', $workflowGroup)
+                ->first();
+
+            if (!$board) {
+                abort(422, "Testing board not found for workflow_group: {$workflowGroup}");
+            }
+
+            // normalize input ids (ints, unique, preserve order)
+            $normalized = [];
+            foreach ($columnIds as $raw) {
+                if ($raw === null) continue;
+                if (is_string($raw)) $raw = trim($raw);
+                if ($raw === '' || $raw === false) continue;
+                $id = (int) $raw;
+                if ($id <= 0) continue;
+                if (!in_array($id, $normalized, true)) $normalized[] = $id;
+            }
+
+            // fetch existing column ids
+            $existing = TestingColumn::query()
+                ->where('board_id', $board->board_id)
+                ->orderBy('position')
+                ->pluck('column_id')
+                ->map(fn($v) => (int) $v)
+                ->values()
+                ->all();
+
+            // validation: must match exactly once
+            $a = $normalized;
+            $b = $existing;
+            sort($a);
+            sort($b);
+
+            if ($a !== $b) {
+                abort(422, 'column_ids must contain all column ids of the board exactly once.');
+            }
+
+            // ✅ SAFE reorder: two-phase shift to avoid unique(board_id, position) collisions
+            TestingColumn::query()
+                ->where('board_id', $board->board_id)
+                ->update(['position' => DB::raw('position + 1000')]);
+
+            foreach (array_values($normalized) as $idx => $columnId) {
+                TestingColumn::query()
+                    ->where('board_id', $board->board_id)
+                    ->where('column_id', (int) $columnId)
+                    ->update(['position' => $idx + 1]);
+            }
+
+            // return latest order
+            $cols = TestingColumn::query()
+                ->where('board_id', $board->board_id)
+                ->orderBy('position')
+                ->get(['column_id', 'name', 'position', 'board_id']);
+
+            return [
+                'board_id' => (int) $board->board_id,
+                'workflow_group' => (string) $board->workflow_group,
+                'columns' => $cols->map(fn($c) => [
+                    'column_id' => (int) $c->column_id,
+                    'name' => (string) $c->name,
+                    'position' => (int) $c->position,
+                    'board_id' => (int) $c->board_id,
+                ])->all(),
             ];
         });
     }
@@ -174,6 +332,7 @@ class TestingBoardService
 
             if (count($out) > 0) return $out;
         }
+
         // Fallback: try DB-derived parameters for legacy samples
         $dbOut = $this->extractParameterIdsFromDbFallback($sample);
         if (count($dbOut) > 0) return $dbOut;
