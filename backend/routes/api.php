@@ -37,6 +37,8 @@ use App\Http\Controllers\ReagentController;
 use App\Http\Controllers\UnitController;
 use App\Http\Controllers\ConsumablesCatalogController;
 use App\Http\Controllers\EquipmentBookingController;
+use App\Http\Controllers\ReagentRequestController;
+use App\Http\Controllers\EquipmentCatalogController;
 
 // Sample Tests & Results
 use App\Http\Controllers\SampleTestBulkController;
@@ -203,6 +205,10 @@ Route::prefix('v1')->group(function () {
         Route::post('equipment-bookings', [EquipmentBookingController::class, 'store']);
         Route::patch('equipment-bookings/{bookingId}', [EquipmentBookingController::class, 'update']);
         Route::patch('equipment-bookings/{bookingId}/actual', [EquipmentBookingController::class, 'updateActual']);
+        Route::get('/reagent-requests/loo/{loId}', [ReagentRequestController::class, 'showByLoo']);
+        Route::post('/reagent-requests/draft', [ReagentRequestController::class, 'saveDraft']);
+        Route::post('/reagent-requests/{id}/submit', [ReagentRequestController::class, 'submit']);
+        Route::get('equipment/catalog', [EquipmentCatalogController::class, 'index']);
 
         /*
         |--------------------------------------------------------------------------

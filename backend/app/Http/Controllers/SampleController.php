@@ -30,7 +30,68 @@ class SampleController extends Controller
 
         // Filter out requests: lab samples must have lab_sample_code
         if (Schema::hasColumn('samples', 'lab_sample_code')) {
-            $query->whereNotNull('lab_sample_code');
+            $query->whereNotNull('samples.lab_sample_code');
+        }
+
+        /**
+         * ✅ Opsi A: enrich samples list dengan info LOO + latest reagent request (per LOO)
+         * - lo_id, lo_number, lo_generated_at
+         * - reagent_request_id, reagent_request_status
+         *
+         * Semua join dibuat "best-effort" (kalau tabel tidak ada, skip).
+         */
+        $hasLooItems =
+            Schema::hasTable('letter_of_order_items') &&
+            Schema::hasColumn('letter_of_order_items', 'sample_id') &&
+            Schema::hasColumn('letter_of_order_items', 'lo_id');
+
+        $hasLoTable =
+            Schema::hasTable('letters_of_order') &&
+            Schema::hasColumn('letters_of_order', 'lo_id');
+
+        $hasReagentRequests =
+            Schema::hasTable('reagent_requests') &&
+            Schema::hasColumn('reagent_requests', 'reagent_request_id') &&
+            Schema::hasColumn('reagent_requests', 'lo_id') &&
+            Schema::hasColumn('reagent_requests', 'status');
+
+        if ($hasLooItems) {
+            // sample_id -> latest lo_id
+            $loMap = DB::table('letter_of_order_items')
+                ->selectRaw('sample_id, MAX(lo_id) as lo_id')
+                ->groupBy('sample_id');
+
+            $query->leftJoinSub($loMap, 'lo_map', function ($join) {
+                $join->on('lo_map.sample_id', '=', 'samples.sample_id');
+            });
+
+            // join letters_of_order untuk ambil number/generated_at
+            if ($hasLoTable) {
+                $query->leftJoin('letters_of_order as lo', 'lo.lo_id', '=', 'lo_map.lo_id');
+            }
+
+            // latest reagent_request per lo_id
+            if ($hasReagentRequests) {
+                $rrMap = DB::table('reagent_requests')
+                    ->selectRaw('lo_id, MAX(reagent_request_id) as reagent_request_id')
+                    ->groupBy('lo_id');
+
+                $query->leftJoinSub($rrMap, 'rr_map', function ($join) {
+                    $join->on('rr_map.lo_id', '=', 'lo_map.lo_id');
+                });
+
+                $query->leftJoin('reagent_requests as rr', 'rr.reagent_request_id', '=', 'rr_map.reagent_request_id');
+            }
+
+            // Select: samples.* + kolom extra (alias)
+            $query->addSelect([
+                'samples.*',
+                DB::raw('lo_map.lo_id as lo_id'),
+                DB::raw($hasLoTable ? 'lo.number as lo_number' : 'NULL as lo_number'),
+                DB::raw($hasLoTable ? 'lo.generated_at as lo_generated_at' : 'NULL as lo_generated_at'),
+                DB::raw($hasReagentRequests ? 'rr.reagent_request_id as reagent_request_id' : 'NULL as reagent_request_id'),
+                DB::raw($hasReagentRequests ? 'rr.status as reagent_request_status' : 'NULL as reagent_request_status'),
+            ]);
         }
 
         /**
@@ -105,16 +166,15 @@ class SampleController extends Controller
 
         // Keep legacy date filters (only meaningful for lab samples)
         if ($request->filled('from')) {
-            $query->whereDate('received_at', '>=', $request->get('from'));
+            $query->whereDate('samples.received_at', '>=', $request->get('from'));
         }
         if ($request->filled('to')) {
-            $query->whereDate('received_at', '<=', $request->get('to'));
+            $query->whereDate('samples.received_at', '<=', $request->get('to'));
         }
 
-        // Prefer stable ordering even if received_at is null
         $samples = $query
-            ->orderByDesc('received_at')
-            ->orderByDesc('sample_id')
+            ->orderByDesc('samples.received_at')
+            ->orderByDesc('samples.sample_id')
             ->paginate(15);
 
         return response()->json([

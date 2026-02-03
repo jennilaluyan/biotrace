@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\loo\LooGeneratorPage.tsx
 import { useAuth } from "../../hooks/useAuth";
 import { getUserRoleLabel } from "../../utils/roles";
 import LooBatchGenerator from "../../components/loo/LooBatchGenerator";

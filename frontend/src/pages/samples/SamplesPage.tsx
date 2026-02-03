@@ -51,9 +51,7 @@ export const SamplesPage = () => {
     const [selectedSample, setSelectedSample] = useState<Sample | null>(null);
     const [reloadTick, setReloadTick] = useState(0);
 
-    const [commentCounts, setCommentCounts] = useState<Record<number, number>>(
-        {}
-    );
+    const [commentCounts, setCommentCounts] = useState<Record<number, number>>({});
 
     // Sesuai SamplePolicy::viewAny (backend)
     const canViewSamples = useMemo(() => {
@@ -77,10 +75,8 @@ export const SamplesPage = () => {
 
     const { clients, loading: clientsLoading } = useClients();
 
-    const clientIdParam =
-        clientFilter === "all" ? undefined : Number(clientFilter);
-    const statusEnumParam =
-        statusFilter === "all" ? undefined : (statusFilter as SampleStatusEnum);
+    const clientIdParam = clientFilter === "all" ? undefined : Number(clientFilter);
+    const statusEnumParam = statusFilter === "all" ? undefined : (statusFilter as SampleStatusEnum);
 
     const { items, meta, loading, error } = useSamples({
         page,
@@ -124,6 +120,71 @@ export const SamplesPage = () => {
             return hay.includes(term);
         });
     }, [labOnlyItems, searchTerm]);
+
+    /**
+     * ✅ Opsi A:
+     * Group samples per LOO di Samples page.
+     * Tombol Reagent Request muncul di header group LOO.
+     */
+    const groups = useMemo(() => {
+        type Group = {
+            key: string;
+            loId: number | null;
+            loNumber: string | null;
+            loGeneratedAt: string | null;
+            reagentRequestStatus: string | null;
+            samples: Sample[];
+        };
+
+        const map = new Map<string, Group>();
+
+        for (const s of visibleItems) {
+            const anyS = s as any;
+
+            const loId = (anyS?.lo_id ?? null) as number | null;
+            const loNumber = (anyS?.lo_number ?? null) as string | null;
+            const loGeneratedAt = (anyS?.lo_generated_at ?? null) as string | null;
+
+            const rrStatus = getReagentRequestStatus(anyS);
+
+            const key = loId ? `lo:${loId}` : "no-loo";
+
+            if (!map.has(key)) {
+                map.set(key, {
+                    key,
+                    loId,
+                    loNumber,
+                    loGeneratedAt,
+                    reagentRequestStatus: rrStatus,
+                    samples: [],
+                });
+            } else {
+                const g = map.get(key)!;
+                if (!g.reagentRequestStatus && rrStatus) g.reagentRequestStatus = rrStatus;
+                if (!g.loNumber && loNumber) g.loNumber = loNumber;
+                if (!g.loGeneratedAt && loGeneratedAt) g.loGeneratedAt = loGeneratedAt;
+            }
+
+            map.get(key)!.samples.push(s);
+        }
+
+        const arr = Array.from(map.values());
+
+        // sort: LOO groups first (desc by loId), then "no-loo"
+        arr.sort((a, b) => {
+            if (a.loId == null && b.loId != null) return 1;
+            if (a.loId != null && b.loId == null) return -1;
+            if (a.loId != null && b.loId != null) return b.loId - a.loId;
+            return 0;
+        });
+
+        // stable sort samples within group
+        for (const g of arr) {
+            g.samples.sort((a, b) => (b.sample_id ?? 0) - (a.sample_id ?? 0));
+        }
+
+        return arr;
+    }, [visibleItems]);
 
     const statusBadgeClassByEnum = (statusEnum?: SampleStatusEnum) => {
         switch (statusEnum) {
@@ -176,7 +237,6 @@ export const SamplesPage = () => {
             if (rrStatus === "rejected" || rrStatus === "denied") {
                 return { label: "Reagent request (denied)", className: statusChipClass("red") };
             }
-            // fallback untuk status lain yang mungkin kamu tambahkan nanti
             return { label: `Reagent request (${rrStatus})`, className: statusChipClass("gray") };
         }
 
@@ -189,7 +249,7 @@ export const SamplesPage = () => {
             return { label: "Crosscheck passed", className: statusChipClass("green") };
         }
 
-        // 2) Analyst intake fallback (kalau kamu punya analyst_received_at)
+        // 2) Analyst intake fallback
         const hasLabCode = !!s.lab_sample_code;
         if (!hasLabCode) {
             return { label: "Awaiting lab promotion", className: statusChipClass("gray") };
@@ -234,11 +294,9 @@ export const SamplesPage = () => {
 
     // Step 3.2 — SamplesPage-only fallback label (biar tidak pernah kosong)
     const statusLabelForSamplesPage = (s: Sample) => {
-        // 1) Kalau current_status sudah kebaca (Received/In Progress/etc), pakai itu dulu.
         const base = statusLabelByCurrent(s.current_status);
         if (base !== "-") return base;
 
-        // 2) Kalau belum ada status lab yang jelas, pakai operational fallback berbasis analyst intake + crosscheck
         const hasLabCode = !!s.lab_sample_code;
         if (!hasLabCode) return "Awaiting lab promotion";
 
@@ -253,7 +311,6 @@ export const SamplesPage = () => {
 
     // ✅ Step 2.5 — Operational status ringkas (Crosscheck dashboard label)
     function getCrosscheckOpsLabel(s: Sample): { label: string; className: string } | null {
-        // prerequisites: sudah jadi lab sample + analyst sudah menerima fisik
         const hasLabCode = !!s.lab_sample_code;
         const analystReceivedAt = (s as any)?.analyst_received_at ?? null;
 
@@ -262,34 +319,20 @@ export const SamplesPage = () => {
         const cs = String((s as any)?.crosscheck_status ?? "pending").toLowerCase();
 
         if (cs === "failed") {
-            return {
-                label: "Crosscheck failed",
-                className: "text-red-700",
-            };
+            return { label: "Crosscheck failed", className: "text-red-700" };
         }
 
         if (cs === "passed") {
-            return {
-                label: "Ready for reagent request",
-                className: "text-emerald-700",
-            };
+            return { label: "Ready for reagent request", className: "text-emerald-700" };
         }
 
-        // default = pending/unknown
-        return {
-            label: "Awaiting crosscheck",
-            className: "text-amber-700",
-        };
+        return { label: "Awaiting crosscheck", className: "text-amber-700" };
     }
 
     const totalPages = meta?.last_page ?? 1;
     const total = meta?.total ?? 0;
-    const from =
-        total === 0 ? 0 : (meta!.current_page - 1) * meta!.per_page + 1;
-    const to = Math.min(
-        meta?.current_page ? meta.current_page * meta.per_page : 0,
-        total
-    );
+    const from = total === 0 ? 0 : (meta!.current_page - 1) * meta!.per_page + 1;
+    const to = Math.min(meta?.current_page ? meta.current_page * meta.per_page : 0, total);
 
     const goToPage = (p: number) => {
         if (p < 1 || p > totalPages) return;
@@ -299,12 +342,10 @@ export const SamplesPage = () => {
     if (!canViewSamples) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
-                <h1 className="text-2xl font-semibold text-primary mb-2">
-                    403 – Access denied
-                </h1>
+                <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
                 <p className="text-sm text-gray-600">
-                    Your role <span className="font-semibold">({roleLabel})</span> is not
-                    allowed to access the samples module.
+                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access the samples
+                    module.
                 </p>
             </div>
         );
@@ -314,9 +355,7 @@ export const SamplesPage = () => {
         <div className="min-h-[60vh]">
             {/* Header */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
-                <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                    Sample Management
-                </h1>
+                <h1 className="text-lg md:text-xl font-bold text-gray-900">Sample Management</h1>
 
                 {canCreateSample && (
                     <button
@@ -395,9 +434,7 @@ export const SamplesPage = () => {
                         <select
                             id="sample-status-filter"
                             value={statusFilter}
-                            onChange={(e) =>
-                                setStatusFilter(e.target.value as StatusFilter)
-                            }
+                            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
                             <option value="all">All status</option>
@@ -447,9 +484,7 @@ export const SamplesPage = () => {
 
                 <div className="px-4 md:px-6 py-4">
                     {error && (
-                        <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">
-                            {error}
-                        </div>
+                        <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
                     )}
 
                     {loading ? (
@@ -461,103 +496,170 @@ export const SamplesPage = () => {
                             <div className="text-xs text-gray-600 mb-3">
                                 Showing <span className="font-semibold">{from}</span> to{" "}
                                 <span className="font-semibold">{to}</span> of{" "}
-                                <span className="font-semibold">{total}</span> (lab samples
-                                only).
+                                <span className="font-semibold">{total}</span> (lab samples only).
                             </div>
 
-                            <div className="overflow-x-auto rounded-xl border border-gray-200">
-                                <table className="min-w-full text-sm">
-                                    <thead className="bg-gray-50 text-gray-700">
-                                        <tr>
-                                            <th className="text-left font-semibold px-4 py-3">
-                                                Sample ID
-                                            </th>
-                                            <th className="text-left font-semibold px-4 py-3">
-                                                Lab Code
-                                            </th>
-                                            <th className="text-left font-semibold px-4 py-3">
-                                                Sample Type
-                                            </th>
-                                            <th className="text-left font-semibold px-4 py-3">
-                                                Status
-                                            </th>
-                                            <th className="text-left font-semibold px-4 py-3">
-                                                Received
-                                            </th>
-                                            <th className="text-right font-semibold px-4 py-3">
-                                                Actions
-                                            </th>
-                                        </tr>
-                                    </thead>
+                            {/* ✅ GROUPED BY LOO */}
+                            <div className="space-y-4">
+                                {groups.map((g) => {
+                                    const allPassed = g.samples.every(
+                                        (s) =>
+                                            String((s as any)?.crosscheck_status ?? "pending").toLowerCase() === "passed"
+                                    );
+                                    const rr = (g.reagentRequestStatus ?? null) as string | null;
 
-                                    <tbody className="divide-y divide-gray-100">
-                                        {visibleItems.map((s) => {
-                                            const commentCount = commentCounts[s.sample_id] ?? 0;
+                                    const rrLabel =
+                                        rr === "draft"
+                                            ? "Continue Reagent Request"
+                                            : rr === "submitted"
+                                                ? "View Reagent Request (submitted)"
+                                                : rr === "approved"
+                                                    ? "View Reagent Request (approved)"
+                                                    : rr
+                                                        ? `View Reagent Request (${rr})`
+                                                        : "Create Reagent Request";
 
-                                            return (
-                                                <tr key={s.sample_id} className="hover:bg-gray-50">
-                                                    <td className="px-4 py-3 text-gray-900 font-semibold">
-                                                        {s.sample_id}
-                                                    </td>
-                                                    <td className="px-4 py-3 text-gray-900">
-                                                        {s.lab_sample_code ?? "-"}
-                                                    </td>
-                                                    <td className="px-4 py-3 text-gray-700">
-                                                        {s.sample_type ?? "-"}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        {(() => {
+                                    const rrTone =
+                                        rr === "approved"
+                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                            : rr === "submitted"
+                                                ? "bg-amber-50 text-amber-800 border-amber-200"
+                                                : rr === "draft"
+                                                    ? "bg-slate-50 text-slate-700 border-slate-200"
+                                                    : "bg-white text-primary border-primary/30";
+
+                                    return (
+                                        <div
+                                            key={g.key}
+                                            className="rounded-2xl border border-gray-200 bg-white overflow-hidden"
+                                        >
+                                            <div className="px-4 md:px-6 py-4 bg-gray-50 border-b border-gray-100 flex items-start justify-between gap-3 flex-wrap">
+                                                <div>
+                                                    <div className="text-sm font-extrabold text-gray-900">
+                                                        {g.loId
+                                                            ? `LOO ${g.loNumber ?? `#${g.loId}`}`
+                                                            : "No LOO (Legacy/Manual)"}
+                                                    </div>
+                                                    <div className="text-xs text-gray-600 mt-1">
+                                                        {g.loId
+                                                            ? `Samples: ${g.samples.length} • Crosscheck: ${allPassed ? "PASSED (all)" : "Not ready"}`
+                                                            : `Samples: ${g.samples.length}`}
+                                                    </div>
+                                                </div>
+
+                                                {g.loId ? (
+                                                    <button
+                                                        type="button"
+                                                        className={`px-3 py-2 rounded-xl border text-xs font-bold ${rrTone} ${!allPassed ? "opacity-50 cursor-not-allowed" : ""
+                                                            }`}
+                                                        disabled={!allPassed}
+                                                        title={
+                                                            !allPassed
+                                                                ? "Blocked: all samples in this LOO must be crosscheck PASSED"
+                                                                : undefined
+                                                        }
+                                                        onClick={() => navigate(`/reagents/requests/loo/${g.loId}`)}
+                                                    >
+                                                        {rrLabel}
+                                                    </button>
+                                                ) : null}
+                                            </div>
+
+                                            <div className="overflow-x-auto">
+                                                <table className="min-w-full text-sm">
+                                                    <thead className="bg-white text-gray-700 border-b border-gray-100">
+                                                        <tr>
+                                                            <th className="text-left font-semibold px-4 py-3">
+                                                                Sample ID
+                                                            </th>
+                                                            <th className="text-left font-semibold px-4 py-3">
+                                                                Lab Code
+                                                            </th>
+                                                            <th className="text-left font-semibold px-4 py-3">
+                                                                Sample Type
+                                                            </th>
+                                                            <th className="text-left font-semibold px-4 py-3">
+                                                                Status
+                                                            </th>
+                                                            <th className="text-left font-semibold px-4 py-3">
+                                                                Received
+                                                            </th>
+                                                            <th className="text-right font-semibold px-4 py-3">
+                                                                Actions
+                                                            </th>
+                                                        </tr>
+                                                    </thead>
+
+                                                    <tbody className="divide-y divide-gray-100">
+                                                        {g.samples.map((s) => {
+                                                            const commentCount = commentCounts[s.sample_id] ?? 0;
                                                             const chip = getSamplesListStatusChip(s);
+
                                                             return (
-                                                                <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${chip.className}`}>
-                                                                    {chip.label}
-                                                                </span>
+                                                                <tr key={s.sample_id} className="hover:bg-gray-50">
+                                                                    <td className="px-4 py-3 text-gray-900 font-semibold">
+                                                                        {s.sample_id}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-900">
+                                                                        {s.lab_sample_code ?? "-"}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-700">
+                                                                        {s.sample_type ?? "-"}
+                                                                    </td>
+                                                                    <td className="px-4 py-3">
+                                                                        <span
+                                                                            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${chip.className}`}
+                                                                        >
+                                                                            {chip.label}
+                                                                        </span>
+                                                                    </td>
+
+                                                                    <td className="px-4 py-3 text-gray-700">
+                                                                        {s.received_at ? formatDate(s.received_at) : "-"}
+                                                                    </td>
+
+                                                                    <td className="px-4 py-3">
+                                                                        <div className="flex items-center justify-end gap-2">
+                                                                            <button
+                                                                                type="button"
+                                                                                className="lims-btn"
+                                                                                onClick={() => navigate(`/samples/${s.sample_id}`)}
+                                                                            >
+                                                                                View
+                                                                            </button>
+
+                                                                            <button
+                                                                                type="button"
+                                                                                className="lims-btn"
+                                                                                onClick={() => {
+                                                                                    setSelectedSample(s);
+                                                                                    setStatusModalOpen(true);
+                                                                                }}
+                                                                            >
+                                                                                Update status{" "}
+                                                                                {commentCount > 0 ? (
+                                                                                    <span className="ml-1 inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[11px] font-semibold">
+                                                                                        {commentCount}
+                                                                                    </span>
+                                                                                ) : null}
+                                                                            </button>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
                                                             );
-                                                        })()}
-                                                    </td>
-
-                                                    <td className="px-4 py-3 text-gray-700">
-                                                        {s.received_at ? formatDate(s.received_at) : "-"}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        <div className="flex items-center justify-end gap-2">
-                                                            <button
-                                                                type="button"
-                                                                className="lims-btn"
-                                                                onClick={() => navigate(`/samples/${s.sample_id}`)}
-                                                            >
-                                                                View
-                                                            </button>
-
-                                                            <button
-                                                                type="button"
-                                                                className="lims-btn"
-                                                                onClick={() => {
-                                                                    setSelectedSample(s);
-                                                                    setStatusModalOpen(true);
-                                                                }}
-                                                            >
-                                                                Update status{" "}
-                                                                {commentCount > 0 ? (
-                                                                    <span className="ml-1 inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[11px] font-semibold">
-                                                                        {commentCount}
-                                                                    </span>
-                                                                ) : null}
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
 
                             <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
                                 <div className="text-xs text-gray-600">
-                                    Page{" "}
-                                    <span className="font-semibold">{meta?.current_page ?? 1}</span>{" "}
-                                    of <span className="font-semibold">{totalPages}</span>
+                                    Page <span className="font-semibold">{meta?.current_page ?? 1}</span> of{" "}
+                                    <span className="font-semibold">{totalPages}</span>
                                 </div>
 
                                 <div className="flex items-center gap-2">
@@ -588,7 +690,8 @@ export const SamplesPage = () => {
                                     (atau sampel lama yang memang sudah punya workflow lab).
                                 </div>
                                 <div className="mt-2 text-xs text-slate-600">
-                                    Kalau sampel baru selesai diverifikasi tapi belum muncul di sini, itu normal—cek dulu di <b>LOO Generator</b>.
+                                    Kalau sampel baru selesai diverifikasi tapi belum muncul di sini, itu normal—cek dulu
+                                    di <b>LOO Generator</b>.
                                 </div>
                             </div>
                         </>

@@ -25,6 +25,7 @@ import { QAMethodsPage } from "../pages/qa/QAMethodsPage";
 import { ConsumablesCatalogPage } from "../pages/qa/ConsumablesCatalogPage";
 import { AuditLogsPage } from "../pages/audit/AuditLogsPage";
 import { ReportsPage } from "../pages/reports/ReportsPage";
+import ReagentRequestBuilderPage from "../pages/reagents/ReagentRequestBuilderPage";
 
 import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
 import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
@@ -140,12 +141,20 @@ export const AppRouter = () => {
                         }
                     />
 
-                    {/* NEW: Consumables/Reagents Catalog viewer */}
                     <Route
                         path="/qa/consumables-catalog"
                         element={
                             <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST]}>
                                 <ConsumablesCatalogPage />
+                            </RoleGuard>
+                        }
+                    />
+
+                    <Route
+                        path="/reagents/requests/loo/:loId"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST]}>
+                                <ReagentRequestBuilderPage />
                             </RoleGuard>
                         }
                     />
