@@ -190,6 +190,82 @@ class ReagentRequestController extends Controller
         return ApiResponse::success($this->payload((int) $row->reagent_request_id), 'OK');
     }
 
+    /**
+     * POST /v1/reagent-requests/{id}/submit
+     * Submit locks the draft and enforces:
+     * - at least 1 item OR 1 equipment booking
+     * - all samples under the LOO must have crosscheck_status = passed
+     */
+    public function submit(Request $request, int $id): JsonResponse
+    {
+        $staffId = $this->resolveStaffId($request);
+        if (!$staffId) {
+            return ApiResponse::error('Unauthorized: cannot resolve staff actor', 401);
+        }
+
+        $result = DB::transaction(function () use ($id, $staffId) {
+            $req = DB::table('reagent_requests')
+                ->where('reagent_request_id', $id)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$req) {
+                abort(404, 'Reagent request not found');
+            }
+
+            if ($req->status !== 'draft') {
+                abort(409, "Only draft requests can be submitted (current: {$req->status})");
+            }
+
+            // Validate minimal content: items OR bookings
+            $itemsCount = (int) DB::table('reagent_request_items')
+                ->where('reagent_request_id', $id)
+                ->count();
+
+            $bookingsCount = (int) DB::table('equipment_bookings')
+                ->where('reagent_request_id', $id)
+                ->count();
+
+            if ($itemsCount < 1 && $bookingsCount < 1) {
+                abort(422, 'Cannot submit: add at least 1 item or 1 equipment booking');
+            }
+
+            // Crosscheck gate
+            $gate = $this->assertCrosscheckPassedForLoo((int) $req->lo_id);
+            if (!$gate['ok']) {
+                // return 422 with details for FE
+                return [
+                    'ok' => false,
+                    'reason' => 'crosscheck_not_passed',
+                    'details' => $gate,
+                ];
+            }
+
+            // Lock + submit
+            DB::table('reagent_requests')
+                ->where('reagent_request_id', $id)
+                ->update([
+                    'status' => 'submitted',
+                    'submitted_at' => now(),
+                    'submitted_by_staff_id' => $staffId,
+                    'locked_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+            return [
+                'ok' => true,
+                'payload' => $this->payload($id),
+            ];
+        });
+
+        // If gate failed, return 422 with payload
+        if (isset($result['ok']) && $result['ok'] === false) {
+            return ApiResponse::error('Crosscheck gate not passed', 422, $result['details']);
+        }
+
+        return ApiResponse::success($result['payload'], 'Submitted');
+    }
+
     private function payload(int $requestId): array
     {
         $req = DB::table('reagent_requests')
@@ -210,6 +286,61 @@ class ReagentRequestController extends Controller
             'request' => $req,
             'items' => $items,
             'bookings' => $bookings,
+        ];
+    }
+
+    /**
+     * Crosscheck gate:
+     * all samples under this LOO must have samples.crosscheck_status = 'passed'
+     *
+     * Returns:
+     * - ok: bool
+     * - total: int
+     * - passed: int
+     * - not_passed_samples: array of {sample_id, lab_sample_code, crosscheck_status}
+     */
+    private function assertCrosscheckPassedForLoo(int $loId): array
+    {
+        // Your system has letter_of_order_items with sample_id.
+        // We derive sample list from there.
+        $sampleIds = DB::table('letter_of_order_items')
+            ->where('lo_id', $loId)
+            ->pluck('sample_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($sampleIds)) {
+            // If no samples in LOO, block submit (safer)
+            return [
+                'ok' => false,
+                'total' => 0,
+                'passed' => 0,
+                'not_passed_samples' => [],
+                'message' => 'LOO has no samples linked (letter_of_order_items.sample_id empty)',
+            ];
+        }
+
+        $rows = DB::table('samples')
+            ->select('sample_id', 'lab_sample_code', 'crosscheck_status')
+            ->whereIn('sample_id', $sampleIds)
+            ->get();
+
+        $total = $rows->count();
+        $notPassed = $rows->filter(function ($r) {
+            return ($r->crosscheck_status ?? 'pending') !== 'passed';
+        })->values();
+
+        return [
+            'ok' => $notPassed->count() === 0,
+            'total' => $total,
+            'passed' => $total - $notPassed->count(),
+            'not_passed_samples' => $notPassed->map(fn($r) => [
+                'sample_id' => $r->sample_id,
+                'lab_sample_code' => $r->lab_sample_code,
+                'crosscheck_status' => $r->crosscheck_status ?? 'pending',
+            ])->all(),
         ];
     }
 

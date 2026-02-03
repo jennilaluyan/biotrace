@@ -206,6 +206,7 @@ Route::prefix('v1')->group(function () {
         Route::patch('equipment-bookings/{bookingId}/actual', [EquipmentBookingController::class, 'updateActual']);
         Route::get('/reagent-requests/loo/{loId}', [ReagentRequestController::class, 'showByLoo']);
         Route::post('/reagent-requests/draft', [ReagentRequestController::class, 'saveDraft']);
+        Route::post('/reagent-requests/{id}/submit', [ReagentRequestController::class, 'submit']);
 
         /*
         |--------------------------------------------------------------------------
