@@ -200,7 +200,7 @@ class ReagentRequestController extends Controller
     {
         $staffId = $this->resolveStaffId($request);
         if (!$staffId) {
-            return ApiResponse::error('Unauthorized: cannot resolve staff actor', 401);
+            return ApiResponse::error('Unauthorized: cannot resolve staff actor', 'unauthorized', 401);
         }
 
         $result = DB::transaction(function () use ($id, $staffId) {
@@ -260,7 +260,7 @@ class ReagentRequestController extends Controller
 
         // If gate failed, return 422 with payload
         if (isset($result['ok']) && $result['ok'] === false) {
-            return ApiResponse::error('Crosscheck gate not passed', 422, $result['details']);
+            return ApiResponse::error('Crosscheck gate not passed', 'crosscheck_not_passed', 422, $result['details']);
         }
 
         return ApiResponse::success($result['payload'], 'Submitted');
