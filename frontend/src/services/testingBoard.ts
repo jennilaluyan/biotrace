@@ -1,3 +1,4 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\services\testingBoard.ts
 import { apiGet, apiPost, apiPatch, apiPut } from "./api";
 import type { Sample, PaginatedResponse } from "./samples";
 
@@ -11,7 +12,6 @@ export type TestingBoardColumn = {
 };
 
 export type TestingBoardCard = {
-    // Minimal: sample-based card
     card_id?: number;
     sample_id: number;
     lab_sample_code?: string | null;
@@ -20,12 +20,10 @@ export type TestingBoardCard = {
     status_enum?: string | null;
     current_status?: string | null;
 
-    // Stage info (from backend 10.3)
     column_id?: number | null;
     entered_at?: string | null;
     exited_at?: string | null;
 
-    // raw payload passthrough
     [k: string]: any;
 };
 
@@ -48,26 +46,23 @@ function unwrapData<T>(res: any): T {
 }
 
 /**
- * Tries to load board from backend:
- * GET /v1/testing-board?group=PCR
+ * Backend primary:
+ * GET /v1/testing-board/{group}
  *
- * If backend not ready or 404:
- * - fallback: build simple "board" using /v1/samples?status_enum=testing
+ * Fallback:
+ * - build board from /v1/samples?status_enum=testing (if backend not ready / board not found)
  */
 export async function fetchTestingBoard(opts?: { group?: string }) {
     const raw = (opts?.group ?? "").trim();
 
-    // ✅ dropdown kamu masih pakai "default" → map ke group real yang ada di DB
-    const group =
-        !raw || raw === "default"
-            ? "pcr_sars_cov_2"
-            : raw;
+    // ✅ map UI "default" to a real group you actually seeded in DB (adjust if needed)
+    const group = !raw || raw === "default" ? "pcr_sars_cov_2" : raw;
 
     try {
         const res = await apiGet<any>(`${BOARD_BASE}/${encodeURIComponent(group)}`);
         const payload = unwrapData<any>(res);
 
-        // ✅ kalau backend balikin { message: "Board not found." } → paksa fallback
+        // backend might return { message: "Board not found." }
         if (payload?.message && !payload?.columns) {
             throw new Error(payload.message);
         }
@@ -83,7 +78,11 @@ export async function fetchTestingBoard(opts?: { group?: string }) {
     } catch {
         // fallback: samples in testing
         const fallback = await apiGet<any>(`/v1/samples?status_enum=testing&per_page=200&page=1`);
-        const pager = (fallback?.data && fallback?.meta) ? (fallback as PaginatedResponse<Sample>) : (fallback?.data ?? fallback);
+        const pager =
+            (fallback?.data && fallback?.meta)
+                ? (fallback as PaginatedResponse<Sample>)
+                : (fallback?.data ?? fallback);
+
         const samples: Sample[] = safeArr<Sample>(pager?.data ?? pager);
 
         const columns: TestingBoardColumn[] = [
@@ -98,7 +97,7 @@ export async function fetchTestingBoard(opts?: { group?: string }) {
             sample_type: s.sample_type ?? null,
             status_enum: (s.status_enum ?? "testing") as any,
             current_status: s.current_status ?? null,
-            column_id: 1, // default col
+            column_id: 1,
         }));
 
         const board: TestingBoardPayload = {
@@ -127,8 +126,7 @@ export async function moveTestingCard(payload: {
 }
 
 /**
- * Column management (rename/add/reorder) — Step 10.4
- * Endpoints are guesses; FE is ready.
+ * Column management (rename/add/reorder)
  */
 export async function renameTestingColumn(columnId: number, name: string) {
     return apiPatch(`${BOARD_BASE}/columns/${columnId}`, { name });

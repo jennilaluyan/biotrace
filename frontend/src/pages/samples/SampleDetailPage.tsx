@@ -1,3 +1,4 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -43,6 +44,52 @@ function unwrapApi(res: any) {
         break;
     }
     return x;
+}
+
+function norm(x: any) {
+    return String(x ?? "").trim().toLowerCase();
+}
+
+function looksApprovedReagent(sample: any, docs: any[]) {
+    // 1) try direct explicit fields
+    const candidates: any[] = [
+        sample?.reagent_request_status,
+        sample?.reagentRequestStatus,
+        sample?.reagent_request?.status,
+        sample?.reagent_request?.status_enum,
+        sample?.reagent_request?.approval_status,
+    ];
+
+    // 2) try generic status fields (because some endpoints only expose display label)
+    candidates.push(sample?.current_status);
+    candidates.push(sample?.status_enum);
+    candidates.push(sample?.status);
+    candidates.push(sample?.request_status);
+
+    const joined = candidates.map(norm).filter(Boolean).join(" | ");
+
+    // accepted patterns (be liberal, UI gate only)
+    const hitByText =
+        (joined.includes("reagent") && joined.includes("approved")) ||
+        joined.includes("reagent_request_approved") ||
+        joined.includes("reagent request (approved)") ||
+        joined.includes("reagent request approved");
+
+    if (hitByText) return true;
+
+    // 3) fallback: docs repository (often has reagent request record)
+    const docsJoined = (docs ?? [])
+        .map((d) => ({
+            name: norm(d?.document_name ?? d?.type ?? d?.name),
+            status: norm(d?.status ?? d?.approval_status ?? d?.state),
+        }))
+        .filter((x) => x.name.includes("reagent"))
+        .map((x) => `${x.name}:${x.status}`)
+        .join(" | ");
+
+    const hitByDocs = docsJoined.includes("approved") && docsJoined.includes("reagent");
+
+    return hitByDocs;
 }
 
 /* ----------------------------- UI atoms ----------------------------- */
@@ -239,17 +286,19 @@ export const SampleDetailPage = () => {
 
     const [tab, setTab] = useState<"overview" | "tests">("overview");
 
-    const reagentRequestStatus = String((sample as any)?.reagent_request_status ?? "").toLowerCase();
-    const canSeeTestsTab = reagentRequestStatus === "approved";
-
-    useEffect(() => {
-        if (tab === "tests" && !canSeeTestsTab) setTab("overview");
-    }, [tab, canSeeTestsTab]);
-
     // Documents (Reports repository)
     const [docsLoading, setDocsLoading] = useState(false);
     const [docsError, setDocsError] = useState<string | null>(null);
     const [docs, setDocs] = useState<any[]>([]);
+
+    // ✅ robust gate: allow tests tab if sample OR docs indicate reagent approved
+    const canSeeTestsTab = useMemo(() => {
+        return looksApprovedReagent(sample, docs);
+    }, [sample, docs]);
+
+    useEffect(() => {
+        if (tab === "tests" && !canSeeTestsTab) setTab("overview");
+    }, [tab, canSeeTestsTab]);
 
     // Intake validate UI state
     const [intakeValidating, setIntakeValidating] = useState(false);
@@ -316,7 +365,6 @@ export const SampleDetailPage = () => {
             setHistoryLoading(true);
             setHistoryError(null);
 
-            // ✅ no dependency on missing sampleService.getStatusHistory / missing type export
             const res = await apiGet<any>(`/v1/samples/${sampleId}/status-history`);
             const items = (res?.data ?? res) as SampleStatusHistoryItem[];
             setHistory(Array.isArray(items) ? items : []);
@@ -430,7 +478,6 @@ export const SampleDetailPage = () => {
     };
 
     // ---------------- Step 2: Physical workflow fields ----------------
-    // ✅ Physical workflow (Samples module) starts from SC → Analyst only
     const scDeliveredToAnalystAt = (sample as any)?.sc_delivered_to_analyst_at ?? null;
     const analystReceivedAt = (sample as any)?.analyst_received_at ?? null;
 
@@ -490,7 +537,6 @@ export const SampleDetailPage = () => {
 
         const isMatch = entered === expected;
 
-        // UX sesuai spec: tombol PASS/FAIL
         if (mode === "pass") {
             if (!isMatch) {
                 setCcError(
@@ -499,7 +545,6 @@ export const SampleDetailPage = () => {
                 return;
             }
         } else {
-            // fail
             const note = String(ccReason ?? "").trim();
             if (isMatch) {
                 setCcError("Entered code matches expected. Use PASS (Fail is for mismatch cases).");
@@ -661,6 +706,7 @@ export const SampleDetailPage = () => {
                                     >
                                         Overview
                                     </button>
+
                                     {canSeeTestsTab && (
                                         <button
                                             type="button"
@@ -674,6 +720,12 @@ export const SampleDetailPage = () => {
                                         >
                                             Tests
                                         </button>
+                                    )}
+
+                                    {!canSeeTestsTab && (
+                                        <span className="px-3 py-2 text-xs text-gray-500">
+                                            Tests locked (requires Reagent Request approved)
+                                        </span>
                                     )}
                                 </div>
                             </div>
@@ -835,7 +887,6 @@ export const SampleDetailPage = () => {
                                                     </div>
                                                 )}
 
-                                                {/* Timeline (only 2 steps) */}
                                                 <div className="mt-2 space-y-2">
                                                     {[
                                                         { label: "SC: delivered to analyst", at: scDeliveredToAnalystAt },
@@ -858,7 +909,6 @@ export const SampleDetailPage = () => {
                                                     ))}
                                                 </div>
 
-                                                {/* Actions */}
                                                 <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
                                                     {isCollector ? (
                                                         <WorkflowActionButton
@@ -891,7 +941,7 @@ export const SampleDetailPage = () => {
                                             </div>
                                         </div>
 
-                                        {/* Analyst Crosscheck (Expected vs Physical label) */}
+                                        {/* Analyst Crosscheck */}
                                         <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                                             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
                                                 <div>

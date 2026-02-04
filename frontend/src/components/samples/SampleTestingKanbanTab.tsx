@@ -1,3 +1,4 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\SampleTestingKanbanTab.tsx
 import { useEffect, useMemo, useState } from "react";
 import { getErrorMessage } from "../../utils/errors";
 import {
@@ -40,10 +41,16 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
     const [cards, setCards] = useState<TestingBoardCard[]>([]);
     const [mode, setMode] = useState<"backend" | "fallback">("fallback");
 
+    // ✅ IMPORTANT: recalc group when sample changes (sample loads async)
     useEffect(() => {
-        setGroup((prev) => (prev && prev !== "default" ? prev : deriveGroupFromSample(sample)));
+        const derived = deriveGroupFromSample(sample);
+        setGroup((prev) => {
+            // keep user-selected group unless it is still default
+            if (prev && prev !== "default") return prev;
+            return derived;
+        });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sampleId]);
+    }, [sampleId, sample]);
 
     const load = async () => {
         if (!sampleId || Number.isNaN(sampleId)) return;
