@@ -22,6 +22,9 @@ type Props = {
     sampleId: number;
     sample?: any;
     roleId?: number | null;
+
+    // ✅ NEW: parent can auto-open QC tab after finalize
+    onQualityCoverUnlocked?: () => void;
 };
 
 function deriveGroupFromSample(sample: any): string {
@@ -31,13 +34,6 @@ function deriveGroupFromSample(sample: any): string {
     return "default";
 }
 
-/**
- * Normalize timestamps returned by backend / services.
- * Backend might return:
- * - entered_at OR enteredAt
- * - exited_at OR exitedAt
- * - moved_at OR movedAt  (often used as "entered_at" for current stage)
- */
 function normalizeCard(c: any): TestingBoardCard {
     const entered =
         c?.entered_at ??
@@ -58,13 +54,6 @@ function normalizeCard(c: any): TestingBoardCard {
     } as any;
 }
 
-/**
- * We need per-column timeline (entered/exited per stage).
- * Backend currently returns only the "current" card (and timestamps may be incomplete),
- * so we maintain a durable FE timeline keyed by (sampleId + workflow_group).
- *
- * ✅ Persists across refresh via localStorage.
- */
 type StageStamp = {
     column_id: number;
     entered_at: string | null;
@@ -121,7 +110,7 @@ function mergeTimeline(
     return next;
 }
 
-export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
+export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocked }: Props) => {
     const [group, setGroup] = useState<string>(() => deriveGroupFromSample(sample));
     const [loading, setLoading] = useState(false);
     const [busyMove, setBusyMove] = useState(false);
@@ -131,8 +120,8 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
     const [mode, setMode] = useState<"backend" | "fallback">("fallback");
 
     const [timeline, setTimeline] = useState<Record<number, StageStamp>>({});
+    const [lastColumnId, setLastColumnId] = useState<number | null>(null);
 
-    // ✅ important: when sample loads/changes, group follows (but don't fight manual override)
     useEffect(() => {
         const next = deriveGroupFromSample(sample);
         setGroup((prev) => {
@@ -142,7 +131,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sampleId, sample?.sample_type]);
 
-    // hydrate timeline when (sampleId/group) changes
     useEffect(() => {
         if (!sampleId || Number.isNaN(sampleId)) return;
         const t = readTimeline(sampleId, group);
@@ -150,7 +138,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sampleId, group]);
 
-    // persist timeline
     useEffect(() => {
         if (!sampleId || Number.isNaN(sampleId)) return;
         writeTimeline(sampleId, group, timeline);
@@ -166,16 +153,18 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
 
             const res = await fetchTestingBoard({ group });
 
-            // keep FE selection aligned (only when user still on "default")
             if (group === "default" && res.group && res.group !== group) {
                 setGroup(res.group);
-                return; // reload by effect
+                return;
             }
 
             setMode(res.mode);
 
             const nextCols = [...(res.columns ?? [])].sort((a, b) => a.position - b.position);
             setColumns(nextCols);
+
+            const computedLast = (res as any)?.last_column_id ?? (res as any)?.board?.last_column_id ?? null;
+            setLastColumnId(computedLast ? Number(computedLast) : null);
 
             const incomingCardsRaw: TestingBoardCard[] = Array.isArray(res.cards) ? res.cards : [];
             const incomingCards = incomingCardsRaw.map((c: any) => normalizeCard(c));
@@ -186,10 +175,8 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
                 const prevArr = Array.isArray(prev) ? prev : [];
                 const prevHasMine = prevArr.some((c) => Number(c.sample_id) === Number(sampleId));
 
-                // if response doesn't include our card, don't wipe (avoid flicker)
                 if (!incomingHasMine && prevHasMine) return prevArr;
 
-                // merge timestamps best-effort
                 const prevById = new Map<number, any>();
                 for (const p of prevArr) prevById.set(Number((p as any)?.sample_id), p);
 
@@ -202,7 +189,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
                 });
             });
 
-            // ✅ also feed timeline from backend current-card timestamps (best effort)
             const mine = incomingCards.find((c) => Number(c.sample_id) === Number(sampleId));
             if (mine?.column_id) {
                 const colId = Number(mine.column_id);
@@ -218,7 +204,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
         } catch (e: any) {
             setError(getErrorMessage(e, "Failed to load testing board."));
             setColumns([]);
-            // keep cards (avoid flicker)
             setCards((prev) => (prev ?? []).map((c: any) => normalizeCard(c)));
         } finally {
             setLoading(false);
@@ -253,6 +238,28 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
     const headerTitle = sample?.lab_sample_code || (sampleId ? `Sample #${sampleId}` : "Sample");
     const headerSub = sample?.sample_type || (sample?.client?.name ? `Client: ${sample.client.name}` : "—");
 
+    const isAtLastColumn = useMemo(() => {
+        if (!alreadyStarted) return false;
+        const cur = Number(myCard?.column_id ?? 0);
+        const last = lastColumnId ? Number(lastColumnId) : Number(sortedCols[sortedCols.length - 1]?.column_id ?? 0);
+        return cur > 0 && last > 0 && cur === last;
+    }, [alreadyStarted, myCard, lastColumnId, sortedCols]);
+
+    const lastStageStamp = useMemo(() => {
+        if (!isAtLastColumn) return null;
+        const colId = Number(myCard?.column_id ?? 0);
+        return timeline?.[colId] ?? null;
+    }, [isAtLastColumn, myCard, timeline]);
+
+    const isLastStageEnded = useMemo(() => {
+        if (!isAtLastColumn) return false;
+        const colId = Number(myCard?.column_id ?? 0);
+        const exited = lastStageStamp?.exited_at ?? null;
+        // if backend card has exited_at, treat as ended too
+        const exited2 = (myCard as any)?.exited_at ?? null;
+        return !!(exited || exited2);
+    }, [isAtLastColumn, lastStageStamp, myCard]);
+
     const doMove = async (toColumnId: number) => {
         if (!toColumnId) return;
 
@@ -262,7 +269,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
         const nowIso = new Date().toISOString();
         const fromColId = myCard?.column_id ? Number(myCard.column_id) : null;
 
-        // ✅ optimistic: timeline update
         setTimeline((prev) => {
             const patch: any = {};
             if (fromColId) {
@@ -275,7 +281,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
             return mergeTimeline(prev, patch);
         });
 
-        // optimistic: keep a "current" card locally
         const prevCards = cards;
         setCards((prev) => {
             const arr = Array.isArray(prev) ? prev : [];
@@ -321,7 +326,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
 
             const stamp = movedAt ? String(movedAt) : nowIso;
 
-            // ✅ authoritative-ish: set exited(from) & entered(to) to the same move timestamp
             setTimeline((prev) => {
                 const patch: any = {};
                 if (fromColId) patch[fromColId] = { exited_at: stamp };
@@ -329,12 +333,61 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
                 return mergeTimeline(prev, patch);
             });
 
-            // reload board, but never wipe timeline
             await load();
         } catch (e: any) {
-            // rollback cards; timeline stays (but user can refresh and try again)
             setCards(prevCards);
             setError(getErrorMessage(e, "Move failed (backend endpoint not ready?)."));
+        } finally {
+            setBusyMove(false);
+        }
+    };
+
+    const doFinalizeLastStage = async () => {
+        if (!alreadyStarted) return;
+        const colId = Number(myCard?.column_id ?? 0);
+        if (!colId) return;
+
+        setBusyMove(true);
+        setError(null);
+
+        const nowIso = new Date().toISOString();
+
+        // optimistic: set exited_at on last stage (no move)
+        setTimeline((prev) =>
+            mergeTimeline(prev, {
+                [colId]: {
+                    entered_at: prev?.[colId]?.entered_at ?? (myCard as any)?.entered_at ?? nowIso,
+                    exited_at: nowIso,
+                },
+            })
+        );
+
+        const prevCards = cards;
+        setCards((prev) =>
+            (Array.isArray(prev) ? prev : []).map((c) =>
+                Number(c.sample_id) === Number(sampleId)
+                    ? normalizeCard({ ...c, exited_at: nowIso })
+                    : normalizeCard(c)
+            )
+        );
+
+        try {
+            await moveTestingCard({
+                sample_id: sampleId,
+                from_column_id: colId,
+                to_column_id: colId, // stay in same column
+                workflow_group: group,
+                note: null,
+                finalize: true, // ✅ key
+            });
+
+            await load();
+
+            // ✅ tell parent to jump to QC tab (parent will refresh sample)
+            onQualityCoverUnlocked?.();
+        } catch (e: any) {
+            setCards(prevCards);
+            setError(getErrorMessage(e, "End failed."));
         } finally {
             setBusyMove(false);
         }
@@ -369,6 +422,21 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
             );
         }
 
+        // ✅ last column: if not ended yet => show End button; else show Completed
+        if (isAtLastColumn && !isLastStageEnded) {
+            return (
+                <button
+                    type="button"
+                    className={cx("lims-btn-primary px-4 py-2", busyMove && "opacity-60 cursor-not-allowed")}
+                    disabled={busyMove}
+                    onClick={doFinalizeLastStage}
+                    title="Record exited timestamp for last stage and unlock Quality Cover"
+                >
+                    {busyMove ? "Saving..." : "End"}
+                </button>
+            );
+        }
+
         return (
             <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-xl">
                 Completed ✅
@@ -378,9 +446,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
 
     return (
         <div className="space-y-4">
-            {/* Single main card: Sample header + controls + move + board */}
             <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
-                {/* Header row */}
                 <div className="px-4 py-4 border-b border-gray-100 flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0">
                         <div className="text-sm font-extrabold text-gray-900 truncate">{headerTitle}</div>
@@ -400,6 +466,9 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
                                     {mode === "backend" ? "backend board" : "fallback"}
                                 </span>
                             </span>
+                            {lastColumnId ? (
+                                <span className="text-[10px] font-mono text-gray-400">last_column_id: {lastColumnId}</span>
+                            ) : null}
                         </div>
                     </div>
 
@@ -426,7 +495,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
                     </div>
                 </div>
 
-                {/* Error (if any) */}
                 {error && (
                     <div className="px-4 pt-4">
                         <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
@@ -435,7 +503,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
                     </div>
                 )}
 
-                {/* Board */}
                 <div className="px-4 py-4">
                     <div className="text-xs text-gray-500 mb-3">
                         Tracks sample stages with timestamps. Entered/Exited are shown inside each stage card.
@@ -451,7 +518,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
                                 const stamp = timeline?.[Number(col.column_id)] ?? null;
 
                                 const shouldShowStageCard =
-                                    // show in current, done, OR has any timestamps
                                     isHere ||
                                     isDone ||
                                     !!stamp?.entered_at ||
@@ -519,8 +585,25 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
                                                             {busyMove ? "Moving..." : `Move → ${nextCol.name}`}
                                                         </button>
                                                     ) : (
-                                                        <div className="w-full px-4 py-2 rounded-xl border border-emerald-100 bg-emerald-50 text-sm font-semibold text-emerald-800">
-                                                            Completed ✅
+                                                        <div className="space-y-2">
+                                                            {!isLastStageEnded ? (
+                                                                <button
+                                                                    type="button"
+                                                                    className={cx(
+                                                                        "w-full px-4 py-2 rounded-xl border border-primary bg-primary text-white text-sm font-semibold hover:opacity-90",
+                                                                        busyMove && "opacity-60 cursor-not-allowed"
+                                                                    )}
+                                                                    disabled={busyMove}
+                                                                    onClick={doFinalizeLastStage}
+                                                                    title="Record exited timestamp for last stage and unlock Quality Cover"
+                                                                >
+                                                                    {busyMove ? "Saving..." : "End"}
+                                                                </button>
+                                                            ) : (
+                                                                <div className="w-full px-4 py-2 rounded-xl border border-emerald-100 bg-emerald-50 text-sm font-semibold text-emerald-800">
+                                                                    Completed ✅
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     )}
                                                 </div>

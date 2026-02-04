@@ -18,12 +18,16 @@ class TestingCardEvent extends Model
         'to_column_id',
         'moved_by_staff_id',
         'moved_at',
+        'entered_at',
+        'exited_at',
         'note',
         'meta',
     ];
 
     protected $casts = [
         'moved_at' => 'datetime',
+        'entered_at' => 'datetime',
+        'exited_at' => 'datetime',
         'meta' => 'array',
     ];
 

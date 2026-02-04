@@ -21,9 +21,10 @@ class TestingBoardService
         int $sampleId,
         int $toColumnId,
         int $actorStaffId,
-        ?string $workflowGroupOverride = null
+        ?string $workflowGroupOverride = null,
+        bool $finalize = false
     ): array {
-        return DB::transaction(function () use ($sampleId, $toColumnId, $actorStaffId, $workflowGroupOverride) {
+        return DB::transaction(function () use ($sampleId, $toColumnId, $actorStaffId, $workflowGroupOverride, $finalize) {
             /** @var Sample $sample */
             $sample = Sample::query()->lockForUpdate()->findOrFail($sampleId);
 
@@ -88,16 +89,14 @@ class TestingBoardService
 
             $now = Carbon::now();
 
-            // ✅ Find current column (best effort) - ensure always initialized
+            // ✅ Find current column (best effort)
             $fromColumnId = null;
 
-            // Prefer persisted column on samples
             if (Schema::hasColumn('samples', 'testing_column_id')) {
                 $raw = $sample->getAttribute('testing_column_id');
                 $fromColumnId = $raw !== null ? (int) $raw : null;
             }
 
-            // Fallback to latest card event
             if ($fromColumnId === null) {
                 $latest = TestingCardEvent::query()
                     ->where('sample_id', $sampleId)
@@ -116,7 +115,96 @@ class TestingBoardService
             }
             $toColName = $toColumn->name ?? null;
 
-            // Close previous stage (if your schema supports it)
+            // Determine last column for QC gate + finalize
+            $lastColumn = TestingColumn::query()
+                ->where('board_id', (int) $board->board_id)
+                ->orderByDesc('position')
+                ->first();
+
+            $lastColumnId = (int) ($lastColumn?->column_id ?? 0);
+
+            $isAtLast = $lastColumnId > 0 && (int) $toColumnId === $lastColumnId;
+            $isFinalizeCall = $finalize && $isAtLast && $fromColumnId !== null && (int) $fromColumnId === (int) $toColumnId;
+
+            // ✅ FINALIZE MODE:
+            // - do NOT create new movement event
+            // - just set exited_at on the latest open event
+            // - unlock QC
+            if ($isFinalizeCall) {
+                $updated = false;
+                $eventId = null;
+
+                if (Schema::hasTable('testing_card_events') && Schema::hasColumn('testing_card_events', 'exited_at')) {
+                    $q = TestingCardEvent::query()
+                        ->where('sample_id', $sampleId)
+                        ->orderByDesc('moved_at')
+                        ->orderByDesc('event_id');
+
+                    // Prefer "open" stage, but if none, still update the latest
+                    $open = (clone $q)->whereNull('exited_at')->first();
+                    $target = $open ?: $q->first();
+
+                    if ($target) {
+                        $target->exited_at = $now;
+                        $target->save();
+
+                        $updated = true;
+                        $eventId = (int) ($target->event_id ?? $target->getKey());
+                    }
+                }
+
+                // Unlock QC (only once)
+                if (
+                    $isAtLast &&
+                    Schema::hasColumn('samples', 'quality_cover_unlocked_at') &&
+                    !$sample->getAttribute('quality_cover_unlocked_at')
+                ) {
+                    $sample->setAttribute('quality_cover_unlocked_at', $now);
+
+                    if (Schema::hasColumn('samples', 'quality_cover_unlocked_by_staff_id')) {
+                        $sample->setAttribute('quality_cover_unlocked_by_staff_id', (int) $actorStaffId);
+                    }
+
+                    $sample->save();
+
+                    AuditLogger::logQualityCoverUnlocked(
+                        (int) $actorStaffId,
+                        (int) $sample->sample_id,
+                        (int) $board->board_id,
+                        (int) $toColumnId,
+                        (string) $workflowGroup
+                    );
+                }
+
+                // Audit as "moved" also (optional, but keeps trail consistent)
+                AuditLogger::logTestingStageMoved(
+                    staffId: (int) $actorStaffId,
+                    sampleId: (int) $sampleId,
+                    workflowGroup: (string) $workflowGroup,
+                    boardId: (int) $board->board_id,
+                    fromColumnId: $fromColumnId !== null ? (int) $fromColumnId : null,
+                    fromColumnName: $fromColName ? (string) $fromColName : null,
+                    toColumnId: (int) $toColumnId,
+                    toColumnName: $toColName ? (string) $toColName : null,
+                    eventId: $eventId,
+                    note: $updated ? 'finalized_last_stage' : 'finalize_no_event_updated'
+                );
+
+                return [
+                    'sample_id' => (int) $sampleId,
+                    'workflow_group' => (string) $workflowGroup,
+                    'board_id' => (int) $board->board_id,
+                    'from_column_id' => $fromColumnId !== null ? (int) $fromColumnId : null,
+                    'to_column_id' => (int) $toColumnId,
+                    'event_id' => $eventId,
+                    'moved_at' => $now->toISOString(),
+                    'finalized' => true,
+                ];
+            }
+
+            // NORMAL MOVE MODE
+
+            // Close previous stage (if schema supports it)
             if (Schema::hasColumn('testing_card_events', 'exited_at')) {
                 TestingCardEvent::query()
                     ->where('sample_id', $sampleId)
@@ -146,7 +234,7 @@ class TestingBoardService
             /** @var TestingCardEvent $created */
             $created = TestingCardEvent::query()->create($eventData);
 
-            // ✅ Persist current column to samples (prevents "lost progress" on reload)
+            // Persist current column to samples
             if (Schema::hasColumn('samples', 'testing_column_id')) {
                 $sample->setAttribute('testing_column_id', (int) $toColumnId);
                 $sample->save();
@@ -154,14 +242,7 @@ class TestingBoardService
 
             $eventId = (int) ($created->event_id ?? $created->getKey());
 
-            // ✅ QC unlock gate: unlock when reaching last column (only once)
-            $lastColumn = TestingColumn::query()
-                ->where('board_id', (int) $board->board_id)
-                ->orderByDesc('position')
-                ->first();
-
-            $lastColumnId = (int) ($lastColumn?->column_id ?? 0);
-
+            // QC unlock gate: unlock when reaching last column (only once)
             if ($lastColumnId > 0 && (int) $toColumnId === $lastColumnId) {
                 if (
                     Schema::hasColumn('samples', 'quality_cover_unlocked_at') &&
@@ -175,7 +256,6 @@ class TestingBoardService
 
                     $sample->save();
 
-                    // Avoid named arguments to prevent signature mismatch warnings
                     AuditLogger::logQualityCoverUnlocked(
                         (int) $actorStaffId,
                         (int) $sample->sample_id,
@@ -186,7 +266,6 @@ class TestingBoardService
                 }
             }
 
-            // ✅ Step 10.6 — audit log (existing)
             AuditLogger::logTestingStageMoved(
                 staffId: (int) $actorStaffId,
                 sampleId: (int) $sampleId,
@@ -208,165 +287,13 @@ class TestingBoardService
                 'to_column_id' => (int) $toColumnId,
                 'event_id' => $eventId,
                 'moved_at' => $now->toISOString(),
-            ];
-        });
-    }
-
-    /**
-     * Add a new column to a workflow group board (with safe position shifting).
-     */
-    public function addColumn(string $workflowGroup, string $name, int $position): array
-    {
-        return DB::transaction(function () use ($workflowGroup, $name, $position) {
-            /** @var TestingBoard|null $board */
-            $board = TestingBoard::query()
-                ->where('workflow_group', $workflowGroup)
-                ->first();
-
-            if (!$board) {
-                abort(422, "Testing board not found for workflow_group: {$workflowGroup}");
-            }
-
-            $position = max(1, (int) $position);
-
-            $maxPos = (int) TestingColumn::query()
-                ->where('board_id', $board->board_id)
-                ->max('position');
-
-            // clamp position (allow append)
-            if ($maxPos > 0) {
-                $position = min($position, $maxPos + 1);
-            }
-
-            // Safe shift to prevent unique(board_id, position) collision
-            // Step A: move affected positions out of the way
-            TestingColumn::query()
-                ->where('board_id', $board->board_id)
-                ->where('position', '>=', $position)
-                ->update(['position' => DB::raw('position + 1000')]);
-
-            // Step B: bring them back with +1 net shift
-            TestingColumn::query()
-                ->where('board_id', $board->board_id)
-                ->where('position', '>=', $position + 1000)
-                ->update(['position' => DB::raw('position - 999')]); // (pos+1000) - 999 = pos+1
-
-            /** @var TestingColumn $col */
-            $col = TestingColumn::query()->create([
-                'board_id' => (int) $board->board_id,
-                'name' => $name,
-                'position' => $position,
-            ]);
-
-            return [
-                'column_id' => (int) ($col->column_id ?? $col->getKey()),
-                'name' => (string) $col->name,
-                'position' => (int) $col->position,
-                'board_id' => (int) $board->board_id,
-            ];
-        });
-    }
-
-    /**
-     * Rename a column by id.
-     */
-    public function renameColumn(int $columnId, string $name): array
-    {
-        /** @var TestingColumn $col */
-        $col = TestingColumn::query()->findOrFail($columnId);
-        $col->name = $name;
-        $col->save();
-
-        return [
-            'column_id' => (int) ($col->column_id ?? $col->getKey()),
-            'name' => (string) $col->name,
-            'position' => (int) $col->position,
-            'board_id' => (int) $col->board_id,
-        ];
-    }
-
-    /**
-     * Reorder columns for a workflow group board.
-     *
-     * Rule: column_ids must contain ALL columns of the board EXACTLY ONCE.
-     */
-    public function reorderColumns(string $workflowGroup, array $columnIds): array
-    {
-        return DB::transaction(function () use ($workflowGroup, $columnIds) {
-            /** @var TestingBoard|null $board */
-            $board = TestingBoard::query()
-                ->where('workflow_group', $workflowGroup)
-                ->first();
-
-            if (!$board) {
-                abort(422, "Testing board not found for workflow_group: {$workflowGroup}");
-            }
-
-            // normalize input ids (ints, unique, preserve order)
-            $normalized = [];
-            foreach ($columnIds as $raw) {
-                if ($raw === null) continue;
-                if (is_string($raw)) $raw = trim($raw);
-                if ($raw === '' || $raw === false) continue;
-                $id = (int) $raw;
-                if ($id <= 0) continue;
-                if (!in_array($id, $normalized, true)) $normalized[] = $id;
-            }
-
-            // fetch existing column ids
-            $existing = TestingColumn::query()
-                ->where('board_id', $board->board_id)
-                ->orderBy('position')
-                ->pluck('column_id')
-                ->map(fn($v) => (int) $v)
-                ->values()
-                ->all();
-
-            // validation: must match exactly once
-            $a = $normalized;
-            $b = $existing;
-            sort($a);
-            sort($b);
-
-            if ($a !== $b) {
-                abort(422, 'column_ids must contain all column ids of the board exactly once.');
-            }
-
-            // ✅ SAFE reorder: two-phase shift to avoid unique(board_id, position) collisions
-            TestingColumn::query()
-                ->where('board_id', $board->board_id)
-                ->update(['position' => DB::raw('position + 1000')]);
-
-            foreach (array_values($normalized) as $idx => $columnId) {
-                TestingColumn::query()
-                    ->where('board_id', $board->board_id)
-                    ->where('column_id', (int) $columnId)
-                    ->update(['position' => $idx + 1]);
-            }
-
-            // return latest order
-            $cols = TestingColumn::query()
-                ->where('board_id', $board->board_id)
-                ->orderBy('position')
-                ->get(['column_id', 'name', 'position', 'board_id']);
-
-            return [
-                'board_id' => (int) $board->board_id,
-                'workflow_group' => (string) $board->workflow_group,
-                'columns' => $cols->map(fn($c) => [
-                    'column_id' => (int) $c->column_id,
-                    'name' => (string) $c->name,
-                    'position' => (int) $c->position,
-                    'board_id' => (int) $c->board_id,
-                ])->all(),
+                'finalized' => false,
             ];
         });
     }
 
     public function getBoardCards(int $boardId): array
     {
-        // Return latest column per sample for this board.
-        // Priority: samples.testing_column_id (fast) else fallback to latest TestingCardEvent.
         $columns = TestingColumn::query()
             ->where('board_id', $boardId)
             ->get(['column_id', 'position']);
@@ -380,62 +307,60 @@ class TestingBoardService
                 ->whereIn('testing_column_id', $columnIds)
                 ->get(['sample_id', 'testing_column_id', 'lab_sample_code', 'workflow_group']);
 
-            // Fast path: samples.testing_column_id
-            if (Schema::hasColumn('samples', 'testing_column_id')) {
-                $rows = Sample::query()
-                    ->whereIn('testing_column_id', $columnIds)
-                    ->get(['sample_id', 'testing_column_id', 'lab_sample_code', 'workflow_group']);
+            $sampleIds = $rows->pluck('sample_id')->map(fn($v) => (int) $v)->values()->all();
 
-                $sampleIds = $rows->pluck('sample_id')->map(fn($v) => (int)$v)->values()->all();
+            $eventsBySample = collect();
+            if ($sampleIds && Schema::hasTable('testing_card_events')) {
+                $q = TestingCardEvent::query()
+                    ->whereIn('sample_id', $sampleIds);
 
-                // attach latest open event timestamps (entered_at / moved_at) so FE doesn't "lose time" after reload
-                $eventsBySample = collect();
-                if ($sampleIds && Schema::hasTable('testing_card_events')) {
-                    $q = TestingCardEvent::query()
-                        ->whereIn('sample_id', $sampleIds);
-
-                    if (Schema::hasColumn('testing_card_events', 'exited_at')) {
-                        $q->whereNull('exited_at');
-                    }
-
-                    // Select only columns that exist in DB (defensive)
-                    $cols = ['event_id', 'sample_id', 'to_column_id'];
-                    if (Schema::hasColumn('testing_card_events', 'moved_at')) $cols[] = 'moved_at';
-                    if (Schema::hasColumn('testing_card_events', 'entered_at')) $cols[] = 'entered_at';
-
-                    $eventsBySample = $q->orderByDesc(Schema::hasColumn('testing_card_events', 'moved_at') ? 'moved_at' : 'event_id')
-                        ->orderByDesc('event_id')
-                        ->get($cols)
-                        ->groupBy('sample_id')
-                        ->map(fn($g) => $g->first());
+                if (Schema::hasColumn('testing_card_events', 'exited_at')) {
+                    $q->whereNull('exited_at');
                 }
 
-                return $rows->map(function ($s) use ($eventsBySample) {
-                    $e = $eventsBySample->get((int) $s->sample_id);
+                $cols = ['event_id', 'sample_id', 'to_column_id'];
+                if (Schema::hasColumn('testing_card_events', 'moved_at')) $cols[] = 'moved_at';
+                if (Schema::hasColumn('testing_card_events', 'entered_at')) $cols[] = 'entered_at';
+                if (Schema::hasColumn('testing_card_events', 'exited_at')) $cols[] = 'exited_at';
 
-                    return [
-                        'sample_id' => (int) $s->sample_id,
-                        'column_id' => (int) $s->testing_column_id,
-                        'lab_sample_code' => $s->lab_sample_code,
-                        'workflow_group' => $s->workflow_group,
+                $orderCol = Schema::hasColumn('testing_card_events', 'moved_at') ? 'moved_at' : 'event_id';
 
-                        // ✅ timestamps persisted across reload
-                        'event_id' => $e?->event_id ? (int) $e->event_id : null,
-                        'entered_at' => $e?->entered_at ?? null,
-                        'moved_at' => $e?->moved_at ?? null,
-                    ];
-                })->values()->all();
+                $eventsBySample = $q->orderByDesc($orderCol)
+                    ->orderByDesc('event_id')
+                    ->get($cols)
+                    ->groupBy('sample_id')
+                    ->map(fn($g) => $g->first());
             }
+
+            return $rows->map(function ($s) use ($eventsBySample) {
+                $e = $eventsBySample->get((int) $s->sample_id);
+
+                return [
+                    'sample_id' => (int) $s->sample_id,
+                    'column_id' => (int) $s->testing_column_id,
+                    'lab_sample_code' => $s->lab_sample_code,
+                    'workflow_group' => $s->workflow_group,
+
+                    'event_id' => $e?->event_id ? (int) $e->event_id : null,
+                    'entered_at' => $e?->entered_at ?? null,
+                    'moved_at' => $e?->moved_at ?? null,
+                    'exited_at' => $e?->exited_at ?? null,
+                ];
+            })->values()->all();
         }
 
-        $select = ['sample_id', 'to_column_id'];
+        // fallback: latest event per sample
+        $select = ['event_id', 'sample_id', 'to_column_id'];
         if (Schema::hasColumn('testing_card_events', 'moved_at')) $select[] = 'moved_at';
         if (Schema::hasColumn('testing_card_events', 'entered_at')) $select[] = 'entered_at';
+        if (Schema::hasColumn('testing_card_events', 'exited_at')) $select[] = 'exited_at';
+
+        $orderCol = Schema::hasColumn('testing_card_events', 'moved_at') ? 'moved_at' : 'event_id';
 
         $latestEvents = TestingCardEvent::query()
             ->select($select)
             ->whereIn('to_column_id', $columnIds)
-            ->orderByDesc('moved_at')
+            ->orderByDesc($orderCol)
             ->orderByDesc('event_id')
             ->get()
             ->groupBy('sample_id')
@@ -456,6 +381,11 @@ class TestingBoardService
                 'column_id' => (int) $e->to_column_id,
                 'lab_sample_code' => $s?->lab_sample_code,
                 'workflow_group' => $s?->workflow_group,
+
+                'event_id' => $e?->event_id ? (int) $e->event_id : null,
+                'entered_at' => $e?->entered_at ?? null,
+                'moved_at' => $e?->moved_at ?? null,
+                'exited_at' => $e?->exited_at ?? null,
             ];
         })->values()->all();
     }
@@ -471,7 +401,6 @@ class TestingBoardService
         foreach ($candidates as $val) {
             if (!$val) continue;
 
-            // JSON string -> decode to array
             if (is_string($val)) {
                 $decoded = json_decode($val, true);
                 if (json_last_error() === JSON_ERROR_NONE) {
@@ -483,13 +412,11 @@ class TestingBoardService
 
             $out = [];
             foreach ($val as $row) {
-                // row can be scalar id
                 if (is_int($row) || is_string($row)) {
                     $out[] = $row;
                     continue;
                 }
 
-                // row can be array with parameter_id
                 if (is_array($row) && array_key_exists('parameter_id', $row)) {
                     $out[] = $row['parameter_id'];
                     continue;
@@ -499,35 +426,25 @@ class TestingBoardService
             if (count($out) > 0) return $out;
         }
 
-        // Fallback: try DB-derived parameters for legacy samples
         $dbOut = $this->extractParameterIdsFromDbFallback($sample);
         if (count($dbOut) > 0) return $dbOut;
 
         return [];
     }
 
-    /**
-     * Strong fallback for legacy samples:
-     * Try to derive parameter IDs from DB relations commonly used in this project.
-     *
-     * @return array<int, int|string|null>
-     */
     private function extractParameterIdsFromDbFallback(Sample $sample): array
     {
         $sampleId = (int) $sample->getKey();
         $out = [];
 
-        // 1) sample_tests table (common)
         if (Schema::hasTable('sample_tests') && Schema::hasColumn('sample_tests', 'sample_id')) {
             $rows = DB::table('sample_tests')->where('sample_id', $sampleId)->get();
 
             foreach ($rows as $r) {
-                // a) single parameter_id
                 if (property_exists($r, 'parameter_id') && $r->parameter_id !== null) {
                     $out[] = $r->parameter_id;
                 }
 
-                // b) json arrays
                 foreach (['parameter_ids', 'parameters'] as $jsonField) {
                     if (!property_exists($r, $jsonField)) continue;
                     $val = $r->{$jsonField};
@@ -548,7 +465,6 @@ class TestingBoardService
             }
         }
 
-        // 2) letter_of_order_items.parameters (very likely in your project)
         if (
             Schema::hasTable('letter_of_order_items') &&
             Schema::hasColumn('letter_of_order_items', 'sample_id') &&
@@ -567,7 +483,6 @@ class TestingBoardService
                     if (json_last_error() === JSON_ERROR_NONE) $val = $decoded;
                 }
 
-                // parameters might be array of ids OR array of objects
                 if (is_array($val)) {
                     foreach ($val as $p) {
                         if (is_int($p) || is_string($p)) $out[] = $p;

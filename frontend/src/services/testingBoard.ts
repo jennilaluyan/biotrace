@@ -29,6 +29,8 @@ export type TestingBoardCard = {
 export type TestingBoardPayload = {
     board_id: number;
     workflow_group: string;
+    name?: string;
+    last_column_id?: number | null;
     columns: TestingBoardColumn[];
     cards: TestingBoardCard[];
 };
@@ -46,7 +48,6 @@ function unwrapData<T>(res: any): T {
 
 export async function fetchTestingBoard(opts?: { group?: string }) {
     const raw = (opts?.group ?? "").trim();
-
     const group = raw || "default";
 
     try {
@@ -67,6 +68,7 @@ export async function fetchTestingBoard(opts?: { group?: string }) {
                 board: payload as TestingBoardPayload,
                 columns,
                 cards,
+                last_column_id: (payload?.last_column_id ?? null) as number | null,
             };
         }
 
@@ -99,11 +101,12 @@ export async function fetchTestingBoard(opts?: { group?: string }) {
         const board: TestingBoardPayload = {
             board_id: 0,
             workflow_group: group,
+            last_column_id: 3,
             columns,
             cards,
         };
 
-        return { mode: "fallback" as const, group, board, columns, cards };
+        return { mode: "fallback" as const, group, board, columns, cards, last_column_id: 3 };
     }
 }
 
@@ -113,6 +116,9 @@ export async function moveTestingCard(payload: {
     to_column_id: number;
     workflow_group?: string | null;
     note?: string | null;
+
+    // ✅ NEW
+    finalize?: boolean;
 }) {
     return apiPost(`${BOARD_BASE}/move`, payload);
 }

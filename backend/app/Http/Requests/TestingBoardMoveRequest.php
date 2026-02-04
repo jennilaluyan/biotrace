@@ -17,8 +17,12 @@ class TestingBoardMoveRequest extends FormRequest
             'sample_id' => ['required', 'integer', 'min:1'],
             'to_column_id' => ['required', 'integer', 'min:1'],
 
-            // allow FE to pass selected workflow group (optional)
-            'workflow_group' => ['nullable', 'string', 'regex:/^[a-z0-9_]+$/'],
+            // optional
+            'workflow_group' => ['nullable', 'string', 'max:50'],
+            'note' => ['nullable', 'string'],
+
+            // ✅ NEW: finalize last stage (record exited_at without moving)
+            'finalize' => ['nullable', 'boolean'],
         ];
     }
 }
