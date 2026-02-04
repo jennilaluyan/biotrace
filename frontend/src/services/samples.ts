@@ -89,39 +89,23 @@ export type SampleStatusHistoryItem = {
 export interface Sample {
     sample_id: number;
     client_id: number;
-
-    // physical receive time (admin/lab)
     received_at: string | null;
-
-    // ✅ portal schedule (client)
     scheduled_delivery_at?: string | null;
-
     sample_type: string;
     examination_purpose: string | null;
-
     current_status: SampleStatus;
     additional_notes: string | null;
     created_by: number;
     assigned_to: number | null;
-
-    // appended by backend model
     status_enum?: SampleStatusEnum;
-
-    // Request/Intake fields
     request_status?: SampleRequestStatus | null;
     submitted_at?: string | null;
     reviewed_at?: string | null;
     ready_at?: string | null;
     physically_received_at?: string | null;
-
-    // ✅ verification gate fields
     verified_at?: string | null;
     verified_by?: number | null;
-
-    // lab sample code
     lab_sample_code?: string | null;
-
-    // ✅ Physical workflow timestamps (F2)
     admin_received_from_client_at?: string | null;
     admin_brought_to_collector_at?: string | null;
     collector_received_at?: string | null;
@@ -129,11 +113,9 @@ export interface Sample {
     collector_returned_to_admin_at?: string | null;
     admin_received_from_collector_at?: string | null;
     client_picked_up_at?: string | null;
-
     lo_id?: number | null;
     lo_number?: string | null;
     lo_generated_at?: string | null;
-
     reagent_request_id?: number | null;
     reagent_request_status?: string | null;
 
@@ -143,10 +125,12 @@ export interface Sample {
     crosscheck_note?: string | null;
     physical_label_code?: string | null;
 
-    // ✅ requested parameters (pivot)
     requested_parameters?: RequestedParameter[] | null;
 
-    // relations
+    // ✅ Pre-Step 12 gate: Quality Cover unlock fields (set when reaching last kanban column)
+    quality_cover_unlocked_at?: string | null;
+    quality_cover_unlocked_by_staff_id?: number | null;
+
     client?: SampleClient;
     creator?: SampleCreator;
     assignee?: SampleCreator | null;
@@ -233,6 +217,7 @@ export const sampleService = {
         const res = await apiGet<any>(`/v1/samples/${sampleId}/status-history`);
         return (res?.data ?? res) as SampleStatusHistoryItem[];
     },
+
     async submitCrosscheck(sampleId: number, payload: { physical_label_code: string; note?: string | null }) {
         return apiPatch(`/v1/samples/${sampleId}/crosscheck`, payload);
     },

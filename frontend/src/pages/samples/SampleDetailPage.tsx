@@ -134,7 +134,7 @@ export const SampleDetailPage = () => {
 
     /* ----------------------------- Page State ----------------------------- */
     const [sample, setSample] = useState<Sample | null>(null);
-    const [tab, setTab] = useState<"overview" | "tests">("overview");
+    const [tab, setTab] = useState<"overview" | "tests" | "quality_cover">("overview");
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -210,6 +210,17 @@ export const SampleDetailPage = () => {
     }, [roleId, requestStatus]);
 
     const qualityCoverDisabled = !isAnalyst; // only analyst can fill
+
+    // ✅ Pre-Step 12 FE gate: hide Quality Cover tab until unlocked by Testing Board final column
+    const canSeeQualityCoverTab = useMemo(() => {
+        const v = (sample as any)?.quality_cover_unlocked_at;
+        return !!v;
+    }, [sample]);
+
+    // Safety: if user somehow is on QC tab while locked, bounce back to overview
+    useEffect(() => {
+        if (tab === "quality_cover" && !canSeeQualityCoverTab) setTab("overview");
+    }, [tab, canSeeQualityCoverTab]);
 
     /* ----------------------------- Data Loaders ----------------------------- */
     const tryFetchReagentStatusByLoo = async (loId: number) => {
@@ -439,7 +450,12 @@ export const SampleDetailPage = () => {
             setCcSuccess(mode === "pass" ? "Crosscheck PASSED." : "Crosscheck FAILED recorded.");
             if (mode === "fail") setCcReason("");
         } catch (err: any) {
-            const msg = err?.data?.message ?? err?.response?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to submit crosscheck.";
+            const msg =
+                err?.data?.message ??
+                err?.response?.data?.message ??
+                err?.data?.error ??
+                err?.message ??
+                "Failed to submit crosscheck.";
             setCcError(msg);
         } finally {
             setCcBusy(false);
@@ -535,6 +551,12 @@ export const SampleDetailPage = () => {
                                     {!canSeeTestsTab && (
                                         <span className="text-xs text-gray-500">Tests locked (requires Reagent Request approved)</span>
                                     )}
+
+                                    {!canSeeQualityCoverTab && (
+                                        <span className="text-xs text-gray-500">
+                                            Quality Cover locked (unlock by reaching last Testing stage)
+                                        </span>
+                                    )}
                                 </div>
                             </div>
 
@@ -585,19 +607,34 @@ export const SampleDetailPage = () => {
                                     ) : (
                                         <span className="px-4 py-2 text-xs text-gray-500">Tests locked (requires Reagent Request approved)</span>
                                     )}
+
+                                    {/* ✅ Pre-Step 12: QC tab appears ONLY after unlocked */}
+                                    {canSeeQualityCoverTab ? (
+                                        <button
+                                            type="button"
+                                            className={cx(
+                                                "px-4 py-2 rounded-xl text-sm font-semibold transition",
+                                                tab === "quality_cover" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
+                                            )}
+                                            onClick={() => setTab("quality_cover")}
+                                        >
+                                            Quality Cover
+                                        </button>
+                                    ) : null}
                                 </div>
+
+                                {/* Hint for locked state (tab hidden) */}
+                                {!canSeeQualityCoverTab && (
+                                    <div className="mt-3 text-xs text-gray-500">
+                                        Quality Cover will appear after the sample reaches the <span className="font-semibold">last Testing stage</span> on the Kanban board.
+                                    </div>
+                                )}
                             </div>
 
                             <div className="px-5 py-5">
                                 {tab === "overview" && (
                                     <div className="space-y-6">
-                                        {/* Quality Cover (To-Do 11) */}
-                                        <QualityCoverSection
-                                            sample={sample}
-                                            checkedByName={checkedByName}
-                                            disabled={qualityCoverDisabled}
-                                            onAfterSave={refreshAll}
-                                        />
+                                        {/* ❌ QC section moved out to its own tab */}
 
                                         {/* Request / Intake */}
                                         <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
@@ -978,7 +1015,11 @@ export const SampleDetailPage = () => {
                                                 <div>
                                                     <h3 className="lims-detail-section-title mb-1">Audit Trail / Status History</h3>
                                                     <div className="text-xs text-gray-500">
-                                                        {historyLoading ? "Refreshing history..." : history.length > 0 ? `${history.length} event(s)` : "No status changes yet."}
+                                                        {historyLoading
+                                                            ? "Refreshing history..."
+                                                            : history.length > 0
+                                                                ? `${history.length} event(s)`
+                                                                : "No status changes yet."}
                                                     </div>
                                                 </div>
 
@@ -1031,6 +1072,17 @@ export const SampleDetailPage = () => {
 
                                 {tab === "tests" && canSeeTestsTab && (
                                     <SampleTestingKanbanTab sampleId={sampleId} sample={sample} roleId={roleId} />
+                                )}
+
+                                {tab === "quality_cover" && canSeeQualityCoverTab && (
+                                    <div className="space-y-6">
+                                        <QualityCoverSection
+                                            sample={sample}
+                                            checkedByName={checkedByName}
+                                            disabled={qualityCoverDisabled}
+                                            onAfterSave={refreshAll}
+                                        />
+                                    </div>
                                 )}
                             </div>
                         </div>
