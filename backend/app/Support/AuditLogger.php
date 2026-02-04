@@ -436,4 +436,22 @@ class AuditLogger
             newValues: $newValues
         );
     }
+
+    public static function logQualityCoverSaved(
+        int $staffId,
+        int $sampleId,
+        int $qualityCoverId,
+        string $status
+    ): void {
+        self::write(
+            'quality_cover_saved',
+            $staffId,
+            'quality_cover',
+            $qualityCoverId,
+            [
+                'sample_id' => $sampleId,
+                'status' => $status,
+            ]
+        );
+    }
 }
