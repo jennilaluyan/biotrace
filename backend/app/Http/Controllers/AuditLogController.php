@@ -56,14 +56,24 @@ class AuditLogController extends Controller
         }
 
         if (!empty($validated['sample_id'])) {
-            $sampleId = $validated['sample_id'];
+            $sampleId = (int) $validated['sample_id'];
 
-            $q->where('entity_name', 'sample_test')
-                ->whereIn('entity_id', function ($sub) use ($sampleId) {
-                    $sub->from('sample_tests')
-                        ->select('sample_test_id')
-                        ->where('sample_id', $sampleId);
+            $q->where(function ($qq) use ($sampleId) {
+                // ✅ logs that are directly about the sample entity
+                $qq->where(function ($x) use ($sampleId) {
+                    $x->where('entity_name', 'samples')
+                        ->where('entity_id', $sampleId);
                 });
+
+                $qq->orWhere(function ($x) use ($sampleId) {
+                    $x->where('entity_name', 'sample_test')
+                        ->whereIn('entity_id', function ($sub) use ($sampleId) {
+                            $sub->from('sample_tests')
+                                ->select('sample_test_id')
+                                ->where('sample_id', $sampleId);
+                        });
+                });
+            });
         }
 
         if (!empty($validated['from'])) {

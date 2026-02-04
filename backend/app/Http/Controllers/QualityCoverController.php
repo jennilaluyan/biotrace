@@ -101,12 +101,12 @@ class QualityCoverController extends Controller
 
         $cover->save();
 
-        // audit
         AuditLogger::logQualityCoverSubmitted(
-            $staff->staff_id,
-            (int) $sample->sample_id,
-            (int) $cover->quality_cover_id,
-            (string) $group
+            staffId: (int) $staff->staff_id,
+            sampleId: (int) $sample->sample_id,
+            qualityCoverId: (int) $cover->quality_cover_id,
+            workflowGroup: (string) $group,
+            methodOfAnalysis: (string) ($cover->method_of_analysis ?? null),
         );
 
         return response()->json([
@@ -167,12 +167,13 @@ class QualityCoverController extends Controller
 
         $cover->save();
 
-        // audit-first (draft save)
         AuditLogger::logQualityCoverSaved(
             staffId: (int) $staff->staff_id,
             sampleId: (int) $sample->sample_id,
             qualityCoverId: (int) $cover->quality_cover_id,
             status: (string) $cover->status,
+            workflowGroup: (string) ($sample->workflow_group ?? null),
+            methodOfAnalysis: (string) ($cover->method_of_analysis ?? null),
         );
 
         return response()->json([
