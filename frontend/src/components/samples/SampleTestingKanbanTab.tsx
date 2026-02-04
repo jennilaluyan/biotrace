@@ -31,6 +31,33 @@ function deriveGroupFromSample(sample: any): string {
     return "default";
 }
 
+/**
+ * Normalize timestamps returned by backend / services.
+ * Backend might return:
+ * - entered_at OR enteredAt
+ * - exited_at OR exitedAt
+ * - moved_at OR movedAt  (often used as "entered_at" for current stage)
+ */
+function normalizeCard(c: any): TestingBoardCard {
+    const entered =
+        c?.entered_at ??
+        c?.enteredAt ??
+        c?.moved_at ??
+        c?.movedAt ??
+        null;
+
+    const exited =
+        c?.exited_at ??
+        c?.exitedAt ??
+        null;
+
+    return {
+        ...(c as any),
+        entered_at: entered,
+        exited_at: exited,
+    } as any;
+}
+
 export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
     const [group, setGroup] = useState<string>(() => deriveGroupFromSample(sample));
     const [loading, setLoading] = useState(false);
@@ -72,24 +99,43 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
             const nextCols = [...(res.columns ?? [])].sort((a, b) => a.position - b.position);
             setColumns(nextCols);
 
-            const incomingCards: TestingBoardCard[] = Array.isArray(res.cards) ? res.cards : [];
+            const incomingCardsRaw: TestingBoardCard[] = Array.isArray(res.cards) ? res.cards : [];
+            const incomingCards = incomingCardsRaw.map((c: any) => normalizeCard(c));
+
             const incomingHasMine = incomingCards.some(
                 (c) => Number(c.sample_id) === Number(sampleId)
             );
 
-            // ✅ KEY FIX:
-            // Kalau response board TIDAK membawa card sample ini,
-            // jangan overwrite state cards yang sudah ada (biar UI tidak flicker balik "Not started").
             setCards((prev) => {
-                const prevHasMine = (prev ?? []).some((c) => Number(c.sample_id) === Number(sampleId));
-                if (!incomingHasMine && prevHasMine) return prev;
-                return incomingCards;
+                const prevArr = Array.isArray(prev) ? prev : [];
+                const prevHasMine = prevArr.some((c) => Number(c.sample_id) === Number(sampleId));
+
+                // kalau response nggak bawa card kita sama sekali -> jangan wipe
+                if (!incomingHasMine && prevHasMine) return prevArr;
+
+                // merge incoming cards dengan prev (khusus field timestamp)
+                const prevById = new Map<number, any>();
+                for (const p of prevArr) prevById.set(Number((p as any)?.sample_id), p);
+
+                const merged = (incomingCards ?? []).map((c: any) => {
+                    const pid = Number(c?.sample_id);
+                    const old = prevById.get(pid);
+
+                    // kalau backend nggak bawa timestamps, keep dari state lama
+                    const entered_at = c?.entered_at ?? old?.entered_at ?? null;
+                    const exited_at = c?.exited_at ?? old?.exited_at ?? null;
+
+                    return { ...old, ...c, entered_at, exited_at };
+                });
+
+                return merged;
             });
+
         } catch (e: any) {
             setError(getErrorMessage(e, "Failed to load testing board."));
             setColumns([]);
             // jangan wipe cards kalau lagi ada card lokal -> biar UI stabil
-            setCards((prev) => prev);
+            setCards((prev) => (prev ?? []).map((c: any) => normalizeCard(c)));
         } finally {
             setLoading(false);
         }
@@ -105,7 +151,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
 
     const myCard = useMemo(() => {
         const hit = (cards ?? []).find((c) => Number(c.sample_id) === Number(sampleId));
-        return hit ?? null;
+        return hit ? normalizeCard(hit as any) : null;
     }, [cards, sampleId]);
 
     const currentColIndex = useMemo(() => {
@@ -126,15 +172,25 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
         setBusyMove(true);
         setError(null);
 
+        const nowIso = new Date().toISOString();
+
         // optimistic UI
         const prevCards = cards;
+
         const next = (cards ?? []).some((c) => Number(c.sample_id) === Number(sampleId))
             ? (cards ?? []).map((c) =>
-                Number(c.sample_id) === Number(sampleId) ? { ...c, column_id: toColumnId } : c
+                Number(c.sample_id) === Number(sampleId)
+                    ? normalizeCard({
+                        ...c,
+                        column_id: toColumnId,
+                        entered_at: nowIso,
+                        exited_at: null,
+                    })
+                    : normalizeCard(c)
             )
             : [
-                ...(cards ?? []),
-                {
+                ...(cards ?? []).map((c: any) => normalizeCard(c)),
+                normalizeCard({
                     sample_id: sampleId,
                     lab_sample_code: sample?.lab_sample_code ?? null,
                     sample_type: sample?.sample_type ?? null,
@@ -142,8 +198,11 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
                     status_enum: sample?.status_enum ?? null,
                     current_status: sample?.current_status ?? null,
                     column_id: toColumnId,
-                } as any,
+                    entered_at: nowIso,
+                    exited_at: null,
+                } as any),
             ];
+
         setCards(next);
 
         try {
@@ -155,14 +214,24 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
                 note: null,
             });
 
-            // ✅ extra stability: if backend returns moved_at, keep it (best effort)
-            const movedAt = (res as any)?.data?.data?.moved_at ?? (res as any)?.data?.moved_at ?? null;
+            // backend may return moved_at (and not entered_at) → normalize it
+            const movedAt =
+                (res as any)?.data?.data?.moved_at ??
+                (res as any)?.data?.moved_at ??
+                (res as any)?.data?.data?.entered_at ??
+                (res as any)?.data?.entered_at ??
+                null;
+
             if (movedAt) {
                 setCards((prev) =>
                     (prev ?? []).map((c) =>
                         Number(c.sample_id) === Number(sampleId)
-                            ? { ...c, entered_at: (c as any)?.entered_at ?? movedAt }
-                            : c
+                            ? normalizeCard({
+                                ...c,
+                                entered_at: movedAt,
+                                exited_at: null,
+                            })
+                            : normalizeCard(c)
                     )
                 );
             }

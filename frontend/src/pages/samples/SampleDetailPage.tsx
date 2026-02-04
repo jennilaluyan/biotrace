@@ -134,6 +134,8 @@ export const SampleDetailPage = () => {
 
     /* ----------------------------- Page State ----------------------------- */
     const [sample, setSample] = useState<Sample | null>(null);
+
+    // ✅ NEW TAB: quality_cover
     const [tab, setTab] = useState<"overview" | "tests" | "quality_cover">("overview");
 
     const [loading, setLoading] = useState(true);
@@ -174,9 +176,17 @@ export const SampleDetailPage = () => {
 
     const canSeeTestsTab = String(reagentRequestStatus ?? "").toLowerCase() === "approved";
 
+    // ✅ Gate QC tab: only when unlocked_at exists
+    const canSeeQualityCoverTab = useMemo(() => {
+        const v = (sample as any)?.quality_cover_unlocked_at ?? null;
+        return !!v;
+    }, [sample]);
+
+    // keep user from landing on tab they can't see
     useEffect(() => {
         if (tab === "tests" && !canSeeTestsTab) setTab("overview");
-    }, [tab, canSeeTestsTab]);
+        if (tab === "quality_cover" && !canSeeQualityCoverTab) setTab("overview");
+    }, [tab, canSeeTestsTab, canSeeQualityCoverTab]);
 
     const requestStatus = String((sample as any)?.request_status ?? "");
     const labSampleCode = String((sample as any)?.lab_sample_code ?? "");
@@ -210,17 +220,6 @@ export const SampleDetailPage = () => {
     }, [roleId, requestStatus]);
 
     const qualityCoverDisabled = !isAnalyst; // only analyst can fill
-
-    // ✅ Pre-Step 12 FE gate: hide Quality Cover tab until unlocked by Testing Board final column
-    const canSeeQualityCoverTab = useMemo(() => {
-        const v = (sample as any)?.quality_cover_unlocked_at;
-        return !!v;
-    }, [sample]);
-
-    // Safety: if user somehow is on QC tab while locked, bounce back to overview
-    useEffect(() => {
-        if (tab === "quality_cover" && !canSeeQualityCoverTab) setTab("overview");
-    }, [tab, canSeeQualityCoverTab]);
 
     /* ----------------------------- Data Loaders ----------------------------- */
     const tryFetchReagentStatusByLoo = async (loId: number) => {
@@ -522,7 +521,7 @@ export const SampleDetailPage = () => {
                                 <div className="text-sm text-gray-600 mt-1">
                                     Sample ID <span className="font-semibold">#{sample.sample_id}</span>
                                     {" · "}Current Status <span className="font-semibold">{sample.current_status}</span>
-                                    {" · "}high-level: <span className="font-mono text-xs">{sample.status_enum ?? "-"}</span>
+                                    {" · "}high-level: <span className="font-mono text-xs">{(sample as any).status_enum ?? "-"}</span>
                                     {requestStatus ? (
                                         <>
                                             {" · "}request: <span className="font-mono text-xs">{requestStatus}</span>
@@ -608,34 +607,31 @@ export const SampleDetailPage = () => {
                                         <span className="px-4 py-2 text-xs text-gray-500">Tests locked (requires Reagent Request approved)</span>
                                     )}
 
-                                    {/* ✅ Pre-Step 12: QC tab appears ONLY after unlocked */}
                                     {canSeeQualityCoverTab ? (
                                         <button
                                             type="button"
                                             className={cx(
                                                 "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                                tab === "quality_cover" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
+                                                tab === "quality_cover"
+                                                    ? "bg-white shadow-sm text-gray-900"
+                                                    : "text-gray-600 hover:text-gray-800"
                                             )}
                                             onClick={() => setTab("quality_cover")}
+                                            title="Quality Cover (unlocked after last Testing stage)"
                                         >
                                             Quality Cover
                                         </button>
-                                    ) : null}
+                                    ) : (
+                                        <span className="px-4 py-2 text-xs text-gray-500" title="Unlock by reaching last Testing stage">
+                                            Quality Cover locked
+                                        </span>
+                                    )}
                                 </div>
-
-                                {/* Hint for locked state (tab hidden) */}
-                                {!canSeeQualityCoverTab && (
-                                    <div className="mt-3 text-xs text-gray-500">
-                                        Quality Cover will appear after the sample reaches the <span className="font-semibold">last Testing stage</span> on the Kanban board.
-                                    </div>
-                                )}
                             </div>
 
                             <div className="px-5 py-5">
                                 {tab === "overview" && (
                                     <div className="space-y-6">
-                                        {/* ❌ QC section moved out to its own tab */}
-
                                         {/* Request / Intake */}
                                         <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                                             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
@@ -999,11 +995,11 @@ export const SampleDetailPage = () => {
                                                     </div>
                                                     <div className="col-span-2">
                                                         <div className="lims-detail-label">Created By</div>
-                                                        <div className="lims-detail-value">{sample.creator?.name ?? `Staff #${sample.created_by}`}</div>
+                                                        <div className="lims-detail-value">{(sample as any).creator?.name ?? `Staff #${(sample as any).created_by}`}</div>
                                                     </div>
                                                     <div className="col-span-2">
                                                         <div className="lims-detail-label">Creator Email</div>
-                                                        <div className="lims-detail-value break-all">{sample.creator?.email ?? "-"}</div>
+                                                        <div className="lims-detail-value break-all">{(sample as any).creator?.email ?? "-"}</div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1071,11 +1067,31 @@ export const SampleDetailPage = () => {
                                 )}
 
                                 {tab === "tests" && canSeeTestsTab && (
-                                    <SampleTestingKanbanTab sampleId={sampleId} sample={sample} roleId={roleId} />
+                                    <div className="space-y-4">
+                                        {!canSeeQualityCoverTab ? (
+                                            <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                                <div className="font-semibold">Quality Cover is still locked.</div>
+                                                <div className="text-xs mt-1">
+                                                    Unlock it by moving this sample to the <span className="font-semibold">last column</span> of the Testing Kanban.
+                                                </div>
+                                            </div>
+                                        ) : null}
+                                        <SampleTestingKanbanTab sampleId={sampleId} sample={sample} roleId={roleId} />
+                                    </div>
                                 )}
 
                                 {tab === "quality_cover" && canSeeQualityCoverTab && (
-                                    <div className="space-y-6">
+                                    <div className="space-y-4">
+                                        <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                                            <div className="font-semibold">Quality Cover unlocked</div>
+                                            <div className="text-xs mt-1">
+                                                Unlocked at:{" "}
+                                                <span className="font-semibold">
+                                                    {formatDateTimeLocal((sample as any)?.quality_cover_unlocked_at)}
+                                                </span>
+                                            </div>
+                                        </div>
+
                                         <QualityCoverSection
                                             sample={sample}
                                             checkedByName={checkedByName}

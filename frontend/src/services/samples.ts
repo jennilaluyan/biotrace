@@ -95,17 +95,22 @@ export interface Sample {
     examination_purpose: string | null;
     current_status: SampleStatus;
     additional_notes: string | null;
+
     created_by: number;
     assigned_to: number | null;
+
     status_enum?: SampleStatusEnum;
     request_status?: SampleRequestStatus | null;
+
     submitted_at?: string | null;
     reviewed_at?: string | null;
     ready_at?: string | null;
     physically_received_at?: string | null;
     verified_at?: string | null;
     verified_by?: number | null;
+
     lab_sample_code?: string | null;
+
     admin_received_from_client_at?: string | null;
     admin_brought_to_collector_at?: string | null;
     collector_received_at?: string | null;
@@ -113,9 +118,11 @@ export interface Sample {
     collector_returned_to_admin_at?: string | null;
     admin_received_from_collector_at?: string | null;
     client_picked_up_at?: string | null;
+
     lo_id?: number | null;
     lo_number?: string | null;
     lo_generated_at?: string | null;
+
     reagent_request_id?: number | null;
     reagent_request_status?: string | null;
 
@@ -127,9 +134,12 @@ export interface Sample {
 
     requested_parameters?: RequestedParameter[] | null;
 
-    // ✅ Pre-Step 12 gate: Quality Cover unlock fields (set when reaching last kanban column)
+    // ✅ Pre-Step 12 gate fields (unlock QC after last kanban column)
     quality_cover_unlocked_at?: string | null;
     quality_cover_unlocked_by_staff_id?: number | null;
+
+    // (optional helper: persisted current kanban column)
+    testing_column_id?: number | null;
 
     client?: SampleClient;
     creator?: SampleCreator;
