@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\SampleTestingKanbanTab.tsx
 import { useEffect, useMemo, useState } from "react";
 import { getErrorMessage } from "../../utils/errors";
 import {
@@ -54,6 +53,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
 
     const load = async () => {
         if (!sampleId || Number.isNaN(sampleId)) return;
+
         try {
             setLoading(true);
             setError(null);
@@ -68,12 +68,28 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
             }
 
             setMode(res.mode);
-            setColumns([...res.columns].sort((a, b) => a.position - b.position));
-            setCards(res.cards);
+
+            const nextCols = [...(res.columns ?? [])].sort((a, b) => a.position - b.position);
+            setColumns(nextCols);
+
+            const incomingCards: TestingBoardCard[] = Array.isArray(res.cards) ? res.cards : [];
+            const incomingHasMine = incomingCards.some(
+                (c) => Number(c.sample_id) === Number(sampleId)
+            );
+
+            // ✅ KEY FIX:
+            // Kalau response board TIDAK membawa card sample ini,
+            // jangan overwrite state cards yang sudah ada (biar UI tidak flicker balik "Not started").
+            setCards((prev) => {
+                const prevHasMine = (prev ?? []).some((c) => Number(c.sample_id) === Number(sampleId));
+                if (!incomingHasMine && prevHasMine) return prev;
+                return incomingCards;
+            });
         } catch (e: any) {
             setError(getErrorMessage(e, "Failed to load testing board."));
             setColumns([]);
-            setCards([]);
+            // jangan wipe cards kalau lagi ada card lokal -> biar UI stabil
+            setCards((prev) => prev);
         } finally {
             setLoading(false);
         }
@@ -131,14 +147,27 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
         setCards(next);
 
         try {
-            await moveTestingCard({
+            const res = await moveTestingCard({
                 sample_id: sampleId,
                 from_column_id: myCard?.column_id ?? null,
                 to_column_id: toColumnId,
-                workflow_group: group, // ✅ NEW: ensure backend validates against the same board UI is using
+                workflow_group: group, // ✅ ensure backend validates against the same board UI is using
                 note: null,
             });
 
+            // ✅ extra stability: if backend returns moved_at, keep it (best effort)
+            const movedAt = (res as any)?.data?.data?.moved_at ?? (res as any)?.data?.moved_at ?? null;
+            if (movedAt) {
+                setCards((prev) =>
+                    (prev ?? []).map((c) =>
+                        Number(c.sample_id) === Number(sampleId)
+                            ? { ...c, entered_at: (c as any)?.entered_at ?? movedAt }
+                            : c
+                    )
+                );
+            }
+
+            // reload board (but won't wipe local card anymore if response doesn't include it)
             await load();
         } catch (e: any) {
             setCards(prevCards);
@@ -254,11 +283,11 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
                     </div>
                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
                         <div className="text-[10px] text-gray-400">Entered at</div>
-                        <div className="font-semibold">{fmt(myCard?.entered_at)}</div>
+                        <div className="font-semibold">{fmt((myCard as any)?.entered_at)}</div>
                     </div>
                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
                         <div className="text-[10px] text-gray-400">Exited at</div>
-                        <div className="font-semibold">{fmt(myCard?.exited_at)}</div>
+                        <div className="font-semibold">{fmt((myCard as any)?.exited_at)}</div>
                     </div>
                 </div>
 
@@ -303,7 +332,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
                                             <div className="text-xs font-semibold text-gray-900">{headerTitle}</div>
                                             <div className="text-[11px] text-gray-500 mt-1">{headerSub}</div>
                                             <div className="mt-2 text-[11px] text-gray-600">
-                                                <span className="font-semibold">Entered:</span> {fmt(myCard?.entered_at)}
+                                                <span className="font-semibold">Entered:</span> {fmt((myCard as any)?.entered_at)}
                                             </div>
                                         </div>
                                     ) : (
