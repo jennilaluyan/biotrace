@@ -1,7 +1,6 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
@@ -50,9 +49,10 @@ function norm(x: any) {
     return String(x ?? "").trim().toLowerCase();
 }
 
-function looksApprovedReagent(sample: any, docs: any[]) {
+function looksApprovedReagent(sample: any, docs: any[], rrHint?: string | null) {
     // 1) try direct explicit fields
     const candidates: any[] = [
+        rrHint,
         sample?.reagent_request_status,
         sample?.reagentRequestStatus,
         sample?.reagent_request?.status,
@@ -237,6 +237,11 @@ export const SampleDetailPage = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { user } = useAuth();
+    const location = useLocation();
+    const rrHint = useMemo(() => {
+        const st: any = location.state || {};
+        return st?.reagent_request_status ? String(st.reagent_request_status).toLowerCase() : null;
+    }, [location.state]);
 
     const roleId = getUserRoleId(user);
     const roleLabel = getUserRoleLabel(roleId);
@@ -291,10 +296,9 @@ export const SampleDetailPage = () => {
     const [docsError, setDocsError] = useState<string | null>(null);
     const [docs, setDocs] = useState<any[]>([]);
 
-    // ✅ robust gate: allow tests tab if sample OR docs indicate reagent approved
     const canSeeTestsTab = useMemo(() => {
-        return looksApprovedReagent(sample, docs);
-    }, [sample, docs]);
+        return looksApprovedReagent(sample, docs, rrHint);
+    }, [sample, docs, rrHint]);
 
     useEffect(() => {
         if (tab === "tests" && !canSeeTestsTab) setTab("overview");
