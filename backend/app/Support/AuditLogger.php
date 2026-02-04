@@ -454,4 +454,22 @@ class AuditLogger
             ]
         );
     }
+
+    public static function logQualityCoverSubmitted(
+        int $staffId,
+        int $sampleId,
+        int $qualityCoverId,
+        string $workflowGroup
+    ): void {
+        self::write(
+            'quality_cover_submitted',
+            $staffId,
+            'quality_cover',
+            $qualityCoverId,
+            [
+                'sample_id' => $sampleId,
+                'workflow_group' => $workflowGroup,
+            ]
+        );
+    }
 }

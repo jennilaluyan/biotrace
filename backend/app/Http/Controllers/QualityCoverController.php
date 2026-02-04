@@ -10,6 +10,8 @@ use App\Support\AuditLogger;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Requests\QualityCoverSubmitRequest;
+use Illuminate\Support\Facades\Validator;
 
 class QualityCoverController extends Controller
 {
@@ -41,6 +43,59 @@ class QualityCoverController extends Controller
             ->first();
 
         return response()->json([
+            'data' => $cover,
+        ]);
+    }
+
+    public function submit(QualityCoverSubmitRequest $request, Sample $sample): JsonResponse
+    {
+        $payload = $request->validated();
+
+        /** @var Staff $staff */
+        $staff = Auth::user();
+        if (!$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
+        $this->assertAnalyst($staff);
+
+        $cover = QualityCover::query()
+            ->where('sample_id', (int) $sample->sample_id)
+            ->where('status', 'draft')
+            ->orderByDesc('quality_cover_id')
+            ->first();
+
+        if (!$cover) {
+            return response()->json(['message' => 'Draft quality cover not found.'], 404);
+        }
+
+        // Determine workflow group (from To-Do 9)
+        $group = (string) ($sample->workflow_group ?? 'others');
+        $group = strtolower(trim($group)) ?: 'others';
+
+        // Group-aware validation (submit is strict)
+        $this->validateQcPayloadByGroup($payload['qc_payload'], $group);
+
+        // Lock fields at submit time
+        $cover->workflow_group = $group;
+        $cover->method_of_analysis = $payload['method_of_analysis'];
+        $cover->qc_payload = $payload['qc_payload'];
+
+        $cover->status = 'submitted';
+        $cover->submitted_at = now();
+
+        $cover->save();
+
+        // audit
+        AuditLogger::logQualityCoverSubmitted(
+            $staff->staff_id,
+            (int) $sample->sample_id,
+            (int) $cover->quality_cover_id,
+            (string) $group
+        );
+
+        return response()->json([
+            'message' => 'Quality cover submitted.',
             'data' => $cover,
         ]);
     }
@@ -102,5 +157,47 @@ class QualityCoverController extends Controller
             'message' => 'Draft saved.',
             'data' => $cover,
         ]);
+    }
+
+    private function validateQcPayloadByGroup(array $qc, string $group): void
+    {
+        // Normalize group naming to your project reality:
+        // - "pcr" or "pcr_sars_cov_2"
+        // - "wgs" or "wgs_sars_cov_2"
+        $isPcr = str_contains($group, 'pcr');
+        $isWgs = str_contains($group, 'wgs');
+
+        if ($isPcr) {
+            $rules = [
+                'ORF1b.value' => ['required', 'numeric'],
+                'ORF1b.result' => ['required', 'string', 'max:255'],
+                'ORF1b.interpretation' => ['required', 'string', 'max:255'],
+
+                'RdRp.value' => ['required', 'numeric'],
+                'RdRp.result' => ['required', 'string', 'max:255'],
+                'RdRp.interpretation' => ['required', 'string', 'max:255'],
+
+                'RPP30.value' => ['required', 'numeric'],
+                'RPP30.result' => ['required', 'string', 'max:255'],
+                'RPP30.interpretation' => ['required', 'string', 'max:255'],
+            ];
+        } elseif ($isWgs) {
+            $rules = [
+                'lineage' => ['required', 'string', 'max:255'],
+                'variant' => ['required', 'string', 'max:255'],
+            ];
+        } else {
+            $rules = [
+                'notes' => ['required', 'string'],
+            ];
+        }
+
+        $v = Validator::make($qc, $rules);
+        if ($v->fails()) {
+            abort(response()->json([
+                'message' => 'Invalid qc_payload for workflow group.',
+                'errors' => $v->errors(),
+            ], 422));
+        }
     }
 }
