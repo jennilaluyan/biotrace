@@ -88,36 +88,35 @@ class TestingBoardService
 
             $now = Carbon::now();
 
-            // Find current column (best effort)
+            // ✅ Find current column (best effort) - ensure always initialized
             $fromColumnId = null;
 
+            // Prefer persisted column on samples
             if (Schema::hasColumn('samples', 'testing_column_id')) {
-                $fromColumnId = $sample->getAttribute('testing_column_id');
+                $raw = $sample->getAttribute('testing_column_id');
+                $fromColumnId = $raw !== null ? (int) $raw : null;
             }
 
-            if (!$fromColumnId) {
+            // Fallback to latest card event
+            if ($fromColumnId === null) {
                 $latest = TestingCardEvent::query()
                     ->where('sample_id', $sampleId)
                     ->orderByDesc('moved_at')
                     ->orderByDesc('event_id')
                     ->first();
 
-                if ($latest) {
-                    $fromColumnId = $latest->to_column_id
-                        ?? $latest->testing_column_id
-                        ?? $latest->column_id
-                        ?? null;
-                }
+                $fromColumnId = $latest?->to_column_id !== null ? (int) $latest->to_column_id : null;
             }
 
-            // Resolve column names for audit (best effort)
+            // Resolve from/to column names (best effort)
             $fromColName = null;
-            if ($fromColumnId) {
+            if ($fromColumnId !== null) {
                 $fromCol = TestingColumn::query()->find((int) $fromColumnId);
                 $fromColName = $fromCol?->name;
             }
             $toColName = $toColumn->name ?? null;
 
+            // Close previous stage (if your schema supports it)
             if (Schema::hasColumn('testing_card_events', 'exited_at')) {
                 TestingCardEvent::query()
                     ->where('sample_id', $sampleId)
@@ -128,10 +127,11 @@ class TestingBoardService
                     ->update(['exited_at' => $now]);
             }
 
+            // Create movement event
             $eventData = [
                 'board_id' => (int) $board->board_id,
                 'sample_id' => (int) $sampleId,
-                'from_column_id' => $fromColumnId ? (int) $fromColumnId : null,
+                'from_column_id' => $fromColumnId !== null ? (int) $fromColumnId : null,
                 'to_column_id' => (int) $toColumnId,
                 'moved_by_staff_id' => (int) $actorStaffId,
             ];
@@ -146,7 +146,7 @@ class TestingBoardService
             /** @var TestingCardEvent $created */
             $created = TestingCardEvent::query()->create($eventData);
 
-            // Update sample current column if column exists
+            // ✅ Persist current column to samples (prevents "lost progress" on reload)
             if (Schema::hasColumn('samples', 'testing_column_id')) {
                 $sample->setAttribute('testing_column_id', (int) $toColumnId);
                 $sample->save();
@@ -154,13 +154,45 @@ class TestingBoardService
 
             $eventId = (int) ($created->event_id ?? $created->getKey());
 
-            // ✅ Step 10.6 — audit log
+            // ✅ QC unlock gate: unlock when reaching last column (only once)
+            $lastColumn = TestingColumn::query()
+                ->where('board_id', (int) $board->board_id)
+                ->orderByDesc('position')
+                ->first();
+
+            $lastColumnId = (int) ($lastColumn?->column_id ?? 0);
+
+            if ($lastColumnId > 0 && (int) $toColumnId === $lastColumnId) {
+                if (
+                    Schema::hasColumn('samples', 'quality_cover_unlocked_at') &&
+                    !$sample->getAttribute('quality_cover_unlocked_at')
+                ) {
+                    $sample->setAttribute('quality_cover_unlocked_at', $now);
+
+                    if (Schema::hasColumn('samples', 'quality_cover_unlocked_by_staff_id')) {
+                        $sample->setAttribute('quality_cover_unlocked_by_staff_id', (int) $actorStaffId);
+                    }
+
+                    $sample->save();
+
+                    // Avoid named arguments to prevent signature mismatch warnings
+                    AuditLogger::logQualityCoverUnlocked(
+                        (int) $actorStaffId,
+                        (int) $sample->sample_id,
+                        (int) $board->board_id,
+                        (int) $toColumnId,
+                        (string) $workflowGroup
+                    );
+                }
+            }
+
+            // ✅ Step 10.6 — audit log (existing)
             AuditLogger::logTestingStageMoved(
                 staffId: (int) $actorStaffId,
                 sampleId: (int) $sampleId,
                 workflowGroup: (string) $workflowGroup,
                 boardId: (int) $board->board_id,
-                fromColumnId: $fromColumnId ? (int) $fromColumnId : null,
+                fromColumnId: $fromColumnId !== null ? (int) $fromColumnId : null,
                 fromColumnName: $fromColName ? (string) $fromColName : null,
                 toColumnId: (int) $toColumnId,
                 toColumnName: $toColName ? (string) $toColName : null,
@@ -172,7 +204,7 @@ class TestingBoardService
                 'sample_id' => (int) $sampleId,
                 'workflow_group' => (string) $workflowGroup,
                 'board_id' => (int) $board->board_id,
-                'from_column_id' => $fromColumnId ? (int) $fromColumnId : null,
+                'from_column_id' => $fromColumnId !== null ? (int) $fromColumnId : null,
                 'to_column_id' => (int) $toColumnId,
                 'event_id' => $eventId,
                 'moved_at' => $now->toISOString(),
@@ -331,16 +363,60 @@ class TestingBoardService
         });
     }
 
-    /**
-     * Best-effort extract parameter IDs from Sample model.
-     *
-     * Supports several shapes:
-     * - requested_parameter_ids: [1,2,3]
-     * - requested_parameters: [{parameter_id:1}, ...]
-     * - parameters: [1,2] OR [{parameter_id:1}, ...]
-     *
-     * @return array<int, int|string|null>
-     */
+    public function getBoardCards(int $boardId): array
+    {
+        // Return latest column per sample for this board.
+        // Priority: samples.testing_column_id (fast) else fallback to latest TestingCardEvent.
+        $columns = TestingColumn::query()
+            ->where('board_id', $boardId)
+            ->get(['column_id', 'position']);
+
+        $columnIds = $columns->pluck('column_id')->map(fn($v) => (int) $v)->values()->all();
+        if (!$columnIds) return [];
+
+        // Fast path: samples.testing_column_id
+        if (Schema::hasColumn('samples', 'testing_column_id')) {
+            $rows = Sample::query()
+                ->whereIn('testing_column_id', $columnIds)
+                ->get(['sample_id', 'testing_column_id', 'lab_sample_code', 'workflow_group']);
+
+            return $rows->map(fn($s) => [
+                'sample_id' => (int) $s->sample_id,
+                'column_id' => (int) $s->testing_column_id,
+                'lab_sample_code' => $s->lab_sample_code,
+                'workflow_group' => $s->workflow_group,
+            ])->values()->all();
+        }
+
+        // Fallback: latest event per sample (heavier)
+        $latestEvents = TestingCardEvent::query()
+            ->select(['sample_id', 'to_column_id', 'moved_at'])
+            ->whereIn('to_column_id', $columnIds)
+            ->orderByDesc('moved_at')
+            ->orderByDesc('event_id')
+            ->get()
+            ->groupBy('sample_id')
+            ->map(fn($g) => $g->first());
+
+        if ($latestEvents->isEmpty()) return [];
+
+        $sampleIds = $latestEvents->keys()->map(fn($v) => (int) $v)->values()->all();
+        $samples = Sample::query()
+            ->whereIn('sample_id', $sampleIds)
+            ->get(['sample_id', 'lab_sample_code', 'workflow_group'])
+            ->keyBy('sample_id');
+
+        return $latestEvents->values()->map(function ($e) use ($samples) {
+            $s = $samples->get((int) $e->sample_id);
+            return [
+                'sample_id' => (int) $e->sample_id,
+                'column_id' => (int) $e->to_column_id,
+                'lab_sample_code' => $s?->lab_sample_code,
+                'workflow_group' => $s?->workflow_group,
+            ];
+        })->values()->all();
+    }
+
     private function extractParameterIdsFromSample(Sample $sample): array
     {
         $candidates = [

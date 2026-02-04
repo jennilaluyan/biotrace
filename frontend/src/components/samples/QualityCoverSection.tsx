@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\QualityCoverSection.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { Sample } from "../../services/samples";
 import {

@@ -14,6 +14,7 @@ use App\Services\TestingBoardService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use App\Support\AuditLogger;
 
 class TestingBoardController extends Controller
 {
@@ -64,16 +65,24 @@ class TestingBoardController extends Controller
             return response()->json(['message' => 'Board not found.'], 404);
         }
 
+        // ✅ NEW: cards state (persisted)
+        $cards = $this->svc->getBoardCards((int) $board->board_id);
+
+        // ✅ NEW: last column id (for QC unlock gate)
+        $lastColumnId = (int) optional($board->columns->sortByDesc('position')->first())->column_id;
+
         return response()->json([
             'data' => [
                 'board_id' => (int) $board->board_id,
                 'workflow_group' => $board->workflow_group,
                 'name' => $board->name,
+                'last_column_id' => $lastColumnId,
                 'columns' => $board->columns->map(fn($c) => [
                     'column_id' => (int) $c->column_id,
                     'name' => $c->name,
                     'position' => (int) $c->position,
                 ])->values(),
+                'cards' => $cards,
             ],
         ]);
     }
