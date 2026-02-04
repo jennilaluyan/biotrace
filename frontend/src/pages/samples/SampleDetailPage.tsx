@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ButtonHTMLAttributes } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 
 import { useAuth } from "../../hooks/useAuth";
@@ -10,6 +9,18 @@ import { apiGet, apiPatch } from "../../services/api";
 
 import { validateIntake } from "../../services/intake";
 import { SampleTestingKanbanTab } from "../../components/samples/SampleTestingKanbanTab";
+
+import {
+    CrosscheckPill,
+    IconRefresh,
+    SmallButton,
+    SmallPrimaryButton,
+    StatusPill,
+    WorkflowActionButton,
+    cx,
+} from "../../components/samples/SampleDetailAtoms";
+
+import { QualityCoverSection } from "../../components/samples/QualityCoverSection";
 
 /* ----------------------------- Local Types ----------------------------- */
 type HistoryActor = {
@@ -37,10 +48,6 @@ type ReagentReqStatus =
     | "cancelled"
     | string;
 
-function cx(...arr: Array<string | false | null | undefined>) {
-    return arr.filter(Boolean).join(" ");
-}
-
 // unwrap like other pages (handles {data: ...} nesting)
 function unwrapApi(res: any) {
     let x = res?.data ?? res;
@@ -54,7 +61,7 @@ function unwrapApi(res: any) {
     return x;
 }
 
-// ✅ robust extractor (samakan dengan SamplesPage)
+// robust extractor (same as SamplesPage)
 const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
     const direct = s?.reagent_request_status ?? s?.reagentRequestStatus ?? null;
     if (direct) return String(direct).toLowerCase();
@@ -76,139 +83,6 @@ function rrPillTone(status?: string | null) {
     return "border-gray-200 bg-gray-50 text-gray-700";
 }
 
-/* ----------------------------- UI atoms ----------------------------- */
-function StatusPill({ value }: { value?: string | null }) {
-    const v = (value ?? "-").toLowerCase();
-    const tones: Record<string, string> = {
-        draft: "bg-slate-100 text-slate-700 border-slate-200",
-        in_progress: "bg-blue-50 text-blue-700 border-blue-200",
-        measured: "bg-emerald-50 text-emerald-700 border-emerald-200",
-        failed: "bg-red-50 text-red-700 border-red-200",
-        verified: "bg-purple-50 text-purple-700 border-purple-200",
-        validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
-
-        // request/intake-ish
-        submitted: "bg-blue-50 text-blue-700 border-blue-200",
-        returned: "bg-amber-50 text-amber-800 border-amber-200",
-        ready_for_delivery: "bg-slate-50 text-slate-700 border-slate-200",
-        physically_received: "bg-emerald-50 text-emerald-700 border-emerald-200",
-        intake_checklist_passed: "bg-emerald-50 text-emerald-700 border-emerald-200",
-        intake_validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
-    };
-    const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
-
-    return (
-        <span
-            title={value ?? "-"}
-            className={cx("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border", tone)}
-        >
-            {value ?? "-"}
-        </span>
-    );
-}
-
-function CrosscheckPill({ value }: { value?: string | null }) {
-    const v = (value ?? "pending").toLowerCase();
-    const tones: Record<string, string> = {
-        pending: "bg-slate-50 text-slate-700 border-slate-200",
-        passed: "bg-emerald-50 text-emerald-800 border-emerald-200",
-        failed: "bg-red-50 text-red-800 border-red-200",
-    };
-    const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
-    const label = v === "passed" ? "Passed" : v === "failed" ? "Failed" : "Pending";
-    return (
-        <span
-            className={cx("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border", tone)}
-            title={value ?? "pending"}
-        >
-            {label}
-        </span>
-    );
-}
-
-function SmallPrimaryButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
-    const { className, ...rest } = props;
-    return (
-        <button
-            {...rest}
-            className={cx(
-                "lims-btn-primary",
-                "px-3 py-1.5 text-xs rounded-xl whitespace-nowrap",
-                rest.disabled ? "opacity-60 cursor-not-allowed" : "",
-                className
-            )}
-        />
-    );
-}
-
-function SmallButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
-    const { className, ...rest } = props;
-    return (
-        <button
-            {...rest}
-            className={cx(
-                "lims-btn",
-                "px-3 py-1.5 text-xs rounded-xl whitespace-nowrap",
-                rest.disabled ? "opacity-60 cursor-not-allowed" : "",
-                className
-            )}
-        />
-    );
-}
-
-function WorkflowActionButton(props: {
-    title: string;
-    subtitle: string;
-    onClick: () => void;
-    disabled?: boolean;
-    variant?: "primary" | "neutral";
-    busy?: boolean;
-}) {
-    const { title, subtitle, onClick, disabled, variant = "neutral", busy } = props;
-
-    const base =
-        "w-full text-left rounded-2xl border px-4 py-3 transition " +
-        "focus:outline-none focus:ring-2 focus:ring-offset-2 " +
-        (disabled ? "opacity-60 cursor-not-allowed" : "hover:shadow-sm");
-
-    const tone =
-        variant === "primary"
-            ? "bg-amber-50 border-amber-200 focus:ring-amber-300"
-            : "bg-white border-slate-200 focus:ring-slate-300";
-
-    return (
-        <button type="button" onClick={onClick} disabled={disabled} className={`${base} ${tone}`}>
-            <div className="flex items-center justify-between gap-3">
-                <div>
-                    <div className="font-semibold text-sm text-slate-900">{busy ? "Saving..." : title}</div>
-                    <div className="text-xs text-slate-600 mt-0.5">{subtitle}</div>
-                </div>
-                <div className="text-slate-400 text-sm">{disabled ? "Locked" : "→"}</div>
-            </div>
-        </button>
-    );
-}
-
-function IconRefresh({ className }: { className?: string }) {
-    return (
-        <svg
-            viewBox="0 0 24 24"
-            className={cx("h-4 w-4", className)}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-        >
-            <path d="M21 12a9 9 0 0 1-15.4 6.4" />
-            <path d="M3 12a9 9 0 0 1 15.4-6.4" />
-            <path d="M3 18v-5h5" />
-            <path d="M21 6v5h-5" />
-        </svg>
-    );
-}
-
 /* -------------------------------- Page -------------------------------- */
 export const SampleDetailPage = () => {
     const { id } = useParams<{ id: string }>();
@@ -220,12 +94,12 @@ export const SampleDetailPage = () => {
     const roleLabel = getUserRoleLabel(roleId);
     const sampleId = Number(id);
 
+    /* ----------------------------- Derived auth ----------------------------- */
     const navReagentStatus = useMemo(() => {
         const st = (location.state as any)?.reagent_request_status ?? null;
         return st ? String(st).toLowerCase() : null;
     }, [location.state]);
 
-    // ✅ Fix "You are: UNKNOWN"
     const displayRole = useMemo(() => {
         const fromUser =
             (user as any)?.role?.name ??
@@ -235,12 +109,10 @@ export const SampleDetailPage = () => {
             null;
 
         if (fromUser) return String(fromUser);
-
         if (roleLabel && roleLabel !== "UNKNOWN") return roleLabel;
 
         const idNum = Number(roleId);
         if (!Number.isNaN(idNum)) return `Role#${idNum}`;
-
         return "UNKNOWN";
     }, [user, roleLabel, roleId]);
 
@@ -254,21 +126,47 @@ export const SampleDetailPage = () => {
         );
     }, [roleId]);
 
-    const myStaffId = (user as any)?.staff_id ?? (user as any)?.staff?.staff_id ?? null;
+    const checkedByName =
+        (user as any)?.name ??
+        (user as any)?.staff?.name ??
+        (user as any)?.staff_name ??
+        "-";
 
+    /* ----------------------------- Page State ----------------------------- */
     const [sample, setSample] = useState<Sample | null>(null);
+    const [tab, setTab] = useState<"overview" | "tests">("overview");
+
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-
     const [pageRefreshing, setPageRefreshing] = useState(false);
 
+    /* ----------------------------- History State ----------------------------- */
     const [history, setHistory] = useState<SampleStatusHistoryItem[]>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [historyError, setHistoryError] = useState<string | null>(null);
 
-    const [tab, setTab] = useState<"overview" | "tests">("overview");
+    /* ----------------------------- Documents State ----------------------------- */
+    const [docsLoading, setDocsLoading] = useState(false);
+    const [docsError, setDocsError] = useState<string | null>(null);
+    const [docs, setDocs] = useState<any[]>([]);
 
-    // ✅ derived reagent status (multi-source)
+    /* ----------------------------- Intake State ----------------------------- */
+    const [intakeValidating, setIntakeValidating] = useState(false);
+    const [intakeError, setIntakeError] = useState<string | null>(null);
+    const [intakeSuccess, setIntakeSuccess] = useState<string | null>(null);
+
+    /* ----------------------------- Workflow State ----------------------------- */
+    const [wfBusy, setWfBusy] = useState(false);
+    const [wfError, setWfError] = useState<string | null>(null);
+
+    /* ----------------------------- Crosscheck State ----------------------------- */
+    const [ccBusy, setCcBusy] = useState(false);
+    const [ccError, setCcError] = useState<string | null>(null);
+    const [ccSuccess, setCcSuccess] = useState<string | null>(null);
+    const [ccPhysicalCode, setCcPhysicalCode] = useState<string>("");
+    const [ccReason, setCcReason] = useState<string>("");
+
+    /* ----------------------------- Derived fields ----------------------------- */
     const reagentRequestStatus = useMemo(() => {
         const fromSample = getReagentRequestStatus(sample as any);
         return (fromSample ?? navReagentStatus ?? "") as string;
@@ -280,44 +178,45 @@ export const SampleDetailPage = () => {
         if (tab === "tests" && !canSeeTestsTab) setTab("overview");
     }, [tab, canSeeTestsTab]);
 
-    // Documents (Reports repository)
-    const [docsLoading, setDocsLoading] = useState(false);
-    const [docsError, setDocsError] = useState<string | null>(null);
-    const [docs, setDocs] = useState<any[]>([]);
+    const requestStatus = String((sample as any)?.request_status ?? "");
+    const labSampleCode = String((sample as any)?.lab_sample_code ?? "");
 
-    // Intake validate UI state
-    const [intakeValidating, setIntakeValidating] = useState(false);
-    const [intakeError, setIntakeError] = useState<string | null>(null);
-    const [intakeSuccess, setIntakeSuccess] = useState<string | null>(null);
-
-    // Physical workflow UI state
-    const [wfBusy, setWfBusy] = useState(false);
-    const [wfError, setWfError] = useState<string | null>(null);
-
-    // Crosscheck UI state (Analyst)
-    const [ccBusy, setCcBusy] = useState(false);
-    const [ccError, setCcError] = useState<string | null>(null);
-    const [ccSuccess, setCcSuccess] = useState<string | null>(null);
-    const [ccPhysicalCode, setCcPhysicalCode] = useState<string>("");
-    const [ccReason, setCcReason] = useState<string>("");
-
-    // Crosscheck derived fields (defensive)
     const crossStatus = String((sample as any)?.crosscheck_status ?? "pending").toLowerCase();
     const crossAt = (sample as any)?.crosschecked_at ?? null;
     const crossBy = (sample as any)?.crosschecked_by_staff_id ?? null;
     const crossSavedPhysical = (sample as any)?.physical_label_code ?? null;
     const crossSavedNote = (sample as any)?.crosscheck_note ?? null;
 
-    // Crosscheck prerequisites
     const expectedLabCode = String((sample as any)?.lab_sample_code ?? "");
 
-    // ✅ helper: best-effort load reagent request status by LOO id
+    // physical workflow
+    const scDeliveredToAnalystAt = (sample as any)?.sc_delivered_to_analyst_at ?? null;
+    const analystReceivedAt = (sample as any)?.analyst_received_at ?? null;
+
+    const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
+    const isAnalyst = roleId === ROLE_ID.ANALYST;
+
+    const canDoCrosscheck = isAnalyst && !!analystReceivedAt && !!expectedLabCode;
+    const canWfScDeliverToAnalyst = isCollector && !scDeliveredToAnalystAt;
+    const canWfAnalystReceive = isAnalyst && !!scDeliveredToAnalystAt && !analystReceivedAt;
+
+    const canValidateIntake = useMemo(() => {
+        if (roleId !== ROLE_ID.LAB_HEAD) return false;
+        const st = requestStatus.toLowerCase();
+        if (!st) return true;
+        if (st === "intake_validated") return false;
+        if (st === "validated") return false;
+        return true;
+    }, [roleId, requestStatus]);
+
+    const qualityCoverDisabled = !isAnalyst; // only analyst can fill
+
+    /* ----------------------------- Data Loaders ----------------------------- */
     const tryFetchReagentStatusByLoo = async (loId: number) => {
         try {
             const res = await apiGet<any>(`/v1/reagents/requests/loo/${loId}`);
             const payload = unwrapApi(res);
 
-            // payload bisa: { ...request } atau { data: ... } atau array (we handle defensively)
             const status =
                 getReagentRequestStatus(payload) ??
                 getReagentRequestStatus(payload?.request) ??
@@ -335,7 +234,6 @@ export const SampleDetailPage = () => {
             setLoading(false);
             return;
         }
-
         if (!sampleId || Number.isNaN(sampleId)) {
             setError("Invalid sample URL.");
             setLoading(false);
@@ -350,30 +248,22 @@ export const SampleDetailPage = () => {
 
             const data = await sampleService.getById(sampleId);
 
-            // 1) derive from returned sample
             let rr = getReagentRequestStatus(data as any);
 
-            // 2) if still empty, try fetch by LOO id (best-effort)
             const loId = Number((data as any)?.lo_id ?? 0);
             if (!rr && loId) {
                 const fromLoo = await tryFetchReagentStatusByLoo(loId);
                 if (fromLoo) rr = fromLoo;
             }
 
-            // 3) if still empty, use navigation state (instant UI)
             if (!rr && navReagentStatus) rr = navReagentStatus;
 
-            // ✅ inject back into sample object so UI gating works
             const merged: any = { ...(data as any) };
             if (rr && !merged.reagent_request_status) merged.reagent_request_status = rr;
 
             setSample(merged as Sample);
         } catch (err: any) {
-            const msg =
-                err?.data?.message ??
-                err?.data?.error ??
-                err?.message ??
-                "Failed to load sample detail.";
+            const msg = err?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to load sample detail.";
             setError(msg);
         } finally {
             if (!silent) setLoading(false);
@@ -391,11 +281,7 @@ export const SampleDetailPage = () => {
             const items = (res?.data ?? res) as SampleStatusHistoryItem[];
             setHistory(Array.isArray(items) ? items : []);
         } catch (err: any) {
-            const msg =
-                err?.data?.message ??
-                err?.data?.error ??
-                err?.message ??
-                "Failed to load status history.";
+            const msg = err?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to load status history.";
             setHistoryError(msg);
             setHistory([]);
         } finally {
@@ -415,11 +301,7 @@ export const SampleDetailPage = () => {
 
             setDocs(Array.isArray(payload) ? payload : []);
         } catch (err: any) {
-            const msg =
-                err?.data?.message ??
-                err?.response?.data?.message ??
-                err?.message ??
-                "Failed to load documents.";
+            const msg = err?.data?.message ?? err?.response?.data?.message ?? err?.message ?? "Failed to load documents.";
             setDocsError(msg);
             setDocs([]);
         } finally {
@@ -427,13 +309,19 @@ export const SampleDetailPage = () => {
         }
     };
 
-    useEffect(() => {
-        if (!sample) return;
-        const existing = String((sample as any)?.physical_label_code ?? "");
-        setCcPhysicalCode((prev) => (prev && prev.trim() ? prev : existing));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sampleId, sample]);
+    const refreshAll = async () => {
+        if (!sampleId || Number.isNaN(sampleId)) return;
+        try {
+            setPageRefreshing(true);
+            await loadSample({ silent: true });
+            await loadHistory();
+            await loadDocs();
+        } finally {
+            setPageRefreshing(false);
+        }
+    };
 
+    /* ----------------------------- Effects ----------------------------- */
     useEffect(() => {
         loadSample();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -447,31 +335,15 @@ export const SampleDetailPage = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sampleId, loading, error, sample]);
 
-    const refreshAll = async () => {
-        if (!sampleId || Number.isNaN(sampleId)) return;
+    // Crosscheck input hydration from saved physical code
+    useEffect(() => {
+        if (!sample) return;
+        const existing = String((sample as any)?.physical_label_code ?? "");
+        setCcPhysicalCode((prev) => (prev && prev.trim() ? prev : existing));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sampleId, sample]);
 
-        try {
-            setPageRefreshing(true);
-            await loadSample({ silent: true });
-            await loadHistory();
-            await loadDocs();
-        } finally {
-            setPageRefreshing(false);
-        }
-    };
-
-    const requestStatus = String((sample as any)?.request_status ?? "");
-    const labSampleCode = String((sample as any)?.lab_sample_code ?? "");
-
-    const canValidateIntake = useMemo(() => {
-        if (roleId !== ROLE_ID.LAB_HEAD) return false;
-        const st = requestStatus.toLowerCase();
-        if (!st) return true;
-        if (st === "intake_validated") return false;
-        if (st === "validated") return false;
-        return true;
-    }, [roleId, requestStatus]);
-
+    /* ----------------------------- Actions ----------------------------- */
     const doValidateIntake = async () => {
         if (!sampleId || Number.isNaN(sampleId)) return;
 
@@ -482,34 +354,15 @@ export const SampleDetailPage = () => {
 
             await validateIntake(sampleId);
 
-            await loadSample({ silent: true });
-            await loadHistory();
-            await loadDocs();
-
+            await refreshAll();
             setIntakeSuccess("Intake validated successfully. Lab workflow should be active now.");
         } catch (err: any) {
-            const msg =
-                err?.data?.message ??
-                err?.data?.error ??
-                err?.message ??
-                "Failed to validate intake.";
+            const msg = err?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to validate intake.";
             setIntakeError(msg);
         } finally {
             setIntakeValidating(false);
         }
     };
-
-    // ---------------- Step 2: Physical workflow fields ----------------
-    const scDeliveredToAnalystAt = (sample as any)?.sc_delivered_to_analyst_at ?? null;
-    const analystReceivedAt = (sample as any)?.analyst_received_at ?? null;
-
-    const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
-    const isAnalyst = roleId === ROLE_ID.ANALYST;
-    const canDoCrosscheck = isAnalyst && !!analystReceivedAt && !!expectedLabCode;
-
-    const canWfScDeliverToAnalyst = isCollector && !scDeliveredToAnalystAt;
-
-    const canWfAnalystReceive = isAnalyst && !!scDeliveredToAnalystAt && !analystReceivedAt;
 
     const doPhysicalWorkflow = async (action: string) => {
         if (!sampleId || Number.isNaN(sampleId)) return;
@@ -519,9 +372,7 @@ export const SampleDetailPage = () => {
 
             await apiPatch<any>(`/v1/samples/${sampleId}/physical-workflow`, { action, note: null });
 
-            await loadSample({ silent: true });
-            await loadHistory();
-            await loadDocs();
+            await refreshAll();
         } catch (err: any) {
             const msg =
                 err?.response?.data?.message ??
@@ -583,32 +434,25 @@ export const SampleDetailPage = () => {
                 note: mode === "fail" ? String(ccReason ?? "").trim() : null,
             });
 
-            await loadSample({ silent: true });
-            await loadHistory();
-            await loadDocs();
+            await refreshAll();
 
             setCcSuccess(mode === "pass" ? "Crosscheck PASSED." : "Crosscheck FAILED recorded.");
             if (mode === "fail") setCcReason("");
         } catch (err: any) {
-            const msg =
-                err?.data?.message ??
-                err?.response?.data?.message ??
-                err?.data?.error ??
-                err?.message ??
-                "Failed to submit crosscheck.";
+            const msg = err?.data?.message ?? err?.response?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to submit crosscheck.";
             setCcError(msg);
         } finally {
             setCcBusy(false);
         }
     };
 
+    /* ----------------------------- Guard ----------------------------- */
     if (!canViewSamples) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
                 <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
                 <p className="text-sm text-gray-600">
-                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access the samples
-                    module.
+                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access the samples module.
                 </p>
                 <Link to="/samples" className="mt-4 lims-btn-primary">
                     Back to samples
@@ -617,6 +461,7 @@ export const SampleDetailPage = () => {
         );
     }
 
+    /* ----------------------------- Render ----------------------------- */
     return (
         <div className="min-h-[60vh]">
             {/* Breadcrumb */}
@@ -661,8 +506,7 @@ export const SampleDetailPage = () => {
                                 <div className="text-sm text-gray-600 mt-1">
                                     Sample ID <span className="font-semibold">#{sample.sample_id}</span>
                                     {" · "}Current Status <span className="font-semibold">{sample.current_status}</span>
-                                    {" · "}high-level:{" "}
-                                    <span className="font-mono text-xs">{sample.status_enum ?? "-"}</span>
+                                    {" · "}high-level: <span className="font-mono text-xs">{sample.status_enum ?? "-"}</span>
                                     {requestStatus ? (
                                         <>
                                             {" · "}request: <span className="font-mono text-xs">{requestStatus}</span>
@@ -675,7 +519,7 @@ export const SampleDetailPage = () => {
                                     ) : null}
                                 </div>
 
-                                {/* ✅ status bar: biar jelas reagent request status di detail */}
+                                {/* Reagent request status bar */}
                                 <div className="mt-2 flex items-center gap-2 flex-wrap">
                                     <span className="text-xs text-gray-500">Reagent request:</span>
                                     <span
@@ -689,9 +533,7 @@ export const SampleDetailPage = () => {
                                     </span>
 
                                     {!canSeeTestsTab && (
-                                        <span className="text-xs text-gray-500">
-                                            Tests locked (requires Reagent Request approved)
-                                        </span>
+                                        <span className="text-xs text-gray-500">Tests locked (requires Reagent Request approved)</span>
                                     )}
                                 </div>
                             </div>
@@ -701,8 +543,7 @@ export const SampleDetailPage = () => {
                                     type="button"
                                     onClick={refreshAll}
                                     disabled={pageRefreshing}
-                                    title="Refresh sample, history, and current tab"
-                                    aria-label="Refresh sample detail"
+                                    title="Refresh sample, history, and documents"
                                     className="flex items-center gap-2"
                                 >
                                     <IconRefresh />
@@ -723,9 +564,7 @@ export const SampleDetailPage = () => {
                                         type="button"
                                         className={cx(
                                             "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                            tab === "overview"
-                                                ? "bg-white shadow-sm text-gray-900"
-                                                : "text-gray-600 hover:text-gray-800"
+                                            tab === "overview" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
                                         )}
                                         onClick={() => setTab("overview")}
                                     >
@@ -737,26 +576,29 @@ export const SampleDetailPage = () => {
                                             type="button"
                                             className={cx(
                                                 "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                                tab === "tests"
-                                                    ? "bg-white shadow-sm text-gray-900"
-                                                    : "text-gray-600 hover:text-gray-800"
+                                                tab === "tests" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
                                             )}
                                             onClick={() => setTab("tests")}
                                         >
                                             Tests
                                         </button>
                                     ) : (
-                                        <span className="px-4 py-2 text-xs text-gray-500">
-                                            Tests locked (requires Reagent Request approved)
-                                        </span>
+                                        <span className="px-4 py-2 text-xs text-gray-500">Tests locked (requires Reagent Request approved)</span>
                                     )}
                                 </div>
                             </div>
 
-                            {/* Tab content */}
                             <div className="px-5 py-5">
                                 {tab === "overview" && (
                                     <div className="space-y-6">
+                                        {/* Quality Cover (To-Do 11) */}
+                                        <QualityCoverSection
+                                            sample={sample}
+                                            checkedByName={checkedByName}
+                                            disabled={qualityCoverDisabled}
+                                            onAfterSave={refreshAll}
+                                        />
+
                                         {/* Request / Intake */}
                                         <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                                             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
@@ -834,9 +676,7 @@ export const SampleDetailPage = () => {
                                                         Dokumen terkait sample (LOO, Reagent Request, dll) dari repository Reports.
                                                     </div>
                                                 </div>
-                                                <div className="text-xs text-gray-500">
-                                                    {docsLoading ? "Loading…" : `${docs.length} item(s)`}
-                                                </div>
+                                                <div className="text-xs text-gray-500">{docsLoading ? "Loading…" : `${docs.length} item(s)`}</div>
                                             </div>
 
                                             <div className="px-5 py-4">
@@ -894,9 +734,7 @@ export const SampleDetailPage = () => {
                                             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
                                                 <div>
                                                     <div className="text-sm font-bold text-gray-900">Physical Workflow</div>
-                                                    <div className="text-xs text-gray-500 mt-1">
-                                                        Lab samples start at SC → Analyst handoff.
-                                                    </div>
+                                                    <div className="text-xs text-gray-500 mt-1">Lab samples start at SC → Analyst handoff.</div>
                                                 </div>
                                                 <div className="text-[11px] text-gray-500">
                                                     You are: <span className="font-semibold">{displayRole}</span>
@@ -924,9 +762,7 @@ export const SampleDetailPage = () => {
                                                             />
                                                             <div className="flex-1">
                                                                 <div className="text-xs font-semibold text-gray-800">{r.label}</div>
-                                                                <div className="text-[11px] text-gray-600">
-                                                                    {r.at ? formatDateTimeLocal(r.at) : "-"}
-                                                                </div>
+                                                                <div className="text-[11px] text-gray-600">{r.at ? formatDateTimeLocal(r.at) : "-"}</div>
                                                             </div>
                                                         </div>
                                                     ))}
@@ -1029,9 +865,7 @@ export const SampleDetailPage = () => {
                                                             disabled={!canDoCrosscheck || ccBusy}
                                                         />
 
-                                                        <label className="block text-xs text-gray-500 mt-3">
-                                                            Reason (required when FAIL)
-                                                        </label>
+                                                        <label className="block text-xs text-gray-500 mt-3">Reason (required when FAIL)</label>
                                                         <textarea
                                                             value={ccReason}
                                                             onChange={(e) => setCcReason(e.target.value)}
@@ -1045,7 +879,11 @@ export const SampleDetailPage = () => {
                                                                 type="button"
                                                                 onClick={() => submitCrosscheck("pass")}
                                                                 disabled={!canDoCrosscheck || ccBusy}
-                                                                title={!canDoCrosscheck ? "Available only after Analyst received + Lab code exists" : "Submit PASS"}
+                                                                title={
+                                                                    !canDoCrosscheck
+                                                                        ? "Available only after Analyst received + Lab code exists"
+                                                                        : "Submit PASS"
+                                                                }
                                                             >
                                                                 {ccBusy ? "Saving..." : "Pass"}
                                                             </SmallPrimaryButton>
@@ -1054,7 +892,11 @@ export const SampleDetailPage = () => {
                                                                 type="button"
                                                                 onClick={() => submitCrosscheck("fail")}
                                                                 disabled={!canDoCrosscheck || ccBusy}
-                                                                title={!canDoCrosscheck ? "Available only after Analyst received + Lab code exists" : "Submit FAIL"}
+                                                                title={
+                                                                    !canDoCrosscheck
+                                                                        ? "Available only after Analyst received + Lab code exists"
+                                                                        : "Submit FAIL"
+                                                                }
                                                                 className="border-red-200 text-red-700 hover:bg-red-50"
                                                             >
                                                                 {ccBusy ? "Saving..." : "Fail"}
@@ -1108,9 +950,7 @@ export const SampleDetailPage = () => {
                                                 <div className="grid grid-cols-2 gap-3 text-sm">
                                                     <div className="col-span-2">
                                                         <div className="lims-detail-label">Client</div>
-                                                        <div className="lims-detail-value">
-                                                            {sample.client?.name ?? `Client #${sample.client_id}`}
-                                                        </div>
+                                                        <div className="lims-detail-value">{sample.client?.name ?? `Client #${sample.client_id}`}</div>
                                                     </div>
                                                     <div>
                                                         <div className="lims-detail-label">Client Email</div>
@@ -1122,9 +962,7 @@ export const SampleDetailPage = () => {
                                                     </div>
                                                     <div className="col-span-2">
                                                         <div className="lims-detail-label">Created By</div>
-                                                        <div className="lims-detail-value">
-                                                            {sample.creator?.name ?? `Staff #${sample.created_by}`}
-                                                        </div>
+                                                        <div className="lims-detail-value">{sample.creator?.name ?? `Staff #${sample.created_by}`}</div>
                                                     </div>
                                                     <div className="col-span-2">
                                                         <div className="lims-detail-label">Creator Email</div>
@@ -1134,34 +972,24 @@ export const SampleDetailPage = () => {
                                             </div>
                                         </div>
 
+                                        {/* Status History */}
                                         <div>
                                             <div className="flex items-center justify-between gap-3 flex-wrap">
                                                 <div>
                                                     <h3 className="lims-detail-section-title mb-1">Audit Trail / Status History</h3>
                                                     <div className="text-xs text-gray-500">
-                                                        {historyLoading
-                                                            ? "Refreshing history..."
-                                                            : history.length > 0
-                                                                ? `${history.length} event(s)`
-                                                                : "No status changes yet."}
+                                                        {historyLoading ? "Refreshing history..." : history.length > 0 ? `${history.length} event(s)` : "No status changes yet."}
                                                     </div>
                                                 </div>
 
-                                                <SmallButton
-                                                    type="button"
-                                                    onClick={loadHistory}
-                                                    disabled={historyLoading}
-                                                    className="flex items-center gap-2"
-                                                >
+                                                <SmallButton type="button" onClick={loadHistory} disabled={historyLoading} className="flex items-center gap-2">
                                                     <IconRefresh />
                                                     {historyLoading ? "Refreshing..." : "Refresh"}
                                                 </SmallButton>
                                             </div>
 
                                             {historyError && !historyLoading && (
-                                                <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mt-3">
-                                                    {historyError}
-                                                </div>
+                                                <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mt-3">{historyError}</div>
                                             )}
 
                                             {!historyLoading && !historyError && history.length === 0 && (
@@ -1173,19 +1001,14 @@ export const SampleDetailPage = () => {
                                             {!historyLoading && !historyError && history.length > 0 && (
                                                 <div className="space-y-3 mt-3">
                                                     {history.map((h) => (
-                                                        <div
-                                                            key={h.id}
-                                                            className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3"
-                                                        >
+                                                        <div key={h.id} className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
                                                             <div className="flex items-start justify-between gap-3">
                                                                 <div>
                                                                     <div className="text-sm font-semibold text-gray-900">
                                                                         {h.actor?.name ?? "System"}
                                                                         {h.actor?.role?.name ? ` • ${h.actor.role.name}` : ""}
                                                                     </div>
-                                                                    <div className="text-xs text-gray-500 mt-1">
-                                                                        {formatDateTimeLocal(h.created_at)}
-                                                                    </div>
+                                                                    <div className="text-xs text-gray-500 mt-1">{formatDateTimeLocal(h.created_at)}</div>
                                                                 </div>
                                                                 <div className="text-xs font-medium text-gray-700">
                                                                     {h.from_status ? `${h.from_status} → ` : ""}
@@ -1210,10 +1033,6 @@ export const SampleDetailPage = () => {
                                     <SampleTestingKanbanTab sampleId={sampleId} sample={sample} roleId={roleId} />
                                 )}
                             </div>
-
-                            {tab === "tests" && canSeeTestsTab && (
-                                <SampleTestingKanbanTab sampleId={sampleId} sample={sample} roleId={roleId} />
-                            )}
                         </div>
                     </div>
                 )}

@@ -436,4 +436,50 @@ class AuditLogger
             newValues: $newValues
         );
     }
+
+    public static function logQualityCoverSaved(
+        int $staffId,
+        int $sampleId,
+        int $qualityCoverId,
+        string $status,
+        ?string $workflowGroup = null,
+        ?string $methodOfAnalysis = null
+    ): void {
+        self::write(
+            action: 'QUALITY_COVER_SAVED',
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: null,
+            newValues: [
+                'sample_id' => $sampleId,
+                'quality_cover_id' => $qualityCoverId,
+                'status' => $status,
+                'workflow_group' => $workflowGroup,
+                'method_of_analysis' => $methodOfAnalysis,
+            ]
+        );
+    }
+
+    public static function logQualityCoverSubmitted(
+        int $staffId,
+        int $sampleId,
+        int $qualityCoverId,
+        string $workflowGroup,
+        ?string $methodOfAnalysis = null
+    ): void {
+        self::write(
+            action: 'QUALITY_COVER_SUBMITTED',
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: null,
+            newValues: [
+                'sample_id' => $sampleId,
+                'quality_cover_id' => $qualityCoverId,
+                'workflow_group' => $workflowGroup,
+                'method_of_analysis' => $methodOfAnalysis,
+            ]
+        );
+    }
 }

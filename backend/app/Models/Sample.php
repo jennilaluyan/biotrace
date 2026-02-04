@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Enums\SampleHighLevelStatus;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use App\Models\QualityCover;
 
 class Sample extends Model
 {
@@ -165,5 +167,10 @@ class Sample extends Model
         if (!$this->current_status) return null;
         $enum = SampleHighLevelStatus::fromCurrentStatus($this->current_status);
         return $enum->value;
+    }
+
+    public function qualityCover(): HasOne
+    {
+        return $this->hasOne(QualityCover::class, 'sample_id', 'sample_id');
     }
 }

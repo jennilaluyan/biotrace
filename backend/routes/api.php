@@ -54,6 +54,9 @@ use App\Http\Controllers\ReagentCalculationController;
 use App\Http\Controllers\QcControlController;
 use App\Http\Controllers\QcRunController;
 
+// Quality Cover (Analyst)
+use App\Http\Controllers\QualityCoverController;
+
 // Audit & Reports
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\ReportController;
@@ -386,6 +389,18 @@ Route::prefix('v1')->group(function () {
         Route::get('samples/{sample}/qc-controls', [QcControlController::class, 'forSample'])->whereNumber('sample');
         Route::post('samples/{sample}/qc-runs', [QcRunController::class, 'store'])->whereNumber('sample');
         Route::get('samples/{sample}/qc-summary', [QcRunController::class, 'summary'])->whereNumber('sample');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Quality Cover (Analyst)
+        |--------------------------------------------------------------------------
+        */
+        Route::get('samples/{sample}/quality-cover', [QualityCoverController::class, 'show'])
+            ->whereNumber('sample');
+        Route::put('samples/{sample}/quality-cover/draft', [QualityCoverController::class, 'saveDraft'])
+            ->whereNumber('sample');
+        Route::post('samples/{sample}/quality-cover/submit', [QualityCoverController::class, 'submit'])
+            ->whereNumber('sample');
 
         /*
         |--------------------------------------------------------------------------
