@@ -28,6 +28,15 @@ type SampleStatusHistoryItem = {
     actor?: HistoryActor;
 };
 
+type ReagentReqStatus =
+    | "draft"
+    | "submitted"
+    | "approved"
+    | "rejected"
+    | "denied"
+    | "cancelled"
+    | string;
+
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
@@ -45,51 +54,26 @@ function unwrapApi(res: any) {
     return x;
 }
 
-function norm(x: any) {
-    return String(x ?? "").trim().toLowerCase();
-}
+// ✅ robust extractor (samakan dengan SamplesPage)
+const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
+    const direct = s?.reagent_request_status ?? s?.reagentRequestStatus ?? null;
+    if (direct) return String(direct).toLowerCase();
 
-function looksApprovedReagent(sample: any, docs: any[], rrHint?: string | null) {
-    // 1) try direct explicit fields
-    const candidates: any[] = [
-        rrHint,
-        sample?.reagent_request_status,
-        sample?.reagentRequestStatus,
-        sample?.reagent_request?.status,
-        sample?.reagent_request?.status_enum,
-        sample?.reagent_request?.approval_status,
-    ];
+    const rr = s?.reagent_request ?? s?.reagentRequest ?? s?.reagentRequestLatest ?? null;
+    const nested = rr?.status ?? rr?.request_status ?? null;
+    if (nested) return String(nested).toLowerCase();
 
-    // 2) try generic status fields (because some endpoints only expose display label)
-    candidates.push(sample?.current_status);
-    candidates.push(sample?.status_enum);
-    candidates.push(sample?.status);
-    candidates.push(sample?.request_status);
+    return null;
+};
 
-    const joined = candidates.map(norm).filter(Boolean).join(" | ");
-
-    // accepted patterns (be liberal, UI gate only)
-    const hitByText =
-        (joined.includes("reagent") && joined.includes("approved")) ||
-        joined.includes("reagent_request_approved") ||
-        joined.includes("reagent request (approved)") ||
-        joined.includes("reagent request approved");
-
-    if (hitByText) return true;
-
-    // 3) fallback: docs repository (often has reagent request record)
-    const docsJoined = (docs ?? [])
-        .map((d) => ({
-            name: norm(d?.document_name ?? d?.type ?? d?.name),
-            status: norm(d?.status ?? d?.approval_status ?? d?.state),
-        }))
-        .filter((x) => x.name.includes("reagent"))
-        .map((x) => `${x.name}:${x.status}`)
-        .join(" | ");
-
-    const hitByDocs = docsJoined.includes("approved") && docsJoined.includes("reagent");
-
-    return hitByDocs;
+function rrPillTone(status?: string | null) {
+    const rr = String(status ?? "").toLowerCase();
+    if (rr === "approved") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    if (rr === "submitted") return "border-amber-200 bg-amber-50 text-amber-800";
+    if (rr === "draft") return "border-slate-200 bg-slate-50 text-slate-700";
+    if (rr === "rejected" || rr === "denied") return "border-red-200 bg-red-50 text-red-700";
+    if (!rr) return "border-gray-200 bg-gray-50 text-gray-600";
+    return "border-gray-200 bg-gray-50 text-gray-700";
 }
 
 /* ----------------------------- UI atoms ----------------------------- */
@@ -116,10 +100,7 @@ function StatusPill({ value }: { value?: string | null }) {
     return (
         <span
             title={value ?? "-"}
-            className={cx(
-                "inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border",
-                tone
-            )}
+            className={cx("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border", tone)}
         >
             {value ?? "-"}
         </span>
@@ -134,14 +115,10 @@ function CrosscheckPill({ value }: { value?: string | null }) {
         failed: "bg-red-50 text-red-800 border-red-200",
     };
     const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
-    const label =
-        v === "passed" ? "Passed" : v === "failed" ? "Failed" : "Pending";
+    const label = v === "passed" ? "Passed" : v === "failed" ? "Failed" : "Pending";
     return (
         <span
-            className={cx(
-                "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border",
-                tone
-            )}
+            className={cx("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border", tone)}
             title={value ?? "pending"}
         >
             {label}
@@ -236,16 +213,17 @@ function IconRefresh({ className }: { className?: string }) {
 export const SampleDetailPage = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
-    const { user } = useAuth();
     const location = useLocation();
-    const rrHint = useMemo(() => {
-        const st: any = location.state || {};
-        return st?.reagent_request_status ? String(st.reagent_request_status).toLowerCase() : null;
-    }, [location.state]);
+    const { user } = useAuth();
 
     const roleId = getUserRoleId(user);
     const roleLabel = getUserRoleLabel(roleId);
     const sampleId = Number(id);
+
+    const navReagentStatus = useMemo(() => {
+        const st = (location.state as any)?.reagent_request_status ?? null;
+        return st ? String(st).toLowerCase() : null;
+    }, [location.state]);
 
     // ✅ Fix "You are: UNKNOWN"
     const displayRole = useMemo(() => {
@@ -276,8 +254,7 @@ export const SampleDetailPage = () => {
         );
     }, [roleId]);
 
-    const myStaffId =
-        (user as any)?.staff_id ?? (user as any)?.staff?.staff_id ?? null;
+    const myStaffId = (user as any)?.staff_id ?? (user as any)?.staff?.staff_id ?? null;
 
     const [sample, setSample] = useState<Sample | null>(null);
     const [loading, setLoading] = useState(true);
@@ -291,18 +268,22 @@ export const SampleDetailPage = () => {
 
     const [tab, setTab] = useState<"overview" | "tests">("overview");
 
-    // Documents (Reports repository)
-    const [docsLoading, setDocsLoading] = useState(false);
-    const [docsError, setDocsError] = useState<string | null>(null);
-    const [docs, setDocs] = useState<any[]>([]);
+    // ✅ derived reagent status (multi-source)
+    const reagentRequestStatus = useMemo(() => {
+        const fromSample = getReagentRequestStatus(sample as any);
+        return (fromSample ?? navReagentStatus ?? "") as string;
+    }, [sample, navReagentStatus]);
 
-    const canSeeTestsTab = useMemo(() => {
-        return looksApprovedReagent(sample, docs, rrHint);
-    }, [sample, docs, rrHint]);
+    const canSeeTestsTab = String(reagentRequestStatus ?? "").toLowerCase() === "approved";
 
     useEffect(() => {
         if (tab === "tests" && !canSeeTestsTab) setTab("overview");
     }, [tab, canSeeTestsTab]);
+
+    // Documents (Reports repository)
+    const [docsLoading, setDocsLoading] = useState(false);
+    const [docsError, setDocsError] = useState<string | null>(null);
+    const [docs, setDocs] = useState<any[]>([]);
 
     // Intake validate UI state
     const [intakeValidating, setIntakeValidating] = useState(false);
@@ -330,6 +311,25 @@ export const SampleDetailPage = () => {
     // Crosscheck prerequisites
     const expectedLabCode = String((sample as any)?.lab_sample_code ?? "");
 
+    // ✅ helper: best-effort load reagent request status by LOO id
+    const tryFetchReagentStatusByLoo = async (loId: number) => {
+        try {
+            const res = await apiGet<any>(`/v1/reagents/requests/loo/${loId}`);
+            const payload = unwrapApi(res);
+
+            // payload bisa: { ...request } atau { data: ... } atau array (we handle defensively)
+            const status =
+                getReagentRequestStatus(payload) ??
+                getReagentRequestStatus(payload?.request) ??
+                getReagentRequestStatus(payload?.reagent_request) ??
+                null;
+
+            return status ? String(status).toLowerCase() : null;
+        } catch {
+            return null;
+        }
+    };
+
     const loadSample = async (opts?: { silent?: boolean }) => {
         if (!canViewSamples) {
             setLoading(false);
@@ -349,7 +349,25 @@ export const SampleDetailPage = () => {
             setError(null);
 
             const data = await sampleService.getById(sampleId);
-            setSample(data);
+
+            // 1) derive from returned sample
+            let rr = getReagentRequestStatus(data as any);
+
+            // 2) if still empty, try fetch by LOO id (best-effort)
+            const loId = Number((data as any)?.lo_id ?? 0);
+            if (!rr && loId) {
+                const fromLoo = await tryFetchReagentStatusByLoo(loId);
+                if (fromLoo) rr = fromLoo;
+            }
+
+            // 3) if still empty, use navigation state (instant UI)
+            if (!rr && navReagentStatus) rr = navReagentStatus;
+
+            // ✅ inject back into sample object so UI gating works
+            const merged: any = { ...(data as any) };
+            if (rr && !merged.reagent_request_status) merged.reagent_request_status = rr;
+
+            setSample(merged as Sample);
         } catch (err: any) {
             const msg =
                 err?.data?.message ??
@@ -489,11 +507,9 @@ export const SampleDetailPage = () => {
     const isAnalyst = roleId === ROLE_ID.ANALYST;
     const canDoCrosscheck = isAnalyst && !!analystReceivedAt && !!expectedLabCode;
 
-    const canWfScDeliverToAnalyst =
-        isCollector && !scDeliveredToAnalystAt;
+    const canWfScDeliverToAnalyst = isCollector && !scDeliveredToAnalystAt;
 
-    const canWfAnalystReceive =
-        isAnalyst && !!scDeliveredToAnalystAt && !analystReceivedAt;
+    const canWfAnalystReceive = isAnalyst && !!scDeliveredToAnalystAt && !analystReceivedAt;
 
     const doPhysicalWorkflow = async (action: string) => {
         if (!sampleId || Number.isNaN(sampleId)) return;
@@ -506,7 +522,6 @@ export const SampleDetailPage = () => {
             await loadSample({ silent: true });
             await loadHistory();
             await loadDocs();
-
         } catch (err: any) {
             const msg =
                 err?.response?.data?.message ??
@@ -590,12 +605,10 @@ export const SampleDetailPage = () => {
     if (!canViewSamples) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
-                <h1 className="text-2xl font-semibold text-primary mb-2">
-                    403 – Access denied
-                </h1>
+                <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
                 <p className="text-sm text-gray-600">
-                    Your role <span className="font-semibold">({roleLabel})</span> is not
-                    allowed to access the samples module.
+                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access the samples
+                    module.
                 </p>
                 <Link to="/samples" className="mt-4 lims-btn-primary">
                     Back to samples
@@ -633,14 +646,10 @@ export const SampleDetailPage = () => {
             </div>
 
             <div className="lims-detail-shell">
-                {loading && (
-                    <div className="text-sm text-gray-600">Loading sample detail...</div>
-                )}
+                {loading && <div className="text-sm text-gray-600">Loading sample detail...</div>}
 
                 {error && !loading && (
-                    <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">
-                        {error}
-                    </div>
+                    <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
                 )}
 
                 {!loading && !error && sample && (
@@ -648,30 +657,42 @@ export const SampleDetailPage = () => {
                         {/* Header */}
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                             <div>
-                                <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                                    Sample Detail
-                                </h1>
+                                <h1 className="text-lg md:text-xl font-bold text-gray-900">Sample Detail</h1>
                                 <div className="text-sm text-gray-600 mt-1">
-                                    Sample ID{" "}
-                                    <span className="font-semibold">#{sample.sample_id}</span>
-                                    {" · "}Current Status{" "}
-                                    <span className="font-semibold">{sample.current_status}</span>
+                                    Sample ID <span className="font-semibold">#{sample.sample_id}</span>
+                                    {" · "}Current Status <span className="font-semibold">{sample.current_status}</span>
                                     {" · "}high-level:{" "}
-                                    <span className="font-mono text-xs">
-                                        {sample.status_enum ?? "-"}
-                                    </span>
+                                    <span className="font-mono text-xs">{sample.status_enum ?? "-"}</span>
                                     {requestStatus ? (
                                         <>
-                                            {" · "}request:{" "}
-                                            <span className="font-mono text-xs">{requestStatus}</span>
+                                            {" · "}request: <span className="font-mono text-xs">{requestStatus}</span>
                                         </>
                                     ) : null}
                                     {labSampleCode ? (
                                         <>
-                                            {" · "}BML:{" "}
-                                            <span className="font-mono text-xs">{labSampleCode}</span>
+                                            {" · "}BML: <span className="font-mono text-xs">{labSampleCode}</span>
                                         </>
                                     ) : null}
+                                </div>
+
+                                {/* ✅ status bar: biar jelas reagent request status di detail */}
+                                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs text-gray-500">Reagent request:</span>
+                                    <span
+                                        className={cx(
+                                            "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border capitalize",
+                                            rrPillTone(reagentRequestStatus || null)
+                                        )}
+                                        title={reagentRequestStatus || "-"}
+                                    >
+                                        {reagentRequestStatus ? String(reagentRequestStatus) : "-"}
+                                    </span>
+
+                                    {!canSeeTestsTab && (
+                                        <span className="text-xs text-gray-500">
+                                            Tests locked (requires Reagent Request approved)
+                                        </span>
+                                    )}
                                 </div>
                             </div>
 
@@ -711,7 +732,7 @@ export const SampleDetailPage = () => {
                                         Overview
                                     </button>
 
-                                    {canSeeTestsTab && (
+                                    {canSeeTestsTab ? (
                                         <button
                                             type="button"
                                             className={cx(
@@ -724,10 +745,8 @@ export const SampleDetailPage = () => {
                                         >
                                             Tests
                                         </button>
-                                    )}
-
-                                    {!canSeeTestsTab && (
-                                        <span className="px-3 py-2 text-xs text-gray-500">
+                                    ) : (
+                                        <span className="px-4 py-2 text-xs text-gray-500">
                                             Tests locked (requires Reagent Request approved)
                                         </span>
                                     )}
@@ -1191,6 +1210,10 @@ export const SampleDetailPage = () => {
                                     <SampleTestingKanbanTab sampleId={sampleId} sample={sample} roleId={roleId} />
                                 )}
                             </div>
+
+                            {tab === "tests" && canSeeTestsTab && (
+                                <SampleTestingKanbanTab sampleId={sampleId} sample={sample} roleId={roleId} />
+                            )}
                         </div>
                     </div>
                 )}

@@ -41,16 +41,16 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
     const [cards, setCards] = useState<TestingBoardCard[]>([]);
     const [mode, setMode] = useState<"backend" | "fallback">("fallback");
 
-    // ✅ IMPORTANT: recalc group when sample changes (sample loads async)
+    // ✅ penting: kalau sample detail baru ke-load (sample berubah), group harus ikut ter-update
     useEffect(() => {
-        const derived = deriveGroupFromSample(sample);
+        const next = deriveGroupFromSample(sample);
         setGroup((prev) => {
-            // keep user-selected group unless it is still default
+            // jangan ganggu kalau user sudah memilih group manual selain default
             if (prev && prev !== "default") return prev;
-            return derived;
+            return next;
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sampleId, sample]);
+    }, [sampleId, sample?.sample_type]);
 
     const load = async () => {
         if (!sampleId || Number.isNaN(sampleId)) return;
