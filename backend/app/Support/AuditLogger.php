@@ -482,4 +482,29 @@ class AuditLogger
             ]
         );
     }
+
+    public static function logQualityCoverUnlocked(
+        int $staffId,
+        int $sampleId,
+        int $boardId,
+        int $columnId,
+        string $workflowGroup
+    ): void {
+        try {
+            self::log(
+                action: 'quality_cover_unlocked',
+                actorId: $staffId,
+                entityType: 'sample',
+                entityId: $sampleId,
+                data: [
+                    'sample_id' => $sampleId,
+                    'board_id' => $boardId,
+                    'column_id' => $columnId,
+                    'workflow_group' => $workflowGroup,
+                ]
+            );
+        } catch (\Throwable $e) {
+            // swallow (audit must not break core flow)
+        }
+    }
 }

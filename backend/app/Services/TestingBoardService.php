@@ -380,17 +380,60 @@ class TestingBoardService
                 ->whereIn('testing_column_id', $columnIds)
                 ->get(['sample_id', 'testing_column_id', 'lab_sample_code', 'workflow_group']);
 
-            return $rows->map(fn($s) => [
-                'sample_id' => (int) $s->sample_id,
-                'column_id' => (int) $s->testing_column_id,
-                'lab_sample_code' => $s->lab_sample_code,
-                'workflow_group' => $s->workflow_group,
-            ])->values()->all();
+            // Fast path: samples.testing_column_id
+            if (Schema::hasColumn('samples', 'testing_column_id')) {
+                $rows = Sample::query()
+                    ->whereIn('testing_column_id', $columnIds)
+                    ->get(['sample_id', 'testing_column_id', 'lab_sample_code', 'workflow_group']);
+
+                $sampleIds = $rows->pluck('sample_id')->map(fn($v) => (int)$v)->values()->all();
+
+                // attach latest open event timestamps (entered_at / moved_at) so FE doesn't "lose time" after reload
+                $eventsBySample = collect();
+                if ($sampleIds && Schema::hasTable('testing_card_events')) {
+                    $q = TestingCardEvent::query()
+                        ->whereIn('sample_id', $sampleIds);
+
+                    if (Schema::hasColumn('testing_card_events', 'exited_at')) {
+                        $q->whereNull('exited_at');
+                    }
+
+                    // Select only columns that exist in DB (defensive)
+                    $cols = ['event_id', 'sample_id', 'to_column_id'];
+                    if (Schema::hasColumn('testing_card_events', 'moved_at')) $cols[] = 'moved_at';
+                    if (Schema::hasColumn('testing_card_events', 'entered_at')) $cols[] = 'entered_at';
+
+                    $eventsBySample = $q->orderByDesc(Schema::hasColumn('testing_card_events', 'moved_at') ? 'moved_at' : 'event_id')
+                        ->orderByDesc('event_id')
+                        ->get($cols)
+                        ->groupBy('sample_id')
+                        ->map(fn($g) => $g->first());
+                }
+
+                return $rows->map(function ($s) use ($eventsBySample) {
+                    $e = $eventsBySample->get((int) $s->sample_id);
+
+                    return [
+                        'sample_id' => (int) $s->sample_id,
+                        'column_id' => (int) $s->testing_column_id,
+                        'lab_sample_code' => $s->lab_sample_code,
+                        'workflow_group' => $s->workflow_group,
+
+                        // ✅ timestamps persisted across reload
+                        'event_id' => $e?->event_id ? (int) $e->event_id : null,
+                        'entered_at' => $e?->entered_at ?? null,
+                        'moved_at' => $e?->moved_at ?? null,
+                    ];
+                })->values()->all();
+            }
         }
 
-        // Fallback: latest event per sample (heavier)
+        $select = ['sample_id', 'to_column_id'];
+        if (Schema::hasColumn('testing_card_events', 'moved_at')) $select[] = 'moved_at';
+        if (Schema::hasColumn('testing_card_events', 'entered_at')) $select[] = 'entered_at';
+
         $latestEvents = TestingCardEvent::query()
-            ->select(['sample_id', 'to_column_id', 'moved_at'])
+            ->select($select)
             ->whereIn('to_column_id', $columnIds)
             ->orderByDesc('moved_at')
             ->orderByDesc('event_id')
