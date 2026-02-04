@@ -623,7 +623,15 @@ export const SamplesPage = () => {
                                                                             <button
                                                                                 type="button"
                                                                                 className="lims-btn"
-                                                                                onClick={() => navigate(`/samples/${s.sample_id}`)}
+                                                                                onClick={() =>
+                                                                                    navigate(`/samples/${s.sample_id}`, {
+                                                                                        state: {
+                                                                                            reagent_request_status: getReagentRequestStatus(s as any),
+                                                                                            lo_id: (s as any)?.lo_id ?? null,
+                                                                                            lo_number: (s as any)?.lo_number ?? null,
+                                                                                        },
+                                                                                    })
+                                                                                }
                                                                             >
                                                                                 View
                                                                             </button>

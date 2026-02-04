@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -24,6 +23,7 @@ class DatabaseSeeder extends Seeder
             MethodsSeeder::class,
             ParametersSeeder::class,
             QCControlsSeeder::class,
+            TestingBoardSeeder::class,
         ]);
         $this->call(
             \Database\Seeders\ReportSignatureRoleSeeder::class

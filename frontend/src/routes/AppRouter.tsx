@@ -12,19 +12,18 @@ import { ROLE_ID } from "../utils/roles";
 import { ClientsPage } from "../pages/clients/ClientsPage";
 import { ClientDetailPage } from "../pages/clients/ClientDetailPage";
 import { ClientApprovalsPage } from "../pages/clients/ClientApprovalsPage";
-
 import { SamplesPage } from "../pages/samples/SamplesPage";
 import { SampleDetailPage } from "../pages/samples/SampleDetailPage";
 import SampleRequestsQueuePage from "../pages/samples/SampleRequestsQueuePage";
 import SampleRequestDetailPage from "../pages/samples/SampleRequestDetailPage";
 import { LooGeneratorPage } from "../pages/loo/LooGeneratorPage";
-
 import { StaffApprovalsPage } from "../pages/staff/StaffApprovalsPage";
 import { QAParametersPage } from "../pages/qa/QAParametersPage";
 import { QAMethodsPage } from "../pages/qa/QAMethodsPage";
 import { ConsumablesCatalogPage } from "../pages/qa/ConsumablesCatalogPage";
 import { AuditLogsPage } from "../pages/audit/AuditLogsPage";
 import { ReportsPage } from "../pages/reports/ReportsPage";
+
 import ReagentRequestBuilderPage from "../pages/reagents/ReagentRequestBuilderPage";
 import ReagentApprovalInboxPage from "../pages/reagents/ReagentApprovalInboxPage";
 import ReagentApprovalDetailPage from "../pages/reagents/ReagentApprovalDetailPage";
@@ -51,7 +50,6 @@ export const AppRouter = () => {
                             </RoleGuard>
                         }
                     />
-
                     <Route
                         path="/clients"
                         element={
@@ -66,7 +64,6 @@ export const AppRouter = () => {
                             </RoleGuard>
                         }
                     />
-
                     <Route
                         path="/clients/:slug"
                         element={
@@ -98,7 +95,6 @@ export const AppRouter = () => {
                             </RoleGuard>
                         }
                     />
-
                     <Route
                         path="/samples/:id"
                         element={
@@ -124,7 +120,6 @@ export const AppRouter = () => {
                             </RoleGuard>
                         }
                     />
-
                     <Route
                         path="/qa/parameters"
                         element={
@@ -133,7 +128,6 @@ export const AppRouter = () => {
                             </RoleGuard>
                         }
                     />
-
                     <Route
                         path="/qa/methods"
                         element={
@@ -142,7 +136,6 @@ export const AppRouter = () => {
                             </RoleGuard>
                         }
                     />
-
                     <Route
                         path="/qa/consumables-catalog"
                         element={
@@ -151,7 +144,6 @@ export const AppRouter = () => {
                             </RoleGuard>
                         }
                     />
-
                     <Route
                         path="/reagents/requests/loo/:loId"
                         element={
@@ -160,20 +152,22 @@ export const AppRouter = () => {
                             </RoleGuard>
                         }
                     />
-
                     <Route
                         path="/reagents/approvals"
                         element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
+                            <RoleGuard
+                                allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}
+                            >
                                 <ReagentApprovalInboxPage />
                             </RoleGuard>
                         }
                     />
-
                     <Route
                         path="/reagents/approvals/loo/:loId"
                         element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
+                            <RoleGuard
+                                allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}
+                            >
                                 <ReagentApprovalDetailPage />
                             </RoleGuard>
                         }
@@ -195,7 +189,6 @@ export const AppRouter = () => {
                             </RoleGuard>
                         }
                     />
-
                     {/* alias supaya menu /audit-logs tidak 404 */}
                     <Route
                         path="/audit-logs"
@@ -235,10 +228,7 @@ export const AppRouter = () => {
                         path="/loo"
                         element={
                             <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                    ROLE_ID.LAB_HEAD,
-                                ]}
+                                allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}
                             >
                                 <LooGeneratorPage />
                             </RoleGuard>
@@ -260,7 +250,6 @@ export const AppRouter = () => {
                             </RoleGuard>
                         }
                     />
-
                     <Route
                         path="/samples/requests/:id"
                         element={
@@ -284,7 +273,10 @@ export const AppRouter = () => {
                 <Route element={<PortalLayout />}>
                     <Route path="/portal" element={<ClientDashboardPage />} />
                     <Route path="/portal/requests" element={<ClientRequestsPage />} />
-                    <Route path="/portal/requests/:id" element={<ClientRequestDetailPage />} />
+                    <Route
+                        path="/portal/requests/:id"
+                        element={<ClientRequestDetailPage />}
+                    />
                 </Route>
             </Route>
 
