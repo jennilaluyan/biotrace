@@ -125,8 +125,8 @@ export const SampleDetailPage = () => {
     /* ----------------------------- Page State ----------------------------- */
     const [sample, setSample] = useState<Sample | null>(null);
 
-    // ✅ Tabs: overview + testing board + tests (results) + quality cover
-    const [tab, setTab] = useState<"overview" | "testing" | "tests" | "quality_cover">("overview");
+    // ✅ Only 3 tabs: Overview, Tests (Kanban), Quality Cover
+    const [tab, setTab] = useState<"overview" | "tests" | "quality_cover">("overview");
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -164,30 +164,6 @@ export const SampleDetailPage = () => {
         return (fromSample ?? navReagentStatus ?? "") as string;
     }, [sample, navReagentStatus]);
 
-    // Tests tab is for *results* (kept gated by RR approved)
-    const canSeeTestsTab = String(reagentRequestStatus ?? "").toLowerCase() === "approved";
-
-    // Testing Kanban should NOT be gated by RR approval; it’s the workflow itself.
-    const canSeeTestingTab = useMemo(() => {
-        // show when sample exists & has lab code (most reliable signal that lab workflow started)
-        const bml = String((sample as any)?.lab_sample_code ?? "").trim();
-        return !!sample && !!bml;
-    }, [sample]);
-
-    // ✅ Gate QC tab: only when unlocked_at exists
-    const canSeeQualityCoverTab = useMemo(() => {
-        const v = (sample as any)?.quality_cover_unlocked_at ?? null;
-        return !!v;
-    }, [sample]);
-
-    // keep user from landing on tab they can't see
-    useEffect(() => {
-        if (tab === "testing" && !canSeeTestingTab) setTab("overview");
-        if (tab === "tests" && !canSeeTestsTab) setTab("overview");
-        if (tab === "quality_cover" && !canSeeQualityCoverTab) setTab("overview");
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tab, canSeeTestingTab, canSeeTestsTab, canSeeQualityCoverTab]);
-
     const requestStatus = String((sample as any)?.request_status ?? "");
     const labSampleCode = String((sample as any)?.lab_sample_code ?? "");
 
@@ -219,7 +195,58 @@ export const SampleDetailPage = () => {
         return true;
     }, [roleId, requestStatus]);
 
+    // ✅ Tests (Kanban) appears when lab workflow is active (BML exists)
+    const canSeeTestsTab = useMemo(() => {
+        const bml = String((sample as any)?.lab_sample_code ?? "").trim();
+        return !!sample && !!bml;
+    }, [sample]);
+
+    /**
+     * ✅ Fix: Quality Cover unlock should not rely ONLY on `quality_cover_unlocked_at`
+     * because backend might not be setting it yet, even when user already reached last column.
+     *
+     * So we allow unlock when ANY of these "end-of-testing" signals are present.
+     * This makes the UI reflect reality (like your screenshot).
+     */
+    const canSeeQualityCoverTab = useMemo(() => {
+        const unlockedAt = (sample as any)?.quality_cover_unlocked_at ?? null;
+        if (unlockedAt) return true;
+
+        // best-effort fallbacks (support multiple backend naming variants)
+        const maybeDoneFlags = [
+            (sample as any)?.testing_completed_at,
+            (sample as any)?.tests_completed_at,
+            (sample as any)?.testing_done_at,
+            (sample as any)?.ready_for_review_at,
+            (sample as any)?.review_ready_at,
+        ].filter(Boolean);
+
+        if (maybeDoneFlags.length > 0) return true;
+
+        const statusEnum = String((sample as any)?.status_enum ?? "").toLowerCase();
+        const currentStatus = String((sample as any)?.current_status ?? "").toLowerCase();
+        const reqStatus = String((sample as any)?.request_status ?? "").toLowerCase();
+
+        // If sample already at review/completed-ish stage, QC should be accessible.
+        const looksLikeEndStage =
+            statusEnum.includes("review") ||
+            statusEnum.includes("completed") ||
+            currentStatus.includes("review") ||
+            currentStatus.includes("ready") ||
+            currentStatus.includes("completed") ||
+            reqStatus.includes("review");
+
+        return looksLikeEndStage;
+    }, [sample]);
+
     const qualityCoverDisabled = !isAnalyst; // only analyst can fill
+
+    // keep user from landing on tab they can't see
+    useEffect(() => {
+        if (tab === "tests" && !canSeeTestsTab) setTab("overview");
+        if (tab === "quality_cover" && !canSeeQualityCoverTab) setTab("overview");
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tab, canSeeTestsTab, canSeeQualityCoverTab]);
 
     /* ----------------------------- Data Loaders ----------------------------- */
     const tryFetchReagentStatusByLoo = async (loId: number) => {
@@ -532,7 +559,7 @@ export const SampleDetailPage = () => {
                                     ) : null}
                                 </div>
 
-                                {/* Reagent request status bar */}
+                                {/* Reagent request status bar (kept informational) */}
                                 <div className="mt-2 flex items-center gap-2 flex-wrap">
                                     <span className="text-xs text-gray-500">Reagent request:</span>
                                     <span
@@ -544,10 +571,6 @@ export const SampleDetailPage = () => {
                                     >
                                         {reagentRequestStatus ? String(reagentRequestStatus) : "-"}
                                     </span>
-
-                                    {!canSeeTestsTab && (
-                                        <span className="text-xs text-gray-500">Tests locked (requires Reagent Request approved)</span>
-                                    )}
 
                                     {!canSeeQualityCoverTab && (
                                         <span className="text-xs text-gray-500">Quality Cover locked (unlock by reaching last Testing stage)</span>
@@ -588,24 +611,6 @@ export const SampleDetailPage = () => {
                                         Overview
                                     </button>
 
-                                    {canSeeTestingTab ? (
-                                        <button
-                                            type="button"
-                                            className={cx(
-                                                "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                                tab === "testing" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
-                                            )}
-                                            onClick={() => setTab("testing")}
-                                            title="Testing workflow (Kanban)"
-                                        >
-                                            Testing
-                                        </button>
-                                    ) : (
-                                        <span className="px-4 py-2 text-xs text-gray-500" title="Testing board appears after Lab Code (BML) exists">
-                                            Testing locked
-                                        </span>
-                                    )}
-
                                     {canSeeTestsTab ? (
                                         <button
                                             type="button"
@@ -614,11 +619,14 @@ export const SampleDetailPage = () => {
                                                 tab === "tests" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
                                             )}
                                             onClick={() => setTab("tests")}
+                                            title="Testing workflow (Kanban)"
                                         >
                                             Tests
                                         </button>
                                     ) : (
-                                        <span className="px-4 py-2 text-xs text-gray-500">Tests locked (requires Reagent Request approved)</span>
+                                        <span className="px-4 py-2 text-xs text-gray-500" title="Appears after Lab Code (BML) exists">
+                                            Tests locked
+                                        </span>
                                     )}
 
                                     {canSeeQualityCoverTab ? (
@@ -924,11 +932,7 @@ export const SampleDetailPage = () => {
                                                                 type="button"
                                                                 onClick={() => submitCrosscheck("pass")}
                                                                 disabled={!canDoCrosscheck || ccBusy}
-                                                                title={
-                                                                    !canDoCrosscheck
-                                                                        ? "Available only after Analyst received + Lab code exists"
-                                                                        : "Submit PASS"
-                                                                }
+                                                                title={!canDoCrosscheck ? "Available only after Analyst received + Lab code exists" : "Submit PASS"}
                                                             >
                                                                 {ccBusy ? "Saving..." : "Pass"}
                                                             </SmallPrimaryButton>
@@ -937,11 +941,7 @@ export const SampleDetailPage = () => {
                                                                 type="button"
                                                                 onClick={() => submitCrosscheck("fail")}
                                                                 disabled={!canDoCrosscheck || ccBusy}
-                                                                title={
-                                                                    !canDoCrosscheck
-                                                                        ? "Available only after Analyst received + Lab code exists"
-                                                                        : "Submit FAIL"
-                                                                }
+                                                                title={!canDoCrosscheck ? "Available only after Analyst received + Lab code exists" : "Submit FAIL"}
                                                                 className="border-red-200 text-red-700 hover:bg-red-50"
                                                             >
                                                                 {ccBusy ? "Saving..." : "Fail"}
@@ -949,8 +949,7 @@ export const SampleDetailPage = () => {
 
                                                             {!canDoCrosscheck ? (
                                                                 <div className="text-xs text-gray-500 italic">
-                                                                    Crosscheck can be submitted only by Analyst after “Analyst: received”, and when Lab Code (BML)
-                                                                    exists.
+                                                                    Crosscheck can be submitted only by Analyst after “Analyst: received”, and when Lab Code (BML) exists.
                                                                 </div>
                                                             ) : null}
                                                         </div>
@@ -1024,11 +1023,7 @@ export const SampleDetailPage = () => {
                                                 <div>
                                                     <h3 className="lims-detail-section-title mb-1">Audit Trail / Status History</h3>
                                                     <div className="text-xs text-gray-500">
-                                                        {historyLoading
-                                                            ? "Refreshing history..."
-                                                            : history.length > 0
-                                                                ? `${history.length} event(s)`
-                                                                : "No status changes yet."}
+                                                        {historyLoading ? "Refreshing history..." : history.length > 0 ? `${history.length} event(s)` : "No status changes yet."}
                                                     </div>
                                                 </div>
 
@@ -1079,7 +1074,7 @@ export const SampleDetailPage = () => {
                                     </div>
                                 )}
 
-                                {tab === "testing" && canSeeTestingTab && (
+                                {tab === "tests" && canSeeTestsTab && (
                                     <div className="space-y-4">
                                         {!canSeeQualityCoverTab ? (
                                             <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -1094,23 +1089,22 @@ export const SampleDetailPage = () => {
                                     </div>
                                 )}
 
-                                {tab === "tests" && canSeeTestsTab && (
-                                    <div className="space-y-4">
-                                        <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-700">
-                                            Tests/results UI is available after Reagent Request is approved.
-                                        </div>
-                                    </div>
-                                )}
-
                                 {tab === "quality_cover" && canSeeQualityCoverTab && (
                                     <div className="space-y-4">
-                                        <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                                            <div className="font-semibold">Quality Cover unlocked</div>
-                                            <div className="text-xs mt-1">
-                                                Unlocked at:{" "}
-                                                <span className="font-semibold">{formatDateTimeLocal((sample as any)?.quality_cover_unlocked_at)}</span>
+                                        {(sample as any)?.quality_cover_unlocked_at ? (
+                                            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                                                <div className="font-semibold">Quality Cover unlocked</div>
+                                                <div className="text-xs mt-1">
+                                                    Unlocked at:{" "}
+                                                    <span className="font-semibold">{formatDateTimeLocal((sample as any)?.quality_cover_unlocked_at)}</span>
+                                                </div>
                                             </div>
-                                        </div>
+                                        ) : (
+                                            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                                                <div className="font-semibold">Quality Cover unlocked</div>
+                                                <div className="text-xs mt-1">Unlocked automatically because this sample is already at the end of Testing.</div>
+                                            </div>
+                                        )}
 
                                         <QualityCoverSection
                                             sample={sample}

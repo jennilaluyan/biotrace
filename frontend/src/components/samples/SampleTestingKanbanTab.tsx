@@ -1,3 +1,4 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\SampleTestingKanbanTab.tsx
 import { useEffect, useMemo, useState } from "react";
 import { getErrorMessage } from "../../utils/errors";
 import {
@@ -23,7 +24,7 @@ type Props = {
     sample?: any;
     roleId?: number | null;
 
-    // ✅ NEW: parent can auto-open QC tab after finalize
+    // ✅ parent can auto-open QC tab after finalize
     onQualityCoverUnlocked?: () => void;
 };
 
@@ -60,13 +61,27 @@ type StageStamp = {
     exited_at: string | null;
 };
 
-function timelineKey(sampleId: number, group: string) {
+/**
+ * ✅ FIX (timestamps persist across stages):
+ * Previously the timeline key depended on `group`, so when backend returns
+ * a different workflow_group (auto-resolve) or user switches group,
+ * the UI would read a different localStorage key => old stage timestamps "disappear".
+ *
+ * New approach:
+ * - timeline key is ONLY per sampleId (and versioned)
+ * - on mount, we migrate any old per-group timeline keys into the new key
+ */
+function timelineKeyV2(sampleId: number) {
+    return `biotrace.testing_board.timeline.v2:${sampleId}`;
+}
+
+function timelineKeyLegacy(sampleId: number, group: string) {
     return `biotrace.testing_board.timeline.v1:${group}:${sampleId}`;
 }
 
-function readTimeline(sampleId: number, group: string): Record<number, StageStamp> {
+function readTimelineRaw(key: string): Record<number, StageStamp> {
     try {
-        const raw = localStorage.getItem(timelineKey(sampleId, group));
+        const raw = localStorage.getItem(key);
         if (!raw) return {};
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object") return {};
@@ -84,9 +99,13 @@ function readTimeline(sampleId: number, group: string): Record<number, StageStam
     }
 }
 
-function writeTimeline(sampleId: number, group: string, map: Record<number, StageStamp>) {
+function readTimeline(sampleId: number): Record<number, StageStamp> {
+    return readTimelineRaw(timelineKeyV2(sampleId));
+}
+
+function writeTimeline(sampleId: number, map: Record<number, StageStamp>) {
     try {
-        localStorage.setItem(timelineKey(sampleId, group), JSON.stringify(map ?? {}));
+        localStorage.setItem(timelineKeyV2(sampleId), JSON.stringify(map ?? {}));
     } catch {
         // ignore
     }
@@ -108,6 +127,50 @@ function mergeTimeline(
         };
     }
     return next;
+}
+
+function migrateLegacyTimelines(sampleId: number, groups: string[]): Record<number, StageStamp> {
+    // Merge any legacy keys (v1) into the new v2 key.
+    // We keep the earliest entered_at and the latest exited_at if both exist.
+    const merged: Record<number, StageStamp> = {};
+    for (const g of groups) {
+        const legacy = readTimelineRaw(timelineKeyLegacy(sampleId, g));
+        for (const [k, v] of Object.entries(legacy)) {
+            const colId = Number(k);
+            if (!Number.isFinite(colId)) continue;
+
+            const cur = merged[colId] ?? { column_id: colId, entered_at: null, exited_at: null };
+
+            const entered = (v as any)?.entered_at ?? null;
+            const exited = (v as any)?.exited_at ?? null;
+
+            const pickEarliest = (a: string | null, b: string | null) => {
+                if (!a) return b;
+                if (!b) return a;
+                return new Date(a).getTime() <= new Date(b).getTime() ? a : b;
+            };
+            const pickLatest = (a: string | null, b: string | null) => {
+                if (!a) return b;
+                if (!b) return a;
+                return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
+            };
+
+            merged[colId] = {
+                column_id: colId,
+                entered_at: pickEarliest(cur.entered_at, entered),
+                exited_at: pickLatest(cur.exited_at, exited),
+            };
+        }
+    }
+
+    // cleanup legacy keys best-effort (optional)
+    try {
+        for (const g of groups) localStorage.removeItem(timelineKeyLegacy(sampleId, g));
+    } catch {
+        // ignore
+    }
+
+    return merged;
 }
 
 export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocked }: Props) => {
@@ -133,16 +196,38 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
     useEffect(() => {
         if (!sampleId || Number.isNaN(sampleId)) return;
-        const t = readTimeline(sampleId, group);
-        setTimeline(t);
+
+        // ✅ Read v2 timeline first
+        const v2 = readTimeline(sampleId);
+
+        // ✅ Migrate any v1 timelines (from group switching / auto-resolve)
+        // Include a small set of likely groups + current group.
+        const groupsToCheck = Array.from(
+            new Set<string>([
+                "default",
+                "pcr_sars_cov_2",
+                "pcr",
+                "wgs",
+                "elisa",
+                String(group || "default"),
+            ])
+        );
+
+        const migrated = migrateLegacyTimelines(sampleId, groupsToCheck);
+
+        const merged = mergeTimeline(v2, migrated as any);
+        setTimeline(merged);
+
+        // also persist immediately (so next reload is stable)
+        writeTimeline(sampleId, merged);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sampleId, group]);
+    }, [sampleId]);
 
     useEffect(() => {
         if (!sampleId || Number.isNaN(sampleId)) return;
-        writeTimeline(sampleId, group, timeline);
+        writeTimeline(sampleId, timeline);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [timeline, sampleId, group]);
+    }, [timeline, sampleId]);
 
     const load = async () => {
         if (!sampleId || Number.isNaN(sampleId)) return;
@@ -153,8 +238,10 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
             const res = await fetchTestingBoard({ group });
 
+            // ✅ If backend resolves group, don't lose timeline anymore (v2 is sample-based)
             if (group === "default" && res.group && res.group !== group) {
                 setGroup(res.group);
+                // continue load anyway? safer: return and allow effect to reload columns/cards for the right group
                 return;
             }
 
@@ -175,6 +262,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                 const prevArr = Array.isArray(prev) ? prev : [];
                 const prevHasMine = prevArr.some((c) => Number(c.sample_id) === Number(sampleId));
 
+                // if backend board temporarily doesn't include mine, keep previous
                 if (!incomingHasMine && prevHasMine) return prevArr;
 
                 const prevById = new Map<number, any>();
@@ -189,6 +277,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                 });
             });
 
+            // ✅ Merge stamps from backend current card into timeline
             const mine = incomingCards.find((c) => Number(c.sample_id) === Number(sampleId));
             if (mine?.column_id) {
                 const colId = Number(mine.column_id);
@@ -255,7 +344,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
         if (!isAtLastColumn) return false;
         const colId = Number(myCard?.column_id ?? 0);
         const exited = lastStageStamp?.exited_at ?? null;
-        // if backend card has exited_at, treat as ended too
         const exited2 = (myCard as any)?.exited_at ?? null;
         return !!(exited || exited2);
     }, [isAtLastColumn, lastStageStamp, myCard]);
@@ -269,11 +357,10 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
         const nowIso = new Date().toISOString();
         const fromColId = myCard?.column_id ? Number(myCard.column_id) : null;
 
+        // optimistic timeline update
         setTimeline((prev) => {
             const patch: any = {};
-            if (fromColId) {
-                patch[fromColId] = { exited_at: nowIso };
-            }
+            if (fromColId) patch[fromColId] = { exited_at: nowIso };
             patch[toColumnId] = {
                 entered_at: prev?.[toColumnId]?.entered_at ?? nowIso,
                 exited_at: null,
@@ -282,9 +369,12 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
         });
 
         const prevCards = cards;
+
+        // optimistic current card move
         setCards((prev) => {
             const arr = Array.isArray(prev) ? prev : [];
             const hasMine = arr.some((c) => Number(c.sample_id) === Number(sampleId));
+
             const updated = hasMine
                 ? arr.map((c) =>
                     Number(c.sample_id) === Number(sampleId)
@@ -305,6 +395,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                         exited_at: null,
                     }),
                 ];
+
             return updated;
         });
 
@@ -326,6 +417,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
             const stamp = movedAt ? String(movedAt) : nowIso;
 
+            // confirm timeline with backend stamp
             setTimeline((prev) => {
                 const patch: any = {};
                 if (fromColId) patch[fromColId] = { exited_at: stamp };
@@ -378,12 +470,10 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                 to_column_id: colId, // stay in same column
                 workflow_group: group,
                 note: null,
-                finalize: true, // ✅ key
+                finalize: true,
             });
 
             await load();
-
-            // ✅ tell parent to jump to QC tab (parent will refresh sample)
             onQualityCoverUnlocked?.();
         } catch (e: any) {
             setCards(prevCards);
@@ -422,7 +512,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             );
         }
 
-        // ✅ last column: if not ended yet => show End button; else show Completed
         if (isAtLastColumn && !isLastStageEnded) {
             return (
                 <button
@@ -523,8 +612,14 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                                     !!stamp?.entered_at ||
                                     !!stamp?.exited_at;
 
-                                const enteredAt = stamp?.entered_at ?? (isHere ? (myCard as any)?.entered_at ?? null : null);
-                                const exitedAt = stamp?.exited_at ?? (isHere ? (myCard as any)?.exited_at ?? null : null);
+                                // ✅ For completed stages, ALWAYS prefer timeline stamps (persisted)
+                                const enteredAt =
+                                    stamp?.entered_at ??
+                                    (isHere ? (myCard as any)?.entered_at ?? null : null);
+
+                                const exitedAt =
+                                    stamp?.exited_at ??
+                                    (isHere ? (myCard as any)?.exited_at ?? null : null);
 
                                 return (
                                     <div
