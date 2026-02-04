@@ -6,6 +6,7 @@ use App\Models\Sample;
 use App\Models\TestingBoard;
 use App\Models\TestingColumn;
 use App\Models\TestingCardEvent;
+use App\Support\AuditLogger;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -16,16 +17,6 @@ class TestingBoardService
         private readonly WorkflowGroupResolver $workflowGroupResolver
     ) {}
 
-    /**
-     * Move a sample card to another testing column.
-     *
-     * - Validates target column belongs to the sample's workflow group's board
-     * - Allows FE override workflow_group to prevent mismatch / fallback fake columns scenario
-     * - Auto-creates board (+ default columns) if missing to stop FE fallback mode forever
-     * - Closes previous open event (if exited_at exists)
-     * - Inserts new movement event
-     * - Best-effort updates samples.testing_column_id if the column exists
-     */
     public function moveCard(
         int $sampleId,
         int $toColumnId,
@@ -42,16 +33,13 @@ class TestingBoardService
             if ($workflowGroupOverride) {
                 $workflowGroup = trim((string) $workflowGroupOverride);
             } else {
-                // Extract parameter IDs (best effort)
                 $parameterIds = $this->extractParameterIdsFromSample($sample);
 
-                // Resolve group
                 $groupEnum = $this->workflowGroupResolver->resolveFromParameterIds($parameterIds);
                 if (!$groupEnum) {
                     abort(422, 'Cannot resolve workflow group from sample parameters.');
                 }
 
-                // Support enum or string resolver return
                 $workflowGroup = is_object($groupEnum) && property_exists($groupEnum, 'value')
                     ? (string) $groupEnum->value
                     : (string) $groupEnum;
@@ -68,13 +56,11 @@ class TestingBoardService
                 ->first();
 
             if (!$board) {
-                // ✅ auto-create so FE doesn't fall into fallback forever
                 $board = TestingBoard::query()->create([
                     'workflow_group' => $workflowGroup,
                     'name' => strtoupper($workflowGroup) . ' Testing Board',
                 ]);
 
-                // seed default columns
                 $defaults = [
                     ['name' => 'In Testing', 'position' => 1],
                     ['name' => 'Measuring', 'position' => 2],
@@ -110,7 +96,6 @@ class TestingBoardService
             }
 
             if (!$fromColumnId) {
-                // fallback from latest event
                 $latest = TestingCardEvent::query()
                     ->where('sample_id', $sampleId)
                     ->orderByDesc('id')
@@ -124,6 +109,14 @@ class TestingBoardService
                 }
             }
 
+            // Resolve column names for audit (best effort)
+            $fromColName = null;
+            if ($fromColumnId) {
+                $fromCol = TestingColumn::query()->find((int) $fromColumnId);
+                $fromColName = $fromCol?->name;
+            }
+            $toColName = $toColumn->name ?? null;
+
             // Close previous open event if schema supports exited_at
             if (Schema::hasColumn('testing_card_events', 'exited_at')) {
                 TestingCardEvent::query()
@@ -134,7 +127,7 @@ class TestingBoardService
                     ->update(['exited_at' => $now]);
             }
 
-            // Create new movement event (best effort for schema variants)
+            // Create new movement event
             $eventData = [
                 'board_id' => (int) $board->board_id,
                 'sample_id' => (int) $sampleId,
@@ -159,13 +152,29 @@ class TestingBoardService
                 $sample->save();
             }
 
+            $eventId = (int) ($created->event_id ?? $created->getKey());
+
+            // ✅ Step 10.6 — audit log
+            AuditLogger::logTestingStageMoved(
+                staffId: (int) $actorStaffId,
+                sampleId: (int) $sampleId,
+                workflowGroup: (string) $workflowGroup,
+                boardId: (int) $board->board_id,
+                fromColumnId: $fromColumnId ? (int) $fromColumnId : null,
+                fromColumnName: $fromColName ? (string) $fromColName : null,
+                toColumnId: (int) $toColumnId,
+                toColumnName: $toColName ? (string) $toColName : null,
+                eventId: $eventId,
+                note: $created->note ?? null
+            );
+
             return [
                 'sample_id' => (int) $sampleId,
                 'workflow_group' => (string) $workflowGroup,
                 'board_id' => (int) $board->board_id,
                 'from_column_id' => $fromColumnId ? (int) $fromColumnId : null,
                 'to_column_id' => (int) $toColumnId,
-                'event_id' => (int) ($created->event_id ?? $created->getKey()),
+                'event_id' => $eventId,
                 'moved_at' => $now->toISOString(),
             ];
         });

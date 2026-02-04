@@ -57,6 +57,132 @@ class AuditLogger
     }
 
     /**
+     * ✅ Step 10.6 — Audit: testing stage moved (kanban move).
+     * Entity: samples (entity_id = sample_id)
+     */
+    public static function logTestingStageMoved(
+        int $staffId,
+        int $sampleId,
+        string $workflowGroup,
+        int $boardId,
+        ?int $fromColumnId,
+        ?string $fromColumnName,
+        int $toColumnId,
+        ?string $toColumnName,
+        ?int $eventId = null,
+        ?string $note = null
+    ): void {
+        $oldValues = [
+            'workflow_group' => $workflowGroup,
+            'board_id' => $boardId,
+            'from_column_id' => $fromColumnId,
+            'from_column_name' => $fromColumnName,
+        ];
+
+        $newValues = [
+            'workflow_group' => $workflowGroup,
+            'board_id' => $boardId,
+            'to_column_id' => $toColumnId,
+            'to_column_name' => $toColumnName,
+            'event_id' => $eventId,
+            'note' => $note,
+        ];
+
+        self::write(
+            action: 'TESTING_STAGE_MOVED',
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: $oldValues,
+            newValues: $newValues
+        );
+    }
+
+    /**
+     * ✅ Step 10.6 — Audit: testing column renamed.
+     * Entity: testing_column (entity_id = column_id)
+     */
+    public static function logTestingColumnRenamed(
+        int $staffId,
+        int $columnId,
+        int $boardId,
+        string $workflowGroup,
+        string $oldName,
+        string $newName
+    ): void {
+        self::write(
+            action: 'TESTING_COLUMN_RENAMED',
+            staffId: $staffId,
+            entityName: 'testing_column',
+            entityId: $columnId,
+            oldValues: [
+                'board_id' => $boardId,
+                'workflow_group' => $workflowGroup,
+                'name' => $oldName,
+            ],
+            newValues: [
+                'board_id' => $boardId,
+                'workflow_group' => $workflowGroup,
+                'name' => $newName,
+            ]
+        );
+    }
+
+    /**
+     * ✅ Step 10.6 — Audit: testing column added.
+     * Entity: testing_column (entity_id = column_id)
+     */
+    public static function logTestingColumnAdded(
+        int $staffId,
+        int $columnId,
+        int $boardId,
+        string $workflowGroup,
+        string $name,
+        int $position
+    ): void {
+        self::write(
+            action: 'TESTING_COLUMN_ADDED',
+            staffId: $staffId,
+            entityName: 'testing_column',
+            entityId: $columnId,
+            oldValues: null,
+            newValues: [
+                'board_id' => $boardId,
+                'workflow_group' => $workflowGroup,
+                'name' => $name,
+                'position' => $position,
+            ]
+        );
+    }
+
+    /**
+     * ✅ Step 10.6 — Audit: testing columns reordered.
+     * Entity: testing_board (entity_id = board_id)
+     */
+    public static function logTestingColumnsReordered(
+        int $staffId,
+        int $boardId,
+        string $workflowGroup,
+        array $oldOrder,
+        array $newOrder
+    ): void {
+        self::write(
+            action: 'TESTING_COLUMNS_REORDERED',
+            staffId: $staffId,
+            entityName: 'testing_board',
+            entityId: $boardId,
+            oldValues: [
+                'workflow_group' => $workflowGroup,
+                'columns' => $oldOrder,
+            ],
+            newValues: [
+                'workflow_group' => $workflowGroup,
+                'columns' => $newOrder,
+            ]
+        );
+    }
+
+    /**
      * Optional wrapper supaya bisa tetap pakai AuditLogger::info()
      * tanpa error intelephense.
      */

@@ -83,7 +83,35 @@ class TestingBoardController extends Controller
         int $columnId,
         TestingBoardColumnsService $svc
     ): JsonResponse {
-        $col = $svc->renameColumn($columnId, (string) $request->validated('name'));
+        /** @var Staff $staff */
+        $staff = Auth::user();
+        if (!$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
+        // fetch "before" for audit
+        /** @var TestingColumn $before */
+        $before = TestingColumn::query()->findOrFail($columnId);
+        $oldName = (string) $before->name;
+        $boardId = (int) $before->board_id;
+
+        /** @var TestingBoard|null $board */
+        $board = TestingBoard::query()->find($boardId);
+        $wf = (string) ($board?->workflow_group ?? 'default');
+
+        $newName = (string) $request->validated('name');
+
+        $col = $svc->renameColumn($columnId, $newName);
+
+        // ✅ Step 10.6 — audit
+        AuditLogger::logTestingColumnRenamed(
+            staffId: (int) $staff->staff_id,
+            columnId: (int) $columnId,
+            boardId: (int) ($col->board_id ?? $boardId),
+            workflowGroup: $wf,
+            oldName: $oldName,
+            newName: (string) ($col->name ?? $newName)
+        );
 
         return response()->json([
             'message' => 'Column renamed.',
@@ -101,10 +129,26 @@ class TestingBoardController extends Controller
         string $workflowGroup,
         TestingBoardColumnsService $svc
     ): JsonResponse {
+        /** @var Staff $staff */
+        $staff = Auth::user();
+        if (!$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
         $name = (string) $request->validated('name');
         $pos = $request->validated('position');
 
         $col = $svc->addColumn($workflowGroup, $name, $pos ? (int) $pos : null);
+
+        // ✅ Step 10.6 — audit
+        AuditLogger::logTestingColumnAdded(
+            staffId: (int) $staff->staff_id,
+            columnId: (int) $col->column_id,
+            boardId: (int) $col->board_id,
+            workflowGroup: (string) $workflowGroup,
+            name: (string) $col->name,
+            position: (int) $col->position
+        );
 
         return response()->json([
             'message' => 'Column added.',
@@ -117,19 +161,16 @@ class TestingBoardController extends Controller
         ], 201);
     }
 
-    /**
-     * PUT /v1/testing-board/{workflowGroup}/columns/reorder
-     * Body:
-     * - column_ids: int[] (MUST contain all column ids of the board exactly once)
-     *
-     * IMPORTANT:
-     * board has unique constraint (board_id, position) so we must "shift" positions first
-     * to avoid collisions during reorder.
-     */
     public function reorderColumns(
         TestingBoardReorderColumnsRequest $request,
         string $workflowGroup
     ): JsonResponse {
+        /** @var Staff $staff */
+        $staff = Auth::user();
+        if (!$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
         $ids = $request->validated('column_ids');
         $columnIds = array_values(array_map('intval', (array) $ids));
 
@@ -144,10 +185,20 @@ class TestingBoardController extends Controller
 
         $boardId = (int) $board->board_id;
 
-        // Validate: payload must contain ALL board columns exactly once
-        $existingIds = TestingColumn::query()
+        // ✅ capture "before" order for audit
+        $beforeCols = TestingColumn::query()
             ->where('board_id', $boardId)
-            ->pluck('column_id')
+            ->orderBy('position')
+            ->get(['column_id', 'name', 'position']);
+
+        $oldOrder = $beforeCols->map(fn($c) => [
+            'column_id' => (int) $c->column_id,
+            'name' => (string) $c->name,
+            'position' => (int) $c->position,
+        ])->values()->all();
+
+        // Validate payload contains all board columns exactly once
+        $existingIds = $beforeCols->pluck('column_id')
             ->map(fn($v) => (int) $v)
             ->values()
             ->all();
@@ -168,12 +219,10 @@ class TestingBoardController extends Controller
         }
 
         DB::transaction(function () use ($boardId, $columnIds) {
-            // 1) Move all existing positions out of the way (avoid unique collisions)
             TestingColumn::query()
                 ->where('board_id', $boardId)
                 ->update(['position' => DB::raw('position + 1000')]);
 
-            // 2) Apply new order (1..N)
             foreach (array_values($columnIds) as $idx => $columnId) {
                 TestingColumn::query()
                     ->where('board_id', $boardId)
@@ -181,6 +230,27 @@ class TestingBoardController extends Controller
                     ->update(['position' => $idx + 1]);
             }
         });
+
+        // ✅ capture "after" order for audit
+        $afterCols = TestingColumn::query()
+            ->where('board_id', $boardId)
+            ->orderBy('position')
+            ->get(['column_id', 'name', 'position']);
+
+        $newOrder = $afterCols->map(fn($c) => [
+            'column_id' => (int) $c->column_id,
+            'name' => (string) $c->name,
+            'position' => (int) $c->position,
+        ])->values()->all();
+
+        // ✅ Step 10.6 — audit
+        AuditLogger::logTestingColumnsReordered(
+            staffId: (int) $staff->staff_id,
+            boardId: (int) $boardId,
+            workflowGroup: (string) $workflowGroup,
+            oldOrder: $oldOrder,
+            newOrder: $newOrder
+        );
 
         return response()->json([
             'message' => 'Columns reordered.',
