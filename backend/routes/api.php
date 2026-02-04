@@ -399,10 +399,6 @@ Route::prefix('v1')->group(function () {
             ->whereNumber('sample');
         Route::put('samples/{sample}/quality-cover/draft', [QualityCoverController::class, 'saveDraft'])
             ->whereNumber('sample');
-        Route::get('samples/{sample}/quality-cover', [QualityCoverController::class, 'show'])
-            ->whereNumber('sample');
-        Route::put('samples/{sample}/quality-cover/draft', [QualityCoverController::class, 'saveDraft'])
-            ->whereNumber('sample');
         Route::post('samples/{sample}/quality-cover/submit', [QualityCoverController::class, 'submit'])
             ->whereNumber('sample');
 

@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use App\Http\Requests\QualityCoverSubmitRequest;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Schema;
 
 class QualityCoverController extends Controller
 {
@@ -37,6 +38,13 @@ class QualityCoverController extends Controller
 
         $this->assertAnalyst($staff);
 
+        if (!Schema::hasTable('quality_covers')) {
+            return response()->json([
+                'message' => 'quality_covers table not found. Run migrations.',
+                'hint' => 'php artisan migrate',
+            ], 500);
+        }
+
         $cover = QualityCover::query()
             ->where('sample_id', (int) $sample->sample_id)
             ->orderByDesc('quality_cover_id')
@@ -58,6 +66,13 @@ class QualityCoverController extends Controller
         }
 
         $this->assertAnalyst($staff);
+
+        if (!Schema::hasTable('quality_covers')) {
+            return response()->json([
+                'message' => 'quality_covers table not found. Run migrations.',
+                'hint' => 'php artisan migrate',
+            ], 500);
+        }
 
         $cover = QualityCover::query()
             ->where('sample_id', (int) $sample->sample_id)
@@ -115,6 +130,13 @@ class QualityCoverController extends Controller
         }
 
         $this->assertAnalyst($staff);
+
+        if (!Schema::hasTable('quality_covers')) {
+            return response()->json([
+                'message' => 'quality_covers table not found. Run migrations.',
+                'hint' => 'php artisan migrate',
+            ], 500);
+        }
 
         // Draft is per-sample: 1 active draft record (update or create)
         $cover = QualityCover::query()
