@@ -12,13 +12,42 @@ class TestingBoardSeeder extends Seeder
     public function run(): void
     {
         /**
-         * Default columns per workflow group (sesuai definisi kamu).
+         * Default columns per workflow group.
          *
-         * NOTE:
-         * - Group naming di DB harus match yang dipakai di samples.workflow_group
-         * - Kalau kamu sudah pakai enum WorkflowGroup.php, samakan stringnya di bawah.
+         * IMPORTANT:
+         * - FE punya pilihan: default, pcr_sars_cov_2, pcr, wgs, elisa
+         * - Kalau group di DB tidak ada, FE akan fallback, lalu Move pakai column_id dummy (1/2/3)
+         *   dan backend akan 422 "Target column does not belong..."
+         *
+         * Jadi: kita seed semua group yang dipakai FE.
          */
         $defaults = [
+            // ✅ UI default (general)
+            'default' => [
+                'In Testing',
+                'Measuring',
+                'Ready for Review',
+            ],
+
+            // ✅ UI shortcuts
+            'pcr' => [
+                'Ekstraksi',
+                'Mixing',
+                'PCR',
+            ],
+            'wgs' => [
+                'Ekstraksi',
+                'Library Preparation',
+                'Sequencing',
+                'Bioinformatics Analysis',
+            ],
+            'elisa' => [
+                'Preparasi Sample',
+                'ELISA',
+                'Review',
+            ],
+
+            // ✅ Enum-based groups (existing)
             WorkflowGroup::PCR_SARS_COV_2->value => [
                 'Ekstraksi',
                 'Mixing',
@@ -44,33 +73,33 @@ class TestingBoardSeeder extends Seeder
         DB::transaction(function () use ($defaults) {
             foreach ($defaults as $workflowGroup => $columns) {
                 // 1) Upsert board per workflow group
-                // Assumption schema (dari step 10.1): testing_boards punya kolom workflow_group + name
                 $boardId = DB::table('testing_boards')->where('workflow_group', $workflowGroup)->value('board_id');
+
+                $displayName = 'Testing Board - ' . Str::of($workflowGroup)->replace('_', ' ');
 
                 if (!$boardId) {
                     $boardId = DB::table('testing_boards')->insertGetId([
                         'workflow_group' => $workflowGroup,
-                        'name' => 'Testing Board - ' . Str::of($workflowGroup)->replace('_', ' '),
+                        'name' => $displayName,
                         'created_at' => now(),
                         'updated_at' => now(),
                     ], 'board_id');
                 } else {
-                    // ensure name always exists/updated
                     DB::table('testing_boards')->where('board_id', $boardId)->update([
-                        'name' => 'Testing Board - ' . Str::of($workflowGroup)->replace('_', ' '),
+                        'name' => $displayName,
                         'updated_at' => now(),
                     ]);
                 }
 
-                // 2) Reset columns for this board (repeatable seeding)
+                // 2) Reset columns (repeatable)
                 DB::table('testing_columns')->where('board_id', $boardId)->delete();
 
-                // 3) Insert default columns in order
+                // 3) Insert default columns
                 foreach (array_values($columns) as $idx => $colName) {
                     DB::table('testing_columns')->insert([
                         'board_id' => $boardId,
                         'name' => $colName,
-                        'position' => $idx + 1, // 1-based
+                        'position' => $idx + 1,
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);

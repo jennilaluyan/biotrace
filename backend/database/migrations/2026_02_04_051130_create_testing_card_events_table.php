@@ -14,20 +14,14 @@ return new class extends Migration
             $table->unsignedBigInteger('board_id');
             $table->unsignedBigInteger('sample_id');
 
-            // movement
             $table->unsignedBigInteger('from_column_id')->nullable();
             $table->unsignedBigInteger('to_column_id');
 
-            // actor
             $table->unsignedBigInteger('moved_by_staff_id');
 
-            // time
             $table->timestampTz('moved_at')->useCurrent();
 
-            // optional note (e.g. reason, comment)
             $table->text('note')->nullable();
-
-            // flexible metadata if needed later (drag source, client clock, etc.)
             $table->json('meta')->nullable();
 
             $table->index(['board_id', 'moved_at'], 'idx_testing_card_events_board_time');

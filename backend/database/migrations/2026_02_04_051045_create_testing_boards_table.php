@@ -11,16 +11,10 @@ return new class extends Migration
         Schema::create('testing_boards', function (Blueprint $table) {
             $table->bigIncrements('board_id');
 
-            // Workflow group key: ex: pcr_sarscov2, wgs_sarscov2, group_19_22, group_23_32
             $table->string('workflow_group', 50);
-
-            // Display name (editable later)
             $table->string('name', 120);
 
-            // Optional settings for future (WIP): WIP limits, UI prefs, etc
             $table->json('settings')->nullable();
-
-            // Who created/edited (optional; keep nullable to allow seeding/system)
             $table->unsignedBigInteger('created_by_staff_id')->nullable();
 
             $table->timestampTz('created_at')->useCurrent();

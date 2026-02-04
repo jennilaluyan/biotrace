@@ -24,6 +24,7 @@ class TestingBoardController extends Controller
      * Body:
      * - sample_id: int
      * - to_column_id: int
+     * - workflow_group?: string (optional, from FE)
      */
     public function move(TestingBoardMoveRequest $request): JsonResponse
     {
@@ -36,9 +37,12 @@ class TestingBoardController extends Controller
         $payload = $request->validated();
 
         $result = $this->svc->moveCard(
-            sampleId: (int) $payload['sample_id'],
-            toColumnId: (int) $payload['to_column_id'],
-            actorStaffId: (int) $staff->staff_id
+            (int) $payload['sample_id'],
+            (int) $payload['to_column_id'],
+            (int) $staff->staff_id,
+            (isset($payload['workflow_group']) && $payload['workflow_group'])
+                ? (string) $payload['workflow_group']
+                : null
         );
 
         return response()->json([

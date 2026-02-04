@@ -14,10 +14,7 @@ return new class extends Migration
             $table->unsignedBigInteger('board_id');
             $table->string('name', 120);
 
-            // order in kanban
             $table->integer('position')->default(0);
-
-            // optional: mark terminal stages later (eg: "Done")
             $table->boolean('is_terminal')->default(false);
 
             $table->unsignedBigInteger('created_by_staff_id')->nullable();

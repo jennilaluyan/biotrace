@@ -8,7 +8,6 @@ class TestingBoardMoveRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        // auth middleware already guards; allow here
         return true;
     }
 
@@ -17,6 +16,9 @@ class TestingBoardMoveRequest extends FormRequest
         return [
             'sample_id' => ['required', 'integer', 'min:1'],
             'to_column_id' => ['required', 'integer', 'min:1'],
+
+            // allow FE to pass selected workflow group (optional)
+            'workflow_group' => ['nullable', 'string', 'regex:/^[a-z0-9_]+$/'],
         ];
     }
 }

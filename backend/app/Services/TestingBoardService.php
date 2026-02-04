@@ -20,41 +20,79 @@ class TestingBoardService
      * Move a sample card to another testing column.
      *
      * - Validates target column belongs to the sample's workflow group's board
+     * - Allows FE override workflow_group to prevent mismatch / fallback fake columns scenario
+     * - Auto-creates board (+ default columns) if missing to stop FE fallback mode forever
      * - Closes previous open event (if exited_at exists)
      * - Inserts new movement event
      * - Best-effort updates samples.testing_column_id if the column exists
      */
-    public function moveCard(int $sampleId, int $toColumnId, int $actorStaffId): array
-    {
-        return DB::transaction(function () use ($sampleId, $toColumnId, $actorStaffId) {
+    public function moveCard(
+        int $sampleId,
+        int $toColumnId,
+        int $actorStaffId,
+        ?string $workflowGroupOverride = null
+    ): array {
+        return DB::transaction(function () use ($sampleId, $toColumnId, $actorStaffId, $workflowGroupOverride) {
             /** @var Sample $sample */
             $sample = Sample::query()->lockForUpdate()->findOrFail($sampleId);
 
-            // 1) Extract parameter IDs (best effort)
-            $parameterIds = $this->extractParameterIdsFromSample($sample);
+            // 1) Resolve workflow group (override wins)
+            $workflowGroup = null;
 
-            // 2) Resolve group
-            $groupEnum = $this->workflowGroupResolver->resolveFromParameterIds($parameterIds);
-            if (!$groupEnum) {
-                abort(422, 'Cannot resolve workflow group from sample parameters.');
+            if ($workflowGroupOverride) {
+                $workflowGroup = trim((string) $workflowGroupOverride);
+            } else {
+                // Extract parameter IDs (best effort)
+                $parameterIds = $this->extractParameterIdsFromSample($sample);
+
+                // Resolve group
+                $groupEnum = $this->workflowGroupResolver->resolveFromParameterIds($parameterIds);
+                if (!$groupEnum) {
+                    abort(422, 'Cannot resolve workflow group from sample parameters.');
+                }
+
+                // Support enum or string resolver return
+                $workflowGroup = is_object($groupEnum) && property_exists($groupEnum, 'value')
+                    ? (string) $groupEnum->value
+                    : (string) $groupEnum;
             }
 
-            // Support enum or string resolver return
-            $workflowGroup = is_object($groupEnum) && property_exists($groupEnum, 'value')
-                ? (string) $groupEnum->value
-                : (string) $groupEnum;
+            if (!$workflowGroup) {
+                abort(422, 'Workflow group is empty.');
+            }
 
-            // 3) Find board for that group
+            // 2) Find (or create) board for that group
             /** @var TestingBoard|null $board */
             $board = TestingBoard::query()
                 ->where('workflow_group', $workflowGroup)
                 ->first();
 
             if (!$board) {
-                abort(422, "Testing board not found for workflow_group: {$workflowGroup}");
+                // ✅ auto-create so FE doesn't fall into fallback forever
+                $board = TestingBoard::query()->create([
+                    'workflow_group' => $workflowGroup,
+                    'name' => strtoupper($workflowGroup) . ' Testing Board',
+                ]);
+
+                // seed default columns
+                $defaults = [
+                    ['name' => 'In Testing', 'position' => 1],
+                    ['name' => 'Measuring', 'position' => 2],
+                    ['name' => 'Ready for Review', 'position' => 3],
+                ];
+
+                foreach ($defaults as $d) {
+                    TestingColumn::query()->create([
+                        'board_id' => (int) $board->board_id,
+                        'name' => $d['name'],
+                        'position' => (int) $d['position'],
+                    ]);
+                }
+
+                $board->refresh();
             }
 
-            // 4) Target column must belong to that board
+            // 3) Target column must belong to that board
             /** @var TestingColumn $toColumn */
             $toColumn = TestingColumn::query()->findOrFail($toColumnId);
 
@@ -123,7 +161,7 @@ class TestingBoardService
 
             return [
                 'sample_id' => (int) $sampleId,
-                'workflow_group' => $workflowGroup,
+                'workflow_group' => (string) $workflowGroup,
                 'board_id' => (int) $board->board_id,
                 'from_column_id' => $fromColumnId ? (int) $fromColumnId : null,
                 'to_column_id' => (int) $toColumnId,

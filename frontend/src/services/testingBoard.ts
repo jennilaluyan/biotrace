@@ -45,24 +45,15 @@ function unwrapData<T>(res: any): T {
     return res as T;
 }
 
-/**
- * Backend primary:
- * GET /v1/testing-board/{group}
- *
- * Fallback:
- * - build board from /v1/samples?status_enum=testing (if backend not ready / board not found)
- */
 export async function fetchTestingBoard(opts?: { group?: string }) {
     const raw = (opts?.group ?? "").trim();
 
-    // ✅ map UI "default" to a real group you actually seeded in DB (adjust if needed)
-    const group = !raw || raw === "default" ? "pcr_sars_cov_2" : raw;
+    const group = raw || "default";
 
     try {
         const res = await apiGet<any>(`${BOARD_BASE}/${encodeURIComponent(group)}`);
         const payload = unwrapData<any>(res);
 
-        // backend might return { message: "Board not found." }
         if (payload?.message && !payload?.columns) {
             throw new Error(payload.message);
         }
@@ -71,7 +62,13 @@ export async function fetchTestingBoard(opts?: { group?: string }) {
         const cards = safeArr<TestingBoardCard>(payload?.cards);
 
         if (columns.length > 0) {
-            return { mode: "backend" as const, group, board: payload as TestingBoardPayload, columns, cards };
+            return {
+                mode: "backend" as const,
+                group: (payload?.workflow_group ?? group) as string,
+                board: payload as TestingBoardPayload,
+                columns,
+                cards,
+            };
         }
 
         throw new Error("Board payload missing columns.");
@@ -111,23 +108,16 @@ export async function fetchTestingBoard(opts?: { group?: string }) {
     }
 }
 
-/**
- * Move card between columns:
- * POST /v1/testing-board/move
- * body: { sample_id, from_column_id, to_column_id, note? }
- */
 export async function moveTestingCard(payload: {
     sample_id: number;
     from_column_id: number | null;
     to_column_id: number;
+    workflow_group?: string | null;
     note?: string | null;
 }) {
     return apiPost(`${BOARD_BASE}/move`, payload);
 }
 
-/**
- * Column management (rename/add/reorder)
- */
 export async function renameTestingColumn(columnId: number, name: string) {
     return apiPatch(`${BOARD_BASE}/columns/${columnId}`, { name });
 }

@@ -57,7 +57,16 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
         try {
             setLoading(true);
             setError(null);
+
             const res = await fetchTestingBoard({ group });
+
+            // ✅ Safety: if backend returns a normalized workflow_group,
+            // keep FE selection aligned *only when user is still on "default"*.
+            if (group === "default" && res.group && res.group !== group) {
+                setGroup(res.group);
+                return; // reload via effect
+            }
+
             setMode(res.mode);
             setColumns([...res.columns].sort((a, b) => a.position - b.position));
             setCards(res.cards);
@@ -126,10 +135,10 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
                 sample_id: sampleId,
                 from_column_id: myCard?.column_id ?? null,
                 to_column_id: toColumnId,
+                workflow_group: group, // ✅ NEW: ensure backend validates against the same board UI is using
                 note: null,
             });
 
-            // refresh to get timestamps from backend
             await load();
         } catch (e: any) {
             setCards(prevCards);
@@ -213,7 +222,10 @@ export const SampleTestingKanbanTab = ({ sampleId, sample }: Props) => {
                         {alreadyStarted && nextCol && (
                             <button
                                 type="button"
-                                className={cx("lims-btn-primary px-4 py-2", busyMove && "opacity-60 cursor-not-allowed")}
+                                className={cx(
+                                    "lims-btn-primary px-4 py-2",
+                                    busyMove && "opacity-60 cursor-not-allowed"
+                                )}
                                 disabled={busyMove}
                                 onClick={() => doMove(nextCol.column_id)}
                                 title="Move to next stage and record timestamp"
