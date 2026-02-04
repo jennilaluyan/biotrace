@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\services\testingBoard.ts
 import { apiGet, apiPost, apiPatch, apiPut } from "./api";
 import type { Sample, PaginatedResponse } from "./samples";
 
