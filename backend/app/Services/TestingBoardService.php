@@ -98,7 +98,8 @@ class TestingBoardService
             if (!$fromColumnId) {
                 $latest = TestingCardEvent::query()
                     ->where('sample_id', $sampleId)
-                    ->orderByDesc('id')
+                    ->orderByDesc('moved_at')
+                    ->orderByDesc('event_id')
                     ->first();
 
                 if ($latest) {
@@ -117,17 +118,16 @@ class TestingBoardService
             }
             $toColName = $toColumn->name ?? null;
 
-            // Close previous open event if schema supports exited_at
             if (Schema::hasColumn('testing_card_events', 'exited_at')) {
                 TestingCardEvent::query()
                     ->where('sample_id', $sampleId)
                     ->whereNull('exited_at')
-                    ->orderByDesc('id')
+                    ->orderByDesc('moved_at')
+                    ->orderByDesc('event_id')
                     ->limit(1)
                     ->update(['exited_at' => $now]);
             }
 
-            // Create new movement event
             $eventData = [
                 'board_id' => (int) $board->board_id,
                 'sample_id' => (int) $sampleId,
