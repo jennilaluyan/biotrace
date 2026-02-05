@@ -116,11 +116,11 @@ export const SampleDetailPage = () => {
     const labSampleCode = String((sample as any)?.lab_sample_code ?? "").trim();
 
     const crossStatus = String((sample as any)?.crosscheck_status ?? "pending").toLowerCase();
-    const analystReceivedAt = (sample as any)?.analyst_received_at ?? null;
-    const expectedLabCode = String((sample as any)?.lab_sample_code ?? "");
+    const analystReceivedAt = sample?.analyst_received_at ?? null;
+    const expectedLabCode = String(sample?.lab_sample_code ?? "");
 
     // physical workflow
-    const scDeliveredToAnalystAt = (sample as any)?.sc_delivered_to_analyst_at ?? null;
+    const scDeliveredToAnalystAt = sample?.sc_delivered_to_analyst_at ?? null;
 
     const canDoCrosscheck = isAnalyst && !!analystReceivedAt && !!expectedLabCode;
 

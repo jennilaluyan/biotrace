@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SamplesPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, RefreshCw } from "lucide-react";
@@ -47,6 +46,10 @@ const normalizeStatusLabel = (label: string) => {
     if (s === "testing completed") return "testing done";
     if (s === "ready for reagent request") return "ready for reagent";
     if (s === "awaiting analyst intake") return "awaiting intake";
+    if (s === "in transit to analyst") return "in transit to analyst";
+    if (s === "received by analyst") return "received";
+    if (s === "received_by_analyst") return "received";
+    if (s === "in_transit_to_analyst") return "in transit to analyst";
     if (s === "awaiting lab promotion") return "awaiting promotion";
     if (s === "awaiting crosscheck") return "awaiting crosscheck";
     if (s === "crosscheck passed") return "crosscheck passed";
@@ -177,7 +180,34 @@ export const SamplesPage = () => {
             return { label: normalizeStatusLabel(`reagent request (${rrStatus})`), className: statusChipClass("gray") };
         }
 
-        // 1) Crosscheck status (analyst gate)
+        // ✅ 1) Request/Intake workflow status (includes SC→Analyst handoff)
+        const rs = String(anyS?.request_status ?? "").trim().toLowerCase();
+        if (rs) {
+            if (rs === "in_transit_to_analyst") {
+                return { label: normalizeStatusLabel("in transit to analyst"), className: statusChipClass("yellow") };
+            }
+            if (rs === "received_by_analyst") {
+                return { label: normalizeStatusLabel("received"), className: statusChipClass("blue") };
+            }
+
+            // for other request statuses: show it but keep it calmer
+            // (you can tweak tones per status later)
+            const label = normalizeStatusLabel(rs);
+            const tone =
+                rs.includes("rejected") ? "red" :
+                    rs.includes("failed") ? "red" :
+                        rs.includes("returned") ? "red" :
+                            rs.includes("submitted") ? "yellow" :
+                                rs.includes("ready") ? "yellow" :
+                                    rs.includes("awaiting") ? "yellow" :
+                                        rs.includes("validated") ? "green" :
+                                            rs.includes("passed") ? "green" :
+                                                "gray";
+
+            return { label, className: statusChipClass(tone as any) };
+        }
+
+        // 2) Crosscheck status (analyst gate)
         const cs = String(anyS?.crosscheck_status ?? "pending").toLowerCase();
         if (cs === "failed") {
             return { label: normalizeStatusLabel("crosscheck failed"), className: statusChipClass("red") };
@@ -186,18 +216,13 @@ export const SamplesPage = () => {
             return { label: normalizeStatusLabel("crosscheck passed"), className: statusChipClass("green") };
         }
 
-        // 2) Analyst intake fallback
+        // 3) Lab code existence fallback
         const hasLabCode = !!s.lab_sample_code;
         if (!hasLabCode) {
             return { label: normalizeStatusLabel("awaiting lab promotion"), className: statusChipClass("gray") };
         }
 
-        const analystReceivedAt = anyS?.analyst_received_at ?? null;
-        if (!analystReceivedAt) {
-            return { label: normalizeStatusLabel("awaiting analyst intake"), className: statusChipClass("yellow") };
-        }
-
-        // 3) current_status fallback (lab workflow)
+        // 4) current_status fallback (lab workflow)
         const current = String(s.current_status ?? "").toLowerCase().replace(/_/g, " ");
         if (current === "received") return { label: normalizeStatusLabel("received"), className: statusChipClass("blue") };
         if (current === "in progress") return { label: normalizeStatusLabel("in progress"), className: statusChipClass("blue") };
@@ -206,7 +231,7 @@ export const SamplesPage = () => {
         if (current === "validated") return { label: normalizeStatusLabel("validated"), className: statusChipClass("green") };
         if (current === "reported") return { label: normalizeStatusLabel("reported"), className: statusChipClass("green") };
 
-        // 4) Default
+        // 5) Default
         return { label: normalizeStatusLabel("awaiting crosscheck"), className: statusChipClass("yellow") };
     };
 

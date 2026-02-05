@@ -24,6 +24,8 @@ export type SampleRequestStatus =
     | "physically_received"
     | "in_transit_to_collector"
     | "under_inspection"
+    | "in_transit_to_analyst"
+    | "received_by_analyst"
     | "inspection_failed"
     | "returned_to_admin"
     | "intake_checklist_passed"
@@ -38,6 +40,8 @@ export type PhysicalWorkflowAction =
     | "admin_brought_to_collector"
     | "collector_received"
     | "collector_intake_completed"
+    | "sc_delivered_to_analyst"
+    | "analyst_received"
     | "collector_returned_to_admin"
     | "admin_received_from_collector"
     | "client_picked_up";
@@ -115,17 +119,16 @@ export interface Sample {
     admin_brought_to_collector_at?: string | null;
     collector_received_at?: string | null;
     collector_intake_completed_at?: string | null;
+    sc_delivered_to_analyst_at?: string | null;
+    analyst_received_at?: string | null;
     collector_returned_to_admin_at?: string | null;
     admin_received_from_collector_at?: string | null;
     client_picked_up_at?: string | null;
-
     lo_id?: number | null;
     lo_number?: string | null;
     lo_generated_at?: string | null;
-
     reagent_request_id?: number | null;
     reagent_request_status?: string | null;
-
     crosscheck_status?: "pending" | "passed" | "failed" | (string & {}) | null;
     crosschecked_at?: string | null;
     crosschecked_by_staff_id?: number | null;

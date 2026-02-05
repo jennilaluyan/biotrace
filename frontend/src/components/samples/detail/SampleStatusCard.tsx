@@ -47,18 +47,34 @@ function iconFor(label: string) {
 }
 
 function getSummaryStatus(sample: any, rrStatus?: string | null) {
-    const rr = normalizeLabel(rrStatus);
-    if (rr) return `reagent ${rr}`;
+    // ✅ Only show reagent status when it truly exists
+    const rrRaw = String(rrStatus ?? "").trim();
+    if (rrRaw) return `reagent ${normalizeLabel(rrRaw)}`;
 
-    const cs = normalizeLabel(sample?.crosscheck_status ?? "pending");
-    if (cs === "failed") return "crosscheck failed";
-    if (cs === "passed") return "crosscheck passed";
+    // ✅ Prefer request_status for request/intake workflow (and your new SC->Analyst statuses)
+    const rs = String(sample?.request_status ?? "").trim().toLowerCase();
+    if (rs) {
+        // explicit label overrides (so it matches your desired wording)
+        if (rs === "in_transit_to_analyst") return "in transit to analyst";
+        if (rs === "received_by_analyst") return "received";
 
-    const current = normalizeLabel(sample?.current_status ?? "");
-    if (current) return current;
+        // fallback for other request statuses (draft/submitted/etc)
+        return normalizeLabel(rs);
+    }
 
-    const statusEnum = normalizeLabel(sample?.status_enum ?? "");
-    if (statusEnum) return statusEnum;
+    // Crosscheck can override once analyst starts working
+    const csRaw = String(sample?.crosscheck_status ?? "").trim().toLowerCase();
+    if (csRaw) {
+        if (csRaw === "failed") return "crosscheck failed";
+        if (csRaw === "passed") return "crosscheck passed";
+        if (csRaw === "pending") return "crosscheck pending";
+    }
+
+    const currentRaw = String(sample?.current_status ?? "").trim();
+    if (currentRaw) return normalizeLabel(currentRaw);
+
+    const statusEnumRaw = String(sample?.status_enum ?? "").trim();
+    if (statusEnumRaw) return normalizeLabel(statusEnumRaw);
 
     return "pending";
 }
