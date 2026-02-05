@@ -14,6 +14,7 @@ use App\Services\TestingBoardService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use App\Support\AuditLogger;
 
 class TestingBoardController extends Controller
 {
@@ -25,6 +26,7 @@ class TestingBoardController extends Controller
      * - sample_id: int
      * - to_column_id: int
      * - workflow_group?: string (optional, from FE)
+     * - finalize?: bool (optional)  ✅ record exited_at on last column without moving
      */
     public function move(TestingBoardMoveRequest $request): JsonResponse
     {
@@ -42,7 +44,8 @@ class TestingBoardController extends Controller
             (int) $staff->staff_id,
             (isset($payload['workflow_group']) && $payload['workflow_group'])
                 ? (string) $payload['workflow_group']
-                : null
+                : null,
+            (bool) ($payload['finalize'] ?? false),
         );
 
         return response()->json([
@@ -64,16 +67,24 @@ class TestingBoardController extends Controller
             return response()->json(['message' => 'Board not found.'], 404);
         }
 
+        // ✅ NEW: cards state (persisted)
+        $cards = $this->svc->getBoardCards((int) $board->board_id);
+
+        // ✅ NEW: last column id (for QC unlock gate)
+        $lastColumnId = (int) optional($board->columns->sortByDesc('position')->first())->column_id;
+
         return response()->json([
             'data' => [
                 'board_id' => (int) $board->board_id,
                 'workflow_group' => $board->workflow_group,
                 'name' => $board->name,
+                'last_column_id' => $lastColumnId,
                 'columns' => $board->columns->map(fn($c) => [
                     'column_id' => (int) $c->column_id,
                     'name' => $c->name,
                     'position' => (int) $c->position,
                 ])->values(),
+                'cards' => $cards,
             ],
         ]);
     }
@@ -89,7 +100,6 @@ class TestingBoardController extends Controller
             return response()->json(['message' => 'Authenticated staff not found.'], 500);
         }
 
-        // fetch "before" for audit
         /** @var TestingColumn $before */
         $before = TestingColumn::query()->findOrFail($columnId);
         $oldName = (string) $before->name;
@@ -103,7 +113,6 @@ class TestingBoardController extends Controller
 
         $col = $svc->renameColumn($columnId, $newName);
 
-        // ✅ Step 10.6 — audit
         AuditLogger::logTestingColumnRenamed(
             staffId: (int) $staff->staff_id,
             columnId: (int) $columnId,
@@ -140,7 +149,6 @@ class TestingBoardController extends Controller
 
         $col = $svc->addColumn($workflowGroup, $name, $pos ? (int) $pos : null);
 
-        // ✅ Step 10.6 — audit
         AuditLogger::logTestingColumnAdded(
             staffId: (int) $staff->staff_id,
             columnId: (int) $col->column_id,
@@ -185,7 +193,6 @@ class TestingBoardController extends Controller
 
         $boardId = (int) $board->board_id;
 
-        // ✅ capture "before" order for audit
         $beforeCols = TestingColumn::query()
             ->where('board_id', $boardId)
             ->orderBy('position')
@@ -197,7 +204,6 @@ class TestingBoardController extends Controller
             'position' => (int) $c->position,
         ])->values()->all();
 
-        // Validate payload contains all board columns exactly once
         $existingIds = $beforeCols->pluck('column_id')
             ->map(fn($v) => (int) $v)
             ->values()
@@ -231,7 +237,6 @@ class TestingBoardController extends Controller
             }
         });
 
-        // ✅ capture "after" order for audit
         $afterCols = TestingColumn::query()
             ->where('board_id', $boardId)
             ->orderBy('position')
@@ -243,7 +248,6 @@ class TestingBoardController extends Controller
             'position' => (int) $c->position,
         ])->values()->all();
 
-        // ✅ Step 10.6 — audit
         AuditLogger::logTestingColumnsReordered(
             staffId: (int) $staff->staff_id,
             boardId: (int) $boardId,

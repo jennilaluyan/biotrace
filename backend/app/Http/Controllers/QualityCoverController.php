@@ -74,6 +74,7 @@ class QualityCoverController extends Controller
             ], 500);
         }
 
+        // Find existing draft
         $cover = QualityCover::query()
             ->where('sample_id', (int) $sample->sample_id)
             ->where('status', 'draft')
@@ -81,7 +82,24 @@ class QualityCoverController extends Controller
             ->first();
 
         if (!$cover) {
-            return response()->json(['message' => 'Draft quality cover not found.'], 404);
+            // If already submitted before, block double submit (optional)
+            $latest = QualityCover::query()
+                ->where('sample_id', (int) $sample->sample_id)
+                ->orderByDesc('quality_cover_id')
+                ->first();
+
+            if ($latest && $latest->status === 'submitted') {
+                return response()->json([
+                    'message' => 'Quality cover already submitted.',
+                    'data' => $latest,
+                ], 409);
+            }
+
+            $cover = new QualityCover();
+            $cover->sample_id = (int) $sample->sample_id;
+            $cover->status = 'draft';
+            $cover->date_of_analysis = Carbon::now()->toDateString();
+            $cover->checked_by_staff_id = (int) $staff->staff_id;
         }
 
         // Determine workflow group (from To-Do 9)

@@ -16,6 +16,17 @@ type Props = {
     onAfterSave?: () => void; // refresh sample/documents if needed
 };
 
+function prettyErr(e: any, fallback: string) {
+    return (
+        e?.message ||
+        e?.data?.message ||
+        e?.data?.error ||
+        e?.response?.data?.message ||
+        e?.response?.data?.error ||
+        fallback
+    );
+}
+
 export function QualityCoverSection(props: Props) {
     const { sample, checkedByName, disabled, onAfterSave } = props;
 
@@ -57,7 +68,7 @@ export function QualityCoverSection(props: Props) {
                 if (c?.qc_payload) setQcPayload(c.qc_payload);
             } catch (e: any) {
                 if (!alive) return;
-                setQcError(e?.message || "Failed to load quality cover.");
+                setQcError(prettyErr(e, "Failed to load quality cover."));
                 setCover(null);
             } finally {
                 if (!alive) return;
@@ -115,12 +126,19 @@ export function QualityCoverSection(props: Props) {
             setCover(c);
             onAfterSave?.();
         } catch (e: any) {
-            setQcError(e?.message || "Failed to save draft.");
+            setQcError(prettyErr(e, "Failed to save draft."));
         } finally {
             setQcSaving(false);
         }
     }
 
+    /**
+     * ✅ FIX:
+     * Backend mengembalikan "Draft quality cover not found." saat submit jika draft belum pernah dibuat.
+     * Jadi saat user klik Submit, FE harus:
+     * 1) ensure draft ada (create/update via /draft)
+     * 2) baru POST /submit
+     */
     async function onSubmit() {
         if (!sampleId) return;
         if (disabled) return;
@@ -130,22 +148,31 @@ export function QualityCoverSection(props: Props) {
         setQcError(null);
 
         try {
-            const c = await submitQualityCover(sampleId, {
+            // 1) Ensure draft exists (create if missing)
+            // Ini akan menyelesaikan error "Draft quality cover not found."
+            const ensuredDraft = await saveQualityCoverDraft(sampleId, {
                 method_of_analysis: methodOfAnalysis.trim(),
                 qc_payload: qcPayload,
             });
 
-            setCover(c);
+            setCover(ensuredDraft);
+
+            // 2) Submit
+            const submitted = await submitQualityCover(sampleId, {
+                method_of_analysis: methodOfAnalysis.trim(),
+                qc_payload: qcPayload,
+            });
+
+            setCover(submitted);
             onAfterSave?.();
         } catch (e: any) {
-            setQcError(e?.message || "Failed to submit quality cover.");
+            setQcError(prettyErr(e, "Failed to submit quality cover."));
         } finally {
             setQcSubmitting(false);
         }
     }
 
     const paramLabel =
-        // backend sometimes uses requested_parameters or requestedParameters; handle both
         ((sample as any)?.requested_parameters || (sample as any)?.requestedParameters || [])
             .map((p: any) => p?.name)
             .filter(Boolean)
