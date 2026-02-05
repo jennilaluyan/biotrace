@@ -37,6 +37,18 @@ class QualityCoverController extends Controller
         }
     }
 
+    private function assertLabHead(Staff $staff): void
+    {
+        $roleName = strtolower((string) optional($staff->role)->name);
+
+        // toleransi variasi penamaan role di DB
+        $ok = in_array($roleName, ['lab head', 'laboratory head', 'lh'], true);
+
+        if (!$ok) {
+            abort(403, 'Forbidden.');
+        }
+    }
+
     /**
      * POST /v1/quality-covers/{qualityCover}/verify
      * OM verifies a submitted quality cover.
@@ -327,6 +339,80 @@ class QualityCoverController extends Controller
                 'last_page' => $page->lastPage(),
             ],
         ]);
+    }
+
+    /**
+     * GET /v1/quality-covers/inbox/lh
+     * Inbox LH: list covers that are ready to be validated (verified by OM).
+     *
+     * Query params:
+     * - search: string (optional) -> matches sample.lab_sample_code OR sample.client.name
+     * - per_page: int (optional, default 25, max 100)
+     * - page: int (optional)
+     */
+    public function inboxLh(Request $request): JsonResponse
+    {
+        /** @var Staff $staff */
+        $staff = Auth::user();
+        if (!$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
+        $this->assertLabHead($staff);
+
+        if (!Schema::hasTable('quality_covers')) {
+            return response()->json([
+                'message' => 'quality_covers table not found. Run migrations.',
+                'hint' => 'php artisan migrate',
+            ], 500);
+        }
+
+        $search = trim((string) $request->query('search', ''));
+        $perPage = (int) $request->query('per_page', 25);
+        $perPage = max(1, min(100, $perPage));
+
+        // Inbox LH = verified
+        $q = QualityCover::query()
+            ->with([
+                'sample' => function ($s) {
+                    $s->select(['sample_id', 'client_id', 'lab_sample_code', 'workflow_group']);
+                    $s->with(['client:client_id,name']);
+                },
+                'checkedBy:staff_id,name',
+                // kalau field verify-by ada + relasi ada, ini bikin UI LH lebih enak
+                'verifiedBy:staff_id,name',
+            ])
+            ->where('status', 'verified')
+            ->orderByDesc('verified_at')
+            ->orderByDesc('quality_cover_id');
+
+        if ($search !== '') {
+            $q->where(function ($qq) use ($search) {
+                $qq->whereHas('sample', function ($s) use ($search) {
+                    $s->where('lab_sample_code', 'like', "%{$search}%")
+                        ->orWhereHas('client', function ($c) use ($search) {
+                            $c->where('name', 'like', "%{$search}%");
+                        });
+                });
+            });
+        }
+
+        $page = $q->paginate($perPage);
+
+        return response()->json([
+            'data' => $page->items(),
+            'meta' => [
+                'current_page' => $page->currentPage(),
+                'per_page' => $page->perPage(),
+                'total' => $page->total(),
+                'last_page' => $page->lastPage(),
+            ],
+        ]);
+    }
+
+    public function verifiedBy()
+    {
+        return $this->belongsTo(\App\Models\Staff::class, 'verified_by_staff_id', 'staff_id');
     }
 
     /**
