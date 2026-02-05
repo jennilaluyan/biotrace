@@ -1,4 +1,5 @@
 import axios, { AxiosRequestConfig, AxiosError } from "axios";
+import { publishAuthEvent } from "../utils/authSync";
 
 const API_URL = import.meta.env.VITE_API_URL;
 if (!API_URL) {
@@ -134,10 +135,12 @@ http.interceptors.response.use(
         if (status === 401) {
             if (isClientPath(url)) {
                 setClientAuthToken(null);
+                publishAuthEvent("client", "session_expired");
                 // jangan hapus legacy staff key di sini
             } else {
                 setStaffAuthToken(null);
                 localStorage.removeItem(AUTH_TOKEN_KEY);
+                publishAuthEvent("staff", "session_expired");
             }
         }
 

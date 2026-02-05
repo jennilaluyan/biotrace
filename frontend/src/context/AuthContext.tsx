@@ -1,6 +1,9 @@
+// frontend/src/context/AuthContext.tsx
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { loginRequest, logoutRequest, fetchProfile } from "../services/auth";
 import { getTenant } from "../utils/tenant";
+import { publishAuthEvent, subscribeAuthEvents } from "../utils/authSync";
+import { clearLastRoute } from "../utils/lastRoute";
 
 type UserRole = { id: number; name: string } | null;
 
@@ -44,6 +47,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
+    // Boot: load session (staff only for backoffice)
     useEffect(() => {
         let cancelled = false;
 
@@ -51,9 +55,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             try {
                 setLoading(true);
 
-                // IMPORTANT:
-                // Only try staff /me on backoffice.
-                // Portal uses ClientAuthContext and client /me
                 if (getTenant() !== "backoffice") {
                     if (!cancelled) setUser(null);
                     return;
@@ -81,12 +82,40 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         };
     }, []);
 
+    // ✅ NEW: cross-tab sync (staff)
+    useEffect(() => {
+        if (getTenant() !== "backoffice") return;
+
+        const unsub = subscribeAuthEvents((evt) => {
+            // ignore non-staff
+            if (evt.actor !== "staff") return;
+
+            // logout/expired in another tab -> clear immediately
+            if (evt.action === "logout" || evt.action === "session_expired") {
+                const uid = (user as any)?.id;
+                setUser(null);
+                clearLastRoute("staff", uid);
+                return;
+            }
+            // login/refresh in another tab -> refresh user (optional)
+            if (evt.action === "login" || evt.action === "refresh") {
+                refresh();
+            }
+        });
+
+        return unsub;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const login = async (email: string, password: string) => {
         setLoading(true);
         try {
             const u = await loginRequest(email, password);
             if (u) setUser(u as any);
             else await refresh();
+
+            // ✅ broadcast: other tabs can refresh UI if they want
+            publishAuthEvent("staff", "login");
         } finally {
             setLoading(false);
         }
@@ -94,9 +123,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const logout = async () => {
         setLoading(true);
+
+        // capture dulu sebelum setUser(null)
+        const uid = (user as any)?.id;
+
         try {
             await logoutRequest();
             setUser(null);
+            clearLastRoute("staff", uid);
+
+            publishAuthEvent("staff", "logout");
         } finally {
             setLoading(false);
         }
