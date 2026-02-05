@@ -49,8 +49,9 @@ export async function listOmInbox(params: {
     if (params.page) qs.set("page", String(params.page));
 
     return apiGet<{ data: QualityCoverInboxItem[]; meta: InboxMeta }>(
-        `/quality-covers/inbox/om?${qs.toString()}`
+        `/v1/quality-covers/inbox/om?${qs.toString()}`
     );
+
 }
 
 export async function listLhInbox(params: {
@@ -64,34 +65,34 @@ export async function listLhInbox(params: {
     if (params.page) qs.set("page", String(params.page));
 
     return apiGet<{ data: QualityCoverInboxItem[]; meta: InboxMeta }>(
-        `/quality-covers/inbox/lh?${qs.toString()}`
+        `/v1/quality-covers/inbox/lh?${qs.toString()}`
     );
 }
 
 export async function omVerify(qualityCoverId: number) {
     return apiPost<{ message: string; data: QualityCoverInboxItem }>(
-        `/quality-covers/${qualityCoverId}/verify`,
+        `/v1/quality-covers/${qualityCoverId}/verify`,
         {}
     );
 }
 
 export async function omReject(qualityCoverId: number, reason: string) {
     return apiPost<{ message: string; data: QualityCoverInboxItem }>(
-        `/quality-covers/${qualityCoverId}/reject`,
+        `/v1/quality-covers/${qualityCoverId}/reject`,
         { reason }
     );
 }
 
 export async function lhValidate(qualityCoverId: number) {
     return apiPost<{ message: string; data: QualityCoverInboxItem }>(
-        `/quality-covers/${qualityCoverId}/validate`,
+        `/v1/quality-covers/${qualityCoverId}/validate`,
         {}
     );
 }
 
 export async function lhReject(qualityCoverId: number, reason: string) {
     return apiPost<{ message: string; data: QualityCoverInboxItem }>(
-        `/quality-covers/${qualityCoverId}/reject-lh`,
+        `/v1/quality-covers/${qualityCoverId}/reject-lh`,
         { reason }
     );
 }
