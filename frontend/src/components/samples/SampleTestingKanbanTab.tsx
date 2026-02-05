@@ -1,5 +1,6 @@
 // L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\SampleTestingKanbanTab.tsx
 import { useEffect, useMemo, useState } from "react";
+import { RefreshCw, ChevronRight, Play, Square, Lock } from "lucide-react";
 import { getErrorMessage } from "../../utils/errors";
 import {
     fetchTestingBoard,
@@ -13,7 +14,7 @@ function cx(...arr: Array<string | false | null | undefined>) {
 }
 
 function fmt(x?: string | null) {
-    if (!x) return "-";
+    if (!x) return "—";
     const d = new Date(x);
     if (Number.isNaN(d.getTime())) return String(x);
     return d.toLocaleString();
@@ -22,9 +23,6 @@ function fmt(x?: string | null) {
 type Props = {
     sampleId: number;
     sample?: any;
-    roleId?: number | null;
-
-    // ✅ parent can auto-open QC tab after finalize
     onQualityCoverUnlocked?: () => void;
 };
 
@@ -36,17 +34,8 @@ function deriveGroupFromSample(sample: any): string {
 }
 
 function normalizeCard(c: any): TestingBoardCard {
-    const entered =
-        c?.entered_at ??
-        c?.enteredAt ??
-        c?.moved_at ??
-        c?.movedAt ??
-        null;
-
-    const exited =
-        c?.exited_at ??
-        c?.exitedAt ??
-        null;
+    const entered = c?.entered_at ?? c?.enteredAt ?? c?.moved_at ?? c?.movedAt ?? null;
+    const exited = c?.exited_at ?? c?.exitedAt ?? null;
 
     return {
         ...(c as any),
@@ -61,27 +50,13 @@ type StageStamp = {
     exited_at: string | null;
 };
 
-/**
- * ✅ FIX (timestamps persist across stages):
- * Previously the timeline key depended on `group`, so when backend returns
- * a different workflow_group (auto-resolve) or user switches group,
- * the UI would read a different localStorage key => old stage timestamps "disappear".
- *
- * New approach:
- * - timeline key is ONLY per sampleId (and versioned)
- * - on mount, we migrate any old per-group timeline keys into the new key
- */
 function timelineKeyV2(sampleId: number) {
     return `biotrace.testing_board.timeline.v2:${sampleId}`;
 }
 
-function timelineKeyLegacy(sampleId: number, group: string) {
-    return `biotrace.testing_board.timeline.v1:${group}:${sampleId}`;
-}
-
-function readTimelineRaw(key: string): Record<number, StageStamp> {
+function readTimeline(sampleId: number): Record<number, StageStamp> {
     try {
-        const raw = localStorage.getItem(key);
+        const raw = localStorage.getItem(timelineKeyV2(sampleId));
         if (!raw) return {};
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object") return {};
@@ -89,18 +64,16 @@ function readTimelineRaw(key: string): Record<number, StageStamp> {
         for (const [k, v] of Object.entries(parsed)) {
             const colId = Number(k);
             if (!Number.isFinite(colId)) continue;
-            const entered_at = (v as any)?.entered_at ?? null;
-            const exited_at = (v as any)?.exited_at ?? null;
-            out[colId] = { column_id: colId, entered_at, exited_at };
+            out[colId] = {
+                column_id: colId,
+                entered_at: (v as any)?.entered_at ?? null,
+                exited_at: (v as any)?.exited_at ?? null,
+            };
         }
         return out;
     } catch {
         return {};
     }
-}
-
-function readTimeline(sampleId: number): Record<number, StageStamp> {
-    return readTimelineRaw(timelineKeyV2(sampleId));
 }
 
 function writeTimeline(sampleId: number, map: Record<number, StageStamp>) {
@@ -111,10 +84,7 @@ function writeTimeline(sampleId: number, map: Record<number, StageStamp>) {
     }
 }
 
-function mergeTimeline(
-    prev: Record<number, StageStamp>,
-    patch: Partial<Record<number, Partial<StageStamp>>>
-): Record<number, StageStamp> {
+function mergeTimeline(prev: Record<number, StageStamp>, patch: Record<number, Partial<StageStamp>>) {
     const next: Record<number, StageStamp> = { ...(prev ?? {}) };
     for (const [k, v] of Object.entries(patch ?? {})) {
         const colId = Number(k);
@@ -129,48 +99,76 @@ function mergeTimeline(
     return next;
 }
 
-function migrateLegacyTimelines(sampleId: number, groups: string[]): Record<number, StageStamp> {
-    // Merge any legacy keys (v1) into the new v2 key.
-    // We keep the earliest entered_at and the latest exited_at if both exist.
-    const merged: Record<number, StageStamp> = {};
-    for (const g of groups) {
-        const legacy = readTimelineRaw(timelineKeyLegacy(sampleId, g));
-        for (const [k, v] of Object.entries(legacy)) {
-            const colId = Number(k);
-            if (!Number.isFinite(colId)) continue;
+/**
+ * ✅ Build timeline from backend events if present.
+ * Accept multiple shapes to be robust:
+ * - res.events[]
+ * - res.timeline[]
+ * - res.history[]
+ * - res.card_events[]
+ * Each item may include:
+ * - from_column_id, to_column_id, entered_at, exited_at, moved_at, created_at, finalize
+ */
+function buildTimelineFromBackend(res: any): Record<number, StageStamp> {
+    const candidates =
+        (res?.events ?? res?.timeline ?? res?.history ?? res?.card_events ?? res?.cardEvents ?? []) as any[];
 
-            const cur = merged[colId] ?? { column_id: colId, entered_at: null, exited_at: null };
+    if (!Array.isArray(candidates) || candidates.length === 0) return {};
 
-            const entered = (v as any)?.entered_at ?? null;
-            const exited = (v as any)?.exited_at ?? null;
+    const out: Record<number, StageStamp> = {};
 
-            const pickEarliest = (a: string | null, b: string | null) => {
-                if (!a) return b;
-                if (!b) return a;
-                return new Date(a).getTime() <= new Date(b).getTime() ? a : b;
-            };
-            const pickLatest = (a: string | null, b: string | null) => {
-                if (!a) return b;
-                if (!b) return a;
-                return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
-            };
+    const upsert = (colId: number, patch: Partial<StageStamp>) => {
+        const cur = out[colId] ?? { column_id: colId, entered_at: null, exited_at: null };
+        const next: StageStamp = {
+            column_id: colId,
+            entered_at: patch.entered_at ?? cur.entered_at ?? null,
+            exited_at: patch.exited_at ?? cur.exited_at ?? null,
+        };
 
-            merged[colId] = {
-                column_id: colId,
-                entered_at: pickEarliest(cur.entered_at, entered),
-                exited_at: pickLatest(cur.exited_at, exited),
-            };
+        // prefer earliest entered_at, latest exited_at
+        const pickEarliest = (a: string | null, b: string | null) => {
+            if (!a) return b;
+            if (!b) return a;
+            return new Date(a).getTime() <= new Date(b).getTime() ? a : b;
+        };
+        const pickLatest = (a: string | null, b: string | null) => {
+            if (!a) return b;
+            if (!b) return a;
+            return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
+        };
+
+        next.entered_at = pickEarliest(cur.entered_at, next.entered_at);
+        next.exited_at = pickLatest(cur.exited_at, next.exited_at);
+
+        out[colId] = next;
+    };
+
+    for (const e of candidates) {
+        const fromId = Number(e?.from_column_id ?? e?.fromColumnId ?? 0) || null;
+        const toId = Number(e?.to_column_id ?? e?.toColumnId ?? 0) || null;
+
+        const movedAt = e?.moved_at ?? e?.movedAt ?? e?.created_at ?? e?.createdAt ?? null;
+
+        const enteredAt = e?.entered_at ?? e?.enteredAt ?? movedAt ?? null;
+        const exitedAt = e?.exited_at ?? e?.exitedAt ?? null;
+
+        if (toId) {
+            upsert(toId, { entered_at: enteredAt });
+        }
+
+        if (fromId) {
+            // on move: exiting fromId
+            upsert(fromId, { exited_at: movedAt ?? exitedAt ?? null });
+        }
+
+        // finalize event might include column_id
+        const colId = Number(e?.column_id ?? e?.columnId ?? 0) || null;
+        if (colId && (e?.finalize || e?.finalized)) {
+            upsert(colId, { exited_at: movedAt ?? exitedAt ?? null });
         }
     }
 
-    // cleanup legacy keys best-effort (optional)
-    try {
-        for (const g of groups) localStorage.removeItem(timelineKeyLegacy(sampleId, g));
-    } catch {
-        // ignore
-    }
-
-    return merged;
+    return out;
 }
 
 export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocked }: Props) => {
@@ -178,9 +176,12 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
     const [loading, setLoading] = useState(false);
     const [busyMove, setBusyMove] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
     const [columns, setColumns] = useState<TestingBoardColumn[]>([]);
     const [cards, setCards] = useState<TestingBoardCard[]>([]);
-    const [mode, setMode] = useState<"backend" | "fallback">("fallback");
+
+    // “Synced” = backend mode, “Local” = fallback
+    const [mode, setMode] = useState<"synced" | "local">("local");
 
     const [timeline, setTimeline] = useState<Record<number, StageStamp>>({});
     const [lastColumnId, setLastColumnId] = useState<number | null>(null);
@@ -194,35 +195,15 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sampleId, sample?.sample_type]);
 
+    // load persisted timeline on mount
     useEffect(() => {
         if (!sampleId || Number.isNaN(sampleId)) return;
-
-        // ✅ Read v2 timeline first
         const v2 = readTimeline(sampleId);
-
-        // ✅ Migrate any v1 timelines (from group switching / auto-resolve)
-        // Include a small set of likely groups + current group.
-        const groupsToCheck = Array.from(
-            new Set<string>([
-                "default",
-                "pcr_sars_cov_2",
-                "pcr",
-                "wgs",
-                "elisa",
-                String(group || "default"),
-            ])
-        );
-
-        const migrated = migrateLegacyTimelines(sampleId, groupsToCheck);
-
-        const merged = mergeTimeline(v2, migrated as any);
-        setTimeline(merged);
-
-        // also persist immediately (so next reload is stable)
-        writeTimeline(sampleId, merged);
+        setTimeline(v2);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sampleId]);
 
+    // persist timeline changes
     useEffect(() => {
         if (!sampleId || Number.isNaN(sampleId)) return;
         writeTimeline(sampleId, timeline);
@@ -238,14 +219,13 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
             const res = await fetchTestingBoard({ group });
 
-            // ✅ If backend resolves group, don't lose timeline anymore (v2 is sample-based)
             if (group === "default" && res.group && res.group !== group) {
                 setGroup(res.group);
-                // continue load anyway? safer: return and allow effect to reload columns/cards for the right group
                 return;
             }
 
-            setMode(res.mode);
+            const rawMode = String((res as any)?.mode ?? "");
+            setMode(rawMode === "backend" ? "synced" : "local");
 
             const nextCols = [...(res.columns ?? [])].sort((a, b) => a.position - b.position);
             setColumns(nextCols);
@@ -255,29 +235,18 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
             const incomingCardsRaw: TestingBoardCard[] = Array.isArray(res.cards) ? res.cards : [];
             const incomingCards = incomingCardsRaw.map((c: any) => normalizeCard(c));
+            setCards(incomingCards);
 
-            const incomingHasMine = incomingCards.some((c) => Number(c.sample_id) === Number(sampleId));
+            // ✅ merge timeline from backend events (if any) + localStorage (never wipe)
+            const fromBackend = buildTimelineFromBackend(res);
+            const fromLocal = readTimeline(sampleId);
 
-            setCards((prev) => {
-                const prevArr = Array.isArray(prev) ? prev : [];
-                const prevHasMine = prevArr.some((c) => Number(c.sample_id) === Number(sampleId));
-
-                // if backend board temporarily doesn't include mine, keep previous
-                if (!incomingHasMine && prevHasMine) return prevArr;
-
-                const prevById = new Map<number, any>();
-                for (const p of prevArr) prevById.set(Number((p as any)?.sample_id), p);
-
-                return (incomingCards ?? []).map((c: any) => {
-                    const pid = Number(c?.sample_id);
-                    const old = prevById.get(pid);
-                    const entered_at = c?.entered_at ?? old?.entered_at ?? null;
-                    const exited_at = c?.exited_at ?? old?.exited_at ?? null;
-                    return { ...old, ...c, entered_at, exited_at };
-                });
+            setTimeline((prev) => {
+                const base = { ...fromLocal, ...(prev ?? {}) };
+                return mergeTimeline(base, fromBackend);
             });
 
-            // ✅ Merge stamps from backend current card into timeline
+            // also merge current card stamps
             const mine = incomingCards.find((c) => Number(c.sample_id) === Number(sampleId));
             if (mine?.column_id) {
                 const colId = Number(mine.column_id);
@@ -293,7 +262,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
         } catch (e: any) {
             setError(getErrorMessage(e, "Failed to load testing board."));
             setColumns([]);
-            setCards((prev) => (prev ?? []).map((c: any) => normalizeCard(c)));
+            setCards([]);
         } finally {
             setLoading(false);
         }
@@ -324,29 +293,25 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
     const alreadyStarted = !!myCard?.column_id;
 
-    const headerTitle = sample?.lab_sample_code || (sampleId ? `Sample #${sampleId}` : "Sample");
-    const headerSub = sample?.sample_type || (sample?.client?.name ? `Client: ${sample.client.name}` : "—");
+    const headerTitle = sample?.lab_sample_code || "—";
+    const headerSub = sample?.sample_type || "—";
 
     const isAtLastColumn = useMemo(() => {
         if (!alreadyStarted) return false;
         const cur = Number(myCard?.column_id ?? 0);
-        const last = lastColumnId ? Number(lastColumnId) : Number(sortedCols[sortedCols.length - 1]?.column_id ?? 0);
+        const last = lastColumnId
+            ? Number(lastColumnId)
+            : Number(sortedCols[sortedCols.length - 1]?.column_id ?? 0);
         return cur > 0 && last > 0 && cur === last;
     }, [alreadyStarted, myCard, lastColumnId, sortedCols]);
-
-    const lastStageStamp = useMemo(() => {
-        if (!isAtLastColumn) return null;
-        const colId = Number(myCard?.column_id ?? 0);
-        return timeline?.[colId] ?? null;
-    }, [isAtLastColumn, myCard, timeline]);
 
     const isLastStageEnded = useMemo(() => {
         if (!isAtLastColumn) return false;
         const colId = Number(myCard?.column_id ?? 0);
-        const exited = lastStageStamp?.exited_at ?? null;
+        const exited = timeline?.[colId]?.exited_at ?? null;
         const exited2 = (myCard as any)?.exited_at ?? null;
         return !!(exited || exited2);
-    }, [isAtLastColumn, lastStageStamp, myCard]);
+    }, [isAtLastColumn, myCard, timeline]);
 
     const doMove = async (toColumnId: number) => {
         if (!toColumnId) return;
@@ -368,13 +333,10 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             return mergeTimeline(prev, patch);
         });
 
-        const prevCards = cards;
-
-        // optimistic current card move
+        // optimistic card move
         setCards((prev) => {
             const arr = Array.isArray(prev) ? prev : [];
             const hasMine = arr.some((c) => Number(c.sample_id) === Number(sampleId));
-
             const updated = hasMine
                 ? arr.map((c) =>
                     Number(c.sample_id) === Number(sampleId)
@@ -387,15 +349,11 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                         sample_id: sampleId,
                         lab_sample_code: sample?.lab_sample_code ?? null,
                         sample_type: sample?.sample_type ?? null,
-                        client_name: sample?.client?.name ?? null,
-                        status_enum: sample?.status_enum ?? null,
-                        current_status: sample?.current_status ?? null,
                         column_id: toColumnId,
                         entered_at: nowIso,
                         exited_at: null,
                     }),
                 ];
-
             return updated;
         });
 
@@ -427,8 +385,8 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
             await load();
         } catch (e: any) {
-            setCards(prevCards);
-            setError(getErrorMessage(e, "Move failed (backend endpoint not ready?)."));
+            setError(getErrorMessage(e, "Move failed."));
+            await load(); // reload to recover
         } finally {
             setBusyMove(false);
         }
@@ -444,7 +402,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
         const nowIso = new Date().toISOString();
 
-        // optimistic: set exited_at on last stage (no move)
         setTimeline((prev) =>
             mergeTimeline(prev, {
                 [colId]: {
@@ -454,7 +411,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             })
         );
 
-        const prevCards = cards;
         setCards((prev) =>
             (Array.isArray(prev) ? prev : []).map((c) =>
                 Number(c.sample_id) === Number(sampleId)
@@ -467,7 +423,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             await moveTestingCard({
                 sample_id: sampleId,
                 from_column_id: colId,
-                to_column_id: colId, // stay in same column
+                to_column_id: colId,
                 workflow_group: group,
                 note: null,
                 finalize: true,
@@ -476,24 +432,25 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             await load();
             onQualityCoverUnlocked?.();
         } catch (e: any) {
-            setCards(prevCards);
             setError(getErrorMessage(e, "End failed."));
+            await load();
         } finally {
             setBusyMove(false);
         }
     };
 
-    const moveButton = (() => {
+    const actionButton = (() => {
         if (!alreadyStarted) {
             return (
                 <button
                     type="button"
-                    className={cx("lims-btn-primary px-4 py-2", (!firstCol || busyMove) && "opacity-60 cursor-not-allowed")}
+                    className={cx("lims-icon-button", (!firstCol || busyMove) && "opacity-50 cursor-not-allowed")}
                     disabled={!firstCol || busyMove}
                     onClick={() => firstCol && doMove(firstCol.column_id)}
-                    title="Record timestamp and enter first stage"
+                    aria-label="Start"
+                    title="Start"
                 >
-                    {busyMove ? "Saving..." : "Add"}
+                    <Play size={16} />
                 </button>
             );
         }
@@ -502,12 +459,13 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             return (
                 <button
                     type="button"
-                    className={cx("lims-btn-primary px-4 py-2", busyMove && "opacity-60 cursor-not-allowed")}
+                    className={cx("lims-icon-button", busyMove && "opacity-50 cursor-not-allowed")}
                     disabled={busyMove}
                     onClick={() => doMove(nextCol.column_id)}
-                    title="Move to next stage and record timestamp"
+                    aria-label="Next"
+                    title="Next"
                 >
-                    {busyMove ? "Moving..." : "Move"}
+                    <ChevronRight size={16} />
                 </button>
             );
         }
@@ -516,19 +474,20 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             return (
                 <button
                     type="button"
-                    className={cx("lims-btn-primary px-4 py-2", busyMove && "opacity-60 cursor-not-allowed")}
+                    className={cx("lims-icon-button", busyMove && "opacity-50 cursor-not-allowed")}
                     disabled={busyMove}
                     onClick={doFinalizeLastStage}
-                    title="Record exited timestamp for last stage and unlock Quality Cover"
+                    aria-label="End"
+                    title="End"
                 >
-                    {busyMove ? "Saving..." : "End"}
+                    <Square size={16} />
                 </button>
             );
         }
 
         return (
-            <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-xl">
-                Completed ✅
+            <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold border border-emerald-200 bg-emerald-50 text-emerald-700">
+                done
             </span>
         );
     })();
@@ -542,22 +501,17 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                         <div className="text-xs text-gray-600 mt-1 truncate">{headerSub}</div>
 
                         <div className="mt-2 text-[11px] text-gray-500 flex items-center gap-2 flex-wrap">
-                            <span>
-                                Mode:{" "}
-                                <span
-                                    className={cx(
-                                        "inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold border",
-                                        mode === "backend"
-                                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                            : "border-amber-200 bg-amber-50 text-amber-800"
-                                    )}
-                                >
-                                    {mode === "backend" ? "backend board" : "fallback"}
-                                </span>
+                            <span
+                                className={cx(
+                                    "inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold border",
+                                    mode === "synced"
+                                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                        : "border-amber-200 bg-amber-50 text-amber-800"
+                                )}
+                                title={mode === "synced" ? "Board data comes from server" : "Board uses local fallback"}
+                            >
+                                {mode === "synced" ? "synced" : "local"}
                             </span>
-                            {lastColumnId ? (
-                                <span className="text-[10px] font-mono text-gray-400">last_column_id: {lastColumnId}</span>
-                            ) : null}
                         </div>
                     </div>
 
@@ -570,17 +524,24 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                             title="Workflow group"
                         >
                             <option value="default">default</option>
-                            <option value="pcr_sars_cov_2">pcr_sars_cov_2</option>
+                            <option value="pcr_sars_cov_2">pcr sars cov 2</option>
                             <option value="pcr">pcr</option>
                             <option value="wgs">wgs</option>
                             <option value="elisa">elisa</option>
                         </select>
 
-                        <button type="button" className="lims-btn" onClick={load} disabled={loading || busyMove}>
-                            {loading ? "Loading..." : "Refresh"}
+                        <button
+                            type="button"
+                            className="lims-icon-button"
+                            onClick={load}
+                            disabled={loading || busyMove}
+                            aria-label="Refresh"
+                            title="Refresh"
+                        >
+                            <RefreshCw size={16} />
                         </button>
 
-                        {moveButton}
+                        {actionButton}
                     </div>
                 </div>
 
@@ -593,10 +554,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                 )}
 
                 <div className="px-4 py-4">
-                    <div className="text-xs text-gray-500 mb-3">
-                        Tracks sample stages with timestamps. Entered/Exited are shown inside each stage card.
-                    </div>
-
                     <div className="overflow-x-auto">
                         <div className="min-w-[980px] grid grid-flow-col auto-cols-[320px] gap-4 pb-2">
                             {sortedCols.map((col) => {
@@ -606,20 +563,11 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
                                 const stamp = timeline?.[Number(col.column_id)] ?? null;
 
-                                const shouldShowStageCard =
-                                    isHere ||
-                                    isDone ||
-                                    !!stamp?.entered_at ||
-                                    !!stamp?.exited_at;
+                                // ✅ keep stamps visible across refresh (from timeline)
+                                const enteredAt = stamp?.entered_at ?? (isHere ? (myCard as any)?.entered_at ?? null : null);
+                                const exitedAt = stamp?.exited_at ?? (isHere ? (myCard as any)?.exited_at ?? null : null);
 
-                                // ✅ For completed stages, ALWAYS prefer timeline stamps (persisted)
-                                const enteredAt =
-                                    stamp?.entered_at ??
-                                    (isHere ? (myCard as any)?.entered_at ?? null : null);
-
-                                const exitedAt =
-                                    stamp?.exited_at ??
-                                    (isHere ? (myCard as any)?.exited_at ?? null : null);
+                                const hasAnyStamp = !!enteredAt || !!exitedAt;
 
                                 return (
                                     <div
@@ -633,74 +581,29 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                                             <div className="min-w-0">
                                                 <div className="text-sm font-extrabold text-gray-900 truncate">{col.name}</div>
                                                 <div className="text-xs text-gray-500 mt-0.5">
-                                                    {isHere ? "Current" : isDone ? "Completed" : "Pending"}
+                                                    {isHere ? "current" : isDone ? "done" : "pending"}
                                                 </div>
                                             </div>
-                                            <span className="text-[10px] font-mono text-gray-400">#{col.column_id}</span>
                                         </div>
 
                                         <div className="px-3 py-3 min-h-[210px]">
-                                            {shouldShowStageCard ? (
+                                            {hasAnyStamp || isHere ? (
                                                 <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
                                                     <div className="text-xs font-semibold text-gray-900">{headerTitle}</div>
                                                     <div className="text-[11px] text-gray-500 mt-1">{headerSub}</div>
 
                                                     <div className="mt-2 grid grid-cols-1 gap-1 text-[11px] text-gray-700">
                                                         <div>
-                                                            <span className="font-semibold">Entered:</span> {fmt(enteredAt)}
+                                                            <span className="font-semibold">entered:</span> {fmt(enteredAt)}
                                                         </div>
                                                         <div>
-                                                            <span className="font-semibold">Exited:</span> {fmt(exitedAt)}
+                                                            <span className="font-semibold">exited:</span> {fmt(exitedAt)}
                                                         </div>
                                                     </div>
                                                 </div>
                                             ) : (
                                                 <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-sm text-gray-500">
-                                                    {!alreadyStarted
-                                                        ? col === firstCol
-                                                            ? "Start by clicking “Add”."
-                                                            : "—"
-                                                        : "No record yet."}
-                                                </div>
-                                            )}
-
-                                            {isHere && alreadyStarted && (
-                                                <div className="mt-3">
-                                                    {nextCol ? (
-                                                        <button
-                                                            type="button"
-                                                            className={cx(
-                                                                "w-full px-4 py-2 rounded-xl border text-sm font-semibold hover:bg-gray-50",
-                                                                busyMove && "opacity-60 cursor-not-allowed"
-                                                            )}
-                                                            disabled={busyMove}
-                                                            onClick={() => doMove(nextCol.column_id)}
-                                                            title="Move to next stage"
-                                                        >
-                                                            {busyMove ? "Moving..." : `Move → ${nextCol.name}`}
-                                                        </button>
-                                                    ) : (
-                                                        <div className="space-y-2">
-                                                            {!isLastStageEnded ? (
-                                                                <button
-                                                                    type="button"
-                                                                    className={cx(
-                                                                        "w-full px-4 py-2 rounded-xl border border-primary bg-primary text-white text-sm font-semibold hover:opacity-90",
-                                                                        busyMove && "opacity-60 cursor-not-allowed"
-                                                                    )}
-                                                                    disabled={busyMove}
-                                                                    onClick={doFinalizeLastStage}
-                                                                    title="Record exited timestamp for last stage and unlock Quality Cover"
-                                                                >
-                                                                    {busyMove ? "Saving..." : "End"}
-                                                                </button>
-                                                            ) : (
-                                                                <div className="w-full px-4 py-2 rounded-xl border border-emerald-100 bg-emerald-50 text-sm font-semibold text-emerald-800">
-                                                                    Completed ✅
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    )}
+                                                    —
                                                 </div>
                                             )}
                                         </div>
@@ -711,7 +614,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                     </div>
 
                     {sortedCols.length === 0 && !loading && (
-                        <div className="text-sm text-gray-600">No columns available for this workflow group.</div>
+                        <div className="text-sm text-gray-600">No columns.</div>
                     )}
                 </div>
             </div>

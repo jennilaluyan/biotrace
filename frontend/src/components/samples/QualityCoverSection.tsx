@@ -1,5 +1,6 @@
 // L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\QualityCoverSection.tsx
 import { useEffect, useMemo, useState } from "react";
+import { Save, Send, Loader2 } from "lucide-react";
 import type { Sample } from "../../services/samples";
 import {
     QualityCover,
@@ -7,13 +8,16 @@ import {
     saveQualityCoverDraft,
     submitQualityCover,
 } from "../../services/qualityCovers";
-import { cx, SmallButton, SmallPrimaryButton } from "./SampleDetailAtoms";
+
+function cx(...arr: Array<string | false | null | undefined>) {
+    return arr.filter(Boolean).join(" ");
+}
 
 type Props = {
     sample: Sample;
     checkedByName: string;
-    disabled?: boolean; // e.g. only analyst can edit
-    onAfterSave?: () => void; // refresh sample/documents if needed
+    disabled?: boolean;
+    onAfterSave?: () => void;
 };
 
 function prettyErr(e: any, fallback: string) {
@@ -132,13 +136,6 @@ export function QualityCoverSection(props: Props) {
         }
     }
 
-    /**
-     * ✅ FIX:
-     * Backend mengembalikan "Draft quality cover not found." saat submit jika draft belum pernah dibuat.
-     * Jadi saat user klik Submit, FE harus:
-     * 1) ensure draft ada (create/update via /draft)
-     * 2) baru POST /submit
-     */
     async function onSubmit() {
         if (!sampleId) return;
         if (disabled) return;
@@ -148,16 +145,13 @@ export function QualityCoverSection(props: Props) {
         setQcError(null);
 
         try {
-            // 1) Ensure draft exists (create if missing)
-            // Ini akan menyelesaikan error "Draft quality cover not found."
+            // ensure draft exists
             const ensuredDraft = await saveQualityCoverDraft(sampleId, {
                 method_of_analysis: methodOfAnalysis.trim(),
                 qc_payload: qcPayload,
             });
-
             setCover(ensuredDraft);
 
-            // 2) Submit
             const submitted = await submitQualityCover(sampleId, {
                 method_of_analysis: methodOfAnalysis.trim(),
                 qc_payload: qcPayload,
@@ -176,9 +170,9 @@ export function QualityCoverSection(props: Props) {
         ((sample as any)?.requested_parameters || (sample as any)?.requestedParameters || [])
             .map((p: any) => p?.name)
             .filter(Boolean)
-            .join(", ") || "-";
+            .join(", ") || "—";
 
-    const sampleCode = String((sample as any)?.lab_sample_code ?? (sample as any)?.sample_id ?? "-");
+    const sampleCode = String((sample as any)?.lab_sample_code ?? "—");
 
     const isLocked = disabled || cover?.status === "submitted";
 
@@ -186,31 +180,34 @@ export function QualityCoverSection(props: Props) {
         <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
                 <div>
-                    <div className="text-sm font-bold text-gray-900">Quality Cover</div>
+                    <div className="text-sm font-bold text-gray-900">Quality cover</div>
                     <div className="text-xs text-gray-500 mt-1">
-                        Status: <span className="font-semibold capitalize">{cover?.status ?? "draft"}</span>
-                        {cover?.submitted_at ? ` • submitted at ${new Date(cover.submitted_at).toLocaleString()}` : ""}
+                        {String(cover?.status ?? "draft").toLowerCase().replace(/_/g, " ")}
                     </div>
                 </div>
 
                 <div className="flex items-center gap-2">
-                    <SmallButton
+                    <button
                         type="button"
+                        className="lims-icon-button"
                         onClick={onSaveDraft}
                         disabled={qcLoading || qcSaving || isLocked}
+                        aria-label="Save draft"
                         title={isLocked ? "Locked" : "Save draft"}
                     >
-                        {qcSaving ? "Saving..." : "Save Draft"}
-                    </SmallButton>
+                        {qcSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                    </button>
 
-                    <SmallPrimaryButton
+                    <button
                         type="button"
+                        className={cx("lims-icon-button", (!!submitDisabledReason || qcLoading || qcSubmitting) && "opacity-50 cursor-not-allowed")}
                         onClick={onSubmit}
                         disabled={qcLoading || qcSubmitting || !!submitDisabledReason}
-                        title={submitDisabledReason || "Submit quality cover"}
+                        aria-label="Submit"
+                        title={submitDisabledReason || "Submit"}
                     >
-                        {qcSubmitting ? "Submitting..." : "Submit"}
-                    </SmallPrimaryButton>
+                        {qcSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                    </button>
                 </div>
             </div>
 
@@ -221,9 +218,8 @@ export function QualityCoverSection(props: Props) {
                     </div>
                 ) : null}
 
-                {qcLoading ? <div className="text-sm text-gray-600">Loading quality cover…</div> : null}
+                {qcLoading ? <div className="text-sm text-gray-600">Loading…</div> : null}
 
-                {/* Auto fields */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
                         <div className="text-xs text-gray-500">Parameter</div>
@@ -231,37 +227,32 @@ export function QualityCoverSection(props: Props) {
                     </div>
 
                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
-                        <div className="text-xs text-gray-500">Date of analysis</div>
+                        <div className="text-xs text-gray-500">Date</div>
                         <div className="font-semibold text-gray-900 mt-0.5">{new Date().toLocaleDateString()}</div>
                     </div>
 
                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
-                        <div className="text-xs text-gray-500">Sample ID</div>
+                        <div className="text-xs text-gray-500">Lab code</div>
                         <div className="font-mono text-xs mt-1">{sampleCode}</div>
                     </div>
 
                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
                         <div className="text-xs text-gray-500">Checked by</div>
-                        <div className="font-semibold text-gray-900 mt-0.5">{checkedByName || "-"}</div>
+                        <div className="font-semibold text-gray-900 mt-0.5">{checkedByName || "—"}</div>
                     </div>
                 </div>
 
-                {/* Manual field */}
                 <div className="mt-4">
                     <label className="block text-xs text-gray-500">Method of analysis</label>
                     <input
                         value={methodOfAnalysis}
                         onChange={(e) => setMethodOfAnalysis(e.target.value)}
-                        placeholder="Type method of analysis…"
                         className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
                         disabled={isLocked}
                     />
                 </div>
 
-                {/* QC section */}
                 <div className="mt-4">
-                    <div className="text-sm font-bold text-gray-900 mb-2">Quality Control</div>
-
                     {qcGroup === "pcr" ? (
                         <div className="space-y-3">
                             {["ORF1b", "RdRp", "RPP30"].map((k) => (
@@ -270,7 +261,7 @@ export function QualityCoverSection(props: Props) {
 
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                                         <div>
-                                            <label className="block text-xs text-gray-500">Value (numeric)</label>
+                                            <label className="block text-xs text-gray-500">Value</label>
                                             <input
                                                 value={qcPayload?.[k]?.value ?? ""}
                                                 onChange={(e) =>
@@ -281,7 +272,6 @@ export function QualityCoverSection(props: Props) {
                                                 }
                                                 disabled={isLocked}
                                                 className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
-                                                placeholder="e.g. 12.3"
                                             />
                                         </div>
 
@@ -297,7 +287,6 @@ export function QualityCoverSection(props: Props) {
                                                 }
                                                 disabled={isLocked}
                                                 className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
-                                                placeholder="Positive/Negative"
                                             />
                                         </div>
 
@@ -313,7 +302,6 @@ export function QualityCoverSection(props: Props) {
                                                 }
                                                 disabled={isLocked}
                                                 className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
-                                                placeholder="OK/Repeat/Invalid"
                                             />
                                         </div>
                                     </div>
@@ -331,7 +319,6 @@ export function QualityCoverSection(props: Props) {
                                     onChange={(e) => setQcPayload((prev: any) => ({ ...prev, lineage: e.target.value }))}
                                     disabled={isLocked}
                                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
-                                    placeholder="e.g. BA.2"
                                 />
                             </div>
 
@@ -342,7 +329,6 @@ export function QualityCoverSection(props: Props) {
                                     onChange={(e) => setQcPayload((prev: any) => ({ ...prev, variant: e.target.value }))}
                                     disabled={isLocked}
                                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
-                                    placeholder="e.g. Omicron"
                                 />
                             </div>
                         </div>
@@ -359,13 +345,12 @@ export function QualityCoverSection(props: Props) {
                                     "mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm min-h-24",
                                     "focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
                                 )}
-                                placeholder="Write QC notes…"
                             />
                         </div>
                     ) : null}
 
                     {submitDisabledReason ? (
-                        <div className="mt-3 text-xs text-gray-500 italic">Submit blocked: {submitDisabledReason}</div>
+                        <div className="mt-3 text-xs text-gray-500 italic">{submitDisabledReason}</div>
                     ) : null}
                 </div>
             </div>
