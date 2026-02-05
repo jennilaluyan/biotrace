@@ -1,7 +1,7 @@
 // L:\Campus\Final Countdown\biotrace\frontend\src\pages\auth\AuthPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 import { useAuth } from "../../hooks/useAuth";
 import { useClientAuth } from "../../hooks/useClientAuth";
@@ -120,6 +120,12 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const clientAuth = useClientAuth() as any;
 
     const navigate = useNavigate();
+    const location = useLocation();
+    const redirectAfterStaffLogin =
+        (location.state as any)?.from?.pathname || "/samples";
+
+    const redirectAfterClientLogin =
+        (location.state as any)?.from?.pathname || "/portal";
 
     // A1: scroll container refs (desktop has its own scroll container)
     const signUpContainerRef = useRef<HTMLDivElement | null>(null);
@@ -249,13 +255,12 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             if (currentTenant === "portal") {
                 // ✅ Client login only
                 await clientAuth.loginClient(loginEmail, loginPassword);
-                navigate("/portal", { replace: true });
+                navigate(redirectAfterClientLogin, { replace: true });
                 return;
             }
 
-            // ✅ Staff login only
             await login(loginEmail, loginPassword);
-            navigate("/clients", { replace: true });
+            navigate(redirectAfterStaffLogin, { replace: true });
         } catch (err: any) {
             const msg = extractApiMessage(
                 err,

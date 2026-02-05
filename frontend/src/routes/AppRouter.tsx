@@ -8,6 +8,9 @@ import { RoleGuard } from "../guards/RoleGuard";
 import { AppLayout } from "../components/layout/AppLayout";
 import { PortalLayout } from "../components/layout/PortalLayout";
 import { ROLE_ID } from "../utils/roles";
+import { getTenant } from "../utils/tenant";
+import { useAuth } from "../hooks/useAuth";
+import { useClientAuth } from "../hooks/useClientAuth";
 
 import { ClientsPage } from "../pages/clients/ClientsPage";
 import { ClientDetailPage } from "../pages/clients/ClientDetailPage";
@@ -34,10 +37,36 @@ import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
 import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
 import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
 
+/**
+ * Smart default landing:
+ * - backoffice staff authenticated => /samples
+ * - otherwise => /login
+ * - portal client authenticated => /portal
+ */
+const HomeRedirect = () => {
+    const tenant = getTenant();
+    const staff = useAuth();
+    const client = useClientAuth() as any;
+
+    if (tenant === "portal") {
+        if (client?.loading) return null;
+        return (
+            <Navigate
+                to={client?.isClientAuthenticated ? "/portal" : "/login"}
+                replace
+            />
+        );
+    }
+
+    // backoffice
+    if (staff.loading) return null;
+    return <Navigate to={staff.isAuthenticated ? "/samples" : "/login"} replace />;
+};
+
 export const AppRouter = () => {
     return (
         <Routes>
-            <Route path="/" element={<Navigate to="/login" replace />} />
+            <Route path="/" element={<HomeRedirect />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
 
@@ -227,7 +256,6 @@ export const AppRouter = () => {
                             </RoleGuard>
                         }
                     />
-                    {/* alias supaya menu /audit-logs tidak 404 */}
                     <Route
                         path="/audit-logs"
                         element={
@@ -311,10 +339,7 @@ export const AppRouter = () => {
                 <Route element={<PortalLayout />}>
                     <Route path="/portal" element={<ClientDashboardPage />} />
                     <Route path="/portal/requests" element={<ClientRequestsPage />} />
-                    <Route
-                        path="/portal/requests/:id"
-                        element={<ClientRequestDetailPage />}
-                    />
+                    <Route path="/portal/requests/:id" element={<ClientRequestDetailPage />} />
                 </Route>
             </Route>
 
