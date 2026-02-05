@@ -1,3 +1,4 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\routes\AppRouter.tsx
 import { Routes, Route, Navigate } from "react-router-dom";
 import { LoginPage } from "../pages/auth/LoginPage";
 import { RegisterPage } from "../pages/auth/RegisterPage";
@@ -11,6 +12,7 @@ import { ROLE_ID } from "../utils/roles";
 import { getTenant } from "../utils/tenant";
 import { useAuth } from "../hooks/useAuth";
 import { useClientAuth } from "../hooks/useClientAuth";
+import { getLastRoute } from "../utils/lastRoute";
 
 import { ClientsPage } from "../pages/clients/ClientsPage";
 import { ClientDetailPage } from "../pages/clients/ClientDetailPage";
@@ -38,29 +40,37 @@ import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
 import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
 
 /**
- * Smart default landing:
- * - backoffice staff authenticated => /samples
+ * Smart default landing (restore last route per actor):
+ * - backoffice + staff authenticated => last staff route (fallback /samples)
+ * - portal + client authenticated => last client route (fallback /portal)
  * - otherwise => /login
- * - portal client authenticated => /portal
  */
 const HomeRedirect = () => {
     const tenant = getTenant();
     const staff = useAuth();
     const client = useClientAuth() as any;
 
+    // PORTAL
     if (tenant === "portal") {
         if (client?.loading) return null;
-        return (
-            <Navigate
-                to={client?.isClientAuthenticated ? "/portal" : "/login"}
-                replace
-            />
-        );
+
+        if (client?.isClientAuthenticated) {
+            const last = getLastRoute("client");
+            return <Navigate to={last ?? "/portal"} replace />;
+        }
+
+        return <Navigate to="/login" replace />;
     }
 
-    // backoffice
+    // BACKOFFICE
     if (staff.loading) return null;
-    return <Navigate to={staff.isAuthenticated ? "/samples" : "/login"} replace />;
+
+    if (staff.isAuthenticated) {
+        const last = getLastRoute("staff");
+        return <Navigate to={last ?? "/samples"} replace />;
+    }
+
+    return <Navigate to="/login" replace />;
 };
 
 export const AppRouter = () => {

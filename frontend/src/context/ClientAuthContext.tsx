@@ -3,6 +3,7 @@ import { clientLoginRequest, clientFetchProfile, clientLogoutRequest } from "../
 import { getClientAuthToken } from "../services/api";
 import { getTenant } from "../utils/tenant";
 import { publishAuthEvent, subscribeAuthEvents } from "../utils/authSync";
+import { clearLastRoute } from "../utils/lastRoute";
 
 export type ClientUser = {
     id: number;
@@ -65,12 +66,17 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
 
     const isClientAuthenticated = !!client;
 
+    const hardClearClient = () => {
+        setClient(null);
+        storeClient(null);
+        clearLastRoute("client");
+    };
+
     const refreshClient = async () => {
-        // 🔥 jangan spam call /me kalau memang belum ada token
+        // jangan spam /me kalau belum ada token
         const token = getClientAuthToken();
         if (!token) {
-            setClient(null);
-            storeClient(null);
+            hardClearClient();
             return;
         }
 
@@ -81,14 +87,11 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
             storeClient(normalized);
         } catch (err: any) {
             if (err?.status === 401) {
-                setClient(null);
-                storeClient(null);
-                // sync: token invalid -> tell other tabs too
+                hardClearClient();
                 publishAuthEvent("client", "session_expired");
             } else {
                 console.error("Failed to refresh client session:", err);
-                setClient(null);
-                storeClient(null);
+                hardClearClient();
             }
         }
     };
@@ -101,7 +104,6 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
             try {
                 setLoading(true);
 
-                // ✅ portal only. Backoffice jangan ikut-ikutan refresh client.
                 if (getTenant() !== "portal") return;
 
                 await refreshClient();
@@ -116,7 +118,7 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // ✅ NEW: cross-tab sync (client)
+    // ✅ Cross-tab sync (client)
     useEffect(() => {
         if (getTenant() !== "portal") return;
 
@@ -124,8 +126,7 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
             if (evt.actor !== "client") return;
 
             if (evt.action === "logout" || evt.action === "session_expired") {
-                setClient(null);
-                storeClient(null);
+                hardClearClient();
                 return;
             }
 
@@ -151,7 +152,6 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
                 await refreshClient();
             }
 
-            // ✅ broadcast: other tabs refresh UI
             publishAuthEvent("client", "login");
         } finally {
             setLoading(false);
@@ -163,11 +163,8 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
         try {
             await clientLogoutRequest();
         } finally {
-            setClient(null);
-            storeClient(null);
+            hardClearClient();
             setLoading(false);
-
-            // ✅ broadcast: force all portal tabs logout
             publishAuthEvent("client", "logout");
         }
     };
