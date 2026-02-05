@@ -4,19 +4,18 @@ import { setStaffAuthToken, setClientAuthToken } from "./api";
 type StaffLoginResponse = {
     user?: any;
     token?: string | null;
+    data?: any;
 };
 
 type ClientLoginResponse = {
     client?: any;
     token?: string;
+    data?: any;
 };
 
 /**
  * CATATAN PENTING (biar stabil portal + backoffice):
  * Jangan pernah logout staff session ketika client login.
- *
- * Dulu ada hack forceClearStaffSessionCookie() untuk menghapus cookie staff,
- * tapi itu bikin portal/backoffice tidak bisa login bersamaan (saling tendang).
  *
  * Pemisahan yang benar harus dilakukan di layer API (services/api.ts):
  * - request client (/v1/clients/* dan /v1/client/*) harus withCredentials=false
@@ -28,16 +27,16 @@ type ClientLoginResponse = {
 // =======================
 
 export async function loginRequest(email: string, password: string) {
-    // Staff login (biasanya pakai cookie session)
     const res = await apiPost<StaffLoginResponse>("/v1/auth/login", {
         email,
         password,
     });
 
-    // Jika backend mengembalikan token (opsional), simpan token staff
-    if (res?.token) setStaffAuthToken(res.token);
+    // Robust token extraction (support token at top-level or nested data)
+    const token = (res as any)?.token ?? (res as any)?.data?.token ?? null;
+    if (token) setStaffAuthToken(token);
 
-    return res?.user ?? null;
+    return (res as any)?.user ?? (res as any)?.data?.user ?? null;
 }
 
 export async function logoutRequest() {
@@ -56,7 +55,7 @@ export async function logoutRequest() {
 
 export async function fetchProfile() {
     const res = await apiGet<any>("/v1/auth/me");
-    return res?.user ?? res;
+    return (res as any)?.user ?? (res as any)?.data?.user ?? res;
 }
 
 // =======================
@@ -67,14 +66,13 @@ export async function clientLoginRequest(email: string, password: string) {
     const res = await apiPost<ClientLoginResponse>("/v1/clients/login", {
         email,
         password,
-        device_name: "web", // optional; backend supports it
+        device_name: "web",
     });
 
-    // REQUIRED: simpan token client di tempat yang api.ts pakai untuk attach Authorization client
-    if (res?.token) setClientAuthToken(res.token);
+    // Robust token extraction (support token at top-level or nested data)
+    const token = (res as any)?.token ?? (res as any)?.data?.token ?? null;
+    if (token) setClientAuthToken(token);
 
-    // ❌ JANGAN logout staff di sini.
-    // Portal dan backoffice harus bisa berjalan bersamaan.
     return res;
 }
 
