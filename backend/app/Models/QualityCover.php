@@ -48,4 +48,9 @@ class QualityCover extends Model
     {
         return $this->belongsTo(Staff::class, 'checked_by_staff_id', 'staff_id');
     }
+
+    public function validatedBy()
+    {
+        return $this->belongsTo(\App\Models\Staff::class, 'validated_by_staff_id', 'staff_id');
+    }
 }

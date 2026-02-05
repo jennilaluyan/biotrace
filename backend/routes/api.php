@@ -392,7 +392,7 @@ Route::prefix('v1')->group(function () {
 
         /*
         |--------------------------------------------------------------------------
-        | Quality Cover (Analyst)
+        | Quality Cover
         |--------------------------------------------------------------------------
         */
         Route::get('samples/{sample}/quality-cover', [QualityCoverController::class, 'show'])
@@ -402,24 +402,15 @@ Route::prefix('v1')->group(function () {
         Route::post('samples/{sample}/quality-cover/submit', [QualityCoverController::class, 'submit'])
             ->whereNumber('sample');
         Route::get('quality-covers/inbox/om', [QualityCoverController::class, 'inboxOm']);
-
-        /*
-        |--------------------------------------------------------------------------
-        | Quality Cover (OM Verify)
-        |--------------------------------------------------------------------------
-        */
         Route::post('quality-covers/{qualityCover}/verify', [QualityCoverController::class, 'omVerify'])
             ->whereNumber('qualityCover');
-
         Route::post('quality-covers/{qualityCover}/reject', [QualityCoverController::class, 'omReject'])
             ->whereNumber('qualityCover');
-
-        /*
-        |--------------------------------------------------------------------------
-        | Quality Cover (LH Inbox)
-        |--------------------------------------------------------------------------
-        */
         Route::get('quality-covers/inbox/lh', [QualityCoverController::class, 'inboxLh']);
+        Route::post('quality-covers/{qualityCover}/validate', [QualityCoverController::class, 'lhValidate'])
+            ->whereNumber('qualityCover');
+        Route::post('quality-covers/{qualityCover}/reject-lh', [QualityCoverController::class, 'lhReject'])
+            ->whereNumber('qualityCover');
 
         /*
         |--------------------------------------------------------------------------

@@ -520,6 +520,45 @@ class AuditLogger
             ]
         );
     }
+
+    public static function logQualityCoverValidated(
+        int $staffId,
+        int $sampleId,
+        int $qualityCoverId
+    ): void {
+        self::write(
+            action: 'QUALITY_COVER_VALIDATED',
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: null,
+            newValues: [
+                'sample_id' => $sampleId,
+                'quality_cover_id' => $qualityCoverId,
+            ]
+        );
+    }
+
+    public static function logQualityCoverValidationRejected(
+        int $staffId,
+        int $sampleId,
+        int $qualityCoverId,
+        string $reason
+    ): void {
+        self::write(
+            action: 'QUALITY_COVER_VALIDATION_REJECTED',
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: null,
+            newValues: [
+                'sample_id' => $sampleId,
+                'quality_cover_id' => $qualityCoverId,
+                'reason' => $reason,
+            ]
+        );
+    }
+
     public static function logQualityCoverUnlocked(
         int $staffId,
         int $sampleId,

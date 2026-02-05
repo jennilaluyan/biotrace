@@ -416,6 +416,122 @@ class QualityCoverController extends Controller
     }
 
     /**
+     * POST /v1/quality-covers/{qualityCover}/validate
+     * LH validates a verified quality cover (final).
+     */
+    public function lhValidate(Request $request, QualityCover $qualityCover): JsonResponse
+    {
+        /** @var Staff $staff */
+        $staff = Auth::user();
+        if (!$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
+        $this->assertLabHead($staff);
+
+        if (!Schema::hasTable('quality_covers')) {
+            return response()->json([
+                'message' => 'quality_covers table not found. Run migrations.',
+                'hint' => 'php artisan migrate',
+            ], 500);
+        }
+
+        if ((string) $qualityCover->status !== 'verified') {
+            return response()->json([
+                'message' => 'Only verified quality covers can be validated.',
+                'data' => $qualityCover,
+            ], 409);
+        }
+
+        $qualityCover->status = 'validated';
+        $qualityCover->validated_at = now();
+        $qualityCover->validated_by_staff_id = (int) $staff->staff_id;
+
+        // clear reject fields just in case
+        $qualityCover->rejected_at = null;
+        $qualityCover->rejected_by_staff_id = null;
+        $qualityCover->rejected_reason = null;
+
+        $qualityCover->save();
+
+        AuditLogger::logQualityCoverValidated(
+            staffId: (int) $staff->staff_id,
+            sampleId: (int) $qualityCover->sample_id,
+            qualityCoverId: (int) $qualityCover->quality_cover_id,
+        );
+
+        return response()->json([
+            'message' => 'Quality cover validated (LH).',
+            'data' => $qualityCover,
+        ]);
+    }
+
+    /**
+     * POST /v1/quality-covers/{qualityCover}/reject-lh
+     * LH rejects a verified quality cover (reason required).
+     */
+    public function lhReject(Request $request, QualityCover $qualityCover): JsonResponse
+    {
+        /** @var Staff $staff */
+        $staff = Auth::user();
+        if (!$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
+        $this->assertLabHead($staff);
+
+        if (!Schema::hasTable('quality_covers')) {
+            return response()->json([
+                'message' => 'quality_covers table not found. Run migrations.',
+                'hint' => 'php artisan migrate',
+            ], 500);
+        }
+
+        if ((string) $qualityCover->status !== 'verified') {
+            return response()->json([
+                'message' => 'Only verified quality covers can be rejected by LH.',
+                'data' => $qualityCover,
+            ], 409);
+        }
+
+        $v = Validator::make($request->all(), [
+            'reason' => ['required', 'string', 'max:1000'],
+        ]);
+
+        if ($v->fails()) {
+            return response()->json([
+                'message' => 'The given data was invalid.',
+                'errors' => $v->errors(),
+            ], 422);
+        }
+
+        $reason = (string) $v->validated()['reason'];
+
+        $qualityCover->status = 'rejected';
+        $qualityCover->rejected_at = now();
+        $qualityCover->rejected_by_staff_id = (int) $staff->staff_id;
+        $qualityCover->rejected_reason = $reason;
+
+        // clear validated fields (biar konsisten)
+        $qualityCover->validated_at = null;
+        $qualityCover->validated_by_staff_id = null;
+
+        $qualityCover->save();
+
+        AuditLogger::logQualityCoverValidationRejected(
+            staffId: (int) $staff->staff_id,
+            sampleId: (int) $qualityCover->sample_id,
+            qualityCoverId: (int) $qualityCover->quality_cover_id,
+            reason: $reason,
+        );
+
+        return response()->json([
+            'message' => 'Quality cover rejected by LH.',
+            'data' => $qualityCover,
+        ]);
+    }
+
+    /**
      * PUT /v1/samples/{sample}/quality-cover/draft
      * Upsert draft for a sample.
      */
