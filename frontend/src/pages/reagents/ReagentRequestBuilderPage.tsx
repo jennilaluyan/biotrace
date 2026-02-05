@@ -1,5 +1,22 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\reagents\ReagentRequestBuilderPage.tsx
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
+import {
+    AlertTriangle,
+    ArrowLeft,
+    CheckCircle2,
+    ClipboardList,
+    Loader2,
+    Plus,
+    RefreshCw,
+    Save,
+    Search,
+    Send,
+    ShoppingCart,
+    TestTube2,
+    Wrench,
+} from "lucide-react";
+
 import {
     getReagentRequestByLoo,
     saveReagentRequestDraft,
@@ -41,6 +58,15 @@ function unwrapApi(res: any) {
         break;
     }
     return x;
+}
+
+function statusTone(status: string) {
+    const s = String(status ?? "").toLowerCase();
+    if (s === "approved") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    if (s === "submitted") return "bg-amber-50 text-amber-800 border-amber-200";
+    if (s === "draft") return "bg-slate-50 text-slate-700 border-slate-200";
+    if (s === "rejected" || s === "denied") return "bg-red-50 text-red-700 border-red-200";
+    return "bg-gray-50 text-gray-700 border-gray-200";
 }
 
 export default function ReagentRequestBuilderPage() {
@@ -90,7 +116,7 @@ export default function ReagentRequestBuilderPage() {
     // Modal state
     const [cartOpen, setCartOpen] = useState(false);
 
-    useEffect(() => {
+    const reload = async () => {
         if (!Number.isFinite(loId) || loId <= 0) return;
 
         setLoading(true);
@@ -98,21 +124,26 @@ export default function ReagentRequestBuilderPage() {
         setSuccessText(null);
         setGateDetails(null);
 
-        getReagentRequestByLoo(loId)
-            .then((res: any) => {
-                const payload = unwrapApi(res);
-                const rr = payload?.request ?? null;
-                const it = payload?.items ?? [];
-                const bk = payload?.bookings ?? [];
+        try {
+            const res: any = await getReagentRequestByLoo(loId);
+            const payload = unwrapApi(res);
+            const rr = payload?.request ?? null;
+            const it = payload?.items ?? [];
+            const bk = payload?.bookings ?? [];
 
-                setRequest(rr);
-                setItems(it);
-                setBookings(bk);
-            })
-            .catch((e: any) => {
-                setErrorText(e?.message ?? "Failed to load reagent request");
-            })
-            .finally(() => setLoading(false));
+            setRequest(rr);
+            setItems(it);
+            setBookings(bk);
+        } catch (e: any) {
+            setErrorText(e?.message ?? "Failed to load reagent request");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        reload();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loId]);
 
     // Reset catalog paging when search/type changes
@@ -211,13 +242,12 @@ export default function ReagentRequestBuilderPage() {
 
                 // ✅ If FE requested page beyond last_page, clamp and refetch
                 if (last > 0 && equipPage > last) {
-                    setEquipPage(last); // or setEquipPage(1) if you prefer always back to first
+                    setEquipPage(last);
                     return;
                 }
 
                 setEquipResults((prev) => (equipPage === 1 ? rows : [...prev, ...rows]));
             })
-
             .catch(() => {
                 if (equipPage === 1) setEquipResults([]);
                 setEquipMeta(null);
@@ -271,7 +301,6 @@ export default function ReagentRequestBuilderPage() {
             ];
         });
 
-        // buka modal otomatis biar user yakin item masuk
         setCartOpen(true);
     }
 
@@ -348,7 +377,6 @@ export default function ReagentRequestBuilderPage() {
             setBookings(payload2?.bookings ?? payload2?.data?.bookings ?? bookings);
 
             flashSuccess("Draft berhasil disimpan.");
-
         } catch (e: any) {
             setErrorText(e?.message ?? "Failed to save draft");
         } finally {
@@ -390,7 +418,6 @@ export default function ReagentRequestBuilderPage() {
             setBookings(payload?.bookings ?? payload?.data?.bookings ?? bookings);
 
             flashSuccess("Berhasil submit reagent request.");
-
         } catch (e: any) {
             const resp = e?.response?.data ?? null;
             const msg = resp?.message ?? e?.message ?? "Submit failed";
@@ -411,307 +438,400 @@ export default function ReagentRequestBuilderPage() {
     const hasAnySelection = items.length > 0 || bookings.length > 0;
 
     if (loading) {
-        return <div className="p-4">Loading reagent request…</div>;
+        return <div className="min-h-[60vh] px-0 py-4 text-sm text-gray-600">Loading reagent request…</div>;
     }
 
     if (!Number.isFinite(loId) || loId <= 0) {
-        return <div className="p-4 text-red-600">Invalid loId</div>;
+        return <div className="min-h-[60vh] px-0 py-4 text-sm text-red-600">Invalid loId</div>;
     }
 
     return (
-        <div className="p-4">
-            {/* Header */}
-            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                    <h1 className="text-2xl font-semibold text-gray-900">Reagent Request</h1>
-                    <div className="text-sm text-gray-600">LOO ID: {loId}</div>
-                    {request && (
-                        <div className="mt-1 text-sm text-gray-700">
-                            Status:{" "}
-                            <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold">
-                                {request.status}
-                            </span>{" "}
-                            <span className="text-gray-500">• Cycle {request.cycle_no}</span>
-                        </div>
-                    )}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={() => setCartOpen(true)}
-                        className={cx("rounded-xl border px-4 py-2 text-sm font-semibold hover:bg-gray-50")}
-                        title="Lihat & edit request items"
-                    >
-                        Request{" "}
-                        {hasAnySelection ? (
-                            <span className="ml-2 inline-flex items-center rounded-full bg-gray-900 px-2 py-0.5 text-xs font-semibold text-white">
-                                {items.length} item • {bookings.length} alat
-                            </span>
-                        ) : (
-                            <span className="ml-2 text-xs text-gray-500">(empty)</span>
-                        )}
-                    </button>
-
-                    <button
-                        className={cx(
-                            "rounded-xl border px-4 py-2 text-sm font-semibold",
-                            saving || !canEditDraft ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-50"
-                        )}
-                        disabled={saving || !canEditDraft}
-                        onClick={onSaveDraft}
-                        type="button"
-                        title={!canEditDraft ? `Request sudah ${requestStatus}. Edit dikunci.` : ""}
-                    >
-                        {saving ? "Saving…" : "Save Draft"}
-                    </button>
-
-                    <button
-                        className={cx(
-                            "rounded-xl px-4 py-2 text-sm font-semibold",
-                            !canSubmit || submitting
-                                ? "bg-gray-200 text-gray-500 cursor-not-allowed"
-                                : "bg-primary text-white hover:opacity-95"
-                        )}
-                        disabled={!canSubmit || submitting}
-                        onClick={onSubmit}
-                        title={
-                            requestStatus !== "draft"
-                                ? "Hanya status draft yang bisa submit."
-                                : !hasContent
-                                    ? "Add at least 1 item or 1 booking"
-                                    : ""
-                        }
-                        type="button"
-                    >
-                        {submitting ? "Submitting…" : requestStatus === "submitted" ? "Submitted" : "Submit"}
-                    </button>
-
-                </div>
+        <div className="min-h-[60vh]">
+            {/* Breadcrumb + Back */}
+            <div className="px-0 py-2">
+                <nav className="lims-breadcrumb">
+                    <Link to="/samples" className="lims-breadcrumb-link inline-flex items-center gap-2">
+                        <ArrowLeft size={16} />
+                        Samples
+                    </Link>
+                    <span className="lims-breadcrumb-separator">›</span>
+                    <span className="lims-breadcrumb-current">Reagent Request</span>
+                    <span className="lims-breadcrumb-separator">›</span>
+                    <span className="lims-breadcrumb-current">LOO #{loId}</span>
+                </nav>
             </div>
 
-            {successText && (
-                <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                    {successText}
-                </div>
-            )}
+            <div className="lims-detail-shell">
+                {/* Header */}
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                        <h1 className="text-lg md:text-xl font-bold text-gray-900">Reagent Request</h1>
+                        <div className="mt-1 text-xs text-gray-600">Build request per LOO • LOO ID: {loId}</div>
 
-            {errorText && (
-                <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {errorText}
-                </div>
-            )}
-
-            {gateDetails?.not_passed_samples?.length > 0 && (
-                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-                    <div className="font-semibold text-amber-900">Crosscheck gate not passed</div>
-                    <div className="mt-1 text-sm text-amber-900/80">
-                        Submit ditolak karena ada sample di LOO ini yang belum <b>passed</b>.
-                    </div>
-                    <ul className="mt-2 list-disc pl-5 text-sm text-amber-900/90">
-                        {gateDetails.not_passed_samples.map((s: any) => (
-                            <li key={s.sample_id}>
-                                Sample #{s.sample_id} • {s.lab_sample_code ?? "-"} •{" "}
-                                <span className="font-semibold">{s.crosscheck_status ?? "pending"}</span>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            )}
-
-            {/* Full-width layout */}
-            <div className="grid grid-cols-1 gap-4">
-                {/* Catalog */}
-                <div className="rounded-2xl border bg-white shadow-sm">
-                    <div className="border-b px-4 py-3">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="font-semibold text-gray-900">Catalog Items (BHP/Reagen)</div>
-
-                            <div className="flex gap-2">
-                                <button
+                        {request && (
+                            <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                <span
                                     className={cx(
-                                        "rounded-full px-3 py-1 text-xs font-semibold border",
-                                        catalogType === "all"
-                                            ? "bg-gray-900 text-white border-gray-900"
-                                            : "bg-white hover:bg-gray-50"
+                                        "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold border",
+                                        statusTone(String(request.status))
                                     )}
-                                    onClick={() => setCatalogType("all")}
-                                    type="button"
                                 >
-                                    All
-                                </button>
-                                <button
-                                    className={cx(
-                                        "rounded-full px-3 py-1 text-xs font-semibold border",
-                                        catalogType === "bhp"
-                                            ? "bg-gray-900 text-white border-gray-900"
-                                            : "bg-white hover:bg-gray-50"
-                                    )}
-                                    onClick={() => setCatalogType("bhp")}
-                                    type="button"
-                                >
-                                    BHP
-                                </button>
-                                <button
-                                    className={cx(
-                                        "rounded-full px-3 py-1 text-xs font-semibold border",
-                                        catalogType === "reagen"
-                                            ? "bg-gray-900 text-white border-gray-900"
-                                            : "bg-white hover:bg-gray-50"
-                                    )}
-                                    onClick={() => setCatalogType("reagen")}
-                                    type="button"
-                                >
-                                    Reagen
-                                </button>
-                            </div>
-                        </div>
+                                    <ClipboardList size={16} />
+                                    {String(request.status)}
+                                </span>
 
-                        <div className="mt-3">
-                            <input
-                                className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft"
-                                placeholder="Search catalog items…"
-                                value={catalogSearch}
-                                onChange={(e) => setCatalogSearch(e.target.value)}
-                            />
-                            <div className="mt-1 text-xs text-gray-500">
-                                Semua item tampil; search hanya untuk mempercepat. Klik item untuk masuk ke Request.
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="max-h-[560px] overflow-auto">
-                        {catalogLoading && catalogResults.length === 0 ? (
-                            <div className="p-4 text-sm text-gray-600">Loading catalog…</div>
-                        ) : catalogResults.length === 0 ? (
-                            <div className="p-4 text-sm text-gray-600">No catalog items found.</div>
-                        ) : (
-                            <div className="divide-y">
-                                {catalogResults.map((c) => (
-                                    <button
-                                        key={c.catalog_id}
-                                        className="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-start justify-between gap-3"
-                                        onClick={() => addCatalogToItems(c)}
-                                        type="button"
-                                    >
-                                        <div className="min-w-0">
-                                            <div className="font-semibold text-sm text-gray-900 truncate">{c.name ?? "-"}</div>
-                                            <div className="text-xs text-gray-500 truncate">
-                                                #{c.catalog_id} • {String(c.type ?? "-").toUpperCase()} • unit:{" "}
-                                                {c.default_unit_text ?? "-"}
-                                            </div>
-                                            {c.specification ? (
-                                                <div className="mt-1 text-xs text-gray-600 truncate">{c.specification}</div>
-                                            ) : null}
-                                        </div>
-
-                                        <span className="shrink-0 rounded-lg border px-3 py-1 text-xs font-semibold hover:bg-white">
-                                            Add
-                                        </span>
-                                    </button>
-                                ))}
+                                <span className="text-xs text-gray-500">• Cycle {request.cycle_no}</span>
+                                {isLocked ? (
+                                    <span className="text-xs text-gray-500">• editing locked</span>
+                                ) : (
+                                    <span className="text-xs text-gray-500">• draft editable</span>
+                                )}
                             </div>
                         )}
                     </div>
 
-                    <div className="border-t px-4 py-3 flex items-center justify-between">
-                        <div className="text-xs text-gray-500">
-                            Showing {catalogResults.length} items{catalogMeta?.total ? ` • total ${catalogMeta.total}` : ""}
-                        </div>
+                    <div className="flex items-center gap-2 flex-wrap">
                         <button
                             type="button"
-                            className="rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                            onClick={() => setCatalogPage((p) => p + 1)}
-                            disabled={!canLoadMoreCatalog}
-                            title={!canLoadMoreCatalog ? "No more pages" : ""}
+                            className="lims-icon-button"
+                            onClick={reload}
+                            aria-label="Refresh"
+                            title="Refresh"
                         >
-                            {catalogLoading ? "Loading…" : "Load more"}
+                            <RefreshCw size={16} />
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={() => setCartOpen(true)}
+                            className={cx(
+                                "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
+                                "border-gray-200 bg-white hover:bg-gray-50"
+                            )}
+                            title="Lihat & edit request items"
+                        >
+                            <ShoppingCart size={16} />
+                            Request
+                            {hasAnySelection ? (
+                                <span className="ml-1 inline-flex items-center rounded-full bg-gray-900 px-2 py-0.5 text-xs font-semibold text-white">
+                                    {items.length} item • {bookings.length} alat
+                                </span>
+                            ) : (
+                                <span className="ml-1 text-xs text-gray-500">(empty)</span>
+                            )}
+                        </button>
+
+                        <button
+                            className={cx(
+                                "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
+                                "border-gray-200 bg-white",
+                                saving || !canEditDraft ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-50"
+                            )}
+                            disabled={saving || !canEditDraft}
+                            onClick={onSaveDraft}
+                            type="button"
+                            title={!canEditDraft ? `Request sudah ${requestStatus}. Edit dikunci.` : "Save draft"}
+                        >
+                            {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                            {saving ? "Saving…" : "Save Draft"}
+                        </button>
+
+                        <button
+                            className={cx(
+                                "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                                !canSubmit || submitting
+                                    ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                                    : "bg-primary text-white hover:opacity-95"
+                            )}
+                            disabled={!canSubmit || submitting}
+                            onClick={onSubmit}
+                            title={
+                                requestStatus !== "draft"
+                                    ? "Hanya status draft yang bisa submit."
+                                    : !hasContent
+                                        ? "Add at least 1 item or 1 booking"
+                                        : "Submit request"
+                            }
+                            type="button"
+                        >
+                            {submitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                            {submitting ? "Submitting…" : requestStatus === "submitted" ? "Submitted" : "Submit"}
                         </button>
                     </div>
                 </div>
 
-                {/* Equipment */}
-                <div className="rounded-2xl border bg-white shadow-sm">
-                    <div className="border-b px-4 py-3">
-                        <div className="font-semibold text-gray-900">Equipment</div>
-                        <div className="mt-3">
-                            <input
-                                className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft"
-                                placeholder="Search equipment…"
-                                value={equipSearch}
-                                onChange={(e) => setEquipSearch(e.target.value)}
-                            />
-                            <div className="mt-1 text-xs text-gray-500">Klik equipment untuk masuk ke booking di Request.</div>
-                        </div>
+                {successText && (
+                    <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 inline-flex items-center gap-2">
+                        <CheckCircle2 size={18} />
+                        {successText}
                     </div>
+                )}
 
-                    <div className="max-h-[420px] overflow-auto">
-                        {equipLoading && equipResults.length === 0 ? (
-                            <div className="p-4 text-sm text-gray-600">Loading equipment…</div>
-                        ) : equipResults.length === 0 ? (
-                            <div className="p-4 text-sm text-gray-600">No equipment found.</div>
-                        ) : (
-                            <div className="divide-y">
-                                {equipResults.map((eq) => (
-                                    <button
-                                        key={eq.equipment_id}
-                                        className="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-start justify-between gap-3"
-                                        onClick={() => addBooking(eq)}
-                                        type="button"
-                                    >
-                                        <div className="min-w-0">
-                                            <div className="font-semibold text-sm text-gray-900 truncate">
-                                                {(eq.code ? `${eq.code} • ` : "") + (eq.name ?? "Equipment")}
-                                            </div>
-                                            <div className="text-xs text-gray-500 truncate">equipment_id: {eq.equipment_id}</div>
-                                        </div>
+                {errorText && (
+                    <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 inline-flex items-center gap-2">
+                        <AlertTriangle size={18} />
+                        {errorText}
+                    </div>
+                )}
 
-                                        <span className="shrink-0 rounded-lg border px-3 py-1 text-xs font-semibold hover:bg-white">
-                                            Add booking
-                                        </span>
-                                    </button>
-                                ))}
+                {gateDetails?.not_passed_samples?.length > 0 && (
+                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                        <div className="font-semibold text-amber-900 inline-flex items-center gap-2">
+                            <AlertTriangle size={18} />
+                            Crosscheck gate not passed
+                        </div>
+                        <div className="mt-1 text-sm text-amber-900/80">
+                            Submit ditolak karena ada sample di LOO ini yang belum <b>passed</b>.
+                        </div>
+                        <ul className="mt-2 list-disc pl-5 text-sm text-amber-900/90">
+                            {gateDetails.not_passed_samples.map((s: any) => (
+                                <li key={s.sample_id}>
+                                    Sample #{s.sample_id} • {s.lab_sample_code ?? "-"} •{" "}
+                                    <span className="font-semibold">{s.crosscheck_status ?? "pending"}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+
+                {/* Content */}
+                <div className="mt-6 grid grid-cols-1 gap-4">
+                    {/* Catalog */}
+                    <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
+                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
+                                    <TestTube2 size={18} />
+                                    Catalog Items (BHP/Reagen)
+                                </div>
+
+                                <div className="flex gap-2 flex-wrap">
+                                    {(["all", "bhp", "reagen"] as const).map((t) => (
+                                        <button
+                                            key={t}
+                                            className={cx(
+                                                "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold border",
+                                                catalogType === t
+                                                    ? "bg-gray-900 text-white border-gray-900"
+                                                    : "bg-white hover:bg-gray-50 border-gray-200"
+                                            )}
+                                            onClick={() => setCatalogType(t)}
+                                            type="button"
+                                        >
+                                            {t === "all" ? "All" : t.toUpperCase()}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
-                        )}
+
+                            <div className="mt-3">
+                                <div className="relative">
+                                    <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
+                                        <Search size={16} />
+                                    </span>
+                                    <input
+                                        className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                        placeholder="Search catalog items…"
+                                        value={catalogSearch}
+                                        onChange={(e) => setCatalogSearch(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="mt-2 text-xs text-gray-500">
+                                    Semua item tampil; search hanya untuk mempercepat. Klik item untuk masuk ke Request.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="max-h-[560px] overflow-auto">
+                            {catalogLoading && catalogResults.length === 0 ? (
+                                <div className="px-5 py-4 text-sm text-gray-600 inline-flex items-center gap-2">
+                                    <Loader2 size={16} className="animate-spin" />
+                                    Loading catalog…
+                                </div>
+                            ) : catalogResults.length === 0 ? (
+                                <div className="px-5 py-4 text-sm text-gray-600">No catalog items found.</div>
+                            ) : (
+                                <div className="divide-y divide-gray-100">
+                                    {catalogResults.map((c) => (
+                                        <button
+                                            key={c.catalog_id}
+                                            className="w-full text-left px-5 py-4 hover:bg-gray-50 flex items-start justify-between gap-3"
+                                            onClick={() => addCatalogToItems(c)}
+                                            type="button"
+                                            disabled={isLocked}
+                                            title={isLocked ? "Request locked (submitted/approved)" : "Add to request"}
+                                        >
+                                            <div className="min-w-0">
+                                                <div className="font-semibold text-sm text-gray-900 truncate">
+                                                    {c.name ?? "-"}
+                                                </div>
+                                                <div className="text-xs text-gray-500 truncate">
+                                                    #{c.catalog_id} • {String(c.type ?? "-").toUpperCase()} • unit:{" "}
+                                                    {c.default_unit_text ?? "-"}
+                                                </div>
+                                                {c.specification ? (
+                                                    <div className="mt-1 text-xs text-gray-600 truncate">
+                                                        {c.specification}
+                                                    </div>
+                                                ) : null}
+                                            </div>
+
+                                            <span
+                                                className={cx(
+                                                    "shrink-0 inline-flex items-center gap-2 rounded-lg border px-3 py-1 text-xs font-semibold",
+                                                    isLocked
+                                                        ? "border-gray-200 bg-gray-100 text-gray-400"
+                                                        : "border-gray-200 bg-white hover:bg-white"
+                                                )}
+                                            >
+                                                <Plus size={14} />
+                                                Add
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+                            <div className="text-xs text-gray-500">
+                                Showing {catalogResults.length} items{catalogMeta?.total ? ` • total ${catalogMeta.total}` : ""}
+                            </div>
+                            <button
+                                type="button"
+                                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                onClick={() => setCatalogPage((p) => p + 1)}
+                                disabled={!canLoadMoreCatalog}
+                                title={!canLoadMoreCatalog ? "No more pages" : "Load more"}
+                            >
+                                {catalogLoading ? <Loader2 size={14} className="animate-spin" /> : <ClipboardList size={14} />}
+                                {catalogLoading ? "Loading…" : "Load more"}
+                            </button>
+                        </div>
                     </div>
 
-                    <div className="border-t px-4 py-3 flex items-center justify-between">
-                        <div className="text-xs text-gray-500">
-                            Showing {equipResults.length} items{equipMeta?.total ? ` • total ${equipMeta.total}` : ""}
+                    {/* Equipment */}
+                    <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
+                            <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
+                                <Wrench size={18} />
+                                Equipment
+                            </div>
+
+                            <div className="mt-3">
+                                <div className="relative">
+                                    <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
+                                        <Search size={16} />
+                                    </span>
+                                    <input
+                                        className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                        placeholder="Search equipment…"
+                                        value={equipSearch}
+                                        onChange={(e) => setEquipSearch(e.target.value)}
+                                    />
+                                </div>
+                                <div className="mt-2 text-xs text-gray-500">
+                                    Klik equipment untuk masuk ke booking di Request.
+                                </div>
+                            </div>
                         </div>
-                        <button
-                            type="button"
-                            className="rounded-xl border px-3 py-2 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                            onClick={() => setEquipPage((p) => p + 1)}
-                            disabled={!canLoadMoreEquip}
-                            title={!canLoadMoreEquip ? "No more pages" : ""}
-                        >
-                            {equipLoading ? "Loading…" : "Load more"}
-                        </button>
+
+                        <div className="max-h-[420px] overflow-auto">
+                            {equipLoading && equipResults.length === 0 ? (
+                                <div className="px-5 py-4 text-sm text-gray-600 inline-flex items-center gap-2">
+                                    <Loader2 size={16} className="animate-spin" />
+                                    Loading equipment…
+                                </div>
+                            ) : equipResults.length === 0 ? (
+                                <div className="px-5 py-4 text-sm text-gray-600">No equipment found.</div>
+                            ) : (
+                                <div className="divide-y divide-gray-100">
+                                    {equipResults.map((eq) => (
+                                        <button
+                                            key={eq.equipment_id}
+                                            className="w-full text-left px-5 py-4 hover:bg-gray-50 flex items-start justify-between gap-3"
+                                            onClick={() => addBooking(eq)}
+                                            type="button"
+                                            disabled={isLocked}
+                                            title={isLocked ? "Request locked (submitted/approved)" : "Add booking"}
+                                        >
+                                            <div className="min-w-0">
+                                                <div className="font-semibold text-sm text-gray-900 truncate">
+                                                    {(eq.code ? `${eq.code} • ` : "") + (eq.name ?? "Equipment")}
+                                                </div>
+                                                <div className="text-xs text-gray-500 truncate">
+                                                    equipment_id: {eq.equipment_id}
+                                                </div>
+                                            </div>
+
+                                            <span
+                                                className={cx(
+                                                    "shrink-0 inline-flex items-center gap-2 rounded-lg border px-3 py-1 text-xs font-semibold",
+                                                    isLocked
+                                                        ? "border-gray-200 bg-gray-100 text-gray-400"
+                                                        : "border-gray-200 bg-white hover:bg-white"
+                                                )}
+                                            >
+                                                <Plus size={14} />
+                                                Add booking
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+                            <div className="text-xs text-gray-500">
+                                Showing {equipResults.length} items{equipMeta?.total ? ` • total ${equipMeta.total}` : ""}
+                            </div>
+                            <button
+                                type="button"
+                                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                onClick={() => setEquipPage((p) => p + 1)}
+                                disabled={!canLoadMoreEquip}
+                                title={!canLoadMoreEquip ? "No more pages" : "Load more"}
+                            >
+                                {equipLoading ? <Loader2 size={14} className="animate-spin" /> : <ClipboardList size={14} />}
+                                {equipLoading ? "Loading…" : "Load more"}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Help */}
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                        <div className="font-semibold inline-flex items-center gap-2">
+                            <ClipboardList size={16} />
+                            Tips
+                        </div>
+                        <div className="mt-1">
+                            Klik item catalog / equipment untuk menambah ke request. Buka tombol <b>Request</b> (ikon cart) untuk edit qty, unit, note, dan booking time.
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            {/* Modal: Request cart */}
-            <ReagentRequestCartModal
-                open={cartOpen}
-                onClose={() => setCartOpen(false)}
-                loId={loId}
-                requestStatus={request?.status ?? null}
-                cycleNo={request?.cycle_no ?? null}
-                items={items}
-                bookings={bookings}
-                saving={saving}
-                submitting={submitting}
-                canSubmit={canSubmit}
-                totalSelectedQty={totalSelected}
-                onSaveDraft={onSaveDraft}
-                onSubmit={onSubmit}
-                onRemoveItem={removeItem}
-                onUpdateItem={updateItem}
-                onRemoveBooking={removeBooking}
-                onUpdateBooking={updateBooking}
-            />
+                {/* Modal: Request cart */}
+                <ReagentRequestCartModal
+                    open={cartOpen}
+                    onClose={() => setCartOpen(false)}
+                    loId={loId}
+                    requestStatus={request?.status ?? null}
+                    cycleNo={request?.cycle_no ?? null}
+                    items={items}
+                    bookings={bookings}
+                    saving={saving}
+                    submitting={submitting}
+                    canSubmit={canSubmit}
+                    totalSelectedQty={totalSelected}
+                    onSaveDraft={onSaveDraft}
+                    onSubmit={onSubmit}
+                    onRemoveItem={removeItem}
+                    onUpdateItem={updateItem}
+                    onRemoveBooking={removeBooking}
+                    onUpdateBooking={updateBooking}
+                />
+            </div>
         </div>
     );
 }
