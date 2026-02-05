@@ -84,14 +84,6 @@ export const AppLayout = () => {
             ? [{ label: "Staff Approvals", path: "/staff/approvals", icon: "check" }]
             : [];
 
-    const qaItems: NavItem[] = canAccessQAModules
-        ? [
-            { label: "QA Parameters", path: "/qa/parameters", icon: "check" },
-            { label: "QA Methods", path: "/qa/methods", icon: "check" },
-            { label: "Consumables Catalog", path: "/qa/consumables-catalog", icon: "check" },
-        ]
-        : [];
-
     const reportItems: NavItem[] = canSeeReports
         ? [{ label: "Reports", path: "/reports", icon: "check" }]
         : [];
@@ -109,7 +101,6 @@ export const AppLayout = () => {
             return [
                 ...staffBaseItems,
                 ...omLhItems,
-                ...qaItems,
                 ...reportItems,
                 ...auditItems,
                 ...adminItems,
