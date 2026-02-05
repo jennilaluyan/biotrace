@@ -23,11 +23,13 @@ import { QAMethodsPage } from "../pages/qa/QAMethodsPage";
 import { ConsumablesCatalogPage } from "../pages/qa/ConsumablesCatalogPage";
 import { AuditLogsPage } from "../pages/audit/AuditLogsPage";
 import { ReportsPage } from "../pages/reports/ReportsPage";
-
+import { QualityCoverOmInboxPage } from "../pages/quality-covers/QualityCoverOmInboxPage";
+import { QualityCoverLhInboxPage } from "../pages/quality-covers/QualityCoverLhInboxPage";
 import ReagentRequestBuilderPage from "../pages/reagents/ReagentRequestBuilderPage";
 import ReagentApprovalInboxPage from "../pages/reagents/ReagentApprovalInboxPage";
 import ReagentApprovalDetailPage from "../pages/reagents/ReagentApprovalDetailPage";
-
+import { QualityCoverOmDetailPage } from "../pages/quality-covers/QualityCoverOmDetailPage";
+import { QualityCoverLhDetailPage } from "../pages/quality-covers/QualityCoverLhDetailPage";
 import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
 import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
 import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
@@ -75,6 +77,42 @@ export const AppRouter = () => {
                                 ]}
                             >
                                 <ClientDetailPage />
+                            </RoleGuard>
+                        }
+                    />
+
+                    <Route
+                        path="/quality-covers/inbox/om"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER]}>
+                                <QualityCoverOmInboxPage />
+                            </RoleGuard>
+                        }
+                    />
+
+                    <Route
+                        path="/quality-covers/inbox/lh"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.LAB_HEAD]}>
+                                <QualityCoverLhInboxPage />
+                            </RoleGuard>
+                        }
+                    />
+
+                    <Route
+                        path="/quality-covers/om/:qualityCoverId"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER]}>
+                                <QualityCoverOmDetailPage />
+                            </RoleGuard>
+                        }
+                    />
+
+                    <Route
+                        path="/quality-covers/lh/:qualityCoverId"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.LAB_HEAD]}>
+                                <QualityCoverLhDetailPage />
                             </RoleGuard>
                         }
                     />

@@ -55,8 +55,8 @@ export const AppLayout = () => {
 
     const scOnlyItems: NavItem[] = isSampleCollector
         ? [
-            { label: "Request Queue", path: "/samples/requests", icon: "check" },
-            { label: "Samples", path: "/samples", icon: "flask" },
+            { label: "Request Queue", path: "/samples/requests", icon: "check" as const },
+            { label: "Samples", path: "/samples", icon: "flask" as const },
         ]
         : [];
 
@@ -65,9 +65,17 @@ export const AppLayout = () => {
 
     const omLhItems: NavItem[] = isOmOrLh
         ? [
-            { label: "Request Queue", path: "/samples/requests", icon: "check" },
-            { label: "LOO Generator", path: "/loo", icon: "flask" },
-            { label: "Reagent Approvals", path: "/reagents/approvals", icon: "check" },
+            { label: "Request Queue", path: "/samples/requests", icon: "check" as const },
+            { label: "LOO Generator", path: "/loo", icon: "flask" as const },
+            { label: "Reagent Approvals", path: "/reagents/approvals", icon: "check" as const },
+
+            // ✅ Quality Cover approvals flow (To-Do 12)
+            ...(roleId === ROLE_ID.OPERATIONAL_MANAGER
+                ? [{ label: "Quality Cover (Verify)", path: "/quality-covers/inbox/om", icon: "check" as const }]
+                : []),
+            ...(roleId === ROLE_ID.LAB_HEAD
+                ? [{ label: "Quality Cover (Validate)", path: "/quality-covers/inbox/lh", icon: "check" as const }]
+                : []),
         ]
         : [];
 
@@ -178,7 +186,9 @@ export const AppLayout = () => {
             item.path === "/portal/requests" ||
             item.path === "/loo" ||
             item.path === "/reagents/approvals" ||
-            item.path === "/testing-board";
+            item.path === "/testing-board" ||
+            item.path === "/quality-covers/inbox/om" ||
+            item.path === "/quality-covers/inbox/lh";
 
         return (
             <NavLink

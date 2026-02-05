@@ -1,19 +1,116 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\services\qualityCovers.ts
 import { apiGet, apiPost, apiPut } from "./api";
+
+export type QualityCoverStatus =
+    | "draft"
+    | "submitted"
+    | "verified"
+    | "validated"
+    | "rejected"
+    | string;
 
 export type QualityCover = {
     quality_cover_id: number;
     sample_id: number;
+
     workflow_group?: string | null;
-    status: "draft" | "submitted" | string;
+    status: QualityCoverStatus;
+
     date_of_analysis?: string | null;
     method_of_analysis?: string | null;
     checked_by_staff_id?: number | null;
+
     qc_payload?: any;
+
     submitted_at?: string | null;
+    verified_at?: string | null;
+    validated_at?: string | null;
+
+    verified_by_staff_id?: number | null;
+    validated_by_staff_id?: number | null;
+
+    rejected_at?: string | null;
+    rejected_by_staff_id?: number | null;
+    rejected_reason?: string | null;
 };
 
-// unwrap like other pages (handles {data: ...} nesting)
+export type InboxMeta = {
+    current_page: number;
+    per_page: number;
+    total: number;
+    last_page: number;
+};
+
+export type QualityCoverInboxItem = QualityCover & {
+    sample?: {
+        sample_id: number;
+        lab_sample_code?: string | null;
+        workflow_group?: string | null;
+        client?: { client_id: number; name?: string | null } | null;
+    } | null;
+
+    checked_by?: { staff_id: number; name?: string | null } | null;
+    verified_by?: { staff_id: number; name?: string | null } | null;
+    validated_by?: { staff_id: number; name?: string | null } | null;
+};
+
+export async function listOmInbox(params: {
+    search?: string;
+    per_page?: number;
+    page?: number;
+}) {
+    const qs = new URLSearchParams();
+    if (params.search) qs.set("search", params.search);
+    if (params.per_page) qs.set("per_page", String(params.per_page));
+    if (params.page) qs.set("page", String(params.page));
+
+    return apiGet<{ data: QualityCoverInboxItem[]; meta: InboxMeta }>(
+        `/v1/quality-covers/inbox/om?${qs.toString()}`
+    );
+}
+
+export async function listLhInbox(params: {
+    search?: string;
+    per_page?: number;
+    page?: number;
+}) {
+    const qs = new URLSearchParams();
+    if (params.search) qs.set("search", params.search);
+    if (params.per_page) qs.set("per_page", String(params.per_page));
+    if (params.page) qs.set("page", String(params.page));
+
+    return apiGet<{ data: QualityCoverInboxItem[]; meta: InboxMeta }>(
+        `/v1/quality-covers/inbox/lh?${qs.toString()}`
+    );
+}
+
+export async function omVerify(qualityCoverId: number) {
+    return apiPost<{ message: string; data: QualityCoverInboxItem }>(
+        `/v1/quality-covers/${qualityCoverId}/verify`,
+        {}
+    );
+}
+
+export async function omReject(qualityCoverId: number, reason: string) {
+    return apiPost<{ message: string; data: QualityCoverInboxItem }>(
+        `/v1/quality-covers/${qualityCoverId}/reject`,
+        { reason }
+    );
+}
+
+export async function lhValidate(qualityCoverId: number) {
+    return apiPost<{ message: string; data: QualityCoverInboxItem }>(
+        `/v1/quality-covers/${qualityCoverId}/validate`,
+        {}
+    );
+}
+
+export async function lhReject(qualityCoverId: number, reason: string) {
+    return apiPost<{ message: string; data: QualityCoverInboxItem }>(
+        `/v1/quality-covers/${qualityCoverId}/reject-lh`,
+        { reason }
+    );
+}
+
 function unwrapApi(res: any) {
     let x = res?.data ?? res;
     for (let i = 0; i < 5; i++) {
@@ -27,7 +124,6 @@ function unwrapApi(res: any) {
 }
 
 function extractBackendMessage(err: any): string | null {
-    // handleAxios() throws: { status, data }
     const status = err?.status ?? err?.response?.status ?? null;
     const data = err?.data ?? err?.response?.data ?? null;
 
@@ -50,12 +146,27 @@ export async function getQualityCover(sampleId: number): Promise<QualityCover | 
         const payload = unwrapApi(res);
         return payload ? (payload as QualityCover) : null;
     } catch (e: any) {
-        // If backend returns 404 when not created yet, treat as "no cover"
         const status = e?.status ?? e?.response?.status ?? null;
         if (Number(status) === 404) return null;
 
         const msg = extractBackendMessage(e);
         throw new Error(msg || "Failed to load quality cover.");
+    }
+}
+
+/**
+ * OM/LH detail page uses this.
+ */
+export async function getQualityCoverById(
+    qualityCoverId: number
+): Promise<QualityCoverInboxItem> {
+    try {
+        const res = await apiGet<any>(`/v1/quality-covers/${qualityCoverId}`);
+        const payload = unwrapApi(res);
+        return payload as QualityCoverInboxItem;
+    } catch (e: any) {
+        const msg = extractBackendMessage(e);
+        throw new Error(msg || "Failed to load quality cover detail.");
     }
 }
 
@@ -74,11 +185,7 @@ export async function saveQualityCoverDraft(
 }
 
 /**
- * ✅ FIX:
- * Backend kamu mendukung: POST /v1/samples/:id/quality-cover/submit
- * (terbukti dari error 405 yang bilang supported methods: POST)
- *
- * Jadi submit HARUS pakai POST, jangan PUT/PATCH.
+ * Submit MUST be POST.
  */
 export async function submitQualityCover(
     sampleId: number,
@@ -91,7 +198,6 @@ export async function submitQualityCover(
     } catch (e: any) {
         const msg = extractBackendMessage(e);
 
-        // kalau masih 405, kasih hint yang spesifik biar gampang debug
         const status = e?.status ?? e?.response?.status ?? null;
         if (Number(status) === 405) {
             throw new Error(
