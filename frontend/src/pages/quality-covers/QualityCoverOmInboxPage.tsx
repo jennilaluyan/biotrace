@@ -7,6 +7,7 @@ import {
     QualityCoverInboxItem,
     InboxMeta,
 } from "../../services/qualityCovers";
+import { formatDateTimeLocal } from "../../utils/date";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -195,7 +196,7 @@ export function QualityCoverOmInboxPage() {
                                 const sampleCode = r.sample?.lab_sample_code ?? `#${sampleId}`;
                                 const clientName = r.sample?.client?.name ?? "-";
                                 const group = r.sample?.workflow_group ?? r.workflow_group ?? "-";
-                                const submittedAt = r.submitted_at ?? "-";
+                                const submittedAt = r.submitted_at ? formatDateTimeLocal(r.submitted_at) : "-";
                                 const checkedBy = r.checked_by?.name ?? "-";
 
                                 return (
