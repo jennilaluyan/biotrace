@@ -1,5 +1,5 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\routes\AppRouter.tsx
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
+import { getLastRoute, setLastRoute } from "../utils/lastRoute";
 import { LoginPage } from "../pages/auth/LoginPage";
 import { RegisterPage } from "../pages/auth/RegisterPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
@@ -12,7 +12,6 @@ import { ROLE_ID } from "../utils/roles";
 import { getTenant } from "../utils/tenant";
 import { useAuth } from "../hooks/useAuth";
 import { useClientAuth } from "../hooks/useClientAuth";
-import { getLastRoute } from "../utils/lastRoute";
 
 import { ClientsPage } from "../pages/clients/ClientsPage";
 import { ClientDetailPage } from "../pages/clients/ClientDetailPage";
@@ -45,28 +44,61 @@ import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
  * - portal + client authenticated => last client route (fallback /portal)
  * - otherwise => /login
  */
+const StaffLastRouteTracker = () => {
+    const loc = useLocation();
+    const staff = useAuth();
+
+    // simpan hanya kalau sudah login & punya user id
+    const staffId = (staff as any)?.user?.id;
+
+    // store path + query
+    const path = `${loc.pathname}${loc.search ?? ""}`;
+
+    // jangan simpan "/" (root) dan jangan simpan kalau belum authenticated
+    if (staff?.isAuthenticated && staffId && path !== "/") {
+        setLastRoute("staff", path, staffId);
+    }
+
+    return <Outlet />;
+};
+
+const ClientLastRouteTracker = () => {
+    const loc = useLocation();
+    const client = useClientAuth() as any;
+
+    const clientId = client?.client?.id;
+    const path = `${loc.pathname}${loc.search ?? ""}`;
+
+    if (client?.isClientAuthenticated && clientId && path !== "/") {
+        setLastRoute("client", path, clientId);
+    }
+
+    return <Outlet />;
+};
+
 const HomeRedirect = () => {
     const tenant = getTenant();
     const staff = useAuth();
     const client = useClientAuth() as any;
 
-    // PORTAL
     if (tenant === "portal") {
         if (client?.loading) return null;
 
         if (client?.isClientAuthenticated) {
-            const last = getLastRoute("client");
+            const clientId = client?.client?.id;
+            const last = getLastRoute("client", clientId);
             return <Navigate to={last ?? "/portal"} replace />;
         }
 
         return <Navigate to="/login" replace />;
     }
 
-    // BACKOFFICE
+    // backoffice
     if (staff.loading) return null;
 
     if (staff.isAuthenticated) {
-        const last = getLastRoute("staff");
+        const staffId = (staff as any)?.user?.id;
+        const last = getLastRoute("staff", staffId);
         return <Navigate to={last ?? "/samples"} replace />;
     }
 
@@ -82,274 +114,278 @@ export const AppRouter = () => {
 
             {/* STAFF / BACKOFFICE */}
             <Route element={<ProtectedRoute />}>
-                <Route element={<AppLayout />}>
-                    <Route
-                        path="/clients/approvals"
-                        element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN]}>
-                                <ClientApprovalsPage />
-                            </RoleGuard>
-                        }
-                    />
-                    <Route
-                        path="/clients"
-                        element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ADMIN,
-                                    ROLE_ID.LAB_HEAD,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                ]}
-                            >
-                                <ClientsPage />
-                            </RoleGuard>
-                        }
-                    />
-                    <Route
-                        path="/clients/:slug"
-                        element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ADMIN,
-                                    ROLE_ID.LAB_HEAD,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                ]}
-                            >
-                                <ClientDetailPage />
-                            </RoleGuard>
-                        }
-                    />
+                <Route element={<StaffLastRouteTracker />}>
+                    <Route element={<AppLayout />}>
+                        <Route
+                            path="/clients/approvals"
+                            element={
+                                <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN]}>
+                                    <ClientApprovalsPage />
+                                </RoleGuard>
+                            }
+                        />
+                        <Route
+                            path="/clients"
+                            element={
+                                <RoleGuard
+                                    allowedRoleIds={[
+                                        ROLE_ID.ADMIN,
+                                        ROLE_ID.LAB_HEAD,
+                                        ROLE_ID.OPERATIONAL_MANAGER,
+                                    ]}
+                                >
+                                    <ClientsPage />
+                                </RoleGuard>
+                            }
+                        />
+                        <Route
+                            path="/clients/:slug"
+                            element={
+                                <RoleGuard
+                                    allowedRoleIds={[
+                                        ROLE_ID.ADMIN,
+                                        ROLE_ID.LAB_HEAD,
+                                        ROLE_ID.OPERATIONAL_MANAGER,
+                                    ]}
+                                >
+                                    <ClientDetailPage />
+                                </RoleGuard>
+                            }
+                        />
 
-                    <Route
-                        path="/quality-covers/inbox/om"
-                        element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER]}>
-                                <QualityCoverOmInboxPage />
-                            </RoleGuard>
-                        }
-                    />
+                        <Route
+                            path="/quality-covers/inbox/om"
+                            element={
+                                <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER]}>
+                                    <QualityCoverOmInboxPage />
+                                </RoleGuard>
+                            }
+                        />
 
-                    <Route
-                        path="/quality-covers/inbox/lh"
-                        element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.LAB_HEAD]}>
-                                <QualityCoverLhInboxPage />
-                            </RoleGuard>
-                        }
-                    />
+                        <Route
+                            path="/quality-covers/inbox/lh"
+                            element={
+                                <RoleGuard allowedRoleIds={[ROLE_ID.LAB_HEAD]}>
+                                    <QualityCoverLhInboxPage />
+                                </RoleGuard>
+                            }
+                        />
 
-                    <Route
-                        path="/quality-covers/om/:qualityCoverId"
-                        element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER]}>
-                                <QualityCoverOmDetailPage />
-                            </RoleGuard>
-                        }
-                    />
+                        <Route
+                            path="/quality-covers/om/:qualityCoverId"
+                            element={
+                                <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER]}>
+                                    <QualityCoverOmDetailPage />
+                                </RoleGuard>
+                            }
+                        />
 
-                    <Route
-                        path="/quality-covers/lh/:qualityCoverId"
-                        element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.LAB_HEAD]}>
-                                <QualityCoverLhDetailPage />
-                            </RoleGuard>
-                        }
-                    />
+                        <Route
+                            path="/quality-covers/lh/:qualityCoverId"
+                            element={
+                                <RoleGuard allowedRoleIds={[ROLE_ID.LAB_HEAD]}>
+                                    <QualityCoverLhDetailPage />
+                                </RoleGuard>
+                            }
+                        />
 
-                    <Route
-                        path="/samples"
-                        element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ADMIN,
-                                    ROLE_ID.LAB_HEAD,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                    ROLE_ID.ANALYST,
-                                    ROLE_ID.SAMPLE_COLLECTOR,
-                                ]}
-                            >
-                                <SamplesPage />
-                            </RoleGuard>
-                        }
-                    />
-                    <Route
-                        path="/samples/:id"
-                        element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ADMIN,
-                                    ROLE_ID.LAB_HEAD,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                    ROLE_ID.ANALYST,
-                                    ROLE_ID.SAMPLE_COLLECTOR,
-                                ]}
-                            >
-                                <SampleDetailPage />
-                            </RoleGuard>
-                        }
-                    />
+                        <Route
+                            path="/samples"
+                            element={
+                                <RoleGuard
+                                    allowedRoleIds={[
+                                        ROLE_ID.ADMIN,
+                                        ROLE_ID.LAB_HEAD,
+                                        ROLE_ID.OPERATIONAL_MANAGER,
+                                        ROLE_ID.ANALYST,
+                                        ROLE_ID.SAMPLE_COLLECTOR,
+                                    ]}
+                                >
+                                    <SamplesPage />
+                                </RoleGuard>
+                            }
+                        />
+                        <Route
+                            path="/samples/:id"
+                            element={
+                                <RoleGuard
+                                    allowedRoleIds={[
+                                        ROLE_ID.ADMIN,
+                                        ROLE_ID.LAB_HEAD,
+                                        ROLE_ID.OPERATIONAL_MANAGER,
+                                        ROLE_ID.ANALYST,
+                                        ROLE_ID.SAMPLE_COLLECTOR,
+                                    ]}
+                                >
+                                    <SampleDetailPage />
+                                </RoleGuard>
+                            }
+                        />
 
-                    <Route
-                        path="/staff/approvals"
-                        element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.LAB_HEAD]}>
-                                <StaffApprovalsPage />
-                            </RoleGuard>
-                        }
-                    />
-                    <Route
-                        path="/qa/parameters"
-                        element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST]}>
-                                <QAParametersPage />
-                            </RoleGuard>
-                        }
-                    />
-                    <Route
-                        path="/qa/methods"
-                        element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST]}>
-                                <QAMethodsPage />
-                            </RoleGuard>
-                        }
-                    />
-                    <Route
-                        path="/qa/consumables-catalog"
-                        element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST]}>
-                                <ConsumablesCatalogPage />
-                            </RoleGuard>
-                        }
-                    />
-                    <Route
-                        path="/reagents/requests/loo/:loId"
-                        element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST]}>
-                                <ReagentRequestBuilderPage />
-                            </RoleGuard>
-                        }
-                    />
-                    <Route
-                        path="/reagents/approvals"
-                        element={
-                            <RoleGuard
-                                allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}
-                            >
-                                <ReagentApprovalInboxPage />
-                            </RoleGuard>
-                        }
-                    />
-                    <Route
-                        path="/reagents/approvals/loo/:loId"
-                        element={
-                            <RoleGuard
-                                allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}
-                            >
-                                <ReagentApprovalDetailPage />
-                            </RoleGuard>
-                        }
-                    />
+                        <Route
+                            path="/staff/approvals"
+                            element={
+                                <RoleGuard allowedRoleIds={[ROLE_ID.LAB_HEAD]}>
+                                    <StaffApprovalsPage />
+                                </RoleGuard>
+                            }
+                        />
+                        <Route
+                            path="/qa/parameters"
+                            element={
+                                <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST]}>
+                                    <QAParametersPage />
+                                </RoleGuard>
+                            }
+                        />
+                        <Route
+                            path="/qa/methods"
+                            element={
+                                <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST]}>
+                                    <QAMethodsPage />
+                                </RoleGuard>
+                            }
+                        />
+                        <Route
+                            path="/qa/consumables-catalog"
+                            element={
+                                <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST]}>
+                                    <ConsumablesCatalogPage />
+                                </RoleGuard>
+                            }
+                        />
+                        <Route
+                            path="/reagents/requests/loo/:loId"
+                            element={
+                                <RoleGuard allowedRoleIds={[ROLE_ID.ANALYST]}>
+                                    <ReagentRequestBuilderPage />
+                                </RoleGuard>
+                            }
+                        />
+                        <Route
+                            path="/reagents/approvals"
+                            element={
+                                <RoleGuard
+                                    allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}
+                                >
+                                    <ReagentApprovalInboxPage />
+                                </RoleGuard>
+                            }
+                        />
+                        <Route
+                            path="/reagents/approvals/loo/:loId"
+                            element={
+                                <RoleGuard
+                                    allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}
+                                >
+                                    <ReagentApprovalDetailPage />
+                                </RoleGuard>
+                            }
+                        />
 
-                    <Route
-                        path="/audit/logs"
-                        element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ADMIN,
-                                    ROLE_ID.SAMPLE_COLLECTOR,
-                                    ROLE_ID.ANALYST,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                    ROLE_ID.LAB_HEAD,
-                                ]}
-                            >
-                                <AuditLogsPage />
-                            </RoleGuard>
-                        }
-                    />
-                    <Route
-                        path="/audit-logs"
-                        element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ADMIN,
-                                    ROLE_ID.SAMPLE_COLLECTOR,
-                                    ROLE_ID.ANALYST,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                    ROLE_ID.LAB_HEAD,
-                                ]}
-                            >
-                                <AuditLogsPage />
-                            </RoleGuard>
-                        }
-                    />
+                        <Route
+                            path="/audit/logs"
+                            element={
+                                <RoleGuard
+                                    allowedRoleIds={[
+                                        ROLE_ID.ADMIN,
+                                        ROLE_ID.SAMPLE_COLLECTOR,
+                                        ROLE_ID.ANALYST,
+                                        ROLE_ID.OPERATIONAL_MANAGER,
+                                        ROLE_ID.LAB_HEAD,
+                                    ]}
+                                >
+                                    <AuditLogsPage />
+                                </RoleGuard>
+                            }
+                        />
+                        <Route
+                            path="/audit-logs"
+                            element={
+                                <RoleGuard
+                                    allowedRoleIds={[
+                                        ROLE_ID.ADMIN,
+                                        ROLE_ID.SAMPLE_COLLECTOR,
+                                        ROLE_ID.ANALYST,
+                                        ROLE_ID.OPERATIONAL_MANAGER,
+                                        ROLE_ID.LAB_HEAD,
+                                    ]}
+                                >
+                                    <AuditLogsPage />
+                                </RoleGuard>
+                            }
+                        />
 
-                    <Route
-                        path="/reports"
-                        element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ADMIN,
-                                    ROLE_ID.SAMPLE_COLLECTOR,
-                                    ROLE_ID.ANALYST,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                    ROLE_ID.LAB_HEAD,
-                                ]}
-                            >
-                                <ReportsPage />
-                            </RoleGuard>
-                        }
-                    />
+                        <Route
+                            path="/reports"
+                            element={
+                                <RoleGuard
+                                    allowedRoleIds={[
+                                        ROLE_ID.ADMIN,
+                                        ROLE_ID.SAMPLE_COLLECTOR,
+                                        ROLE_ID.ANALYST,
+                                        ROLE_ID.OPERATIONAL_MANAGER,
+                                        ROLE_ID.LAB_HEAD,
+                                    ]}
+                                >
+                                    <ReportsPage />
+                                </RoleGuard>
+                            }
+                        />
 
-                    <Route
-                        path="/loo"
-                        element={
-                            <RoleGuard
-                                allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}
-                            >
-                                <LooGeneratorPage />
-                            </RoleGuard>
-                        }
-                    />
+                        <Route
+                            path="/loo"
+                            element={
+                                <RoleGuard
+                                    allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}
+                                >
+                                    <LooGeneratorPage />
+                                </RoleGuard>
+                            }
+                        />
 
-                    <Route
-                        path="/samples/requests"
-                        element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ADMIN,
-                                    ROLE_ID.SAMPLE_COLLECTOR,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                    ROLE_ID.LAB_HEAD,
-                                ]}
-                            >
-                                <SampleRequestsQueuePage />
-                            </RoleGuard>
-                        }
-                    />
-                    <Route
-                        path="/samples/requests/:id"
-                        element={
-                            <RoleGuard
-                                allowedRoleIds={[
-                                    ROLE_ID.ADMIN,
-                                    ROLE_ID.SAMPLE_COLLECTOR,
-                                    ROLE_ID.OPERATIONAL_MANAGER,
-                                    ROLE_ID.LAB_HEAD,
-                                ]}
-                            >
-                                <SampleRequestDetailPage />
-                            </RoleGuard>
-                        }
-                    />
+                        <Route
+                            path="/samples/requests"
+                            element={
+                                <RoleGuard
+                                    allowedRoleIds={[
+                                        ROLE_ID.ADMIN,
+                                        ROLE_ID.SAMPLE_COLLECTOR,
+                                        ROLE_ID.OPERATIONAL_MANAGER,
+                                        ROLE_ID.LAB_HEAD,
+                                    ]}
+                                >
+                                    <SampleRequestsQueuePage />
+                                </RoleGuard>
+                            }
+                        />
+                        <Route
+                            path="/samples/requests/:id"
+                            element={
+                                <RoleGuard
+                                    allowedRoleIds={[
+                                        ROLE_ID.ADMIN,
+                                        ROLE_ID.SAMPLE_COLLECTOR,
+                                        ROLE_ID.OPERATIONAL_MANAGER,
+                                        ROLE_ID.LAB_HEAD,
+                                    ]}
+                                >
+                                    <SampleRequestDetailPage />
+                                </RoleGuard>
+                            }
+                        />
+                    </Route>
                 </Route>
             </Route>
 
             {/* CLIENT / PORTAL */}
             <Route element={<ClientProtectedRoute />}>
-                <Route element={<PortalLayout />}>
-                    <Route path="/portal" element={<ClientDashboardPage />} />
-                    <Route path="/portal/requests" element={<ClientRequestsPage />} />
-                    <Route path="/portal/requests/:id" element={<ClientRequestDetailPage />} />
+                <Route element={<ClientLastRouteTracker />}>
+                    <Route element={<PortalLayout />}>
+                        <Route path="/portal" element={<ClientDashboardPage />} />
+                        <Route path="/portal/requests" element={<ClientRequestsPage />} />
+                        <Route path="/portal/requests/:id" element={<ClientRequestDetailPage />} />
+                    </Route>
                 </Route>
             </Route>
 

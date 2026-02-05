@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { loginRequest, logoutRequest, fetchProfile } from "../services/auth";
 import { getTenant } from "../utils/tenant";
 import { publishAuthEvent, subscribeAuthEvents } from "../utils/authSync";
+import { clearLastRoute } from "../utils/lastRoute";
 
 type UserRole = { id: number; name: string } | null;
 
@@ -91,10 +92,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
             // logout/expired in another tab -> clear immediately
             if (evt.action === "logout" || evt.action === "session_expired") {
+                const uid = (user as any)?.id;
                 setUser(null);
+                clearLastRoute("staff", uid);
                 return;
             }
-
             // login/refresh in another tab -> refresh user (optional)
             if (evt.action === "login" || evt.action === "refresh") {
                 refresh();
@@ -121,11 +123,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const logout = async () => {
         setLoading(true);
+
+        // capture dulu sebelum setUser(null)
+        const uid = (user as any)?.id;
+
         try {
             await logoutRequest();
             setUser(null);
+            clearLastRoute("staff", uid);
 
-            // ✅ broadcast: force all tabs logout
             publishAuthEvent("staff", "logout");
         } finally {
             setLoading(false);
