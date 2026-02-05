@@ -125,7 +125,7 @@ class QualityCoverController extends Controller
         // reset reject fields (kalau ada data lama)
         $qualityCover->rejected_at = null;
         $qualityCover->rejected_by_staff_id = null;
-        $qualityCover->rejected_reason = null;
+        $qualityCover->reject_reason = null;
 
         $qualityCover->save();
 
@@ -187,7 +187,7 @@ class QualityCoverController extends Controller
         $qualityCover->status = 'rejected';
         $qualityCover->rejected_at = now();
         $qualityCover->rejected_by_staff_id = (int) $staff->staff_id;
-        $qualityCover->rejected_reason = $reason;
+        $qualityCover->reject_reason = $reason;
 
         // reset verify fields (biar konsisten)
         $qualityCover->verified_at = null;
@@ -520,7 +520,7 @@ class QualityCoverController extends Controller
         // clear reject fields just in case
         $qualityCover->rejected_at = null;
         $qualityCover->rejected_by_staff_id = null;
-        $qualityCover->rejected_reason = null;
+        $qualityCover->reject_reason = null;
 
         $qualityCover->save();
 
@@ -582,7 +582,7 @@ class QualityCoverController extends Controller
         $qualityCover->status = 'rejected';
         $qualityCover->rejected_at = now();
         $qualityCover->rejected_by_staff_id = (int) $staff->staff_id;
-        $qualityCover->rejected_reason = $reason;
+        $qualityCover->reject_reason = $reason;
 
         // clear validated fields (biar konsisten)
         $qualityCover->validated_at = null;
