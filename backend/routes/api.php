@@ -405,6 +405,17 @@ Route::prefix('v1')->group(function () {
 
         /*
         |--------------------------------------------------------------------------
+        | Quality Cover (OM Verify)
+        |--------------------------------------------------------------------------
+        */
+        Route::post('quality-covers/{qualityCover}/verify', [QualityCoverController::class, 'omVerify'])
+            ->whereNumber('qualityCover');
+
+        Route::post('quality-covers/{qualityCover}/reject', [QualityCoverController::class, 'omReject'])
+            ->whereNumber('qualityCover');
+
+        /*
+        |--------------------------------------------------------------------------
         | Audit Logs
         |--------------------------------------------------------------------------
         */

@@ -9,6 +9,7 @@ use App\Models\QualityCover;
 use App\Support\AuditLogger;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Http\Requests\QualityCoverSubmitRequest;
 use Illuminate\Support\Facades\Validator;
@@ -26,11 +27,130 @@ class QualityCoverController extends Controller
 
     private function assertOperationalManager(Staff $staff): void
     {
-        // Role name source of truth mengikuti SamplePolicy: "Operational Manager"
-        $roleName = (string) optional($staff->role)->name;
-        if ($roleName !== 'Operational Manager') {
+        $roleName = strtolower((string) optional($staff->role)->name);
+
+        // toleransi variasi penamaan role di DB
+        $ok = in_array($roleName, ['operational manager', 'operation manager', 'om'], true);
+
+        if (!$ok) {
             abort(403, 'Forbidden.');
         }
+    }
+
+    /**
+     * POST /v1/quality-covers/{qualityCover}/verify
+     * OM verifies a submitted quality cover.
+     */
+    public function omVerify(Request $request, QualityCover $qualityCover): JsonResponse
+    {
+        /** @var Staff $staff */
+        $staff = Auth::user();
+        if (!$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
+        $this->assertOperationalManager($staff);
+
+        if (!Schema::hasTable('quality_covers')) {
+            return response()->json([
+                'message' => 'quality_covers table not found. Run migrations.',
+                'hint' => 'php artisan migrate',
+            ], 500);
+        }
+
+        if ((string) $qualityCover->status !== 'submitted') {
+            return response()->json([
+                'message' => 'Only submitted quality covers can be verified.',
+                'data' => $qualityCover,
+            ], 409);
+        }
+
+        $qualityCover->status = 'verified';
+        $qualityCover->verified_at = now();
+        $qualityCover->verified_by_staff_id = (int) $staff->staff_id;
+
+        // reset reject fields (kalau ada data lama)
+        $qualityCover->rejected_at = null;
+        $qualityCover->rejected_by_staff_id = null;
+        $qualityCover->rejected_reason = null;
+
+        $qualityCover->save();
+
+        AuditLogger::logQualityCoverVerified(
+            staffId: (int) $staff->staff_id,
+            sampleId: (int) $qualityCover->sample_id,
+            qualityCoverId: (int) $qualityCover->quality_cover_id,
+        );
+
+        return response()->json([
+            'message' => 'Quality cover verified (OM).',
+            'data' => $qualityCover,
+        ]);
+    }
+
+    /**
+     * POST /v1/quality-covers/{qualityCover}/reject
+     * OM rejects a submitted quality cover (reason required).
+     */
+    public function omReject(Request $request, QualityCover $qualityCover): JsonResponse
+    {
+        /** @var Staff $staff */
+        $staff = Auth::user();
+        if (!$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
+        $this->assertOperationalManager($staff);
+
+        if (!Schema::hasTable('quality_covers')) {
+            return response()->json([
+                'message' => 'quality_covers table not found. Run migrations.',
+                'hint' => 'php artisan migrate',
+            ], 500);
+        }
+
+        if ((string) $qualityCover->status !== 'submitted') {
+            return response()->json([
+                'message' => 'Only submitted quality covers can be rejected.',
+                'data' => $qualityCover,
+            ], 409);
+        }
+
+        $v = Validator::make($request->all(), [
+            'reason' => ['required', 'string', 'max:1000'],
+        ]);
+
+        if ($v->fails()) {
+            return response()->json([
+                'message' => 'The given data was invalid.',
+                'errors' => $v->errors(),
+            ], 422);
+        }
+
+        $reason = (string) $v->validated()['reason'];
+
+        $qualityCover->status = 'rejected';
+        $qualityCover->rejected_at = now();
+        $qualityCover->rejected_by_staff_id = (int) $staff->staff_id;
+        $qualityCover->rejected_reason = $reason;
+
+        // reset verify fields (biar konsisten)
+        $qualityCover->verified_at = null;
+        $qualityCover->verified_by_staff_id = null;
+
+        $qualityCover->save();
+
+        AuditLogger::logQualityCoverRejected(
+            staffId: (int) $staff->staff_id,
+            sampleId: (int) $qualityCover->sample_id,
+            qualityCoverId: (int) $qualityCover->quality_cover_id,
+            reason: $reason,
+        );
+
+        return response()->json([
+            'message' => 'Quality cover rejected (OM).',
+            'data' => $qualityCover,
+        ]);
     }
 
     /**
