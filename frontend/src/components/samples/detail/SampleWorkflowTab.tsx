@@ -1,3 +1,4 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\detail\SampleWorkflowTab.tsx
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, XCircle, Truck, Hand } from "lucide-react";
 import type { Sample } from "../../../services/samples";
@@ -42,12 +43,15 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
     const scDeliveredToAnalystAt = s?.sc_delivered_to_analyst_at ?? null;
     const analystReceivedAt = s?.analyst_received_at ?? null;
 
-    const crossStatus = normalizeLabel(s?.crosscheck_status ?? "pending");
+    // ✅ Use RAW status for logic, label for UI
+    const crossStatusRaw = String(s?.crosscheck_status ?? "pending").trim().toLowerCase();
+    const crossStatusLabel = normalizeLabel(crossStatusRaw);
     const crossAt = s?.crosschecked_at ?? null;
     const crossSavedPhysical = s?.physical_label_code ?? null;
     const crossSavedNote = s?.crosscheck_note ?? null;
 
-    const showCrosscheck = crossStatus !== "passed"; // ✅ hide when passed
+    const isCrossPassed = crossStatusRaw === "passed";
+    const showCrosscheck = !isCrossPassed; // ✅ hide full form when passed
 
     const [wfBusy, setWfBusy] = useState(false);
     const [wfError, setWfError] = useState<string | null>(null);
@@ -90,10 +94,10 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
     };
 
     const crosscheckTone = useMemo(() => {
-        if (crossStatus === "failed") return "border-red-200 bg-red-50 text-red-700";
-        if (crossStatus === "passed") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+        if (crossStatusRaw === "failed") return "border-red-200 bg-red-50 text-red-700";
+        if (crossStatusRaw === "passed") return "border-emerald-200 bg-emerald-50 text-emerald-700";
         return "border-slate-200 bg-slate-50 text-slate-700";
-    }, [crossStatus]);
+    }, [crossStatusRaw]);
 
     const submitCrosscheck = async (mode: "pass" | "fail") => {
         const sampleId = Number(s?.sample_id ?? 0);
@@ -227,7 +231,53 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
                 </div>
             </div>
 
-            {/* Crosscheck (hidden if passed) */}
+            {/* ✅ Crosscheck compact card when PASSED */}
+            {isCrossPassed ? (
+                <div className="rounded-2xl border border-emerald-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
+                    <div className="px-5 py-3 border-b border-emerald-100 bg-emerald-50 flex items-center justify-between gap-3 flex-wrap">
+                        <div className="text-sm font-bold text-emerald-900">Crosscheck</div>
+
+                        <span
+                            className={cx(
+                                "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold border",
+                                "border-emerald-200 bg-white text-emerald-700"
+                            )}
+                        >
+                            <CheckCircle2 size={16} />
+                            Passed
+                            {crossAt ? (
+                                <span className="text-[11px] font-normal opacity-80">
+                                    • {formatDateTimeLocal(crossAt)}
+                                </span>
+                            ) : null}
+                        </span>
+                    </div>
+
+                    <div className="px-5 py-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                            <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
+                                <div className="text-xs text-gray-500">Expected lab code</div>
+                                <div className="font-mono text-xs mt-1">{labCode || "—"}</div>
+                            </div>
+
+                            <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
+                                <div className="text-xs text-gray-500">Last submitted label</div>
+                                <div className="font-mono text-xs mt-1">
+                                    {crossSavedPhysical ? String(crossSavedPhysical) : "—"}
+                                </div>
+                            </div>
+                        </div>
+
+                        {crossSavedNote ? (
+                            <div className="mt-3 text-xs text-gray-600">
+                                note: <span className="font-medium">{String(crossSavedNote)}</span>
+                            </div>
+                        ) : null}
+                    </div>
+                </div>
+            ) : null}
+
+            {/* Crosscheck (full form, hidden if passed) */}
             {showCrosscheck ? (
                 <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                     <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-3 flex-wrap">
@@ -236,9 +286,14 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
                             <div className="text-xs text-gray-500 mt-1">Match lab code with physical label.</div>
                         </div>
 
-                        <span className={cx("inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold border", crosscheckTone)}>
-                            {crossStatus === "failed" ? <XCircle size={16} /> : <CheckCircle2 size={16} />}
-                            {crossStatus}
+                        <span
+                            className={cx(
+                                "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold border",
+                                crosscheckTone
+                            )}
+                        >
+                            {crossStatusRaw === "failed" ? <XCircle size={16} /> : <CheckCircle2 size={16} />}
+                            {crossStatusLabel}
                             {crossAt ? (
                                 <span className="text-[11px] font-normal opacity-80">
                                     • {formatDateTimeLocal(crossAt)}
@@ -260,7 +315,9 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
                                 <div className="font-mono text-xs mt-1">{labCode || "—"}</div>
 
                                 <div className="mt-3 text-xs text-gray-500">Last submitted label</div>
-                                <div className="font-mono text-xs mt-1">{crossSavedPhysical ? String(crossSavedPhysical) : "—"}</div>
+                                <div className="font-mono text-xs mt-1">
+                                    {crossSavedPhysical ? String(crossSavedPhysical) : "—"}
+                                </div>
 
                                 {crossSavedNote ? (
                                     <div className="mt-3 text-xs text-gray-600">
