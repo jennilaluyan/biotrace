@@ -1,12 +1,11 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SamplesPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Eye, RefreshCw } from "lucide-react";
 
 import { useAuth } from "../../hooks/useAuth";
 import { useClients } from "../../hooks/useClients";
 import { useSamples } from "../../hooks/useSamples";
-
-import { CreateSampleModal } from "../../components/samples/CreateSampleModal";
-import { UpdateSampleStatusModal } from "../../components/samples/UpdateSampleStatusModal";
 
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import { formatDate } from "../../utils/date";
@@ -25,7 +24,6 @@ type ReagentReqStatus =
     | string;
 
 const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
-    // Support beberapa bentuk payload yang mungkin ada
     const direct = s?.reagent_request_status ?? s?.reagentRequestStatus ?? null;
     if (direct) return String(direct).toLowerCase();
 
@@ -34,6 +32,38 @@ const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
     if (nested) return String(nested).toLowerCase();
 
     return null;
+};
+
+// Normalize any status label to: lowercase, spaces (no underscores), not too long.
+const normalizeStatusLabel = (label: string) => {
+    const s = String(label || "")
+        .trim()
+        .toLowerCase()
+        .replace(/_/g, " ")
+        .replace(/\s+/g, " ");
+
+    // small cleanups
+    if (s === "in progress") return "in progress";
+    if (s === "testing completed") return "testing done";
+    if (s === "ready for reagent request") return "ready for reagent";
+    if (s === "awaiting analyst intake") return "awaiting intake";
+    if (s === "awaiting lab promotion") return "awaiting promotion";
+    if (s === "awaiting crosscheck") return "awaiting crosscheck";
+    if (s === "crosscheck passed") return "crosscheck passed";
+    if (s === "crosscheck failed") return "crosscheck failed";
+    if (s === "reagent request (submitted)") return "reagent submitted";
+    if (s === "reagent request (draft)") return "reagent draft";
+    if (s === "reagent request (approved)") return "reagent approved";
+    if (s === "reagent request (denied)") return "reagent denied";
+
+    // generic shortening for reagent request (xxx)
+    const m = s.match(/^reagent request \((.+)\)$/);
+    if (m?.[1]) {
+        const inner = m[1].trim();
+        return `reagent ${inner}`;
+    }
+
+    return s;
 };
 
 export const SamplesPage = () => {
@@ -47,13 +77,10 @@ export const SamplesPage = () => {
     const roleLabel = getUserRoleLabel(user);
 
     const [createModalOpen, setCreateModalOpen] = useState(false);
-    const [statusModalOpen, setStatusModalOpen] = useState(false);
-    const [selectedSample, setSelectedSample] = useState<Sample | null>(null);
     const [reloadTick, setReloadTick] = useState(0);
 
     const [commentCounts, setCommentCounts] = useState<Record<number, number>>({});
 
-    // Sesuai SamplePolicy::viewAny (backend)
     const canViewSamples = useMemo(() => {
         return (
             roleId === ROLE_ID.ADMIN ||
@@ -64,7 +91,6 @@ export const SamplesPage = () => {
         );
     }, [roleId]);
 
-    // Sesuai SamplePolicy::create (backend) -> Administrator only
     const canCreateSample = roleId === ROLE_ID.ADMIN;
 
     // UI filters
@@ -106,13 +132,7 @@ export const SamplesPage = () => {
         if (!term) return labOnlyItems;
 
         return labOnlyItems.filter((s: Sample) => {
-            const hay = [
-                String(s.sample_id),
-                s.lab_sample_code,
-                s.sample_type,
-                s.current_status,
-                s.status_enum,
-            ]
+            const hay = [String(s.sample_id), s.lab_sample_code, s.sample_type, s.current_status, s.status_enum]
                 .filter(Boolean)
                 .join(" ")
                 .toLowerCase();
@@ -121,10 +141,77 @@ export const SamplesPage = () => {
         });
     }, [labOnlyItems, searchTerm]);
 
+    const statusChipClass = (tone: "gray" | "blue" | "yellow" | "green" | "red") => {
+        switch (tone) {
+            case "blue":
+                return "bg-blue-50 text-blue-700";
+            case "yellow":
+                return "bg-yellow-50 text-yellow-800";
+            case "green":
+                return "bg-green-50 text-green-700";
+            case "red":
+                return "bg-red-50 text-red-700";
+            default:
+                return "bg-gray-100 text-gray-700";
+        }
+    };
+
+    const getSamplesListStatusChip = (s: Sample): { label: string; className: string } => {
+        const anyS = s as any;
+
+        // 0) Reagent request stage has highest priority once it exists
+        const rrStatus = getReagentRequestStatus(anyS);
+        if (rrStatus) {
+            if (rrStatus === "draft") {
+                return { label: normalizeStatusLabel("reagent request (draft)"), className: statusChipClass("gray") };
+            }
+            if (rrStatus === "submitted") {
+                return { label: normalizeStatusLabel("reagent request (submitted)"), className: statusChipClass("yellow") };
+            }
+            if (rrStatus === "approved") {
+                return { label: normalizeStatusLabel("reagent request (approved)"), className: statusChipClass("green") };
+            }
+            if (rrStatus === "rejected" || rrStatus === "denied") {
+                return { label: normalizeStatusLabel("reagent request (denied)"), className: statusChipClass("red") };
+            }
+            return { label: normalizeStatusLabel(`reagent request (${rrStatus})`), className: statusChipClass("gray") };
+        }
+
+        // 1) Crosscheck status (analyst gate)
+        const cs = String(anyS?.crosscheck_status ?? "pending").toLowerCase();
+        if (cs === "failed") {
+            return { label: normalizeStatusLabel("crosscheck failed"), className: statusChipClass("red") };
+        }
+        if (cs === "passed") {
+            return { label: normalizeStatusLabel("crosscheck passed"), className: statusChipClass("green") };
+        }
+
+        // 2) Analyst intake fallback
+        const hasLabCode = !!s.lab_sample_code;
+        if (!hasLabCode) {
+            return { label: normalizeStatusLabel("awaiting lab promotion"), className: statusChipClass("gray") };
+        }
+
+        const analystReceivedAt = anyS?.analyst_received_at ?? null;
+        if (!analystReceivedAt) {
+            return { label: normalizeStatusLabel("awaiting analyst intake"), className: statusChipClass("yellow") };
+        }
+
+        // 3) current_status fallback (lab workflow)
+        const current = String(s.current_status ?? "").toLowerCase().replace(/_/g, " ");
+        if (current === "received") return { label: normalizeStatusLabel("received"), className: statusChipClass("blue") };
+        if (current === "in progress") return { label: normalizeStatusLabel("in progress"), className: statusChipClass("blue") };
+        if (current === "testing completed") return { label: normalizeStatusLabel("testing completed"), className: statusChipClass("blue") };
+        if (current === "verified") return { label: normalizeStatusLabel("verified"), className: statusChipClass("green") };
+        if (current === "validated") return { label: normalizeStatusLabel("validated"), className: statusChipClass("green") };
+        if (current === "reported") return { label: normalizeStatusLabel("reported"), className: statusChipClass("green") };
+
+        // 4) Default
+        return { label: normalizeStatusLabel("awaiting crosscheck"), className: statusChipClass("yellow") };
+    };
+
     /**
-     * ✅ Opsi A:
-     * Group samples per LOO di Samples page.
-     * Tombol Reagent Request muncul di header group LOO.
+     * ✅ Group samples per LOO.
      */
     const groups = useMemo(() => {
         type Group = {
@@ -178,156 +265,12 @@ export const SamplesPage = () => {
             return 0;
         });
 
-        // stable sort samples within group
         for (const g of arr) {
             g.samples.sort((a, b) => (b.sample_id ?? 0) - (a.sample_id ?? 0));
         }
 
         return arr;
     }, [visibleItems]);
-
-    const statusBadgeClassByEnum = (statusEnum?: SampleStatusEnum) => {
-        switch (statusEnum) {
-            case "registered":
-                return "bg-primary-soft/10 text-primary-soft";
-            case "testing":
-                return "bg-yellow-100 text-yellow-800";
-            case "reported":
-                return "bg-green-100 text-green-800";
-            default:
-                return "bg-gray-100 text-gray-700";
-        }
-    };
-
-    const isLegacyGeneralStatusOnSamplesList = (value?: string | null) => {
-        if (!value) return false;
-        return String(value).toLowerCase().startsWith("legacy_general_");
-    };
-
-    const statusChipClass = (tone: "gray" | "blue" | "yellow" | "green" | "red") => {
-        switch (tone) {
-            case "blue":
-                return "bg-blue-50 text-blue-700";
-            case "yellow":
-                return "bg-yellow-50 text-yellow-800";
-            case "green":
-                return "bg-green-50 text-green-700";
-            case "red":
-                return "bg-red-50 text-red-700";
-            default:
-                return "bg-gray-100 text-gray-700";
-        }
-    };
-
-    const getSamplesListStatusChip = (s: Sample): { label: string; className: string } => {
-        const anyS = s as any;
-
-        // 0) Reagent request stage has highest priority once it exists
-        const rrStatus = getReagentRequestStatus(anyS);
-        if (rrStatus) {
-            if (rrStatus === "draft") {
-                return { label: "Reagent request (draft)", className: statusChipClass("gray") };
-            }
-            if (rrStatus === "submitted") {
-                return { label: "Reagent request (submitted)", className: statusChipClass("yellow") };
-            }
-            if (rrStatus === "approved") {
-                return { label: "Reagent request (approved)", className: statusChipClass("green") };
-            }
-            if (rrStatus === "rejected" || rrStatus === "denied") {
-                return { label: "Reagent request (denied)", className: statusChipClass("red") };
-            }
-            return { label: `Reagent request (${rrStatus})`, className: statusChipClass("gray") };
-        }
-
-        // 1) Crosscheck status (analyst gate)
-        const cs = String(anyS?.crosscheck_status ?? "pending").toLowerCase();
-        if (cs === "failed") {
-            return { label: "Crosscheck failed", className: statusChipClass("red") };
-        }
-        if (cs === "passed") {
-            return { label: "Crosscheck passed", className: statusChipClass("green") };
-        }
-
-        // 2) Analyst intake fallback
-        const hasLabCode = !!s.lab_sample_code;
-        if (!hasLabCode) {
-            return { label: "Awaiting lab promotion", className: statusChipClass("gray") };
-        }
-
-        const analystReceivedAt = anyS?.analyst_received_at ?? null;
-        if (!analystReceivedAt) {
-            return { label: "Awaiting analyst intake", className: statusChipClass("yellow") };
-        }
-
-        // 3) current_status fallback (lab workflow)
-        const current = String(s.current_status ?? "").toLowerCase();
-        if (current === "received") return { label: "Received", className: statusChipClass("blue") };
-        if (current === "in_progress") return { label: "In progress", className: statusChipClass("blue") };
-        if (current === "testing_completed") return { label: "Testing completed", className: statusChipClass("blue") };
-        if (current === "verified") return { label: "Verified", className: statusChipClass("green") };
-        if (current === "validated") return { label: "Validated", className: statusChipClass("green") };
-        if (current === "reported") return { label: "Reported", className: statusChipClass("green") };
-
-        // 4) Default
-        return { label: "Awaiting crosscheck", className: statusChipClass("yellow") };
-    };
-
-    const statusLabelByCurrent = (current?: Sample["current_status"]) => {
-        switch (current) {
-            case "received":
-                return "Received";
-            case "in_progress":
-                return "In Progress";
-            case "testing_completed":
-                return "Testing Completed";
-            case "verified":
-                return "Verified";
-            case "validated":
-                return "Validated";
-            case "reported":
-                return "Reported";
-            default:
-                return "-";
-        }
-    };
-
-    // Step 3.2 — SamplesPage-only fallback label (biar tidak pernah kosong)
-    const statusLabelForSamplesPage = (s: Sample) => {
-        const base = statusLabelByCurrent(s.current_status);
-        if (base !== "-") return base;
-
-        const hasLabCode = !!s.lab_sample_code;
-        if (!hasLabCode) return "Awaiting lab promotion";
-
-        const analystReceivedAt = (s as any)?.analyst_received_at ?? null;
-        if (!analystReceivedAt) return "Awaiting analyst intake";
-
-        const cs = String((s as any)?.crosscheck_status ?? "pending").toLowerCase();
-        if (cs === "failed") return "Crosscheck failed";
-        if (cs === "passed") return "Ready for reagent request";
-        return "Awaiting crosscheck";
-    };
-
-    // ✅ Step 2.5 — Operational status ringkas (Crosscheck dashboard label)
-    function getCrosscheckOpsLabel(s: Sample): { label: string; className: string } | null {
-        const hasLabCode = !!s.lab_sample_code;
-        const analystReceivedAt = (s as any)?.analyst_received_at ?? null;
-
-        if (!hasLabCode || !analystReceivedAt) return null;
-
-        const cs = String((s as any)?.crosscheck_status ?? "pending").toLowerCase();
-
-        if (cs === "failed") {
-            return { label: "Crosscheck failed", className: "text-red-700" };
-        }
-
-        if (cs === "passed") {
-            return { label: "Ready for reagent request", className: "text-emerald-700" };
-        }
-
-        return { label: "Awaiting crosscheck", className: "text-amber-700" };
-    }
 
     const totalPages = meta?.last_page ?? 1;
     const total = meta?.total ?? 0;
@@ -344,8 +287,7 @@ export const SamplesPage = () => {
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
                 <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
                 <p className="text-sm text-gray-600">
-                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access the samples
-                    module.
+                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access the samples module.
                 </p>
             </div>
         );
@@ -474,10 +416,12 @@ export const SamplesPage = () => {
                     <div className="w-full md:w-auto flex justify-start md:justify-end">
                         <button
                             type="button"
-                            className="lims-btn"
+                            className="lims-icon-button"
                             onClick={() => setReloadTick((t) => t + 1)}
+                            aria-label="Refresh"
+                            title="Refresh"
                         >
-                            Refresh
+                            <RefreshCw size={16} />
                         </button>
                     </div>
                 </div>
@@ -499,12 +443,11 @@ export const SamplesPage = () => {
                                 <span className="font-semibold">{total}</span> (lab samples only).
                             </div>
 
-                            {/* ✅ GROUPED BY LOO */}
+                            {/* GROUPED BY LOO */}
                             <div className="space-y-4">
                                 {groups.map((g) => {
                                     const allPassed = g.samples.every(
-                                        (s) =>
-                                            String((s as any)?.crosscheck_status ?? "pending").toLowerCase() === "passed"
+                                        (s) => String((s as any)?.crosscheck_status ?? "pending").toLowerCase() === "passed"
                                     );
                                     const rr = (g.reagentRequestStatus ?? null) as string | null;
 
@@ -529,21 +472,16 @@ export const SamplesPage = () => {
                                                     : "bg-white text-primary border-primary/30";
 
                                     return (
-                                        <div
-                                            key={g.key}
-                                            className="rounded-2xl border border-gray-200 bg-white overflow-hidden"
-                                        >
+                                        <div key={g.key} className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
                                             <div className="px-4 md:px-6 py-4 bg-gray-50 border-b border-gray-100 flex items-start justify-between gap-3 flex-wrap">
                                                 <div>
                                                     <div className="text-sm font-extrabold text-gray-900">
-                                                        {g.loId
-                                                            ? `LOO ${g.loNumber ?? `#${g.loId}`}`
-                                                            : "No LOO (Legacy/Manual)"}
+                                                        {g.loId ? `LOO ${g.loNumber ?? `#${g.loId}`}` : "No LOO (Legacy/Manual)"}
                                                     </div>
                                                     <div className="text-xs text-gray-600 mt-1">
                                                         {g.loId
-                                                            ? `Samples: ${g.samples.length} • Crosscheck: ${allPassed ? "PASSED (all)" : "Not ready"}`
-                                                            : `Samples: ${g.samples.length}`}
+                                                            ? `samples: ${g.samples.length} • crosscheck: ${allPassed ? "passed" : "not ready"}`
+                                                            : `samples: ${g.samples.length}`}
                                                     </div>
                                                 </div>
 
@@ -553,11 +491,7 @@ export const SamplesPage = () => {
                                                         className={`px-3 py-2 rounded-xl border text-xs font-bold ${rrTone} ${!allPassed ? "opacity-50 cursor-not-allowed" : ""
                                                             }`}
                                                         disabled={!allPassed}
-                                                        title={
-                                                            !allPassed
-                                                                ? "Blocked: all samples in this LOO must be crosscheck PASSED"
-                                                                : undefined
-                                                        }
+                                                        title={!allPassed ? "Blocked: all samples in this LOO must be crosscheck passed" : undefined}
                                                         onClick={() => navigate(`/reagents/requests/loo/${g.loId}`)}
                                                     >
                                                         {rrLabel}
@@ -569,48 +503,37 @@ export const SamplesPage = () => {
                                                 <table className="min-w-full text-sm">
                                                     <thead className="bg-white text-gray-700 border-b border-gray-100">
                                                         <tr>
-                                                            <th className="text-left font-semibold px-4 py-3">
-                                                                Sample ID
-                                                            </th>
-                                                            <th className="text-left font-semibold px-4 py-3">
-                                                                Lab Code
-                                                            </th>
-                                                            <th className="text-left font-semibold px-4 py-3">
-                                                                Sample Type
-                                                            </th>
-                                                            <th className="text-left font-semibold px-4 py-3">
-                                                                Status
-                                                            </th>
-                                                            <th className="text-left font-semibold px-4 py-3">
-                                                                Received
-                                                            </th>
-                                                            <th className="text-right font-semibold px-4 py-3">
-                                                                Actions
-                                                            </th>
+                                                            {/* Removed: Sample ID */}
+                                                            <th className="text-left font-semibold px-4 py-3">Lab Code</th>
+                                                            <th className="text-left font-semibold px-4 py-3">Sample Type</th>
+                                                            <th className="text-left font-semibold px-4 py-3">Status</th>
+                                                            <th className="text-left font-semibold px-4 py-3">Received</th>
+                                                            <th className="text-right font-semibold px-4 py-3">Actions</th>
                                                         </tr>
                                                     </thead>
 
                                                     <tbody className="divide-y divide-gray-100">
                                                         {g.samples.map((s) => {
-                                                            const commentCount = commentCounts[s.sample_id] ?? 0;
                                                             const chip = getSamplesListStatusChip(s);
 
                                                             return (
                                                                 <tr key={s.sample_id} className="hover:bg-gray-50">
-                                                                    <td className="px-4 py-3 text-gray-900 font-semibold">
-                                                                        {s.sample_id}
-                                                                    </td>
                                                                     <td className="px-4 py-3 text-gray-900">
-                                                                        {s.lab_sample_code ?? "-"}
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="font-mono text-xs">
+                                                                                {s.lab_sample_code ?? "-"}
+                                                                            </span>
+                                                                        </div>
                                                                     </td>
-                                                                    <td className="px-4 py-3 text-gray-700">
-                                                                        {s.sample_type ?? "-"}
-                                                                    </td>
+
+                                                                    <td className="px-4 py-3 text-gray-700">{s.sample_type ?? "-"}</td>
+
                                                                     <td className="px-4 py-3">
                                                                         <span
                                                                             className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${chip.className}`}
+                                                                            title={chip.label}
                                                                         >
-                                                                            {chip.label}
+                                                                            {normalizeStatusLabel(chip.label)}
                                                                         </span>
                                                                     </td>
 
@@ -622,7 +545,9 @@ export const SamplesPage = () => {
                                                                         <div className="flex items-center justify-end gap-2">
                                                                             <button
                                                                                 type="button"
-                                                                                className="lims-btn"
+                                                                                className="lims-icon-button"
+                                                                                aria-label="View"
+                                                                                title="View"
                                                                                 onClick={() =>
                                                                                     navigate(`/samples/${s.sample_id}`, {
                                                                                         state: {
@@ -633,23 +558,7 @@ export const SamplesPage = () => {
                                                                                     })
                                                                                 }
                                                                             >
-                                                                                View
-                                                                            </button>
-
-                                                                            <button
-                                                                                type="button"
-                                                                                className="lims-btn"
-                                                                                onClick={() => {
-                                                                                    setSelectedSample(s);
-                                                                                    setStatusModalOpen(true);
-                                                                                }}
-                                                                            >
-                                                                                Update status{" "}
-                                                                                {commentCount > 0 ? (
-                                                                                    <span className="ml-1 inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[11px] font-semibold">
-                                                                                        {commentCount}
-                                                                                    </span>
-                                                                                ) : null}
+                                                                                <Eye size={16} />
                                                                             </button>
                                                                         </div>
                                                                     </td>
@@ -694,47 +603,16 @@ export const SamplesPage = () => {
                             <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                                 <div className="font-semibold">Kapan sampel muncul di sini?</div>
                                 <div className="mt-1">
-                                    Sampel akan muncul di halaman ini setelah sudah dimasukkan ke <b>LOO</b>
-                                    (atau sampel lama yang memang sudah punya workflow lab).
+                                    Sampel akan muncul di halaman ini setelah sudah dimasukkan ke <b>LOO</b> (atau sampel lama yang memang sudah punya workflow lab).
                                 </div>
                                 <div className="mt-2 text-xs text-slate-600">
-                                    Kalau sampel baru selesai diverifikasi tapi belum muncul di sini, itu normal—cek dulu
-                                    di <b>LOO Generator</b>.
+                                    Kalau sampel baru selesai diverifikasi tapi belum muncul di sini, itu normal—cek dulu di <b>LOO Generator</b>.
                                 </div>
                             </div>
                         </>
                     )}
                 </div>
             </div>
-
-            <CreateSampleModal
-                open={createModalOpen}
-                onClose={() => setCreateModalOpen(false)}
-                clients={clients ?? []}
-                clientsLoading={clientsLoading}
-                onCreated={() => {
-                    setCreateModalOpen(false);
-                    setReloadTick((t) => t + 1);
-                }}
-            />
-
-            <UpdateSampleStatusModal
-                open={statusModalOpen}
-                onClose={() => {
-                    setStatusModalOpen(false);
-                    setSelectedSample(null);
-                }}
-                sample={selectedSample}
-                roleId={roleId}
-                onUpdated={() => {
-                    setStatusModalOpen(false);
-                    setSelectedSample(null);
-                    setReloadTick((t) => t + 1);
-                }}
-                onCommentsCountChange={(sampleId, count) => {
-                    setCommentCounts((prev) => ({ ...prev, [sampleId]: count }));
-                }}
-            />
         </div>
     );
 };
