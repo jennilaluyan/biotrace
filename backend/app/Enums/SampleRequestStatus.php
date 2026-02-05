@@ -12,8 +12,8 @@ enum SampleRequestStatus: string
     case PHYSICALLY_RECEIVED = 'physically_received';
     case IN_TRANSIT_TO_COLLECTOR = 'in_transit_to_collector';
     case UNDER_INSPECTION = 'under_inspection';
-
-        // existing
+    case IN_TRANSIT_TO_ANALYST = 'in_transit_to_analyst';
+    case RECEIVED_BY_ANALYST = 'received_by_analyst';
     case REJECTED = 'rejected';
     case INTAKE_CHECKLIST_PASSED = 'intake_checklist_passed';
     case AWAITING_VERIFICATION = 'awaiting_verification';
