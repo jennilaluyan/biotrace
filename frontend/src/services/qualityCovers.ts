@@ -1,5 +1,8 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\services\qualityCovers.ts
-import { apiGet, apiPost, apiPut } from "./api";
+import {
+    apiGet,
+    apiPost,
+    apiPut
+} from "./api";
 
 export type QualityCover = {
     quality_cover_id: number;
@@ -13,7 +16,86 @@ export type QualityCover = {
     submitted_at?: string | null;
 };
 
-// unwrap like other pages (handles {data: ...} nesting)
+export type InboxMeta = {
+    current_page: number;
+    per_page: number;
+    total: number;
+    last_page: number;
+};
+
+export type QualityCoverInboxItem = QualityCover & {
+    sample?: {
+        sample_id: number;
+        lab_sample_code?: string | null;
+        workflow_group?: string | null;
+        client?: { client_id: number; name?: string | null } | null;
+    } | null;
+    checked_by?: { staff_id: number; name?: string | null } | null;
+    verified_by?: { staff_id: number; name?: string | null } | null;
+    validated_by?: { staff_id: number; name?: string | null } | null;
+    verified_at?: string | null;
+    validated_at?: string | null;
+    rejected_reason?: string | null;
+};
+
+export async function listOmInbox(params: {
+    search?: string;
+    per_page?: number;
+    page?: number;
+}) {
+    const qs = new URLSearchParams();
+    if (params.search) qs.set("search", params.search);
+    if (params.per_page) qs.set("per_page", String(params.per_page));
+    if (params.page) qs.set("page", String(params.page));
+
+    return apiGet<{ data: QualityCoverInboxItem[]; meta: InboxMeta }>(
+        `/quality-covers/inbox/om?${qs.toString()}`
+    );
+}
+
+export async function listLhInbox(params: {
+    search?: string;
+    per_page?: number;
+    page?: number;
+}) {
+    const qs = new URLSearchParams();
+    if (params.search) qs.set("search", params.search);
+    if (params.per_page) qs.set("per_page", String(params.per_page));
+    if (params.page) qs.set("page", String(params.page));
+
+    return apiGet<{ data: QualityCoverInboxItem[]; meta: InboxMeta }>(
+        `/quality-covers/inbox/lh?${qs.toString()}`
+    );
+}
+
+export async function omVerify(qualityCoverId: number) {
+    return apiPost<{ message: string; data: QualityCoverInboxItem }>(
+        `/quality-covers/${qualityCoverId}/verify`,
+        {}
+    );
+}
+
+export async function omReject(qualityCoverId: number, reason: string) {
+    return apiPost<{ message: string; data: QualityCoverInboxItem }>(
+        `/quality-covers/${qualityCoverId}/reject`,
+        { reason }
+    );
+}
+
+export async function lhValidate(qualityCoverId: number) {
+    return apiPost<{ message: string; data: QualityCoverInboxItem }>(
+        `/quality-covers/${qualityCoverId}/validate`,
+        {}
+    );
+}
+
+export async function lhReject(qualityCoverId: number, reason: string) {
+    return apiPost<{ message: string; data: QualityCoverInboxItem }>(
+        `/quality-covers/${qualityCoverId}/reject-lh`,
+        { reason }
+    );
+}
+
 function unwrapApi(res: any) {
     let x = res?.data ?? res;
     for (let i = 0; i < 5; i++) {

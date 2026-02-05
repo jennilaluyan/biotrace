@@ -23,7 +23,8 @@ import { QAMethodsPage } from "../pages/qa/QAMethodsPage";
 import { ConsumablesCatalogPage } from "../pages/qa/ConsumablesCatalogPage";
 import { AuditLogsPage } from "../pages/audit/AuditLogsPage";
 import { ReportsPage } from "../pages/reports/ReportsPage";
-
+import { QualityCoverOmInboxPage } from "../pages/quality-covers/QualityCoverOmInboxPage";
+import { QualityCoverLhInboxPage } from "../pages/quality-covers/QualityCoverLhInboxPage";
 import ReagentRequestBuilderPage from "../pages/reagents/ReagentRequestBuilderPage";
 import ReagentApprovalInboxPage from "../pages/reagents/ReagentApprovalInboxPage";
 import ReagentApprovalDetailPage from "../pages/reagents/ReagentApprovalDetailPage";
@@ -75,6 +76,24 @@ export const AppRouter = () => {
                                 ]}
                             >
                                 <ClientDetailPage />
+                            </RoleGuard>
+                        }
+                    />
+
+                    <Route
+                        path="/quality-covers/inbox/om"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER]}>
+                                <QualityCoverOmInboxPage />
+                            </RoleGuard>
+                        }
+                    />
+
+                    <Route
+                        path="/quality-covers/inbox/lh"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.LAB_HEAD]}>
+                                <QualityCoverLhInboxPage />
                             </RoleGuard>
                         }
                     />
