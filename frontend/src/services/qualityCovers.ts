@@ -1,19 +1,36 @@
-import {
-    apiGet,
-    apiPost,
-    apiPut
-} from "./api";
+import { apiGet, apiPost, apiPut } from "./api";
+
+export type QualityCoverStatus =
+    | "draft"
+    | "submitted"
+    | "verified"
+    | "validated"
+    | "rejected"
+    | string;
 
 export type QualityCover = {
     quality_cover_id: number;
     sample_id: number;
+
     workflow_group?: string | null;
-    status: "draft" | "submitted" | string;
+    status: QualityCoverStatus;
+
     date_of_analysis?: string | null;
     method_of_analysis?: string | null;
     checked_by_staff_id?: number | null;
+
     qc_payload?: any;
+
     submitted_at?: string | null;
+    verified_at?: string | null;
+    validated_at?: string | null;
+
+    verified_by_staff_id?: number | null;
+    validated_by_staff_id?: number | null;
+
+    rejected_at?: string | null;
+    rejected_by_staff_id?: number | null;
+    rejected_reason?: string | null;
 };
 
 export type InboxMeta = {
@@ -30,12 +47,10 @@ export type QualityCoverInboxItem = QualityCover & {
         workflow_group?: string | null;
         client?: { client_id: number; name?: string | null } | null;
     } | null;
+
     checked_by?: { staff_id: number; name?: string | null } | null;
     verified_by?: { staff_id: number; name?: string | null } | null;
     validated_by?: { staff_id: number; name?: string | null } | null;
-    verified_at?: string | null;
-    validated_at?: string | null;
-    rejected_reason?: string | null;
 };
 
 export async function listOmInbox(params: {
@@ -51,7 +66,6 @@ export async function listOmInbox(params: {
     return apiGet<{ data: QualityCoverInboxItem[]; meta: InboxMeta }>(
         `/v1/quality-covers/inbox/om?${qs.toString()}`
     );
-
 }
 
 export async function listLhInbox(params: {
@@ -110,7 +124,6 @@ function unwrapApi(res: any) {
 }
 
 function extractBackendMessage(err: any): string | null {
-    // handleAxios() throws: { status, data }
     const status = err?.status ?? err?.response?.status ?? null;
     const data = err?.data ?? err?.response?.data ?? null;
 
@@ -133,7 +146,6 @@ export async function getQualityCover(sampleId: number): Promise<QualityCover | 
         const payload = unwrapApi(res);
         return payload ? (payload as QualityCover) : null;
     } catch (e: any) {
-        // If backend returns 404 when not created yet, treat as "no cover"
         const status = e?.status ?? e?.response?.status ?? null;
         if (Number(status) === 404) return null;
 
@@ -142,7 +154,12 @@ export async function getQualityCover(sampleId: number): Promise<QualityCover | 
     }
 }
 
-export async function getQualityCoverById(qualityCoverId: number): Promise<QualityCoverInboxItem> {
+/**
+ * OM/LH detail page uses this.
+ */
+export async function getQualityCoverById(
+    qualityCoverId: number
+): Promise<QualityCoverInboxItem> {
     try {
         const res = await apiGet<any>(`/v1/quality-covers/${qualityCoverId}`);
         const payload = unwrapApi(res);
@@ -168,11 +185,7 @@ export async function saveQualityCoverDraft(
 }
 
 /**
- * ✅ FIX:
- * Backend kamu mendukung: POST /v1/samples/:id/quality-cover/submit
- * (terbukti dari error 405 yang bilang supported methods: POST)
- *
- * Jadi submit HARUS pakai POST, jangan PUT/PATCH.
+ * Submit MUST be POST.
  */
 export async function submitQualityCover(
     sampleId: number,
@@ -185,7 +198,6 @@ export async function submitQualityCover(
     } catch (e: any) {
         const msg = extractBackendMessage(e);
 
-        // kalau masih 405, kasih hint yang spesifik biar gampang debug
         const status = e?.status ?? e?.response?.status ?? null;
         if (Number(status) === 405) {
             throw new Error(

@@ -44,9 +44,14 @@ class QualityCover extends Model
         return $this->belongsTo(Sample::class, 'sample_id', 'sample_id');
     }
 
-    public function checkedBy(): BelongsTo
+    public function checkedBy()
     {
-        return $this->belongsTo(Staff::class, 'checked_by_staff_id', 'staff_id');
+        return $this->belongsTo(\App\Models\Staff::class, 'checked_by_staff_id', 'staff_id');
+    }
+
+    public function verifiedBy()
+    {
+        return $this->belongsTo(\App\Models\Staff::class, 'verified_by_staff_id', 'staff_id');
     }
 
     public function validatedBy()

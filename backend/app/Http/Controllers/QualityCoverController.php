@@ -3,48 +3,89 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\QualityCoverDraftSaveRequest;
+use App\Http\Requests\QualityCoverSubmitRequest;
+use App\Models\QualityCover;
 use App\Models\Sample;
 use App\Models\Staff;
-use App\Models\QualityCover;
 use App\Support\AuditLogger;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Http\Requests\QualityCoverSubmitRequest;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Validator;
 
 class QualityCoverController extends Controller
 {
+    /**
+     * Role IDs used in your project (based on earlier rules):
+     * - OM = 5
+     * - LH = 6
+     * - Admin usually = 1 (if different, still safe because we fallback by name)
+     */
+    private function roleId(Staff $staff): int
+    {
+        return (int) ($staff->role_id ?? 0);
+    }
+
+    private function roleName(Staff $staff): string
+    {
+        return strtolower(trim((string) optional($staff->role)->name));
+    }
+
+    private function isAnalyst(Staff $staff): bool
+    {
+        $name = $this->roleName($staff);
+        // allow minor variance
+        return $name === 'analyst';
+    }
+
+    private function isOperationalManager(Staff $staff): bool
+    {
+        $id = $this->roleId($staff);
+        if ($id === 5) return true;
+
+        $name = $this->roleName($staff);
+        return in_array($name, ['operational manager', 'operation manager', 'om'], true);
+    }
+
+    private function isLabHead(Staff $staff): bool
+    {
+        $id = $this->roleId($staff);
+        if ($id === 6) return true;
+
+        $name = $this->roleName($staff);
+        return in_array($name, ['lab head', 'laboratory head', 'lh'], true);
+    }
+
+    private function isAdmin(Staff $staff): bool
+    {
+        $name = $this->roleName($staff);
+        return $name === 'admin' || $this->roleId($staff) === 1;
+    }
+
     private function assertAnalyst(Staff $staff): void
     {
-        $roleName = strtolower((string) optional($staff->role)->name);
-        if ($roleName !== 'analyst') {
-            abort(403, 'Forbidden.');
-        }
+        if (!$this->isAnalyst($staff)) abort(403, 'Forbidden.');
     }
 
     private function assertOperationalManager(Staff $staff): void
     {
-        $roleName = strtolower((string) optional($staff->role)->name);
-
-        // toleransi variasi penamaan role di DB
-        $ok = in_array($roleName, ['operational manager', 'operation manager', 'om'], true);
-
-        if (!$ok) {
-            abort(403, 'Forbidden.');
-        }
+        if (!$this->isOperationalManager($staff) && !$this->isAdmin($staff)) abort(403, 'Forbidden.');
     }
 
     private function assertLabHead(Staff $staff): void
     {
-        $roleName = strtolower((string) optional($staff->role)->name);
+        if (!$this->isLabHead($staff) && !$this->isAdmin($staff)) abort(403, 'Forbidden.');
+    }
 
-        // toleransi variasi penamaan role di DB
-        $ok = in_array($roleName, ['lab head', 'laboratory head', 'lh'], true);
-
-        if (!$ok) {
+    private function assertOmOrLh(Staff $staff): void
+    {
+        if (
+            !$this->isOperationalManager($staff) &&
+            !$this->isLabHead($staff) &&
+            !$this->isAdmin($staff)
+        ) {
             abort(403, 'Forbidden.');
         }
     }
@@ -171,7 +212,7 @@ class QualityCoverController extends Controller
 
     /**
      * GET /v1/samples/{sample}/quality-cover
-     * Return existing draft (or latest cover) for the sample.
+     * Return latest cover for analyst (draft/submitted/etc).
      */
     public function show(Sample $sample): JsonResponse
     {
@@ -200,6 +241,10 @@ class QualityCoverController extends Controller
         ]);
     }
 
+    /**
+     * POST /v1/samples/{sample}/quality-cover/submit
+     * Analyst submits (creates or updates) cover and locks fields.
+     */
     public function submit(QualityCoverSubmitRequest $request, Sample $sample): JsonResponse
     {
         $payload = $request->validated();
@@ -227,7 +272,7 @@ class QualityCoverController extends Controller
             ->first();
 
         if (!$cover) {
-            // If already submitted before, block double submit (optional)
+            // block double submit if latest is already submitted
             $latest = QualityCover::query()
                 ->where('sample_id', (int) $sample->sample_id)
                 ->orderByDesc('quality_cover_id')
@@ -281,13 +326,8 @@ class QualityCoverController extends Controller
     /**
      * GET /v1/quality-covers/inbox/om
      * Inbox OM: list covers that are ready to be verified (submitted).
-     *
-     * Query params:
-     * - search: string (optional) -> matches sample.lab_sample_code OR sample.client.name
-     * - per_page: int (optional, default 25, max 100)
-     * - page: int (optional)
      */
-    public function inboxOm(\Illuminate\Http\Request $request): JsonResponse
+    public function inboxOm(Request $request): JsonResponse
     {
         /** @var Staff $staff */
         $staff = Auth::user();
@@ -308,7 +348,6 @@ class QualityCoverController extends Controller
         $perPage = (int) $request->query('per_page', 25);
         $perPage = max(1, min(100, $perPage));
 
-        // Inbox OM = submitted
         $q = QualityCover::query()
             ->with([
                 'sample' => function ($s) {
@@ -348,11 +387,6 @@ class QualityCoverController extends Controller
     /**
      * GET /v1/quality-covers/inbox/lh
      * Inbox LH: list covers that are ready to be validated (verified by OM).
-     *
-     * Query params:
-     * - search: string (optional) -> matches sample.lab_sample_code OR sample.client.name
-     * - per_page: int (optional, default 25, max 100)
-     * - page: int (optional)
      */
     public function inboxLh(Request $request): JsonResponse
     {
@@ -375,7 +409,6 @@ class QualityCoverController extends Controller
         $perPage = (int) $request->query('per_page', 25);
         $perPage = max(1, min(100, $perPage));
 
-        // Inbox LH = verified
         $q = QualityCover::query()
             ->with([
                 'sample' => function ($s) {
@@ -383,7 +416,6 @@ class QualityCoverController extends Controller
                     $s->with(['client:client_id,name']);
                 },
                 'checkedBy:staff_id,name',
-                // kalau field verify-by ada + relasi ada, ini bikin UI LH lebih enak
                 'verifiedBy:staff_id,name',
             ])
             ->where('status', 'verified')
@@ -411,6 +443,45 @@ class QualityCoverController extends Controller
                 'total' => $page->total(),
                 'last_page' => $page->lastPage(),
             ],
+        ]);
+    }
+
+    /**
+     * GET /v1/quality-covers/{qualityCover}
+     * Read one quality cover (for OM/LH detail pages).
+     *
+     * IMPORTANT:
+     * If you still get 403 after this, the blocker is very likely route middleware/policy.
+     */
+    public function showById(Request $request, QualityCover $qualityCover): JsonResponse
+    {
+        /** @var Staff $staff */
+        $staff = Auth::user();
+        if (!$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
+        $this->assertOmOrLh($staff);
+
+        if (!Schema::hasTable('quality_covers')) {
+            return response()->json([
+                'message' => 'quality_covers table not found. Run migrations.',
+                'hint' => 'php artisan migrate',
+            ], 500);
+        }
+
+        $qualityCover->load([
+            'sample' => function ($s) {
+                $s->select(['sample_id', 'client_id', 'lab_sample_code', 'workflow_group']);
+                $s->with(['client:client_id,name']);
+            },
+            'checkedBy:staff_id,name',
+            'verifiedBy:staff_id,name',
+            'validatedBy:staff_id,name',
+        ]);
+
+        return response()->json([
+            'data' => $qualityCover,
         ]);
     }
 
@@ -535,48 +606,6 @@ class QualityCoverController extends Controller
     }
 
     /**
-     * GET /v1/quality-covers/{qualityCover}
-     * Read one quality cover (for OM/LH detail pages).
-     */
-    public function showById(Request $request, QualityCover $qualityCover): JsonResponse
-    {
-        /** @var Staff $staff */
-        $staff = Auth::user();
-        if (!$staff instanceof Staff) {
-            return response()->json(['message' => 'Authenticated staff not found.'], 500);
-        }
-
-        // allow OM or LH only
-        $roleName = strtolower((string) optional($staff->role)->name);
-        $isOm = in_array($roleName, ['operational manager', 'operation manager', 'om'], true);
-        $isLh = in_array($roleName, ['lab head', 'laboratory head', 'lh'], true);
-        if (!$isOm && !$isLh) {
-            abort(403, 'Forbidden.');
-        }
-
-        if (!Schema::hasTable('quality_covers')) {
-            return response()->json([
-                'message' => 'quality_covers table not found. Run migrations.',
-                'hint' => 'php artisan migrate',
-            ], 500);
-        }
-
-        $qualityCover->load([
-            'sample' => function ($s) {
-                $s->select(['sample_id', 'client_id', 'lab_sample_code', 'workflow_group']);
-                $s->with(['client:client_id,name']);
-            },
-            'checkedBy:staff_id,name',
-            'verifiedBy:staff_id,name',
-            'validatedBy:staff_id,name',
-        ]);
-
-        return response()->json([
-            'data' => $qualityCover,
-        ]);
-    }
-
-    /**
      * PUT /v1/samples/{sample}/quality-cover/draft
      * Upsert draft for a sample.
      */
@@ -599,7 +628,6 @@ class QualityCoverController extends Controller
             ], 500);
         }
 
-        // Draft is per-sample: 1 active draft record (update or create)
         $cover = QualityCover::query()
             ->where('sample_id', (int) $sample->sample_id)
             ->where('status', 'draft')
@@ -614,11 +642,9 @@ class QualityCoverController extends Controller
             $cover->status = 'draft';
         }
 
-        // locked-ish fields are still set server-side for integrity
         $cover->date_of_analysis = $today;
         $cover->checked_by_staff_id = (int) $staff->staff_id;
 
-        // editable fields
         if (array_key_exists('method_of_analysis', $payload)) {
             $cover->method_of_analysis = $payload['method_of_analysis'];
         }
@@ -645,9 +671,6 @@ class QualityCoverController extends Controller
 
     private function validateQcPayloadByGroup(array $qc, string $group): void
     {
-        // Normalize group naming to your project reality:
-        // - "pcr" or "pcr_sars_cov_2"
-        // - "wgs" or "wgs_sars_cov_2"
         $isPcr = str_contains($group, 'pcr');
         $isWgs = str_contains($group, 'wgs');
 
