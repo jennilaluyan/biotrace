@@ -28,7 +28,8 @@ import { QualityCoverLhInboxPage } from "../pages/quality-covers/QualityCoverLhI
 import ReagentRequestBuilderPage from "../pages/reagents/ReagentRequestBuilderPage";
 import ReagentApprovalInboxPage from "../pages/reagents/ReagentApprovalInboxPage";
 import ReagentApprovalDetailPage from "../pages/reagents/ReagentApprovalDetailPage";
-
+import { QualityCoverOmDetailPage } from "../pages/quality-covers/QualityCoverOmDetailPage";
+import { QualityCoverLhDetailPage } from "../pages/quality-covers/QualityCoverLhDetailPage";
 import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
 import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
 import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
@@ -94,6 +95,24 @@ export const AppRouter = () => {
                         element={
                             <RoleGuard allowedRoleIds={[ROLE_ID.LAB_HEAD]}>
                                 <QualityCoverLhInboxPage />
+                            </RoleGuard>
+                        }
+                    />
+
+                    <Route
+                        path="/quality-covers/om/:qualityCoverId"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER]}>
+                                <QualityCoverOmDetailPage />
+                            </RoleGuard>
+                        }
+                    />
+
+                    <Route
+                        path="/quality-covers/lh/:qualityCoverId"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.LAB_HEAD]}>
+                                <QualityCoverLhDetailPage />
                             </RoleGuard>
                         }
                     />

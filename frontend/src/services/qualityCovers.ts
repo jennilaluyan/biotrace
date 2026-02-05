@@ -142,6 +142,17 @@ export async function getQualityCover(sampleId: number): Promise<QualityCover | 
     }
 }
 
+export async function getQualityCoverById(qualityCoverId: number): Promise<QualityCoverInboxItem> {
+    try {
+        const res = await apiGet<any>(`/v1/quality-covers/${qualityCoverId}`);
+        const payload = unwrapApi(res);
+        return payload as QualityCoverInboxItem;
+    } catch (e: any) {
+        const msg = extractBackendMessage(e);
+        throw new Error(msg || "Failed to load quality cover detail.");
+    }
+}
+
 export async function saveQualityCoverDraft(
     sampleId: number,
     body: { method_of_analysis?: string; qc_payload?: any }

@@ -411,6 +411,8 @@ Route::prefix('v1')->group(function () {
             ->whereNumber('qualityCover');
         Route::post('quality-covers/{qualityCover}/reject-lh', [QualityCoverController::class, 'lhReject'])
             ->whereNumber('qualityCover');
+        Route::get('quality-covers/{qualityCover}', [QualityCoverController::class, 'show'])
+            ->whereNumber('qualityCover');
 
         /*
         |--------------------------------------------------------------------------

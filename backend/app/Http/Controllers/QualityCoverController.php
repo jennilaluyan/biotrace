@@ -414,11 +414,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    public function verifiedBy()
-    {
-        return $this->belongsTo(\App\Models\Staff::class, 'verified_by_staff_id', 'staff_id');
-    }
-
     /**
      * POST /v1/quality-covers/{qualityCover}/validate
      * LH validates a verified quality cover (final).
@@ -535,6 +530,48 @@ class QualityCoverController extends Controller
 
         return response()->json([
             'message' => 'Quality cover rejected by LH.',
+            'data' => $qualityCover,
+        ]);
+    }
+
+    /**
+     * GET /v1/quality-covers/{qualityCover}
+     * Read one quality cover (for OM/LH detail pages).
+     */
+    public function showById(Request $request, QualityCover $qualityCover): JsonResponse
+    {
+        /** @var Staff $staff */
+        $staff = Auth::user();
+        if (!$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
+        // allow OM or LH only
+        $roleName = strtolower((string) optional($staff->role)->name);
+        $isOm = in_array($roleName, ['operational manager', 'operation manager', 'om'], true);
+        $isLh = in_array($roleName, ['lab head', 'laboratory head', 'lh'], true);
+        if (!$isOm && !$isLh) {
+            abort(403, 'Forbidden.');
+        }
+
+        if (!Schema::hasTable('quality_covers')) {
+            return response()->json([
+                'message' => 'quality_covers table not found. Run migrations.',
+                'hint' => 'php artisan migrate',
+            ], 500);
+        }
+
+        $qualityCover->load([
+            'sample' => function ($s) {
+                $s->select(['sample_id', 'client_id', 'lab_sample_code', 'workflow_group']);
+                $s->with(['client:client_id,name']);
+            },
+            'checkedBy:staff_id,name',
+            'verifiedBy:staff_id,name',
+            'validatedBy:staff_id,name',
+        ]);
+
+        return response()->json([
             'data' => $qualityCover,
         ]);
     }

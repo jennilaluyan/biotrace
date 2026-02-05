@@ -205,10 +205,10 @@ export function QualityCoverLhInboxPage() {
                                             <div className="font-medium">{sampleCode}</div>
                                             <div className="text-xs text-slate-500">QC #{r.quality_cover_id}</div>
                                             <Link
-                                                to={`/samples/${sampleId}`}
+                                                to={`/quality-covers/lh/${r.quality_cover_id}`}
                                                 className="text-xs text-blue-600 hover:underline"
                                             >
-                                                Open sample detail
+                                                Open quality cover
                                             </Link>
                                         </td>
                                         <td className="px-4 py-3">{clientName}</td>
