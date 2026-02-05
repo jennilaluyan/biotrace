@@ -88,10 +88,12 @@ class QualityCoverController extends Controller
 
         $qualityCover->save();
 
-        AuditLogger::logQualityCoverVerified(
+        AuditLogger::logQualityCoverOmVerified(
             staffId: (int) $staff->staff_id,
             sampleId: (int) $qualityCover->sample_id,
             qualityCoverId: (int) $qualityCover->quality_cover_id,
+            fromStatus: 'submitted',
+            toStatus: 'verified',
         );
 
         return response()->json([
@@ -152,11 +154,13 @@ class QualityCoverController extends Controller
 
         $qualityCover->save();
 
-        AuditLogger::logQualityCoverRejected(
+        AuditLogger::logQualityCoverOmRejected(
             staffId: (int) $staff->staff_id,
             sampleId: (int) $qualityCover->sample_id,
             qualityCoverId: (int) $qualityCover->quality_cover_id,
             reason: $reason,
+            fromStatus: 'submitted',
+            toStatus: 'rejected',
         );
 
         return response()->json([
@@ -454,10 +458,12 @@ class QualityCoverController extends Controller
 
         $qualityCover->save();
 
-        AuditLogger::logQualityCoverValidated(
+        AuditLogger::logQualityCoverLhValidated(
             staffId: (int) $staff->staff_id,
             sampleId: (int) $qualityCover->sample_id,
             qualityCoverId: (int) $qualityCover->quality_cover_id,
+            fromStatus: 'verified',
+            toStatus: 'validated',
         );
 
         return response()->json([
@@ -518,11 +524,13 @@ class QualityCoverController extends Controller
 
         $qualityCover->save();
 
-        AuditLogger::logQualityCoverValidationRejected(
+        AuditLogger::logQualityCoverLhRejected(
             staffId: (int) $staff->staff_id,
             sampleId: (int) $qualityCover->sample_id,
             qualityCoverId: (int) $qualityCover->quality_cover_id,
             reason: $reason,
+            fromStatus: 'verified',
+            toStatus: 'rejected',
         );
 
         return response()->json([

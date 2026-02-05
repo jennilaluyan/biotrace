@@ -483,78 +483,110 @@ class AuditLogger
         );
     }
 
-    public static function logQualityCoverVerified(
-        int $staffId,
-        int $sampleId,
-        int $qualityCoverId
-    ): void {
-        self::write(
-            action: 'QUALITY_COVER_VERIFIED',
-            staffId: $staffId,
-            entityName: 'samples',
-            entityId: $sampleId,
-            oldValues: null,
-            newValues: [
-                'sample_id' => $sampleId,
-                'quality_cover_id' => $qualityCoverId,
-            ]
-        );
-    }
-
-    public static function logQualityCoverRejected(
+    public static function logQualityCoverOmVerified(
         int $staffId,
         int $sampleId,
         int $qualityCoverId,
-        string $reason
+        string $fromStatus = 'submitted',
+        string $toStatus = 'verified'
     ): void {
         self::write(
-            action: 'QUALITY_COVER_REJECTED',
+            action: 'QUALITY_COVER_OM_VERIFIED',
             staffId: $staffId,
             entityName: 'samples',
             entityId: $sampleId,
-            oldValues: null,
+            oldValues: [
+                'status' => $fromStatus,
+            ],
             newValues: [
                 'sample_id' => $sampleId,
                 'quality_cover_id' => $qualityCoverId,
-                'reason' => $reason,
+                'actor_role' => 'OM',
+                'decision' => 'verify',
+                'from_status' => $fromStatus,
+                'to_status' => $toStatus,
             ]
         );
     }
 
-    public static function logQualityCoverValidated(
-        int $staffId,
-        int $sampleId,
-        int $qualityCoverId
-    ): void {
-        self::write(
-            action: 'QUALITY_COVER_VALIDATED',
-            staffId: $staffId,
-            entityName: 'samples',
-            entityId: $sampleId,
-            oldValues: null,
-            newValues: [
-                'sample_id' => $sampleId,
-                'quality_cover_id' => $qualityCoverId,
-            ]
-        );
-    }
-
-    public static function logQualityCoverValidationRejected(
+    public static function logQualityCoverOmRejected(
         int $staffId,
         int $sampleId,
         int $qualityCoverId,
-        string $reason
+        string $reason,
+        string $fromStatus = 'submitted',
+        string $toStatus = 'rejected'
     ): void {
         self::write(
-            action: 'QUALITY_COVER_VALIDATION_REJECTED',
+            action: 'QUALITY_COVER_OM_REJECTED',
             staffId: $staffId,
             entityName: 'samples',
             entityId: $sampleId,
-            oldValues: null,
+            oldValues: [
+                'status' => $fromStatus,
+            ],
             newValues: [
                 'sample_id' => $sampleId,
                 'quality_cover_id' => $qualityCoverId,
+                'actor_role' => 'OM',
+                'decision' => 'reject',
                 'reason' => $reason,
+                'from_status' => $fromStatus,
+                'to_status' => $toStatus,
+            ]
+        );
+    }
+
+    public static function logQualityCoverLhValidated(
+        int $staffId,
+        int $sampleId,
+        int $qualityCoverId,
+        string $fromStatus = 'verified',
+        string $toStatus = 'validated'
+    ): void {
+        self::write(
+            action: 'QUALITY_COVER_LH_VALIDATED',
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: [
+                'status' => $fromStatus,
+            ],
+            newValues: [
+                'sample_id' => $sampleId,
+                'quality_cover_id' => $qualityCoverId,
+                'actor_role' => 'LH',
+                'decision' => 'validate',
+                'from_status' => $fromStatus,
+                'to_status' => $toStatus,
+            ]
+        );
+    }
+
+    public static function logQualityCoverLhRejected(
+        int $staffId,
+        int $sampleId,
+        int $qualityCoverId,
+        string $reason,
+        string $fromStatus = 'verified',
+        string $toStatus = 'rejected'
+    ): void {
+        self::write(
+            action: 'QUALITY_COVER_LH_REJECTED',
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: [
+                'status' => $fromStatus,
+            ],
+            newValues: [
+                'sample_id' => $sampleId,
+                'quality_cover_id' => $qualityCoverId,
+                'actor_role' => 'LH',
+                'decision' => 'reject',
+                'reason' => $reason,
+                'from_status' => $fromStatus,
+                'to_status' => $toStatus,
             ]
         );
     }
