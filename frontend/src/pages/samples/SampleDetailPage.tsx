@@ -124,8 +124,14 @@ export const SampleDetailPage = () => {
 
     const canDoCrosscheck = isAnalyst && !!analystReceivedAt && !!expectedLabCode;
 
-    // ✅ Tests tab appears when lab workflow is active (BML exists)
-    const canSeeTestsTab = useMemo(() => !!sample && !!labSampleCode, [sample, labSampleCode]);
+    // ✅ Tests tab appears ONLY after reagent request is approved (and lab code exists)
+    const canSeeTestsTab = useMemo(() => {
+        if (!sample) return false;
+        if (!labSampleCode) return false;
+
+        const rr = String(reagentRequestStatus ?? "").toLowerCase();
+        return rr === "approved";
+    }, [sample, labSampleCode, reagentRequestStatus]);
 
     /**
      * ✅ Quality Cover gate (unchanged logic, but cleaner)
@@ -413,7 +419,7 @@ export const SampleDetailPage = () => {
                                     ) : (
                                         <span
                                             className="px-4 py-2 text-xs font-semibold rounded-xl border border-red-200 bg-red-50 text-red-700 inline-flex items-center gap-2"
-                                            title="Requires lab code"
+                                            title="Locked until Reagent Request is approved"
                                         >
                                             <Lock size={14} />
                                             Tests
