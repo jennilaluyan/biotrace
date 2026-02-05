@@ -26,9 +26,22 @@ function unwrapApi(res: any) {
     return x;
 }
 
-function isNotFound(err: any) {
-    const status = err?.status ?? err?.response?.status ?? err?.data?.status ?? null;
-    return Number(status) === 404;
+function extractBackendMessage(err: any): string | null {
+    // handleAxios() throws: { status, data }
+    const status = err?.status ?? err?.response?.status ?? null;
+    const data = err?.data ?? err?.response?.data ?? null;
+
+    const msg =
+        (typeof data === "string" && data) ||
+        data?.message ||
+        data?.error ||
+        err?.message ||
+        null;
+
+    if (!status && !msg) return null;
+    if (status && msg) return `HTTP ${status}: ${msg}`;
+    if (status) return `HTTP ${status}`;
+    return String(msg);
 }
 
 export async function getQualityCover(sampleId: number): Promise<QualityCover | null> {
@@ -37,9 +50,12 @@ export async function getQualityCover(sampleId: number): Promise<QualityCover | 
         const payload = unwrapApi(res);
         return payload ? (payload as QualityCover) : null;
     } catch (e: any) {
-        // ✅ If backend returns 404 when not created yet, treat as "no cover"
-        if (isNotFound(e)) return null;
-        throw e;
+        // If backend returns 404 when not created yet, treat as "no cover"
+        const status = e?.status ?? e?.response?.status ?? null;
+        if (Number(status) === 404) return null;
+
+        const msg = extractBackendMessage(e);
+        throw new Error(msg || "Failed to load quality cover.");
     }
 }
 
@@ -47,43 +63,43 @@ export async function saveQualityCoverDraft(
     sampleId: number,
     body: { method_of_analysis?: string; qc_payload?: any }
 ): Promise<QualityCover> {
-    const res = await apiPut<any>(`/v1/samples/${sampleId}/quality-cover/draft`, body);
-    const payload = unwrapApi(res);
-    return payload as QualityCover;
+    try {
+        const res = await apiPut<any>(`/v1/samples/${sampleId}/quality-cover/draft`, body);
+        const payload = unwrapApi(res);
+        return payload as QualityCover;
+    } catch (e: any) {
+        const msg = extractBackendMessage(e);
+        throw new Error(msg || "Failed to save draft.");
+    }
 }
 
 /**
- * ✅ FIX (404 submit):
- * Some envs don't have `/quality-cover/submit` route.
- * We try a small set of compatible fallbacks.
+ * ✅ FIX:
+ * Backend kamu mendukung: POST /v1/samples/:id/quality-cover/submit
+ * (terbukti dari error 405 yang bilang supported methods: POST)
+ *
+ * Jadi submit HARUS pakai POST, jangan PUT/PATCH.
  */
 export async function submitQualityCover(
     sampleId: number,
     body: { method_of_analysis: string; qc_payload: any }
 ): Promise<QualityCover> {
-    // 1) primary (current FE)
     try {
         const res = await apiPost<any>(`/v1/samples/${sampleId}/quality-cover/submit`, body);
         const payload = unwrapApi(res);
         return payload as QualityCover;
-    } catch (e1: any) {
-        if (!isNotFound(e1)) throw e1;
+    } catch (e: any) {
+        const msg = extractBackendMessage(e);
 
-        // 2) fallback: submit via POST base resource
-        try {
-            const res2 = await apiPost<any>(`/v1/samples/${sampleId}/quality-cover`, {
-                ...body,
-                submit: true,
-            });
-            const payload2 = unwrapApi(res2);
-            return payload2 as QualityCover;
-        } catch (e2: any) {
-            if (!isNotFound(e2)) throw e2;
-
-            // 3) fallback: some backends expose submit as PUT
-            const res3 = await apiPut<any>(`/v1/samples/${sampleId}/quality-cover/submit`, body);
-            const payload3 = unwrapApi(res3);
-            return payload3 as QualityCover;
+        // kalau masih 405, kasih hint yang spesifik biar gampang debug
+        const status = e?.status ?? e?.response?.status ?? null;
+        if (Number(status) === 405) {
+            throw new Error(
+                (msg ? `${msg}. ` : "") +
+                "Submit Quality Cover harus pakai POST ke /quality-cover/submit (backend menolak method lain)."
+            );
         }
+
+        throw new Error(msg || "Failed to submit quality cover.");
     }
 }
