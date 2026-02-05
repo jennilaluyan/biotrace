@@ -24,6 +24,15 @@ class QualityCoverController extends Controller
         }
     }
 
+    private function assertOperationalManager(Staff $staff): void
+    {
+        // Role name source of truth mengikuti SamplePolicy: "Operational Manager"
+        $roleName = (string) optional($staff->role)->name;
+        if ($roleName !== 'Operational Manager') {
+            abort(403, 'Forbidden.');
+        }
+    }
+
     /**
      * GET /v1/samples/{sample}/quality-cover
      * Return existing draft (or latest cover) for the sample.
@@ -130,6 +139,73 @@ class QualityCoverController extends Controller
         return response()->json([
             'message' => 'Quality cover submitted.',
             'data' => $cover,
+        ]);
+    }
+
+    /**
+     * GET /v1/quality-covers/inbox/om
+     * Inbox OM: list covers that are ready to be verified (submitted).
+     *
+     * Query params:
+     * - search: string (optional) -> matches sample.lab_sample_code OR sample.client.name
+     * - per_page: int (optional, default 25, max 100)
+     * - page: int (optional)
+     */
+    public function inboxOm(\Illuminate\Http\Request $request): JsonResponse
+    {
+        /** @var Staff $staff */
+        $staff = Auth::user();
+        if (!$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
+        $this->assertOperationalManager($staff);
+
+        if (!Schema::hasTable('quality_covers')) {
+            return response()->json([
+                'message' => 'quality_covers table not found. Run migrations.',
+                'hint' => 'php artisan migrate',
+            ], 500);
+        }
+
+        $search = trim((string) $request->query('search', ''));
+        $perPage = (int) $request->query('per_page', 25);
+        $perPage = max(1, min(100, $perPage));
+
+        // Inbox OM = submitted
+        $q = QualityCover::query()
+            ->with([
+                'sample' => function ($s) {
+                    $s->select(['sample_id', 'client_id', 'lab_sample_code', 'workflow_group']);
+                    $s->with(['client:client_id,name']);
+                },
+                'checkedBy:staff_id,name',
+            ])
+            ->where('status', 'submitted')
+            ->orderByDesc('submitted_at')
+            ->orderByDesc('quality_cover_id');
+
+        if ($search !== '') {
+            $q->where(function ($qq) use ($search) {
+                $qq->whereHas('sample', function ($s) use ($search) {
+                    $s->where('lab_sample_code', 'like', "%{$search}%")
+                        ->orWhereHas('client', function ($c) use ($search) {
+                            $c->where('name', 'like', "%{$search}%");
+                        });
+                });
+            });
+        }
+
+        $page = $q->paginate($perPage);
+
+        return response()->json([
+            'data' => $page->items(),
+            'meta' => [
+                'current_page' => $page->currentPage(),
+                'per_page' => $page->perPage(),
+                'total' => $page->total(),
+                'last_page' => $page->lastPage(),
+            ],
         ]);
     }
 
