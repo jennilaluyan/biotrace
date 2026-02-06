@@ -302,6 +302,18 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
         return !!(exited || exited2);
     }, [isAtLastColumn, myCard, timeline]);
 
+    // ✅ DONE detector: prefer backend done flags, fallback to kanban computed
+    const isSampleDone = useMemo(() => {
+        const hardDoneFlags = [
+            (sample as any)?.testing_completed_at,
+            (sample as any)?.testing_done_at,
+            (sample as any)?.tests_completed_at,
+        ].filter(Boolean);
+
+        if (hardDoneFlags.length > 0) return true;
+        return isAtLastColumn && isLastStageEnded;
+    }, [sample, isAtLastColumn, isLastStageEnded]);
+
     const doMove = async (toColumnId: number) => {
         if (!toColumnId) return;
 
@@ -421,10 +433,11 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
     };
 
     // --------------------
-    // ✅ Column CRUD (synced only)
+    // ✅ Column CRUD (synced only) + LOCK when sample DONE
     // --------------------
     const canEditColumns =
         mode === "synced" &&
+        !isSampleDone && // ✅ NEW: if done, no column CRUD
         !loading &&
         !busyMove &&
         !busyCols &&
@@ -658,7 +671,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                                                     type="button"
                                                     className={cx("lims-icon-button", !canEditColumns && "opacity-40 cursor-not-allowed")}
                                                     disabled={!canEditColumns}
-                                                    title="Add column left"
+                                                    title={isSampleDone ? "Locked (sample done)" : "Add column left"}
                                                     onClick={() => openAdd("left", col)}
                                                 >
                                                     <Plus size={16} />
@@ -668,7 +681,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                                                     type="button"
                                                     className={cx("lims-icon-button", !canEditColumns && "opacity-40 cursor-not-allowed")}
                                                     disabled={!canEditColumns}
-                                                    title="Rename column"
+                                                    title={isSampleDone ? "Locked (sample done)" : "Rename column"}
                                                     onClick={() => openRename(col)}
                                                 >
                                                     <Pencil size={16} />
@@ -678,7 +691,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                                                     type="button"
                                                     className={cx("lims-icon-button", !canEditColumns && "opacity-40 cursor-not-allowed")}
                                                     disabled={!canEditColumns}
-                                                    title="Delete column"
+                                                    title={isSampleDone ? "Locked (sample done)" : "Delete column"}
                                                     onClick={() => openDelete(col)}
                                                 >
                                                     <Trash2 size={16} />
@@ -688,7 +701,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                                                     type="button"
                                                     className={cx("lims-icon-button", !canEditColumns && "opacity-40 cursor-not-allowed")}
                                                     disabled={!canEditColumns}
-                                                    title="Add column right"
+                                                    title={isSampleDone ? "Locked (sample done)" : "Add column right"}
                                                     onClick={() => openAdd("right", col)}
                                                 >
                                                     <Plus size={16} className="rotate-180" />

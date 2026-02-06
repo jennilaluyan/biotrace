@@ -134,40 +134,25 @@ export const SampleDetailPage = () => {
     }, [sample, labSampleCode, reagentRequestStatus]);
 
     /**
-     * ✅ Quality Cover gate (unchanged logic, but cleaner)
+     * ✅ Quality Cover gate: open ONLY after DONE flags OR explicit unlock timestamp
      */
     const canSeeQualityCoverTab = useMemo(() => {
         if (!sample) return false;
 
+        // ✅ strong "done" flags set by backend on finalize (if columns exist)
+        const doneFlags = [
+            (sample as any)?.testing_completed_at,
+            (sample as any)?.testing_done_at,
+            (sample as any)?.tests_completed_at,
+        ].filter(Boolean);
+
+        if (doneFlags.length > 0) return true;
+
+        // ✅ fallback unlock field (still allowed)
         const unlockedAt = (sample as any)?.quality_cover_unlocked_at ?? null;
         if (unlockedAt) return true;
 
-        const maybeDoneFlags = [
-            (sample as any)?.testing_completed_at,
-            (sample as any)?.tests_completed_at,
-            (sample as any)?.testing_done_at,
-            (sample as any)?.ready_for_review_at,
-            (sample as any)?.review_ready_at,
-        ].filter(Boolean);
-
-        if (maybeDoneFlags.length > 0) return true;
-
-        const statusEnum = String((sample as any)?.status_enum ?? "").toLowerCase();
-        const currentStatus = String((sample as any)?.current_status ?? "").toLowerCase();
-        const reqStatus = String((sample as any)?.request_status ?? "").toLowerCase();
-
-        const looksLikeEndStage =
-            statusEnum.includes("review") ||
-            statusEnum.includes("completed") ||
-            currentStatus.includes("review") ||
-            currentStatus.includes("ready") ||
-            currentStatus.includes("completed") ||
-            reqStatus.includes("review") ||
-            currentStatus === "validated" ||
-            currentStatus === "verified" ||
-            currentStatus === "reported";
-
-        return looksLikeEndStage;
+        return false;
     }, [sample]);
 
     const qualityCoverDisabled = !isAnalyst;
@@ -483,8 +468,10 @@ export const SampleDetailPage = () => {
                                     <SampleTestingKanbanTab
                                         sampleId={sampleId}
                                         sample={sample}
-                                        // optional: auto-open QC after unlock
-                                        onQualityCoverUnlocked={() => setTab("quality_cover")}
+                                        onQualityCoverUnlocked={async () => {
+                                            await refreshAll();       // ✅ ensure gate fields updated
+                                            setTab("quality_cover");  // ✅ then open QC tab
+                                        }}
                                     />
                                 )}
 

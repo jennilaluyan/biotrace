@@ -357,6 +357,10 @@ Route::prefix('v1')->group(function () {
         Route::put('testing-board/{workflowGroup}/columns/reorder', [\App\Http\Controllers\TestingBoardController::class, 'reorderColumns'])
             ->where('workflowGroup', '^[a-z0-9_]+$');
 
+        // ✅ NEW: delete column endpoint (FE uses DELETE /v1/testing-board/columns/{columnId})
+        Route::delete('testing-board/columns/{columnId}', [\App\Http\Controllers\TestingBoardController::class, 'deleteColumn'])
+            ->whereNumber('columnId');
+
         /*
         |--------------------------------------------------------------------------
         | Reagent Calculation

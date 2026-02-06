@@ -76,6 +76,13 @@ export type FetchTestingBoardResponse = {
     cards: TestingBoardCard[];
     events: TestingBoardEvent[];
     last_column_id: number | null;
+
+    // ✅ optional meta passthrough (safe if backend doesn't send)
+    meta?: {
+        is_locked?: boolean;
+        qc_ready_at?: string | null;
+        [k: string]: any;
+    };
 };
 
 const BOARD_BASE = "/v1/testing-board";
@@ -223,6 +230,9 @@ export async function fetchTestingBoard(opts?: { group?: string; sample_id?: num
                 cards,
                 events,
                 last_column_id: board.last_column_id ?? null,
+
+                // ✅ optional passthrough
+                meta: payload?.meta ?? payload?.board?.meta ?? undefined,
             };
         }
 

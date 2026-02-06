@@ -203,6 +203,29 @@ class TestingBoardService
                     );
                 }
 
+                // ✅ Mark testing as completed (if columns exist)
+                // FE uses these flags to open Quality Cover only after DONE
+                $didSetDone = false;
+
+                if (Schema::hasColumn('samples', 'testing_completed_at') && !$sample->getAttribute('testing_completed_at')) {
+                    $sample->setAttribute('testing_completed_at', $now);
+                    $didSetDone = true;
+                }
+
+                if (Schema::hasColumn('samples', 'testing_done_at') && !$sample->getAttribute('testing_done_at')) {
+                    $sample->setAttribute('testing_done_at', $now);
+                    $didSetDone = true;
+                }
+
+                if (Schema::hasColumn('samples', 'tests_completed_at') && !$sample->getAttribute('tests_completed_at')) {
+                    $sample->setAttribute('tests_completed_at', $now);
+                    $didSetDone = true;
+                }
+
+                if ($didSetDone) {
+                    $sample->save();
+                }
+
                 AuditLogger::logTestingStageMoved(
                     staffId: (int) $actorStaffId,
                     sampleId: (int) $sampleId,
