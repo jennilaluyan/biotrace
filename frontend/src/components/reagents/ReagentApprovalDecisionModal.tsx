@@ -106,7 +106,7 @@ export default function ReagentApprovalDecisionModal(props: Props) {
                         </div>
                     ) : (
                         <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                            Approve artinya request akan lanjut ke tahap berikutnya (PDF generation di todo 8).
+                            Setelah approve, akan generate dokumen Reagent Request
                         </div>
                     )}
                 </div>
