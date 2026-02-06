@@ -12,6 +12,10 @@ import {
     type TestingBoardColumn,
 } from "../../services/testingBoard";
 
+import { RenameKanbanColumnModal } from "./RenameKanbanColumnModal";
+import { AddKanbanColumnModal } from "./AddKanbanColumnModal";
+import { DeleteKanbanColumnModal } from "./DeleteKanbanColumnModal";
+
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
@@ -30,12 +34,7 @@ type Props = {
 };
 
 function deriveGroupFromBackend(sample: any): string {
-    const g =
-        sample?.workflow_group ??
-        sample?.workflowGroup ??
-        sample?.workflow_group_name ??
-        null;
-
+    const g = sample?.workflow_group ?? sample?.workflowGroup ?? sample?.workflow_group_name ?? null;
     const s = String(g ?? "").trim().toLowerCase();
     return s || "default";
 }
@@ -171,6 +170,25 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
     const [timeline, setTimeline] = useState<Record<number, StageStamp>>({});
     const [lastColumnId, setLastColumnId] = useState<number | null>(null);
 
+    // ✅ Rename Modal State
+    const [renameOpen, setRenameOpen] = useState(false);
+    const [renameTarget, setRenameTarget] = useState<TestingBoardColumn | null>(null);
+    const [renameSaving, setRenameSaving] = useState(false);
+    const [renameError, setRenameError] = useState<string | null>(null);
+
+    // ✅ Add Modal State
+    const [addOpen, setAddOpen] = useState(false);
+    const [addSide, setAddSide] = useState<"left" | "right">("right");
+    const [addRelative, setAddRelative] = useState<TestingBoardColumn | null>(null);
+    const [addSaving, setAddSaving] = useState(false);
+    const [addError, setAddError] = useState<string | null>(null);
+
+    // ✅ Delete Modal State
+    const [delOpen, setDelOpen] = useState(false);
+    const [delTarget, setDelTarget] = useState<TestingBoardColumn | null>(null);
+    const [delSaving, setDelSaving] = useState(false);
+    const [delError, setDelError] = useState<string | null>(null);
+
     // ✅ workflow group should come from backend sample.workflow_group
     useEffect(() => {
         const next = deriveGroupFromBackend(sample);
@@ -272,9 +290,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
     const isAtLastColumn = useMemo(() => {
         if (!alreadyStarted) return false;
         const cur = Number(myCard?.column_id ?? 0);
-        const last = lastColumnId
-            ? Number(lastColumnId)
-            : Number(sortedCols[sortedCols.length - 1]?.column_id ?? 0);
+        const last = lastColumnId ? Number(lastColumnId) : Number(sortedCols[sortedCols.length - 1]?.column_id ?? 0);
         return cur > 0 && last > 0 && cur === last;
     }, [alreadyStarted, myCard, lastColumnId, sortedCols]);
 
@@ -407,66 +423,93 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
     // --------------------
     // ✅ Column CRUD (synced only)
     // --------------------
-    const canEditColumns = mode === "synced" && !loading && !busyMove && !busyCols;
+    const canEditColumns =
+        mode === "synced" &&
+        !loading &&
+        !busyMove &&
+        !busyCols &&
+        !renameSaving &&
+        !addSaving &&
+        !delSaving;
 
-    async function onAddColumn(side: "left" | "right", relativeTo: TestingBoardColumn) {
+    function openAdd(side: "left" | "right", relativeTo: TestingBoardColumn) {
+        if (!canEditColumns) return;
+        setAddError(null);
+        setAddSide(side);
+        setAddRelative(relativeTo);
+        setAddOpen(true);
+    }
+
+    async function submitAdd(name: string) {
+        if (!addRelative) return;
         if (!canEditColumns) return;
 
-        const name = window.prompt(`New column name (${side} of "${relativeTo.name}"):`)?.trim();
-        if (!name) return;
-
-        setBusyCols(true);
-        setError(null);
+        setAddSaving(true);
+        setAddError(null);
         try {
             await addTestingColumn({
                 group,
                 name,
-                relative_to_column_id: relativeTo.column_id,
-                side,
-            });
+                relative_to_column_id: addRelative.column_id,
+                side: addSide,
+            } as any);
+            setAddOpen(false);
+            setAddRelative(null);
             await load();
         } catch (e: any) {
-            setError(getErrorMessage(e, "Failed to add column."));
+            setAddError(getErrorMessage(e, "Failed to add column."));
         } finally {
-            setBusyCols(false);
+            setAddSaving(false);
         }
     }
 
-    async function onRenameColumn(col: TestingBoardColumn) {
+    function openRename(col: TestingBoardColumn) {
+        if (!canEditColumns) return;
+        setRenameError(null);
+        setRenameTarget(col);
+        setRenameOpen(true);
+    }
+
+    async function submitRename(nextName: string) {
+        if (!renameTarget) return;
         if (!canEditColumns) return;
 
-        const next = window.prompt(`Rename column "${col.name}" to:`, col.name)?.trim();
-        if (!next || next === col.name) return;
-
-        setBusyCols(true);
-        setError(null);
+        setRenameSaving(true);
+        setRenameError(null);
         try {
-            await renameTestingColumn(col.column_id, next);
+            await renameTestingColumn(renameTarget.column_id, nextName);
+            setRenameOpen(false);
+            setRenameTarget(null);
             await load();
         } catch (e: any) {
-            setError(getErrorMessage(e, "Failed to rename column."));
+            setRenameError(getErrorMessage(e, "Failed to rename column."));
         } finally {
-            setBusyCols(false);
+            setRenameSaving(false);
         }
     }
 
-    async function onDeleteColumn(col: TestingBoardColumn) {
+    function openDelete(col: TestingBoardColumn) {
+        if (!canEditColumns) return;
+        setDelError(null);
+        setDelTarget(col);
+        setDelOpen(true);
+    }
+
+    async function submitDelete() {
+        if (!delTarget) return;
         if (!canEditColumns) return;
 
-        const ok = window.confirm(
-            `Delete column "${col.name}"?\n\nNote: this should be empty (no cards) to be safe.`
-        );
-        if (!ok) return;
-
-        setBusyCols(true);
-        setError(null);
+        setDelSaving(true);
+        setDelError(null);
         try {
-            await deleteTestingColumn(col.column_id);
+            await deleteTestingColumn(delTarget.column_id);
+            setDelOpen(false);
+            setDelTarget(null);
             await load();
         } catch (e: any) {
-            setError(getErrorMessage(e, "Failed to delete column."));
+            setDelError(getErrorMessage(e, "Failed to delete column."));
         } finally {
-            setBusyCols(false);
+            setDelSaving(false);
         }
     }
 
@@ -558,7 +601,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                             type="button"
                             className="lims-icon-button"
                             onClick={load}
-                            disabled={loading || busyMove || busyCols}
+                            disabled={loading || busyMove || busyCols || renameSaving || addSaving || delSaving}
                             aria-label="Refresh"
                             title="Refresh"
                         >
@@ -586,8 +629,10 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                                 const isDone = alreadyStarted && currentColIndex >= 0 && idx < currentColIndex;
 
                                 const stamp = timeline?.[Number(col.column_id)] ?? null;
-                                const enteredAt = stamp?.entered_at ?? (isHere ? (myCard as any)?.entered_at ?? null : null);
-                                const exitedAt = stamp?.exited_at ?? (isHere ? (myCard as any)?.exited_at ?? null : null);
+                                const enteredAt =
+                                    stamp?.entered_at ?? (isHere ? (myCard as any)?.entered_at ?? null : null);
+                                const exitedAt =
+                                    stamp?.exited_at ?? (isHere ? (myCard as any)?.exited_at ?? null : null);
 
                                 const hasAnyStamp = !!enteredAt || !!exitedAt;
 
@@ -611,52 +656,40 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                                             <div className="flex items-center gap-1">
                                                 <button
                                                     type="button"
-                                                    className={cx(
-                                                        "lims-icon-button",
-                                                        !canEditColumns && "opacity-40 cursor-not-allowed"
-                                                    )}
+                                                    className={cx("lims-icon-button", !canEditColumns && "opacity-40 cursor-not-allowed")}
                                                     disabled={!canEditColumns}
                                                     title="Add column left"
-                                                    onClick={() => onAddColumn("left", col)}
+                                                    onClick={() => openAdd("left", col)}
                                                 >
                                                     <Plus size={16} />
                                                 </button>
 
                                                 <button
                                                     type="button"
-                                                    className={cx(
-                                                        "lims-icon-button",
-                                                        !canEditColumns && "opacity-40 cursor-not-allowed"
-                                                    )}
+                                                    className={cx("lims-icon-button", !canEditColumns && "opacity-40 cursor-not-allowed")}
                                                     disabled={!canEditColumns}
                                                     title="Rename column"
-                                                    onClick={() => onRenameColumn(col)}
+                                                    onClick={() => openRename(col)}
                                                 >
                                                     <Pencil size={16} />
                                                 </button>
 
                                                 <button
                                                     type="button"
-                                                    className={cx(
-                                                        "lims-icon-button",
-                                                        !canEditColumns && "opacity-40 cursor-not-allowed"
-                                                    )}
+                                                    className={cx("lims-icon-button", !canEditColumns && "opacity-40 cursor-not-allowed")}
                                                     disabled={!canEditColumns}
                                                     title="Delete column"
-                                                    onClick={() => onDeleteColumn(col)}
+                                                    onClick={() => openDelete(col)}
                                                 >
                                                     <Trash2 size={16} />
                                                 </button>
 
                                                 <button
                                                     type="button"
-                                                    className={cx(
-                                                        "lims-icon-button",
-                                                        !canEditColumns && "opacity-40 cursor-not-allowed"
-                                                    )}
+                                                    className={cx("lims-icon-button", !canEditColumns && "opacity-40 cursor-not-allowed")}
                                                     disabled={!canEditColumns}
                                                     title="Add column right"
-                                                    onClick={() => onAddColumn("right", col)}
+                                                    onClick={() => openAdd("right", col)}
                                                 >
                                                     <Plus size={16} className="rotate-180" />
                                                 </button>
@@ -690,11 +723,56 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                         </div>
                     </div>
 
-                    {sortedCols.length === 0 && !loading && (
-                        <div className="text-sm text-gray-600">No columns.</div>
-                    )}
+                    {sortedCols.length === 0 && !loading && <div className="text-sm text-gray-600">No columns.</div>}
                 </div>
             </div>
+
+            {/* ✅ Add modal */}
+            <AddKanbanColumnModal
+                open={addOpen}
+                side={addSide}
+                relativeToName={addRelative?.name ?? ""}
+                loading={addSaving}
+                error={addError}
+                onClose={() => {
+                    if (addSaving) return;
+                    setAddOpen(false);
+                    setAddRelative(null);
+                    setAddError(null);
+                }}
+                onSubmit={submitAdd}
+            />
+
+            {/* ✅ Rename modal */}
+            <RenameKanbanColumnModal
+                open={renameOpen}
+                currentName={renameTarget?.name ?? ""}
+                title={renameTarget ? `Rename “${renameTarget.name}”` : "Rename column"}
+                loading={renameSaving}
+                error={renameError}
+                onClose={() => {
+                    if (renameSaving) return;
+                    setRenameOpen(false);
+                    setRenameTarget(null);
+                    setRenameError(null);
+                }}
+                onSubmit={submitRename}
+            />
+
+            {/* ✅ Delete modal */}
+            <DeleteKanbanColumnModal
+                open={delOpen}
+                columnName={delTarget?.name ?? ""}
+                loading={delSaving}
+                error={delError}
+                onClose={() => {
+                    if (delSaving) return;
+                    setDelOpen(false);
+                    setDelTarget(null);
+                    setDelError(null);
+                }}
+                onConfirm={submitDelete}
+            />
         </div>
     );
 };
