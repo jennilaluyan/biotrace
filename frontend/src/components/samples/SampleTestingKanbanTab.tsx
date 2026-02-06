@@ -215,7 +215,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             setLoading(true);
             setError(null);
 
-            const res = await fetchTestingBoard({ group });
+            const res = await fetchTestingBoard({ group, sample_id: sampleId });
 
             const rawMode = String((res as any)?.mode ?? "");
             setMode(rawMode === "backend" ? "synced" : "local");

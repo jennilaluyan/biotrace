@@ -26,7 +26,6 @@ export type TestingBoardCard = {
     entered_at?: string | null;
     exited_at?: string | null;
 
-    // legacy / extra fields from backend are allowed, but keep typed core above
     [k: string]: any;
 };
 
@@ -39,6 +38,7 @@ export type TestingCardEventType =
 
 export type TestingBoardEvent = {
     id?: number;
+    event_id?: number;
     sample_id: number;
 
     from_column_id?: number | null;
@@ -46,7 +46,6 @@ export type TestingBoardEvent = {
 
     type?: TestingCardEventType;
 
-    // timestamps (backend naming may vary)
     created_at?: string | null;
     moved_at?: string | null;
     entered_at?: string | null;
@@ -65,7 +64,7 @@ export type TestingBoardPayload = {
     columns: TestingBoardColumn[];
     cards: TestingBoardCard[];
 
-    // ✅ “resmi” ada (backend boleh kirim / tidak kirim)
+    // ✅ optional
     events?: TestingBoardEvent[];
 };
 
@@ -87,7 +86,6 @@ function safeArr<T>(x: any): T[] {
 
 /**
  * Unwrap nested {data: ...} shapes (up to a few levels).
- * Supports: axios response, API wrappers, Laravel resources.
  */
 function unwrapDataDeep<T>(res: any): T {
     let x = res?.data ?? res;
@@ -160,27 +158,35 @@ function normalizeEvents(raw: any): TestingBoardEvent[] {
     return arr
         .map((e) => ({
             ...(e ?? {}),
-            id: e?.id,
+            id: asNumber(e?.id ?? e?.event_id, undefined as any),
+            event_id: e?.event_id != null ? asNumber(e.event_id, undefined as any) : undefined,
+
             sample_id: asNumber(e?.sample_id ?? e?.sampleId, 0),
-            from_column_id: e?.from_column_id ?? e?.fromColumnId ?? null,
-            to_column_id: e?.to_column_id ?? e?.toColumnId ?? null,
+            from_column_id: e?.from_column_id == null ? null : asNumber(e.from_column_id, 0),
+            to_column_id: e?.to_column_id == null ? null : asNumber(e.to_column_id, 0),
+
             type: e?.type ?? e?.event_type ?? e?.eventType ?? "moved",
+
             created_at: e?.created_at ?? null,
             moved_at: e?.moved_at ?? null,
             entered_at: e?.entered_at ?? null,
             exited_at: e?.exited_at ?? null,
+
             note: e?.note ?? null,
         }))
         .filter((e) => e.sample_id > 0);
 }
 
-export async function fetchTestingBoard(opts?: { group?: string }): Promise<FetchTestingBoardResponse> {
+export async function fetchTestingBoard(opts?: { group?: string; sample_id?: number }): Promise<FetchTestingBoardResponse> {
     const raw = (opts?.group ?? "").trim();
     const group = raw || "default";
+    const sampleId = opts?.sample_id != null ? Number(opts.sample_id) : null;
 
     try {
-        // backend endpoint: /v1/testing-board/{group}
-        const res = await apiGet<any>(`${BOARD_BASE}/${encodeURIComponent(group)}`);
+        // backend endpoint: /v1/testing-board/{group}?sample_id=123
+        const qs = sampleId && Number.isFinite(sampleId) && sampleId > 0 ? `?sample_id=${encodeURIComponent(String(sampleId))}` : "";
+        const res = await apiGet<any>(`${BOARD_BASE}/${encodeURIComponent(group)}${qs}`);
+
         const payload = unwrapDataDeep<any>(res);
 
         if (payload?.message && !payload?.columns) {
@@ -299,7 +305,6 @@ export async function addTestingColumn(payload: {
 }) {
     const { group, ...body } = payload;
 
-    // include workflow_group in body too (safe with either controller style)
     return apiPost(`${BOARD_BASE}/${encodeURIComponent(group)}/columns`, {
         workflow_group: group,
         ...body,
