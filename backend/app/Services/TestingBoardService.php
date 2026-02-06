@@ -50,6 +50,36 @@ class TestingBoardService
                 abort(422, 'Workflow group is empty.');
             }
 
+            // ✅ Opportunistic backfill:
+            // kalau sample.workflow_group kosong / beda -> tulis balik (biar sampel lama ikut)
+            if (Schema::hasColumn('samples', 'workflow_group')) {
+                $oldGroup = $sample->getAttribute('workflow_group');
+                $oldGroupNorm = $oldGroup !== null ? trim((string) $oldGroup) : null;
+                $newGroupNorm = trim((string) $workflowGroup);
+
+                if ($newGroupNorm !== '' && $oldGroupNorm !== $newGroupNorm) {
+                    $sample->setAttribute('workflow_group', $newGroupNorm);
+                    $sample->save();
+
+                    // best-effort audit (kalau method ada)
+                    if (method_exists(AuditLogger::class, 'logWorkflowGroupChanged')) {
+                        try {
+                            $parameterIds = $this->extractParameterIdsFromSample($sample);
+                            AuditLogger::logWorkflowGroupChanged(
+                                staffId: (int) $actorStaffId,
+                                sampleId: (int) $sample->sample_id,
+                                clientId: (int) ($sample->client_id ?? 0),
+                                oldGroup: $oldGroupNorm,
+                                newGroup: $newGroupNorm,
+                                parameterIds: $parameterIds,
+                            );
+                        } catch (\Throwable $e) {
+                            // ignore audit failure
+                        }
+                    }
+                }
+            }
+
             // 2) Find (or create) board for that group
             /** @var TestingBoard|null $board */
             $board = TestingBoard::query()
@@ -127,9 +157,6 @@ class TestingBoardService
             $isFinalizeCall = $finalize && $isAtLast && $fromColumnId !== null && (int) $fromColumnId === (int) $toColumnId;
 
             // ✅ FINALIZE MODE:
-            // - do NOT create new movement event
-            // - just set exited_at on the latest open event
-            // - unlock QC
             if ($isFinalizeCall) {
                 $updated = false;
                 $eventId = null;
@@ -140,7 +167,6 @@ class TestingBoardService
                         ->orderByDesc('moved_at')
                         ->orderByDesc('event_id');
 
-                    // Prefer "open" stage, but if none, still update the latest
                     $open = (clone $q)->whereNull('exited_at')->first();
                     $target = $open ?: $q->first();
 
@@ -176,7 +202,6 @@ class TestingBoardService
                     );
                 }
 
-                // Audit as "moved" also (optional, but keeps trail consistent)
                 AuditLogger::logTestingStageMoved(
                     staffId: (int) $actorStaffId,
                     sampleId: (int) $sampleId,
@@ -204,7 +229,6 @@ class TestingBoardService
 
             // NORMAL MOVE MODE
 
-            // Close previous stage (if schema supports it)
             if (Schema::hasColumn('testing_card_events', 'exited_at')) {
                 TestingCardEvent::query()
                     ->where('sample_id', $sampleId)
@@ -215,7 +239,6 @@ class TestingBoardService
                     ->update(['exited_at' => $now]);
             }
 
-            // Create movement event
             $eventData = [
                 'board_id' => (int) $board->board_id,
                 'sample_id' => (int) $sampleId,
@@ -234,7 +257,6 @@ class TestingBoardService
             /** @var TestingCardEvent $created */
             $created = TestingCardEvent::query()->create($eventData);
 
-            // Persist current column to samples
             if (Schema::hasColumn('samples', 'testing_column_id')) {
                 $sample->setAttribute('testing_column_id', (int) $toColumnId);
                 $sample->save();
@@ -242,7 +264,6 @@ class TestingBoardService
 
             $eventId = (int) ($created->event_id ?? $created->getKey());
 
-            // QC unlock gate: unlock when reaching last column (only once)
             if ($lastColumnId > 0 && (int) $toColumnId === $lastColumnId) {
                 if (
                     Schema::hasColumn('samples', 'quality_cover_unlocked_at') &&
@@ -301,7 +322,6 @@ class TestingBoardService
         $columnIds = $columns->pluck('column_id')->map(fn($v) => (int) $v)->values()->all();
         if (!$columnIds) return [];
 
-        // Fast path: samples.testing_column_id
         if (Schema::hasColumn('samples', 'testing_column_id')) {
             $rows = Sample::query()
                 ->whereIn('testing_column_id', $columnIds)
@@ -349,7 +369,6 @@ class TestingBoardService
             })->values()->all();
         }
 
-        // fallback: latest event per sample
         $select = ['event_id', 'sample_id', 'to_column_id'];
         if (Schema::hasColumn('testing_card_events', 'moved_at')) $select[] = 'moved_at';
         if (Schema::hasColumn('testing_card_events', 'entered_at')) $select[] = 'entered_at';
@@ -423,13 +442,40 @@ class TestingBoardService
                 }
             }
 
-            if (count($out) > 0) return $out;
+            if (count($out) > 0) return array_values(array_unique(array_map('intval', $out)));
         }
+
+        // ✅ NEW fallback: pivot sample_requested_parameters (request workflow)
+        $pivotOut = $this->extractParameterIdsFromRequestedPivot($sample);
+        if (count($pivotOut) > 0) return $pivotOut;
 
         $dbOut = $this->extractParameterIdsFromDbFallback($sample);
         if (count($dbOut) > 0) return $dbOut;
 
         return [];
+    }
+
+    private function extractParameterIdsFromRequestedPivot(Sample $sample): array
+    {
+        $sampleId = (int) $sample->getKey();
+
+        if (
+            !Schema::hasTable('sample_requested_parameters') ||
+            !Schema::hasColumn('sample_requested_parameters', 'sample_id') ||
+            !Schema::hasColumn('sample_requested_parameters', 'parameter_id')
+        ) {
+            return [];
+        }
+
+        $rows = DB::table('sample_requested_parameters')
+            ->where('sample_id', $sampleId)
+            ->pluck('parameter_id')
+            ->map(fn($v) => (int) $v)
+            ->values()
+            ->all();
+
+        $rows = array_values(array_unique(array_filter($rows, fn($v) => (int) $v > 0)));
+        return $rows;
     }
 
     private function extractParameterIdsFromDbFallback(Sample $sample): array
@@ -492,6 +538,8 @@ class TestingBoardService
             }
         }
 
+        $out = array_values(array_unique(array_map('intval', $out)));
+        $out = array_values(array_filter($out, fn($v) => (int) $v > 0));
         return $out;
     }
 }
