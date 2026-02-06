@@ -1,10 +1,13 @@
 // L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\SampleTestingKanbanTab.tsx
 import { useEffect, useMemo, useState } from "react";
-import { RefreshCw, ChevronRight, Play, Square, Lock } from "lucide-react";
+import { RefreshCw, ChevronRight, Play, Square, Plus, Pencil, Trash2 } from "lucide-react";
 import { getErrorMessage } from "../../utils/errors";
 import {
     fetchTestingBoard,
     moveTestingCard,
+    addTestingColumn,
+    renameTestingColumn,
+    deleteTestingColumn,
     type TestingBoardCard,
     type TestingBoardColumn,
 } from "../../services/testingBoard";
@@ -26,11 +29,15 @@ type Props = {
     onQualityCoverUnlocked?: () => void;
 };
 
-function deriveGroupFromSample(sample: any): string {
-    const rawType = String(sample?.sample_type ?? "").toLowerCase();
-    const hasPcr = rawType.includes("pcr") || rawType.includes("sars") || rawType.includes("cov");
-    if (hasPcr) return "pcr_sars_cov_2";
-    return "default";
+function deriveGroupFromBackend(sample: any): string {
+    const g =
+        sample?.workflow_group ??
+        sample?.workflowGroup ??
+        sample?.workflow_group_name ??
+        null;
+
+    const s = String(g ?? "").trim().toLowerCase();
+    return s || "default";
 }
 
 function normalizeCard(c: any): TestingBoardCard {
@@ -99,16 +106,6 @@ function mergeTimeline(prev: Record<number, StageStamp>, patch: Record<number, P
     return next;
 }
 
-/**
- * ✅ Build timeline from backend events if present.
- * Accept multiple shapes to be robust:
- * - res.events[]
- * - res.timeline[]
- * - res.history[]
- * - res.card_events[]
- * Each item may include:
- * - from_column_id, to_column_id, entered_at, exited_at, moved_at, created_at, finalize
- */
 function buildTimelineFromBackend(res: any): Record<number, StageStamp> {
     const candidates =
         (res?.events ?? res?.timeline ?? res?.history ?? res?.card_events ?? res?.cardEvents ?? []) as any[];
@@ -125,7 +122,6 @@ function buildTimelineFromBackend(res: any): Record<number, StageStamp> {
             exited_at: patch.exited_at ?? cur.exited_at ?? null,
         };
 
-        // prefer earliest entered_at, latest exited_at
         const pickEarliest = (a: string | null, b: string | null) => {
             if (!a) return b;
             if (!b) return a;
@@ -152,58 +148,42 @@ function buildTimelineFromBackend(res: any): Record<number, StageStamp> {
         const enteredAt = e?.entered_at ?? e?.enteredAt ?? movedAt ?? null;
         const exitedAt = e?.exited_at ?? e?.exitedAt ?? null;
 
-        if (toId) {
-            upsert(toId, { entered_at: enteredAt });
-        }
-
-        if (fromId) {
-            // on move: exiting fromId
-            upsert(fromId, { exited_at: movedAt ?? exitedAt ?? null });
-        }
-
-        // finalize event might include column_id
-        const colId = Number(e?.column_id ?? e?.columnId ?? 0) || null;
-        if (colId && (e?.finalize || e?.finalized)) {
-            upsert(colId, { exited_at: movedAt ?? exitedAt ?? null });
-        }
+        if (toId) upsert(toId, { entered_at: enteredAt });
+        if (fromId) upsert(fromId, { exited_at: movedAt ?? exitedAt ?? null });
     }
 
     return out;
 }
 
 export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocked }: Props) => {
-    const [group, setGroup] = useState<string>(() => deriveGroupFromSample(sample));
+    const [group, setGroup] = useState<string>(() => deriveGroupFromBackend(sample));
+
     const [loading, setLoading] = useState(false);
     const [busyMove, setBusyMove] = useState(false);
+    const [busyCols, setBusyCols] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const [columns, setColumns] = useState<TestingBoardColumn[]>([]);
     const [cards, setCards] = useState<TestingBoardCard[]>([]);
 
-    // “Synced” = backend mode, “Local” = fallback
     const [mode, setMode] = useState<"synced" | "local">("local");
 
     const [timeline, setTimeline] = useState<Record<number, StageStamp>>({});
     const [lastColumnId, setLastColumnId] = useState<number | null>(null);
 
+    // ✅ workflow group should come from backend sample.workflow_group
     useEffect(() => {
-        const next = deriveGroupFromSample(sample);
-        setGroup((prev) => {
-            if (prev && prev !== "default") return prev;
-            return next;
-        });
+        const next = deriveGroupFromBackend(sample);
+        setGroup(next);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sampleId, sample?.sample_type]);
+    }, [sampleId, sample?.workflow_group, sample?.workflowGroup]);
 
-    // load persisted timeline on mount
     useEffect(() => {
         if (!sampleId || Number.isNaN(sampleId)) return;
-        const v2 = readTimeline(sampleId);
-        setTimeline(v2);
+        setTimeline(readTimeline(sampleId));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sampleId]);
 
-    // persist timeline changes
     useEffect(() => {
         if (!sampleId || Number.isNaN(sampleId)) return;
         writeTimeline(sampleId, timeline);
@@ -219,11 +199,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
             const res = await fetchTestingBoard({ group });
 
-            if (group === "default" && res.group && res.group !== group) {
-                setGroup(res.group);
-                return;
-            }
-
             const rawMode = String((res as any)?.mode ?? "");
             setMode(rawMode === "backend" ? "synced" : "local");
 
@@ -237,7 +212,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             const incomingCards = incomingCardsRaw.map((c: any) => normalizeCard(c));
             setCards(incomingCards);
 
-            // ✅ merge timeline from backend events (if any) + localStorage (never wipe)
             const fromBackend = buildTimelineFromBackend(res);
             const fromLocal = readTimeline(sampleId);
 
@@ -246,7 +220,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                 return mergeTimeline(base, fromBackend);
             });
 
-            // also merge current card stamps
             const mine = incomingCards.find((c) => Number(c.sample_id) === Number(sampleId));
             if (mine?.column_id) {
                 const colId = Number(mine.column_id);
@@ -322,18 +295,13 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
         const nowIso = new Date().toISOString();
         const fromColId = myCard?.column_id ? Number(myCard.column_id) : null;
 
-        // optimistic timeline update
         setTimeline((prev) => {
             const patch: any = {};
             if (fromColId) patch[fromColId] = { exited_at: nowIso };
-            patch[toColumnId] = {
-                entered_at: prev?.[toColumnId]?.entered_at ?? nowIso,
-                exited_at: null,
-            };
+            patch[toColumnId] = { entered_at: prev?.[toColumnId]?.entered_at ?? nowIso, exited_at: null };
             return mergeTimeline(prev, patch);
         });
 
-        // optimistic card move
         setCards((prev) => {
             const arr = Array.isArray(prev) ? prev : [];
             const hasMine = arr.some((c) => Number(c.sample_id) === Number(sampleId));
@@ -375,7 +343,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
             const stamp = movedAt ? String(movedAt) : nowIso;
 
-            // confirm timeline with backend stamp
             setTimeline((prev) => {
                 const patch: any = {};
                 if (fromColId) patch[fromColId] = { exited_at: stamp };
@@ -386,7 +353,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             await load();
         } catch (e: any) {
             setError(getErrorMessage(e, "Move failed."));
-            await load(); // reload to recover
+            await load();
         } finally {
             setBusyMove(false);
         }
@@ -413,9 +380,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
         setCards((prev) =>
             (Array.isArray(prev) ? prev : []).map((c) =>
-                Number(c.sample_id) === Number(sampleId)
-                    ? normalizeCard({ ...c, exited_at: nowIso })
-                    : normalizeCard(c)
+                Number(c.sample_id) === Number(sampleId) ? normalizeCard({ ...c, exited_at: nowIso }) : normalizeCard(c)
             )
         );
 
@@ -438,6 +403,72 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             setBusyMove(false);
         }
     };
+
+    // --------------------
+    // ✅ Column CRUD (synced only)
+    // --------------------
+    const canEditColumns = mode === "synced" && !loading && !busyMove && !busyCols;
+
+    async function onAddColumn(side: "left" | "right", relativeTo: TestingBoardColumn) {
+        if (!canEditColumns) return;
+
+        const name = window.prompt(`New column name (${side} of "${relativeTo.name}"):`)?.trim();
+        if (!name) return;
+
+        setBusyCols(true);
+        setError(null);
+        try {
+            await addTestingColumn({
+                group,
+                name,
+                relative_to_column_id: relativeTo.column_id,
+                side,
+            });
+            await load();
+        } catch (e: any) {
+            setError(getErrorMessage(e, "Failed to add column."));
+        } finally {
+            setBusyCols(false);
+        }
+    }
+
+    async function onRenameColumn(col: TestingBoardColumn) {
+        if (!canEditColumns) return;
+
+        const next = window.prompt(`Rename column "${col.name}" to:`, col.name)?.trim();
+        if (!next || next === col.name) return;
+
+        setBusyCols(true);
+        setError(null);
+        try {
+            await renameTestingColumn(col.column_id, next);
+            await load();
+        } catch (e: any) {
+            setError(getErrorMessage(e, "Failed to rename column."));
+        } finally {
+            setBusyCols(false);
+        }
+    }
+
+    async function onDeleteColumn(col: TestingBoardColumn) {
+        if (!canEditColumns) return;
+
+        const ok = window.confirm(
+            `Delete column "${col.name}"?\n\nNote: this should be empty (no cards) to be safe.`
+        );
+        if (!ok) return;
+
+        setBusyCols(true);
+        setError(null);
+        try {
+            await deleteTestingColumn(col.column_id);
+            await load();
+        } catch (e: any) {
+            setError(getErrorMessage(e, "Failed to delete column."));
+        } finally {
+            setBusyCols(false);
+        }
+    }
 
     const actionButton = (() => {
         if (!alreadyStarted) {
@@ -512,29 +543,22 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                             >
                                 {mode === "synced" ? "synced" : "local"}
                             </span>
+
+                            <span
+                                className="inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold border border-gray-200 bg-gray-50 text-gray-700"
+                                title="Workflow group (from backend)"
+                            >
+                                {group || "default"}
+                            </span>
                         </div>
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
-                        <select
-                            className="rounded-xl border border-gray-300 px-3 py-2 text-sm"
-                            value={group}
-                            onChange={(e) => setGroup(e.target.value)}
-                            disabled={loading || busyMove}
-                            title="Workflow group"
-                        >
-                            <option value="default">default</option>
-                            <option value="pcr_sars_cov_2">pcr sars cov 2</option>
-                            <option value="pcr">pcr</option>
-                            <option value="wgs">wgs</option>
-                            <option value="elisa">elisa</option>
-                        </select>
-
                         <button
                             type="button"
                             className="lims-icon-button"
                             onClick={load}
-                            disabled={loading || busyMove}
+                            disabled={loading || busyMove || busyCols}
                             aria-label="Refresh"
                             title="Refresh"
                         >
@@ -562,8 +586,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                                 const isDone = alreadyStarted && currentColIndex >= 0 && idx < currentColIndex;
 
                                 const stamp = timeline?.[Number(col.column_id)] ?? null;
-
-                                // ✅ keep stamps visible across refresh (from timeline)
                                 const enteredAt = stamp?.entered_at ?? (isHere ? (myCard as any)?.entered_at ?? null : null);
                                 const exitedAt = stamp?.exited_at ?? (isHere ? (myCard as any)?.exited_at ?? null : null);
 
@@ -577,12 +599,67 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                                             isHere ? "border-primary ring-2 ring-primary-soft" : "border-gray-200"
                                         )}
                                     >
-                                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-start justify-between gap-2">
                                             <div className="min-w-0">
                                                 <div className="text-sm font-extrabold text-gray-900 truncate">{col.name}</div>
                                                 <div className="text-xs text-gray-500 mt-0.5">
                                                     {isHere ? "current" : isDone ? "done" : "pending"}
                                                 </div>
+                                            </div>
+
+                                            {/* ✅ Column actions */}
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    type="button"
+                                                    className={cx(
+                                                        "lims-icon-button",
+                                                        !canEditColumns && "opacity-40 cursor-not-allowed"
+                                                    )}
+                                                    disabled={!canEditColumns}
+                                                    title="Add column left"
+                                                    onClick={() => onAddColumn("left", col)}
+                                                >
+                                                    <Plus size={16} />
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    className={cx(
+                                                        "lims-icon-button",
+                                                        !canEditColumns && "opacity-40 cursor-not-allowed"
+                                                    )}
+                                                    disabled={!canEditColumns}
+                                                    title="Rename column"
+                                                    onClick={() => onRenameColumn(col)}
+                                                >
+                                                    <Pencil size={16} />
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    className={cx(
+                                                        "lims-icon-button",
+                                                        !canEditColumns && "opacity-40 cursor-not-allowed"
+                                                    )}
+                                                    disabled={!canEditColumns}
+                                                    title="Delete column"
+                                                    onClick={() => onDeleteColumn(col)}
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    className={cx(
+                                                        "lims-icon-button",
+                                                        !canEditColumns && "opacity-40 cursor-not-allowed"
+                                                    )}
+                                                    disabled={!canEditColumns}
+                                                    title="Add column right"
+                                                    onClick={() => onAddColumn("right", col)}
+                                                >
+                                                    <Plus size={16} className="rotate-180" />
+                                                </button>
                                             </div>
                                         </div>
 

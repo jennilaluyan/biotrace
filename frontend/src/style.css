@@ -194,16 +194,16 @@ body {
     }
 
     .btn-outline {
-        @apply inline-flex items-center justify-center px-4 py-2 rounded-full border border-primary text-primary bg-white text-xs font-semibold tracking-[0.1em] uppercase transition-colors duration-200 ease-out hover:bg-primary/10;
+        @apply inline-flex items-center justify-center px-4 py-2 rounded-full border border-primary text-primary bg-white text-xs font-semibold tracking-widest uppercase transition-colors duration-200 ease-out hover:bg-primary/10;
     }
 
     .btn-danger {
-        @apply inline-flex items-center justify-center px-4 py-2 rounded-full bg-red-600 text-white text-xs font-semibold tracking-[0.1em] uppercase transition-colors duration-200 ease-out hover:bg-red-700;
+        @apply inline-flex items-center justify-center px-4 py-2 rounded-full bg-red-600 text-white text-xs font-semibold tracking-widest uppercase transition-colors duration-200 ease-out hover:bg-red-700;
     }
 
     /* alias biar konsisten naming */
     .lims-btn-danger {
-        @apply inline-flex items-center justify-center px-4 py-2 rounded-full bg-red-600 text-white text-xs font-semibold tracking-[0.1em] uppercase transition-colors duration-200 ease-out hover:bg-red-700;
+        @apply inline-flex items-center justify-center px-4 py-2 rounded-full bg-red-600 text-white text-xs font-semibold tracking-widest uppercase transition-colors duration-200 ease-out hover:bg-red-700;
     }
 
     .lims-icon-button {

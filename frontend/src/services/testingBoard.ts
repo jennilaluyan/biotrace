@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPatch, apiPut } from "./api";
+import { apiGet, apiPost, apiPatch, apiPut, apiDelete } from "./api";
 import type { Sample, PaginatedResponse } from "./samples";
 
 export type TestingWorkflowMode = "backend" | "fallback";
@@ -286,9 +286,28 @@ export async function renameTestingColumn(columnId: number, name: string) {
     return apiPatch(`${BOARD_BASE}/columns/${columnId}`, { name });
 }
 
-export async function addTestingColumn(payload: { group: string; name: string; position?: number }) {
+export async function addTestingColumn(payload: {
+    group: string;
+    name: string;
+
+    // legacy
+    position?: number;
+
+    // ✅ new
+    relative_to_column_id?: number;
+    side?: "left" | "right";
+}) {
     const { group, ...body } = payload;
-    return apiPost(`${BOARD_BASE}/${encodeURIComponent(group)}/columns`, body);
+
+    // include workflow_group in body too (safe with either controller style)
+    return apiPost(`${BOARD_BASE}/${encodeURIComponent(group)}/columns`, {
+        workflow_group: group,
+        ...body,
+    });
+}
+
+export async function deleteTestingColumn(columnId: number) {
+    return apiDelete(`${BOARD_BASE}/columns/${columnId}`);
 }
 
 export async function reorderTestingColumns(payload: { group: string; column_ids: number[] }) {
