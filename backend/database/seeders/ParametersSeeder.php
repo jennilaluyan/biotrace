@@ -73,33 +73,45 @@ class ParametersSeeder extends Seeder
 
             // code max 40 char, simple & stabil:
             // BM-001 ... BM-032
-            $code = sprintf('BM-%03d', $no);
+            // ... di dalam foreach ($items as $it) {
+            $no = (int) $it['no'];
+
+            // ✅ code baru sesuai permintaan: P01..P32
+            $newCode = sprintf('P%02d', $no);
+
+            // ✅ kalau dulu sudah terlanjur ada BM-001..BM-032, kita treat sebagai legacy
+            $legacyCode = sprintf('BM-%03d', $no);
 
             $payload = [
-                'code'       => $code,
-                'name'       => $it['name'],
+                'catalog_no' => $no,
+                'code' => $newCode,
+                'name' => $it['name'],
                 'method_ref' => $methodRef,
                 'created_by' => $createdBy,
-                'status'     => 'Active',   // sesuai CHECK constraint
-                'tag'        => 'Routine',  // sesuai CHECK constraint
+                'status' => 'Active',
+                'tag' => 'Routine',
                 'updated_at' => now(),
             ];
 
-            // isi unit text kalau kolomnya ada
             if ($hasUnitText) {
                 $payload['unit'] = 'sampel';
             }
-
-            // isi unit_id kalau kolomnya ada (kalau tidak ketemu "sampel" di table units, biarkan null)
             if ($hasUnitId) {
-                $payload['unit_id'] = $unitIdSampel; // bisa null (asumsi kolom unit_id nullable)
+                $payload['unit_id'] = $unitIdSampel;
             }
 
-            // upsert by code (biar aman kalau rerun)
-            DB::table('parameters')->updateOrInsert(
-                ['code' => $code],
-                $payload
-            );
+            // 1) coba update row legacy BM-* dulu (kalau ada)
+            $updatedLegacy = DB::table('parameters')
+                ->where('code', $legacyCode)
+                ->update($payload);
+
+            // 2) kalau legacy tidak ada, upsert by catalog_no (paling stabil)
+            if ($updatedLegacy === 0) {
+                DB::table('parameters')->updateOrInsert(
+                    ['catalog_no' => $no],
+                    $payload
+                );
+            }
         }
     }
 }

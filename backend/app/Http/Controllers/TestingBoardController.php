@@ -133,42 +133,6 @@ class TestingBoardController extends Controller
         ]);
     }
 
-    public function addColumn(
-        TestingBoardAddColumnRequest $request,
-        string $workflowGroup,
-        TestingBoardColumnsService $svc
-    ): JsonResponse {
-        /** @var Staff $staff */
-        $staff = Auth::user();
-        if (!$staff instanceof Staff) {
-            return response()->json(['message' => 'Authenticated staff not found.'], 500);
-        }
-
-        $name = (string) $request->validated('name');
-        $pos = $request->validated('position');
-
-        $col = $svc->addColumn($workflowGroup, $name, $pos ? (int) $pos : null);
-
-        AuditLogger::logTestingColumnAdded(
-            staffId: (int) $staff->staff_id,
-            columnId: (int) $col->column_id,
-            boardId: (int) $col->board_id,
-            workflowGroup: (string) $workflowGroup,
-            name: (string) $col->name,
-            position: (int) $col->position
-        );
-
-        return response()->json([
-            'message' => 'Column added.',
-            'data' => [
-                'column_id' => (int) $col->column_id,
-                'name' => $col->name,
-                'position' => (int) $col->position,
-                'board_id' => (int) $col->board_id,
-            ],
-        ], 201);
-    }
-
     public function reorderColumns(
         TestingBoardReorderColumnsRequest $request,
         string $workflowGroup
@@ -263,5 +227,30 @@ class TestingBoardController extends Controller
                 'column_ids' => $columnIds,
             ],
         ]);
+    }
+
+    public function addColumn(TestingBoardAddColumnRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+
+        /** @var Staff|null $staff */
+        $staff = Auth::user();
+
+        $col = $this->columnsService->addColumn(
+            workflowGroup: $data['workflow_group'],
+            name: $data['name'],
+            position: $data['position'] ?? null,
+            relativeToColumnId: $data['relative_to_column_id'] ?? null,
+            side: $data['side'] ?? null,
+            createdByStaffId: $staff?->staff_id
+        );
+
+        return response()->json(['data' => $col]);
+    }
+
+    public function deleteColumn(int $columnId): JsonResponse
+    {
+        $this->columnsService->deleteColumn($columnId);
+        return response()->json(['message' => 'Column deleted.']);
     }
 }

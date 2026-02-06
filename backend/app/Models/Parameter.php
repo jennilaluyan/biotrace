@@ -15,17 +15,19 @@ class Parameter extends Model
     public $timestamps = true;
 
     protected $fillable = [
+        'catalog_no',
         'code',
         'name',
-        'unit',       // legacy string
-        'unit_id',    // new FK (nullable)
+        'unit',
+        'unit_id',
         'method_ref',
         'created_by',
-        'status',     // Active/Inactive
-        'tag',        // Routine/Research
+        'status',
+        'tag',
     ];
 
     protected $casts = [
+        'catalog_no' => 'integer',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

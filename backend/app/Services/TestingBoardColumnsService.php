@@ -14,90 +14,88 @@ class TestingBoardColumnsService
         $col = TestingColumn::query()->findOrFail($columnId);
         $col->name = $name;
         $col->save();
-
         return $col;
     }
 
-    public function addColumn(string $workflowGroup, string $name, ?int $position = null): TestingColumn
-    {
-        /** @var TestingBoard|null $board */
-        $board = TestingBoard::query()->where('workflow_group', $workflowGroup)->first();
-        if (!$board) abort(404, 'Board not found.');
+    public function addColumn(
+        string $workflowGroup,
+        string $name,
+        ?int $position = null,
+        ?int $relativeToColumnId = null,
+        ?string $side = null,
+        ?int $createdByStaffId = null
+    ): TestingColumn {
+        return DB::transaction(function () use (
+            $workflowGroup,
+            $name,
+            $position,
+            $relativeToColumnId,
+            $side,
+            $createdByStaffId
+        ) {
+            /** @var TestingBoard $board */
+            $board = TestingBoard::query()
+                ->where('workflow_group', $workflowGroup)
+                ->firstOrFail();
 
-        $maxPos = (int) TestingColumn::query()
-            ->where('board_id', $board->board_id)
-            ->max('position');
+            // Tentukan posisi insert
+            $insertPos = $position;
 
-        $insertPos = $position ? max(1, $position) : ($maxPos + 1);
+            if ($insertPos === null && $relativeToColumnId !== null) {
+                /** @var TestingColumn $ref */
+                $ref = TestingColumn::query()->findOrFail($relativeToColumnId);
+                if ((int)$ref->board_id !== (int)$board->board_id) {
+                    abort(422, 'relative_to_column_id is not in the same board.');
+                }
 
-        return DB::transaction(function () use ($board, $name, $insertPos) {
-            $boardId = (int) $board->board_id;
+                $refPos = (int)$ref->position;
+                $insertPos = ($side === 'left') ? $refPos : ($refPos + 1);
+            }
 
-            // 1) Move affected positions to a safe temporary range (avoid unique collisions)
-            // Example: if inserting at 2, move positions >=2 to +1000 first
+            if ($insertPos === null) {
+                // append
+                $maxPos = (int) (TestingColumn::query()
+                    ->where('board_id', $board->board_id)
+                    ->max('position') ?? -1);
+                $insertPos = $maxPos + 1;
+            }
+
+            // shift columns to the right from insertPos
             TestingColumn::query()
-                ->where('board_id', $boardId)
+                ->where('board_id', $board->board_id)
                 ->where('position', '>=', $insertPos)
-                ->update([
-                    'position' => DB::raw('position + 1000'),
-                ]);
+                ->increment('position', 1);
 
-            // 2) Bring them back shifted by +1 (still safe because they are in 1000+ range)
-            TestingColumn::query()
-                ->where('board_id', $boardId)
-                ->where('position', '>=', $insertPos + 1000)
-                ->update([
-                    'position' => DB::raw('position - 999'),
-                ]);
-
-            /** @var TestingColumn $col */
-            $col = TestingColumn::query()->create([
-                'board_id' => $boardId,
-                'name' => $name,
-                'position' => (int) $insertPos,
-            ]);
+            $col = new TestingColumn();
+            $col->board_id = $board->board_id;
+            $col->name = $name;
+            $col->position = $insertPos;
+            $col->is_terminal = false;
+            $col->created_by_staff_id = $createdByStaffId;
+            $col->created_at = now();
+            $col->updated_at = now();
+            $col->save();
 
             return $col;
         });
     }
 
-    /**
-     * @param array<int,int> $columnIds
-     */
-    public function reorderColumns(string $workflowGroup, array $columnIds): array
+    public function deleteColumn(int $columnId): void
     {
-        /** @var TestingBoard|null $board */
-        $board = TestingBoard::query()->where('workflow_group', $workflowGroup)->first();
-        if (!$board) abort(404, 'Board not found.');
+        DB::transaction(function () use ($columnId) {
+            /** @var TestingColumn $col */
+            $col = TestingColumn::query()->findOrFail($columnId);
+            $boardId = (int) $col->board_id;
+            $pos = (int) $col->position;
 
-        // Ensure all columns belong to same board + no missing columns
-        $cols = TestingColumn::query()
-            ->where('board_id', $board->board_id)
-            ->pluck('column_id')
-            ->map(fn($id) => (int) $id)
-            ->values()
-            ->all();
+            // delete
+            $col->delete();
 
-        $given = array_map('intval', $columnIds);
-        sort($cols);
-        $sortedGiven = $given;
-        sort($sortedGiven);
-
-        if ($sortedGiven !== $cols) {
-            abort(422, 'column_ids must contain all column_ids of the board exactly once.');
-        }
-
-        DB::transaction(function () use ($given, $board) {
-            $pos = 1;
-            foreach ($given as $cid) {
-                TestingColumn::query()
-                    ->where('board_id', $board->board_id)
-                    ->where('column_id', $cid)
-                    ->update(['position' => $pos]);
-                $pos++;
-            }
+            // shift left to fill the gap
+            TestingColumn::query()
+                ->where('board_id', $boardId)
+                ->where('position', '>', $pos)
+                ->decrement('position', 1);
         });
-
-        return $given;
     }
 }

@@ -72,34 +72,72 @@ class TestingBoardSeeder extends Seeder
 
         DB::transaction(function () use ($defaults) {
             foreach ($defaults as $workflowGroup => $columns) {
-                // 1) Upsert board per workflow group
-                $boardId = DB::table('testing_boards')->where('workflow_group', $workflowGroup)->value('board_id');
+                // 1) Upsert board for this workflow_group
+                $board = DB::table('testing_boards')
+                    ->where('workflow_group', $workflowGroup)
+                    ->first();
 
-                $displayName = 'Testing Board - ' . Str::of($workflowGroup)->replace('_', ' ');
-
-                if (!$boardId) {
+                if (!$board) {
                     $boardId = DB::table('testing_boards')->insertGetId([
                         'workflow_group' => $workflowGroup,
-                        'name' => $displayName,
+                        'name' => Str::title(str_replace('_', ' ', $workflowGroup)),
                         'created_at' => now(),
                         'updated_at' => now(),
-                    ], 'board_id');
-                } else {
-                    DB::table('testing_boards')->where('board_id', $boardId)->update([
-                        'name' => $displayName,
-                        'updated_at' => now(),
                     ]);
+                } else {
+                    $boardId = $board->board_id;
                 }
 
-                // 2) Reset columns (repeatable)
-                DB::table('testing_columns')->where('board_id', $boardId)->delete();
+                // 2) Cleanup safely: delete events first, then columns (FK restrict)
+                $columnIds = DB::table('testing_columns')
+                    ->where('board_id', $boardId)
+                    ->pluck('column_id')
+                    ->all();
+
+                if (!empty($columnIds)) {
+                    // ✅ testing_card_events di schema kamu pakai to_column_id (dan biasanya from_column_id)
+                    $cols = DB::getSchemaBuilder()->getColumnListing('testing_card_events');
+
+                    $q = DB::table('testing_card_events');
+
+                    $hasAny = false;
+
+                    if (in_array('to_column_id', $cols, true)) {
+                        $q->whereIn('to_column_id', $columnIds);
+                        $hasAny = true;
+                    }
+
+                    if (in_array('from_column_id', $cols, true)) {
+                        // kalau sudah ada where, lanjut OR; kalau belum, jadi where utama
+                        if ($hasAny) {
+                            $q->orWhereIn('from_column_id', $columnIds);
+                        } else {
+                            $q->whereIn('from_column_id', $columnIds);
+                            $hasAny = true;
+                        }
+                    }
+
+                    // fallback kalau ternyata beda nama (jaga-jaga)
+                    if (!$hasAny && in_array('column_id', $cols, true)) {
+                        $q->whereIn('column_id', $columnIds);
+                        $hasAny = true;
+                    }
+
+                    if ($hasAny) {
+                        $q->delete();
+                    }
+                }
+
+                DB::table('testing_columns')
+                    ->where('board_id', $boardId)
+                    ->delete();
 
                 // 3) Insert default columns
                 foreach (array_values($columns) as $idx => $colName) {
                     DB::table('testing_columns')->insert([
                         'board_id' => $boardId,
                         'name' => $colName,
-                        'position' => $idx + 1,
+                        'position' => $idx + 1, // keep 1-based
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
