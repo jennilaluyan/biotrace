@@ -3,14 +3,16 @@
 @section('content')
     @php
         $clientName = $client->name ?? '-';
-        $instansi = $client->organization ?? '-'; // Atau bisa disesuaikan jika field berbeda
         $phone = $client->phone ?? '-';
 
-        $sampleCode = $sample->sample_id ?? '-';
+        $reportGeneratedAt = $report->generated_at ? \Carbon\Carbon::parse($report->generated_at) : now();
+        $validationDate = $reportGeneratedAt->format('d/m/Y');
+        $printedAt = $reportGeneratedAt->format('d/m/Y');
+
         $receivedAt = isset($sample->received_at) ? \Carbon\Carbon::parse($sample->received_at)->format('d/m/Y') : '-';
         $testDate = isset($report->test_date) ? \Carbon\Carbon::parse($report->test_date)->format('d/m/Y') : '-';
-        $validationDate = isset($report->validated_at) ? \Carbon\Carbon::parse($report->validated_at)->format('d/m/Y') : '-';
-        $printedAt = now()->format('d/m/Y');
+
+        $items = $items ?? ($reportItems ?? []);
     @endphp
 
     {{-- HEADER --}}
@@ -27,7 +29,6 @@
                 </div>
             </td>
             <td width="20%" align="center">
-                {{-- Placeholder Logo KAN, pastikan file logo-kan.png ada di folder public --}}
                 <div class="kan-box">
                     @if(file_exists(public_path('logo-kan.png')))
                         <img src="{{ public_path('logo-kan.png') }}" style="height:45px;"><br>
@@ -65,7 +66,7 @@
                 <table width="100%">
                     <tr>
                         <td width="40%">No. Rekaman</td>
-                        <td>: <b>RevREK/LAB-BM/ADM/02/</b></td>
+                        <td>: <b>RevREK/LAB-BM/ADM/16/</b></td>
                     </tr>
                     <tr>
                         <td>Nama Pelanggan Permintaan Pengujian/ Instansi Pengirim<br><span
@@ -79,17 +80,16 @@
                     <tr>
                         <td>Metode Pengujian<br><span class="italic text-small">Test Method</span></td>
                         <td>
-                            : qRT-PCR<br>
-                            &nbsp; IKM/LAB-BM/TKS/01<br>
-                            &nbsp; EKSTRAKSI RNA METODE SPIN KOLOM<br>
-                            &nbsp; IKM/LAB-BM/TKS/03<br>
-                            &nbsp; PENCAMPURAN RNA-PCR REAGEN DAN<br>
-                            &nbsp; PEMBACAAN qRT-PCR
+                            : <b>Next Genome Sequencing (NGS)</b><br>
+                            &nbsp; IKM/LAB-BM/TKS/01 EKSTRAKSI RNA METODE<br>
+                            &nbsp; SPIN KOLOM<br>
+                            &nbsp; IKM/LAB-BM/TKS/04 NEXT GENERATION<br>
+                            &nbsp; SEQUENCING
                         </td>
                     </tr>
                     <tr>
                         <td>Peralatan / <span class="italic text-small">Machine</span></td>
-                        <td>: Real-Time PCR CFX96 Merk Bio-Rad</td>
+                        <td>: Illumina Miseq</td>
                     </tr>
                 </table>
             </td>
@@ -115,7 +115,7 @@
                     </tr>
                     <tr>
                         <td>Tipe Sampel / <span class="italic text-small">Sample Type</span></td>
-                        <td>: Cairan Tubuh Manusia</td>
+                        <td>: DNA</td>
                         <td></td>
                     </tr>
                 </table>
@@ -150,90 +150,39 @@
         </tr>
     </table>
 
-    {{-- TABEL HASIL --}}
+    {{-- TABEL HASIL WGS --}}
     <table class="bordered" style="margin-top:10px; text-align:center;">
         <tr style="background-color: #f2f2f2;">
-            <th rowspan="2" width="25%">Kode Sampel Pelanggan<br><span class="italic text-small">Customer Sample ID</span>
-            </th>
-            <th colspan="3">Gen Target (Targeted Gene)</th>
-            <th rowspan="2" width="30%">Hasil Pengujian<br><span class="italic text-small">Result</span></th>
+            <th rowspan="2" width="25%">Customer's Name</th>
+            <th rowspan="2" width="25%">Sampel ID</th>
+            <th colspan="2">SEQUENCE RESULT</th>
         </tr>
         <tr style="background-color: #f2f2f2;">
-            <th width="15%">ORF1b</th>
-            <th width="15%">RdRp</th>
-            <th width="15%">RPP30</th>
+            <th width="25%">LINEAGE</th>
+            <th width="25%">VARIAN</th>
         </tr>
-        <tr>
-            <td>{{ $sampleCode }}</td>
-            <td>{{ $report->orf1b ?? '-' }}</td>
-            <td>{{ $report->rdrp ?? '-' }}</td>
-            <td>{{ $report->rpp30 ?? '-' }}</td>
-            <td class="text-bold">{{ strtoupper($report->result ?? 'NEGATIVE') }}</td>
-        </tr>
+        @forelse($items as $item)
+            <tr>
+                <td>{{ $item['client_name'] ?? $clientName }}</td>
+                <td>{{ $item['sample_id'] ?? '-' }}</td>
+                <td>{{ $item['lineage'] ?? '-' }}</td>
+                <td>{{ $item['variant'] ?? '-' }}</td>
+            </tr>
+        @empty
+            {{-- Baris kosong jika tidak ada data, sesuai contoh PDF yang ada grid kosongnya --}}
+            @for($i = 0; $i < 5; $i++)
+                <tr>
+                    <td style="height:20px;"></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                </tr>
+            @endfor
+        @endforelse
     </table>
-
-    {{-- QC & INTERPRETASI --}}
-    <table width="100%" style="margin-top:10px;">
-        <tr>
-            <td width="30%" valign="top">
-                <table class="bordered text-small" width="100%">
-                    <tr style="background-color: #f2f2f2;">
-                        <th colspan="3">Quality Control</th>
-                    </tr>
-                    <tr>
-                        <td></td>
-                        <td align="center">QC Positive</td>
-                        <td align="center">QC Negative</td>
-                    </tr>
-                    <tr>
-                        <td>ORF1b</td>
-                        <td align="center">+</td>
-                        <td align="center">-</td>
-                    </tr>
-                    <tr>
-                        <td>RdRp</td>
-                        <td align="center">+</td>
-                        <td align="center">-</td>
-                    </tr>
-                    <tr>
-                        <td>RPP30</td>
-                        <td align="center">+</td>
-                        <td align="center">-</td>
-                    </tr>
-                </table>
-            </td>
-            <td width="70%" valign="top" style="padding-left:15px;">
-                <div style="border:1px solid #000; padding:5px;">
-                    <div class="text-bold text-small">Interpretasi Hasil/Result Interpretation</div>
-                    <div class="text-small mt-5">
-                        Hasil Positif atau terdeteksi menunjukan bahwa pada sampel terdeteksi material genetik
-                        SARS-CoV-2<br>
-                        <span class="italic">Positive or Detected results indicate that the SARS-CoV-2 genetic material was
-                            detected in the sample.</span>
-                    </div>
-                    <div class="text-small mt-5">
-                        Hasil negatif atau tidak terdeteksi menunjukan bahwa material genetik SARS-CoV-2 yang dimaksud tidak
-                        ditemukan di dalam sampel atau kadar sampel belum dapat terdeteksi oleh alat.<br>
-                        <span class="italic">Negative or Undetectable results indicate that the SARS-CoV-2 genetic material
-                            in question was not detected in the sample or sample levels could be detected by the
-                            instrument.</span>
-                    </div>
-                </div>
-            </td>
-        </tr>
-    </table>
-
-    {{-- KETERANGAN --}}
-    <div style="border:1px solid #000; padding:5px; margin-top:10px;" class="text-small">
-        <b>Keterangan:</b><br>
-        Hasil yang ditampilkan hanya berhubungan dengan sampel diterima/ The test result valid for samples received at the
-        laboratory<br>
-        Laporan Hasil Uji tidak dapat digandakan kecuali seluruhnya dan atas persetujuan tertulis laboratorium/ Do not
-        reproduce this report, except in full, without written approval of the laboratory
-    </div>
 
     {{-- TTD --}}
-    <table width="100%" class="signature-section">
+    <table width="100%" class="signature-section" style="margin-top:40px;">
         <tr>
             <td width="50%"></td>
             <td width="50%" align="center">
@@ -243,7 +192,9 @@
                 </div>
 
                 <div style="height: 80px; margin: 10px 0;">
-                    @if(!empty($qr_data_uri))
+                    @if(!empty($lh_signature_data_uri))
+                        <img src="{{ $lh_signature_data_uri }}" style="width:80px; height:80px;">
+                    @elseif(!empty($qr_data_uri))
                         <img src="{{ $qr_data_uri }}" style="width:80px; height:80px;">
                     @endif
                 </div>

@@ -2,15 +2,17 @@
 
 @section('content')
     @php
-        $clientName = $client->name ?? '-';
-        $instansi = $client->organization ?? '-'; // Atau bisa disesuaikan jika field berbeda
-        $phone = $client->phone ?? '-';
+        $clientName = $clientName ?? ($client['name'] ?? ($client->name ?? '-'));
+        $clientPhone = $clientPhone ?? ($client['phone'] ?? ($client->phone ?? '-'));
+        $printedAt = $printedAt ?? ($printed_at ?? now());
+        $receivedAt = $receivedAt ?? ($sample['received_at'] ?? ($sample->received_at ?? null));
+        $testDate = $testDate ?? ($report['test_date'] ?? ($report->test_date ?? null));
+        $items = $items ?? ($reportItems ?? ($report_items ?? []));
 
-        $sampleCode = $sample->sample_id ?? '-';
-        $receivedAt = isset($sample->received_at) ? \Carbon\Carbon::parse($sample->received_at)->format('d/m/Y') : '-';
-        $testDate = isset($report->test_date) ? \Carbon\Carbon::parse($report->test_date)->format('d/m/Y') : '-';
-        $validationDate = isset($report->validated_at) ? \Carbon\Carbon::parse($report->validated_at)->format('d/m/Y') : '-';
-        $printedAt = now()->format('d/m/Y');
+        // Format dates
+        $fmtDate = function ($dt) {
+            return $dt ? \Carbon\Carbon::parse($dt)->format('d/m/Y') : '-';
+        };
     @endphp
 
     {{-- HEADER --}}
@@ -27,7 +29,6 @@
                 </div>
             </td>
             <td width="20%" align="center">
-                {{-- Placeholder Logo KAN, pastikan file logo-kan.png ada di folder public --}}
                 <div class="kan-box">
                     @if(file_exists(public_path('logo-kan.png')))
                         <img src="{{ public_path('logo-kan.png') }}" style="height:45px;"><br>
@@ -74,7 +75,7 @@
                     </tr>
                     <tr>
                         <td>No. Handphone</td>
-                        <td>: {{ $phone }}</td>
+                        <td>: {{ $clientPhone }}</td>
                     </tr>
                     <tr>
                         <td>Metode Pengujian<br><span class="italic text-small">Test Method</span></td>
@@ -100,17 +101,17 @@
                     <tr>
                         <td width="50%">Tanggal Validasi Hasil<br><span class="italic text-small">Validation Date</span>
                         </td>
-                        <td>: {{ $validationDate }}</td>
+                        <td>: {{ $fmtDate($printedAt) }}</td>
                         <td class="text-xs text-right">Sign by</td>
                     </tr>
                     <tr>
                         <td>Tanggal Cetak Hasil<br><span class="italic text-small">Print out date</span></td>
-                        <td>: {{ $printedAt }}</td>
+                        <td>: {{ $fmtDate($printedAt) }}</td>
                         <td class="text-xs text-right">Sign by</td>
                     </tr>
                     <tr>
                         <td>Tanggal Keluar Hasil<br><span class="italic text-small">Date of Result</span></td>
-                        <td>: {{ $printedAt }}</td>
+                        <td>: {{ $fmtDate($printedAt) }}</td>
                         <td></td>
                     </tr>
                     <tr>
@@ -134,11 +135,11 @@
         </tr>
         <tr>
             <td>Tanggal Penerimaan Sampel / <span class="italic text-small">Date Received</span></td>
-            <td>: {{ $receivedAt }}</td>
+            <td>: {{ $fmtDate($receivedAt) }}</td>
         </tr>
         <tr>
             <td>Tanggal Pelaksanaan Pengujian / <span class="italic text-small">Date of Testing</span></td>
-            <td>: {{ $testDate }}</td>
+            <td>: {{ $fmtDate($testDate) }}</td>
         </tr>
         <tr>
             <td>Tempat Analisa / <span class="italic text-small">Location of Analysis</span></td>
@@ -150,26 +151,33 @@
         </tr>
     </table>
 
-    {{-- TABEL HASIL --}}
+    {{-- TABEL HASIL - PERBEDAAN DENGAN MANDIRI ADA DISINI --}}
     <table class="bordered" style="margin-top:10px; text-align:center;">
         <tr style="background-color: #f2f2f2;">
-            <th rowspan="2" width="25%">Kode Sampel Pelanggan<br><span class="italic text-small">Customer Sample ID</span>
-            </th>
+            <th rowspan="2" width="25%">Nama Pelanggan<br><span class="italic text-small">Customer Name</span></th>
+            <th rowspan="2" width="15%">Kode Sampel Lab<br><span class="italic text-small">Lab Sample ID</span></th>
             <th colspan="3">Gen Target (Targeted Gene)</th>
-            <th rowspan="2" width="30%">Hasil Pengujian<br><span class="italic text-small">Result</span></th>
+            <th rowspan="2" width="20%">Hasil Pengujian<br><span class="italic text-small">Result</span></th>
         </tr>
         <tr style="background-color: #f2f2f2;">
-            <th width="15%">ORF1b</th>
-            <th width="15%">RdRp</th>
-            <th width="15%">RPP30</th>
+            <th width="10%">ORF1b</th>
+            <th width="10%">RdRp</th>
+            <th width="10%">RPP30</th>
         </tr>
-        <tr>
-            <td>{{ $sampleCode }}</td>
-            <td>{{ $report->orf1b ?? '-' }}</td>
-            <td>{{ $report->rdrp ?? '-' }}</td>
-            <td>{{ $report->rpp30 ?? '-' }}</td>
-            <td class="text-bold">{{ strtoupper($report->result ?? 'NEGATIVE') }}</td>
-        </tr>
+        @forelse($items as $item)
+            <tr>
+                <td>{{ $item['client_name'] ?? $clientName }}</td>
+                <td>{{ $item['sample_id'] ?? '-' }}</td>
+                <td>{{ $item['orf1b'] ?? '-' }}</td>
+                <td>{{ $item['rdrp'] ?? '-' }}</td>
+                <td>{{ $item['rpp30'] ?? '-' }}</td>
+                <td class="text-bold">{{ strtoupper($item['result'] ?? '-') }}</td>
+            </tr>
+        @empty
+            <tr>
+                <td colspan="6">Data tidak tersedia.</td>
+            </tr>
+        @endforelse
     </table>
 
     {{-- QC & INTERPRETASI --}}
