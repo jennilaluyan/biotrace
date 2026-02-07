@@ -1,5 +1,7 @@
-import { apiGet, apiPost, apiPatch, apiPut } from "./api";
+import { apiGet, apiPost, apiPatch, apiPut, apiDelete } from "./api";
 import type { Sample, PaginatedResponse } from "./samples";
+
+export type TestingWorkflowMode = "backend" | "fallback";
 
 export type TestingBoardColumn = {
     column_id: number;
@@ -13,6 +15,7 @@ export type TestingBoardColumn = {
 export type TestingBoardCard = {
     card_id?: number;
     sample_id: number;
+
     lab_sample_code?: string | null;
     sample_type?: string | null;
     client_name?: string | null;
@@ -26,6 +29,33 @@ export type TestingBoardCard = {
     [k: string]: any;
 };
 
+export type TestingCardEventType =
+    | "entered_column"
+    | "exited_column"
+    | "moved"
+    | "finalized"
+    | string;
+
+export type TestingBoardEvent = {
+    id?: number;
+    event_id?: number;
+    sample_id: number;
+
+    from_column_id?: number | null;
+    to_column_id?: number | null;
+
+    type?: TestingCardEventType;
+
+    created_at?: string | null;
+    moved_at?: string | null;
+    entered_at?: string | null;
+    exited_at?: string | null;
+
+    note?: string | null;
+
+    [k: string]: any;
+};
+
 export type TestingBoardPayload = {
     board_id: number;
     workflow_group: string;
@@ -33,6 +63,26 @@ export type TestingBoardPayload = {
     last_column_id?: number | null;
     columns: TestingBoardColumn[];
     cards: TestingBoardCard[];
+
+    // ✅ optional
+    events?: TestingBoardEvent[];
+};
+
+export type FetchTestingBoardResponse = {
+    mode: TestingWorkflowMode;
+    group: string;
+    board: TestingBoardPayload;
+    columns: TestingBoardColumn[];
+    cards: TestingBoardCard[];
+    events: TestingBoardEvent[];
+    last_column_id: number | null;
+
+    // ✅ optional meta passthrough (safe if backend doesn't send)
+    meta?: {
+        is_locked?: boolean;
+        qc_ready_at?: string | null;
+        [k: string]: any;
+    };
 };
 
 const BOARD_BASE = "/v1/testing-board";
@@ -41,34 +91,148 @@ function safeArr<T>(x: any): T[] {
     return Array.isArray(x) ? (x as T[]) : [];
 }
 
-function unwrapData<T>(res: any): T {
-    if (res && typeof res === "object" && "data" in res) return res.data as T;
-    return res as T;
+/**
+ * Unwrap nested {data: ...} shapes (up to a few levels).
+ */
+function unwrapDataDeep<T>(res: any): T {
+    let x = res?.data ?? res;
+    for (let i = 0; i < 5; i++) {
+        if (x && typeof x === "object" && "data" in x && (x as any).data != null) {
+            x = (x as any).data;
+            continue;
+        }
+        break;
+    }
+    return x as T;
 }
 
-export async function fetchTestingBoard(opts?: { group?: string }) {
+function asNumber(x: any, fallback = 0) {
+    const n = Number(x);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeColumns(raw: any): TestingBoardColumn[] {
+    const arr = safeArr<any>(raw);
+    return arr
+        .map((c) => ({
+            column_id: asNumber(c?.column_id ?? c?.id, 0),
+            board_id: c?.board_id != null ? asNumber(c.board_id, undefined as any) : undefined,
+            name: String(c?.name ?? "Untitled"),
+            position: asNumber(c?.position ?? c?.sort_order ?? 0, 0),
+            created_at: c?.created_at ?? null,
+            updated_at: c?.updated_at ?? null,
+        }))
+        .filter((c) => c.column_id > 0);
+}
+
+function normalizeCards(raw: any): TestingBoardCard[] {
+    const arr = safeArr<any>(raw);
+    return arr
+        .map((c) => {
+            const entered =
+                c?.entered_at ??
+                c?.enteredAt ??
+                c?.moved_at ??
+                c?.movedAt ??
+                null;
+
+            const exited =
+                c?.exited_at ??
+                c?.exitedAt ??
+                null;
+
+            return {
+                ...(c ?? {}),
+                card_id: c?.card_id ?? c?.id ?? undefined,
+                sample_id: asNumber(c?.sample_id ?? c?.sampleId, 0),
+
+                lab_sample_code: c?.lab_sample_code ?? c?.labSampleCode ?? null,
+                sample_type: c?.sample_type ?? c?.sampleType ?? null,
+                client_name: c?.client_name ?? c?.clientName ?? null,
+                status_enum: c?.status_enum ?? c?.statusEnum ?? null,
+                current_status: c?.current_status ?? c?.currentStatus ?? null,
+
+                column_id: c?.column_id == null ? null : asNumber(c.column_id, 0),
+                entered_at: entered,
+                exited_at: exited,
+            } as TestingBoardCard;
+        })
+        .filter((c) => c.sample_id > 0);
+}
+
+function normalizeEvents(raw: any): TestingBoardEvent[] {
+    const arr = safeArr<any>(raw);
+    return arr
+        .map((e) => ({
+            ...(e ?? {}),
+            id: asNumber(e?.id ?? e?.event_id, undefined as any),
+            event_id: e?.event_id != null ? asNumber(e.event_id, undefined as any) : undefined,
+
+            sample_id: asNumber(e?.sample_id ?? e?.sampleId, 0),
+            from_column_id: e?.from_column_id == null ? null : asNumber(e.from_column_id, 0),
+            to_column_id: e?.to_column_id == null ? null : asNumber(e.to_column_id, 0),
+
+            type: e?.type ?? e?.event_type ?? e?.eventType ?? "moved",
+
+            created_at: e?.created_at ?? null,
+            moved_at: e?.moved_at ?? null,
+            entered_at: e?.entered_at ?? null,
+            exited_at: e?.exited_at ?? null,
+
+            note: e?.note ?? null,
+        }))
+        .filter((e) => e.sample_id > 0);
+}
+
+export async function fetchTestingBoard(opts?: { group?: string; sample_id?: number }): Promise<FetchTestingBoardResponse> {
     const raw = (opts?.group ?? "").trim();
     const group = raw || "default";
+    const sampleId = opts?.sample_id != null ? Number(opts.sample_id) : null;
 
     try {
-        const res = await apiGet<any>(`${BOARD_BASE}/${encodeURIComponent(group)}`);
-        const payload = unwrapData<any>(res);
+        // backend endpoint: /v1/testing-board/{group}?sample_id=123
+        const qs = sampleId && Number.isFinite(sampleId) && sampleId > 0 ? `?sample_id=${encodeURIComponent(String(sampleId))}` : "";
+        const res = await apiGet<any>(`${BOARD_BASE}/${encodeURIComponent(group)}${qs}`);
+
+        const payload = unwrapDataDeep<any>(res);
 
         if (payload?.message && !payload?.columns) {
-            throw new Error(payload.message);
+            throw new Error(String(payload.message));
         }
 
-        const columns = safeArr<TestingBoardColumn>(payload?.columns);
-        const cards = safeArr<TestingBoardCard>(payload?.cards);
+        const columns = normalizeColumns(payload?.columns);
+        const cards = normalizeCards(payload?.cards);
+        const events = normalizeEvents(payload?.events);
 
         if (columns.length > 0) {
-            return {
-                mode: "backend" as const,
-                group: (payload?.workflow_group ?? group) as string,
-                board: payload as TestingBoardPayload,
+            const lastColumnId =
+                payload?.last_column_id ??
+                payload?.board?.last_column_id ??
+                null;
+
+            const workflowGroup = String(payload?.workflow_group ?? payload?.group ?? group);
+
+            const board: TestingBoardPayload = {
+                ...(payload ?? {}),
+                board_id: asNumber(payload?.board_id ?? payload?.id ?? 0, 0),
+                workflow_group: workflowGroup,
+                last_column_id: lastColumnId == null ? null : asNumber(lastColumnId, null as any),
                 columns,
                 cards,
-                last_column_id: (payload?.last_column_id ?? null) as number | null,
+                events,
+            };
+
+            return {
+                mode: "backend",
+                group: workflowGroup,
+                board,
+                columns,
+                cards,
+                events,
+                last_column_id: board.last_column_id ?? null,
+
+                // ✅ optional passthrough
+                meta: payload?.meta ?? payload?.board?.meta ?? undefined,
             };
         }
 
@@ -77,7 +241,7 @@ export async function fetchTestingBoard(opts?: { group?: string }) {
         // fallback: samples in testing
         const fallback = await apiGet<any>(`/v1/samples?status_enum=testing&per_page=200&page=1`);
         const pager =
-            (fallback?.data && fallback?.meta)
+            fallback?.data && fallback?.meta
                 ? (fallback as PaginatedResponse<Sample>)
                 : (fallback?.data ?? fallback);
 
@@ -96,6 +260,8 @@ export async function fetchTestingBoard(opts?: { group?: string }) {
             status_enum: (s.status_enum ?? "testing") as any,
             current_status: s.current_status ?? null,
             column_id: 1,
+            entered_at: null,
+            exited_at: null,
         }));
 
         const board: TestingBoardPayload = {
@@ -104,9 +270,18 @@ export async function fetchTestingBoard(opts?: { group?: string }) {
             last_column_id: 3,
             columns,
             cards,
+            events: [],
         };
 
-        return { mode: "fallback" as const, group, board, columns, cards, last_column_id: 3 };
+        return {
+            mode: "fallback",
+            group,
+            board,
+            columns,
+            cards,
+            events: [],
+            last_column_id: 3,
+        };
     }
 }
 
@@ -127,9 +302,27 @@ export async function renameTestingColumn(columnId: number, name: string) {
     return apiPatch(`${BOARD_BASE}/columns/${columnId}`, { name });
 }
 
-export async function addTestingColumn(payload: { group: string; name: string; position?: number }) {
+export async function addTestingColumn(payload: {
+    group: string;
+    name: string;
+
+    // legacy
+    position?: number;
+
+    // ✅ new
+    relative_to_column_id?: number;
+    side?: "left" | "right";
+}) {
     const { group, ...body } = payload;
-    return apiPost(`${BOARD_BASE}/${encodeURIComponent(group)}/columns`, body);
+
+    return apiPost(`${BOARD_BASE}/${encodeURIComponent(group)}/columns`, {
+        workflow_group: group,
+        ...body,
+    });
+}
+
+export async function deleteTestingColumn(columnId: number) {
+    return apiDelete(`${BOARD_BASE}/columns/${columnId}`);
 }
 
 export async function reorderTestingColumns(payload: { group: string; column_ids: number[] }) {

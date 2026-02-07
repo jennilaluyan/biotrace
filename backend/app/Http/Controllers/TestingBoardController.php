@@ -11,14 +11,17 @@ use App\Models\TestingBoard;
 use App\Models\TestingColumn;
 use App\Services\TestingBoardColumnsService;
 use App\Services\TestingBoardService;
+use App\Support\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use App\Support\AuditLogger;
 
 class TestingBoardController extends Controller
 {
-    public function __construct(private readonly TestingBoardService $svc) {}
+    public function __construct(
+        private readonly TestingBoardService $svc,
+        private readonly TestingBoardColumnsService $columnsService,
+    ) {}
 
     /**
      * POST /v1/testing-board/move
@@ -54,6 +57,14 @@ class TestingBoardController extends Controller
         ]);
     }
 
+    /**
+     * GET /v1/testing-board/{workflowGroup}?sample_id=123
+     *
+     * ✅ Returns:
+     * - columns + cards (current board state)
+     * - last_column_id
+     * - events (timeline per sample) -> used by FE to render timestamps on previous columns (stable after refresh)
+     */
     public function show(string $workflowGroup): JsonResponse
     {
         $board = TestingBoard::query()
@@ -67,24 +78,43 @@ class TestingBoardController extends Controller
             return response()->json(['message' => 'Board not found.'], 404);
         }
 
-        // ✅ NEW: cards state (persisted)
-        $cards = $this->svc->getBoardCards((int) $board->board_id);
+        $boardId = (int) $board->board_id;
 
-        // ✅ NEW: last column id (for QC unlock gate)
+        // ✅ cards state (persisted)
+        $cards = $this->svc->getBoardCards($boardId);
+
+        // ✅ last column id (for QC unlock gate)
         $lastColumnId = (int) optional($board->columns->sortByDesc('position')->first())->column_id;
+
+        // ✅ timeline events for ONE sample (optional)
+        // FE should call with ?sample_id=... to keep column timestamps stable
+        $sampleId = (int) request()->query('sample_id', 0);
+        $events = [];
+        if ($sampleId > 0) {
+            // method added in service: getSampleTimeline(boardId, sampleId)
+            if (method_exists($this->svc, 'getSampleTimeline')) {
+                $events = $this->svc->getSampleTimeline($boardId, $sampleId);
+            }
+        }
 
         return response()->json([
             'data' => [
-                'board_id' => (int) $board->board_id,
+                'board_id' => $boardId,
                 'workflow_group' => $board->workflow_group,
                 'name' => $board->name,
                 'last_column_id' => $lastColumnId,
+
                 'columns' => $board->columns->map(fn($c) => [
                     'column_id' => (int) $c->column_id,
                     'name' => $c->name,
                     'position' => (int) $c->position,
+                    'board_id' => (int) $c->board_id,
                 ])->values(),
+
                 'cards' => $cards,
+
+                // ✅ NEW: timeline events (for previous column timestamps)
+                'events' => $events,
             ],
         ]);
     }
@@ -131,42 +161,6 @@ class TestingBoardController extends Controller
                 'board_id' => (int) $col->board_id,
             ],
         ]);
-    }
-
-    public function addColumn(
-        TestingBoardAddColumnRequest $request,
-        string $workflowGroup,
-        TestingBoardColumnsService $svc
-    ): JsonResponse {
-        /** @var Staff $staff */
-        $staff = Auth::user();
-        if (!$staff instanceof Staff) {
-            return response()->json(['message' => 'Authenticated staff not found.'], 500);
-        }
-
-        $name = (string) $request->validated('name');
-        $pos = $request->validated('position');
-
-        $col = $svc->addColumn($workflowGroup, $name, $pos ? (int) $pos : null);
-
-        AuditLogger::logTestingColumnAdded(
-            staffId: (int) $staff->staff_id,
-            columnId: (int) $col->column_id,
-            boardId: (int) $col->board_id,
-            workflowGroup: (string) $workflowGroup,
-            name: (string) $col->name,
-            position: (int) $col->position
-        );
-
-        return response()->json([
-            'message' => 'Column added.',
-            'data' => [
-                'column_id' => (int) $col->column_id,
-                'name' => $col->name,
-                'position' => (int) $col->position,
-                'board_id' => (int) $col->board_id,
-            ],
-        ], 201);
     }
 
     public function reorderColumns(
@@ -262,6 +256,46 @@ class TestingBoardController extends Controller
                 'workflow_group' => $workflowGroup,
                 'column_ids' => $columnIds,
             ],
+        ]);
+    }
+
+    public function addColumn(TestingBoardAddColumnRequest $request): JsonResponse
+    {
+        /** @var Staff|null $staff */
+        $staff = Auth::user();
+        if ($staff && !$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
+        $data = $request->validated();
+
+        $col = $this->columnsService->addColumn(
+            workflowGroup: $data['workflow_group'],
+            name: $data['name'],
+            position: $data['position'] ?? null,
+            relativeToColumnId: $data['relative_to_column_id'] ?? null,
+            side: $data['side'] ?? null,
+            createdByStaffId: $staff?->staff_id
+        );
+
+        return response()->json([
+            'message' => 'Column added.',
+            'data' => $col,
+        ], 201);
+    }
+
+    public function deleteColumn(int $columnId): JsonResponse
+    {
+        /** @var Staff|null $staff */
+        $staff = Auth::user();
+        if ($staff && !$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
+        $this->columnsService->deleteColumn($columnId);
+
+        return response()->json([
+            'message' => 'Column deleted.',
         ]);
     }
 }

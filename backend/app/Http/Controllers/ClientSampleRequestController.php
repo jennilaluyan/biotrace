@@ -7,6 +7,7 @@ use App\Http\Requests\ClientSampleDraftUpdateRequest;
 use App\Http\Requests\ClientSampleSubmitRequest;
 use App\Models\Client;
 use App\Models\Sample;
+use App\Services\WorkflowGroupResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -15,6 +16,10 @@ use Illuminate\Support\Facades\Schema;
 
 class ClientSampleRequestController extends Controller
 {
+    public function __construct(
+        private readonly WorkflowGroupResolver $workflowGroupResolver
+    ) {}
+
     private function currentClientOr403(): Client
     {
         $actor = Auth::guard('client_api')->user();
@@ -44,11 +49,64 @@ class ClientSampleRequestController extends Controller
     }
 
     /**
+     * ✅ Resolve + persist workflow_group on samples table (schema-safe).
+     * - For draft: best-effort (if cannot resolve, keep null)
+     * - For submit: caller may enforce must-resolve
+     */
+    private function syncWorkflowGroupFromParameterIds(Sample $sample, ?array $parameterIds, bool $mustResolve = false): void
+    {
+        if (!Schema::hasColumn('samples', 'workflow_group')) return;
+        if ($parameterIds === null) return;
+
+        $ids = array_values(array_unique(array_map('intval', $parameterIds)));
+        if (count($ids) === 0) {
+            if ($mustResolve) {
+                abort(422, 'Cannot resolve workflow group: parameter_ids is empty.');
+            }
+            return;
+        }
+
+        $resolved = $this->workflowGroupResolver->resolveFromParameterIds($ids);
+        $newGroup = $resolved?->value ?? null;
+
+        if (!$newGroup) {
+            if ($mustResolve) {
+                abort(422, 'Cannot resolve workflow group from parameter_ids.');
+            }
+            return;
+        }
+
+        $oldGroup = $sample->workflow_group ?? null;
+        if ($oldGroup === $newGroup) return;
+
+        $sample->workflow_group = $newGroup;
+        $sample->save();
+
+        // optional audit (schema-safe)
+        if (Schema::hasTable('audit_logs')) {
+            $cols = array_flip(Schema::getColumnListing('audit_logs'));
+
+            $payload = [
+                'entity_name' => 'samples',
+                'entity_id' => $sample->sample_id,
+                'action' => 'WORKFLOW_GROUP_RESOLVED_FROM_CLIENT_REQUEST',
+                'old_values' => json_encode(['workflow_group' => $oldGroup]),
+                'new_values' => json_encode(['workflow_group' => $newGroup, 'parameter_ids' => $ids]),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+
+            // keep it consistent with your "system staff" pattern
+            if (isset($cols['staff_id'])) {
+                $payload['staff_id'] = $this->ensureSystemStaffId();
+            }
+
+            DB::table('audit_logs')->insert(array_intersect_key($payload, $cols));
+        }
+    }
+
+    /**
      * GET /api/v1/client/samples
-     * Supports:
-     * - status=request_status
-     * - from/to (date filter on submitted_at)
-     * - q (search)
      */
     public function index(Request $request): JsonResponse
     {
@@ -143,7 +201,6 @@ class ClientSampleRequestController extends Controller
         }
 
         if (Schema::hasColumn('samples', 'current_status') && empty($sample->current_status)) {
-            // keep legacy lab workflow constraint happy
             $sample->current_status = 'received';
         }
 
@@ -159,7 +216,9 @@ class ClientSampleRequestController extends Controller
 
         $this->syncRequestedParameters($sample, $data['parameter_ids'] ?? null);
 
-        // Reload + load relation, dan return model yang sudah ada relasinya.
+        // ✅ NEW: best-effort resolve group on draft (do not hard fail)
+        $this->syncWorkflowGroupFromParameterIds($sample, $data['parameter_ids'] ?? null, false);
+
         $sample->refresh()->load(['requestedParameters']);
 
         return response()->json([
@@ -197,6 +256,9 @@ class ClientSampleRequestController extends Controller
 
         $this->syncRequestedParameters($sample, $data['parameter_ids'] ?? null);
 
+        // ✅ NEW: best-effort resolve group when parameters changed
+        $this->syncWorkflowGroupFromParameterIds($sample, $data['parameter_ids'] ?? null, false);
+
         $sample->refresh()->load(['requestedParameters']);
 
         return response()->json([
@@ -223,7 +285,6 @@ class ClientSampleRequestController extends Controller
         $data = $request->validated();
 
         DB::transaction(function () use ($sample, $from, $data) {
-            // update fields before submit
             $sample->sample_type = $data['sample_type'];
 
             if (Schema::hasColumn('samples', 'scheduled_delivery_at')) {
@@ -255,7 +316,9 @@ class ClientSampleRequestController extends Controller
 
             $this->syncRequestedParameters($sample, $data['parameter_ids'] ?? []);
 
-            // optional audit log (schema-safe)
+            // ✅ NEW: submit must have resolvable workflow_group
+            $this->syncWorkflowGroupFromParameterIds($sample, $data['parameter_ids'] ?? [], true);
+
             if (Schema::hasTable('audit_logs')) {
                 $cols = array_flip(Schema::getColumnListing('audit_logs'));
                 $payload = [
@@ -281,6 +344,7 @@ class ClientSampleRequestController extends Controller
         ], 200);
     }
 
+    // ... ensureSystemStaffId() as-is (unchanged)
     private function ensureSystemStaffId(): int
     {
         if (!Schema::hasColumn('samples', 'created_by') && !Schema::hasColumn('samples', 'assigned_to')) {

@@ -1,5 +1,8 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleRequestsQueuePage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Eye, RefreshCw } from "lucide-react";
+
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import {
@@ -16,44 +19,52 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
-const statusTone = (raw?: string | null) => {
-    const s = (raw ?? "").toLowerCase();
-    if (s === "draft") return "bg-gray-100 text-gray-700";
-    if (s === "submitted") return "bg-blue-50 text-blue-700";
-    if (s === "needs_revision" || s === "returned") return "bg-red-100 text-red-700";
-    if (s === "ready_for_delivery") return "bg-indigo-50 text-indigo-700";
-    if (s === "physically_received") return "bg-green-100 text-green-800";
-    if (s === "awaiting_verification") return "bg-violet-100 text-violet-800";
-    if (s === "in_transit_to_collector") return "bg-amber-100 text-amber-800";
-    if (s === "under_inspection") return "bg-amber-100 text-amber-800";
-    if (s === "returned_to_admin") return "bg-slate-100 text-slate-700";
-    return "bg-gray-100 text-gray-700";
+const normalizeStatusLabel = (raw?: string | null) => {
+    const s = String(raw ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/_/g, " ")
+        .replace(/\s+/g, " ");
+
+    // small friendly shortenings
+    if (s === "ready for delivery") return "ready for delivery";
+    if (s === "physically received") return "received";
+    if (s === "awaiting verification") return "awaiting verification";
+    if (s === "in transit to collector") return "in transit";
+    if (s === "under inspection") return "under inspection";
+    if (s === "returned to admin") return "returned to admin";
+    if (s === "needs revision") return "needs revision";
+    if (s === "intake checklist passed") return "intake passed";
+
+    return s || "-";
 };
 
-function EyeIcon() {
-    return (
-        <svg
-            viewBox="0 0 24 24"
-            className="h-4 w-4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-        >
-            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-            <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
-        </svg>
-    );
-}
+const statusTone = (raw?: string | null) => {
+    const s = String(raw ?? "").toLowerCase();
+
+    // normalize common underscores just for matching
+    const k = s.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+
+    if (k === "draft") return "bg-gray-100 text-gray-700";
+    if (k === "submitted") return "bg-blue-50 text-blue-700";
+    if (k === "needs revision" || k === "returned") return "bg-red-100 text-red-700";
+    if (k === "ready for delivery") return "bg-indigo-50 text-indigo-700";
+    if (k === "physically received") return "bg-green-100 text-green-800";
+    if (k === "awaiting verification") return "bg-violet-100 text-violet-800";
+    if (k === "in transit to collector") return "bg-amber-100 text-amber-800";
+    if (k === "under inspection") return "bg-amber-100 text-amber-800";
+    if (k === "returned to admin") return "bg-slate-100 text-slate-700";
+    if (k === "intake checklist passed") return "bg-emerald-50 text-emerald-700";
+
+    return "bg-gray-100 text-gray-700";
+};
 
 export default function SampleRequestsQueuePage() {
     const navigate = useNavigate();
     const { user } = useAuth();
     const roleId = getUserRoleId(user) ?? ROLE_ID.CLIENT;
     const roleLabel = getUserRoleLabel(user);
-    const isAdmin = roleId === ROLE_ID.ADMIN;
+
     const canView = useMemo(
         () =>
             roleId === ROLE_ID.ADMIN ||
@@ -82,6 +93,7 @@ export default function SampleRequestsQueuePage() {
         try {
             setLoading(true);
             setError(null);
+
             const page = opts?.keepPage ? currentPage : 1;
             const data = await fetchSampleRequestsQueue({
                 page,
@@ -90,6 +102,7 @@ export default function SampleRequestsQueuePage() {
                 request_status: statusFilter || undefined,
                 date: dateFilter !== "all" ? dateFilter : undefined,
             });
+
             setPager(data);
             if (!opts?.keepPage) setCurrentPage(1);
         } catch (err: any) {
@@ -162,10 +175,9 @@ export default function SampleRequestsQueuePage() {
         setModalCurrentStatus(null);
     };
 
-    const isOperationalManager =
-        roleId === ROLE_ID.OPERATIONAL_MANAGER;
-    const isLabHead =
-        roleId === ROLE_ID.LAB_HEAD;
+    // default filter for OM/LH
+    const isOperationalManager = roleId === ROLE_ID.OPERATIONAL_MANAGER;
+    const isLabHead = roleId === ROLE_ID.LAB_HEAD;
 
     useEffect(() => {
         if (isOperationalManager || isLabHead) {
@@ -173,33 +185,51 @@ export default function SampleRequestsQueuePage() {
         }
     }, [isOperationalManager, isLabHead]);
 
+    if (!canView) {
+        return (
+            <div className="min-h-[60vh] flex flex-col items-center justify-center">
+                <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
+                <p className="text-sm text-gray-600">
+                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access this module.
+                </p>
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-[60vh]">
-            {/* Header */}
+            {/* Header (match SamplesPage) */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div className="flex flex-col">
                     <h1 className="text-lg md:text-xl font-bold text-gray-900">Sample Requests Queue</h1>
                     <p className="text-sm text-gray-600">
-                        Requests in this page are <span className="font-semibold">NOT</span> lab samples yet (no lab sample code).
+                        Requests here are <span className="font-semibold">not</span> lab samples yet (no lab code).
                     </p>
                 </div>
+
                 <div className="flex items-center gap-2">
-                    <button type="button" className="lims-btn" onClick={() => loadQueue({ keepPage: true })}>
-                        Refresh
+                    <button
+                        type="button"
+                        className="lims-icon-button"
+                        onClick={() => loadQueue({ keepPage: true })}
+                        aria-label="Refresh"
+                        title="Refresh"
+                        disabled={loading}
+                    >
+                        <RefreshCw size={16} />
                     </button>
-                    <Link to="/samples" className="lims-btn">
-                        Go to Samples
-                    </Link>
                 </div>
             </div>
 
             {/* Card */}
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Filters */}
+                {/* Filters (match SamplesPage style) */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     {/* Search */}
                     <div className="flex-1">
-                        <label className="sr-only" htmlFor="rq-search">Search requests</label>
+                        <label className="sr-only" htmlFor="rq-search">
+                            Search requests
+                        </label>
                         <div className="relative">
                             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
                                 <svg
@@ -228,7 +258,9 @@ export default function SampleRequestsQueuePage() {
 
                     {/* Status */}
                     <div className="w-full md:w-56">
-                        <label className="sr-only" htmlFor="rq-status">Status</label>
+                        <label className="sr-only" htmlFor="rq-status">
+                            Status
+                        </label>
                         <select
                             id="rq-status"
                             value={statusFilter}
@@ -239,26 +271,27 @@ export default function SampleRequestsQueuePage() {
 
                             {/* common */}
                             <option value="submitted">submitted</option>
-                            <option value="ready_for_delivery">ready_for_delivery</option>
-                            <option value="physically_received">physically_received</option>
+                            <option value="ready_for_delivery">ready for delivery</option>
+                            <option value="physically_received">physically received</option>
                             <option value="returned">returned</option>
-                            <option value="needs_revision">needs_revision</option>
+                            <option value="needs_revision">needs revision</option>
 
                             {/* workflow */}
-                            <option value="in_transit_to_collector">in_transit_to_collector</option>
-                            <option value="under_inspection">under_inspection</option>
-                            <option value="returned_to_admin">returned_to_admin</option>
-                            <option value="intake_checklist_passed">intake_checklist_passed</option>
+                            <option value="in_transit_to_collector">in transit</option>
+                            <option value="under_inspection">under inspection</option>
+                            <option value="returned_to_admin">returned to admin</option>
+                            <option value="intake_checklist_passed">intake passed</option>
 
-                            {/* ✅ new gate */}
-                            <option value="awaiting_verification">awaiting_verification</option>
-
+                            {/* gate */}
+                            <option value="awaiting_verification">awaiting verification</option>
                         </select>
                     </div>
 
                     {/* Date filter */}
                     <div className="w-full md:w-44">
-                        <label className="sr-only" htmlFor="rq-date">Date</label>
+                        <label className="sr-only" htmlFor="rq-date">
+                            Date
+                        </label>
                         <select
                             id="rq-date"
                             value={dateFilter}
@@ -273,21 +306,10 @@ export default function SampleRequestsQueuePage() {
                     </div>
                 </div>
 
-                {(isOperationalManager || isLabHead) ? (
-                    <Link
-                        to="/loo"
-                        className="inline-flex items-center gap-2 rounded-xl bg-primary-soft px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
-                    >
-                        Open LOO Generator
-                    </Link>
-                ) : null}
-
                 {/* Body */}
                 <div className="px-4 md:px-6 py-4">
                     {error && (
-                        <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">
-                            {error}
-                        </div>
+                        <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
                     )}
 
                     {loading ? (
@@ -296,17 +318,18 @@ export default function SampleRequestsQueuePage() {
                         <div className="text-sm text-gray-600">No pending sample requests found.</div>
                     ) : (
                         <>
-                            <div className="overflow-x-auto rounded-xl border border-gray-200">
+                            <div className="overflow-x-auto">
                                 <table className="min-w-full text-sm">
-                                    <thead className="bg-gray-50 text-gray-700">
+                                    <thead className="bg-white text-gray-700 border-b border-gray-100">
                                         <tr>
                                             <th className="text-left font-semibold px-4 py-3">Request ID</th>
                                             <th className="text-left font-semibold px-4 py-3">Sample Type</th>
                                             <th className="text-left font-semibold px-4 py-3">Client</th>
-                                            <th className="text-left font-semibold px-4 py-3">Request Status</th>
+                                            <th className="text-left font-semibold px-4 py-3">Status</th>
                                             <th className="text-right font-semibold px-4 py-3">Actions</th>
                                         </tr>
                                     </thead>
+
                                     <tbody className="divide-y divide-gray-100">
                                         {items.map((r, idx) => {
                                             const id = r.sample_id;
@@ -317,41 +340,50 @@ export default function SampleRequestsQueuePage() {
                                             const canReturn = canAct && (st === "submitted" || st === "returned" || st === "needs_revision");
                                             const canReceived = canAct && st === "ready_for_delivery";
 
+                                            const statusLabel = normalizeStatusLabel(r.request_status);
+
                                             return (
                                                 <tr key={id ?? `row-${idx}`} className="hover:bg-gray-50">
                                                     <td className="px-4 py-3 text-gray-900 font-semibold">{id ?? "-"}</td>
+
                                                     <td className="px-4 py-3 text-gray-700">{r.sample_type ?? "-"}</td>
+
                                                     <td className="px-4 py-3 text-gray-700">
                                                         <div className="flex flex-col">
                                                             <span className="font-medium">{r.client_name ?? "-"}</span>
                                                             <span className="text-xs text-gray-500">{r.client_email ?? "-"}</span>
                                                         </div>
                                                     </td>
+
                                                     <td className="px-4 py-3">
-                                                        <span className={cx("inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold", statusTone(r.request_status))}>
-                                                            {r.request_status ?? "-"}
+                                                        <span
+                                                            className={cx(
+                                                                "inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold",
+                                                                statusTone(r.request_status)
+                                                            )}
+                                                            title={statusLabel}
+                                                        >
+                                                            {statusLabel}
                                                         </span>
                                                     </td>
+
                                                     <td className="px-4 py-3">
                                                         <div className="flex items-center justify-end gap-2">
-                                                            {/* View (Admin + SC) */}
+                                                            {/* View icon only */}
                                                             <button
                                                                 type="button"
-                                                                className={cx(
-                                                                    "inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold",
-                                                                    "border-gray-300 text-gray-700 hover:bg-gray-50"
-                                                                )}
+                                                                className="lims-icon-button"
                                                                 onClick={() => navigate(`/samples/requests/${id}`)}
-                                                                title="View request detail"
+                                                                aria-label="View request"
+                                                                title="View request"
+                                                                disabled={!canAct}
                                                             >
-                                                                <EyeIcon />
-                                                                View
+                                                                <Eye size={16} />
                                                             </button>
 
                                                             {/* Admin-only actions */}
                                                             {roleId === ROLE_ID.ADMIN ? (
                                                                 <>
-                                                                    {/* Approve */}
                                                                     <button
                                                                         type="button"
                                                                         className={cx(
@@ -366,7 +398,6 @@ export default function SampleRequestsQueuePage() {
                                                                         Approve
                                                                     </button>
 
-                                                                    {/* Return */}
                                                                     <button
                                                                         type="button"
                                                                         className={cx(
@@ -381,7 +412,6 @@ export default function SampleRequestsQueuePage() {
                                                                         Return
                                                                     </button>
 
-                                                                    {/* Received */}
                                                                     <button
                                                                         type="button"
                                                                         className={cx(
@@ -399,7 +429,6 @@ export default function SampleRequestsQueuePage() {
                                                             ) : null}
                                                         </div>
                                                     </td>
-
                                                 </tr>
                                             );
                                         })}
@@ -414,6 +443,7 @@ export default function SampleRequestsQueuePage() {
                                     <span className="font-semibold">{totalPages}</span> —{" "}
                                     <span className="font-semibold">{total}</span> total
                                 </div>
+
                                 <div className="flex items-center gap-2">
                                     <button
                                         type="button"

@@ -8,113 +8,151 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-class BackfillSamplesWorkflowGroup extends Command
+class BackfillSampleWorkflowGroup extends Command
 {
-    protected $signature = 'samples:backfill-workflow-group {--dry-run} {--limit=0}';
-    protected $description = 'Backfill samples.workflow_group based on existing parameter data (legacy-safe).';
+    protected $signature = 'samples:backfill-workflow-group
+        {--dry-run : Show what would change without writing}
+        {--limit=0 : Max number of samples to process (0 = unlimited)}
+        {--chunk=200 : Chunk size for scanning}
+        {--only-null : Only update samples where workflow_group is NULL (default true)}';
 
-    public function __construct(private readonly WorkflowGroupResolver $resolver)
-    {
-        parent::__construct();
-    }
+    protected $description = 'Backfill samples.workflow_group based on requested parameter ids (pivot sample_requested_parameters).';
 
-    public function handle(): int
+    public function handle(WorkflowGroupResolver $resolver): int
     {
-        if (!Schema::hasColumn('samples', 'workflow_group')) {
-            $this->error('Column samples.workflow_group not found. Did you persist workflow group in ToDo 9?');
+        if (!Schema::hasTable('samples')) {
+            $this->error('Table "samples" not found.');
             return self::FAILURE;
         }
 
-        $dry = (bool) $this->option('dry-run');
-        $limit = (int) $this->option('limit');
+        if (!Schema::hasColumn('samples', 'workflow_group')) {
+            $this->error('Column "samples.workflow_group" not found.');
+            return self::FAILURE;
+        }
 
-        $q = Sample::query()
-            ->where(function ($qq) {
-                $qq->whereNull('workflow_group')->orWhere('workflow_group', '=', '');
-            })
-            ->orderBy('sample_id');
+        if (!Schema::hasTable('sample_requested_parameters')) {
+            $this->error('Table "sample_requested_parameters" not found. Cannot backfill.');
+            return self::FAILURE;
+        }
 
-        if ($limit > 0) $q->limit($limit);
+        if (!Schema::hasColumn('sample_requested_parameters', 'sample_id') || !Schema::hasColumn('sample_requested_parameters', 'parameter_id')) {
+            $this->error('Pivot "sample_requested_parameters" must have sample_id and parameter_id.');
+            return self::FAILURE;
+        }
 
-        $count = 0;
+        $dryRun = (bool) $this->option('dry-run');
+        $limit = (int) ($this->option('limit') ?? 0);
+        $chunk = max(50, (int) ($this->option('chunk') ?? 200));
+        $onlyNull = (bool) $this->option('only-null');
 
-        $q->chunkById(200, function ($samples) use ($dry, &$count) {
-            foreach ($samples as $sample) {
-                $paramIds = $this->deriveParameterIds($sample->sample_id);
+        $this->info('Backfill workflow_group starting...');
+        $this->line('Options: ' . json_encode([
+            'dry_run' => $dryRun,
+            'limit' => $limit,
+            'chunk' => $chunk,
+            'only_null' => $onlyNull,
+        ]));
 
-                $group = $this->resolver->resolveFromParameterIds($paramIds);
-                if (!$group) continue;
+        $processed = 0;
+        $updated = 0;
+        $skippedNoParams = 0;
+        $skippedUnresolvable = 0;
+        $skippedAlreadyOk = 0;
 
-                $count++;
+        $base = Sample::query()->select(['sample_id', 'workflow_group']);
 
-                if ($dry) {
-                    $this->line("DRY sample_id={$sample->sample_id} -> {$group->value}");
+        if ($onlyNull) {
+            $base->whereNull('workflow_group');
+        }
+
+        // Scan by sample_id ascending for stable chunking
+        $base->orderBy('sample_id');
+
+        $base->chunkById($chunk, function ($samples) use (
+            $resolver,
+            $dryRun,
+            $limit,
+            &$processed,
+            &$updated,
+            &$skippedNoParams,
+            &$skippedUnresolvable,
+            &$skippedAlreadyOk
+        ) {
+            $ids = $samples->pluck('sample_id')->map(fn($v) => (int) $v)->values()->all();
+            if (!$ids) return;
+
+            // Bulk load pivot sample_id -> [parameter_id...]
+            $pivotRows = DB::table('sample_requested_parameters')
+                ->whereIn('sample_id', $ids)
+                ->get(['sample_id', 'parameter_id']);
+
+            $paramMap = [];
+            foreach ($pivotRows as $r) {
+                $sid = (int) ($r->sample_id ?? 0);
+                $pid = (int) ($r->parameter_id ?? 0);
+                if ($sid <= 0 || $pid <= 0) continue;
+                $paramMap[$sid] = $paramMap[$sid] ?? [];
+                $paramMap[$sid][] = $pid;
+            }
+
+            foreach ($samples as $s) {
+                if ($limit > 0 && $processed >= $limit) {
+                    return false; // stop chunking
+                }
+
+                $processed++;
+                $sampleId = (int) $s->sample_id;
+                $old = $s->workflow_group;
+
+                $pids = $paramMap[$sampleId] ?? [];
+                $pids = array_values(array_unique(array_map('intval', $pids)));
+
+                if (count($pids) === 0) {
+                    $skippedNoParams++;
+                    $this->line("SKIP sample_id={$sampleId} (no requested parameters)");
                     continue;
                 }
 
-                $sample->workflow_group = $group->value;
-                $sample->save();
+                $resolved = $resolver->resolveFromParameterIds($pids);
+                $newGroup = $resolved?->value ?? null;
+
+                if (!$newGroup) {
+                    $skippedUnresolvable++;
+                    $this->line("SKIP sample_id={$sampleId} (cannot resolve group) pids=" . json_encode($pids));
+                    continue;
+                }
+
+                if ($old === $newGroup) {
+                    $skippedAlreadyOk++;
+                    continue;
+                }
+
+                if ($dryRun) {
+                    $updated++;
+                    $this->info("DRY sample_id={$sampleId}: workflow_group {$old} -> {$newGroup}");
+                    continue;
+                }
+
+                DB::table('samples')
+                    ->where('sample_id', $sampleId)
+                    ->update(['workflow_group' => $newGroup]);
+
+                $updated++;
+                $this->info("OK  sample_id={$sampleId}: workflow_group {$old} -> {$newGroup}");
             }
         }, 'sample_id');
 
-        $this->info("Done. Updated {$count} samples.");
+        $this->newLine();
+        $this->info('Backfill workflow_group finished.');
+        $this->line('Summary: ' . json_encode([
+            'processed' => $processed,
+            'updated' => $updated,
+            'skipped_no_params' => $skippedNoParams,
+            'skipped_unresolvable' => $skippedUnresolvable,
+            'skipped_already_ok' => $skippedAlreadyOk,
+            'dry_run' => $dryRun,
+        ]));
+
         return self::SUCCESS;
-    }
-
-    /**
-     * Derive parameter IDs from DB (same idea as TestingBoardService fallback).
-     *
-     * @return array<int,int|string|null>
-     */
-    private function deriveParameterIds(int $sampleId): array
-    {
-        $out = [];
-
-        // sample_tests
-        if (Schema::hasTable('sample_tests') && Schema::hasColumn('sample_tests', 'sample_id')) {
-            $rows = DB::table('sample_tests')->where('sample_id', $sampleId)->get();
-            foreach ($rows as $r) {
-                if (property_exists($r, 'parameter_id') && $r->parameter_id !== null) $out[] = $r->parameter_id;
-
-                foreach (['parameter_ids', 'parameters'] as $jsonField) {
-                    if (!property_exists($r, $jsonField)) continue;
-                    $val = $r->{$jsonField};
-                    if (!$val) continue;
-
-                    if (is_string($val)) {
-                        $decoded = json_decode($val, true);
-                        if (json_last_error() === JSON_ERROR_NONE) $val = $decoded;
-                    }
-                    if (!is_array($val)) continue;
-
-                    foreach ($val as $item) {
-                        if (is_int($item) || is_string($item)) $out[] = $item;
-                        if (is_array($item) && array_key_exists('parameter_id', $item)) $out[] = $item['parameter_id'];
-                    }
-                }
-            }
-        }
-
-        // letter_of_order_items.parameters
-        if (Schema::hasTable('letter_of_order_items') && Schema::hasColumn('letter_of_order_items', 'sample_id') && Schema::hasColumn('letter_of_order_items', 'parameters')) {
-            $items = DB::table('letter_of_order_items')->where('sample_id', $sampleId)->get(['parameters']);
-            foreach ($items as $it) {
-                $val = $it->parameters ?? null;
-                if (!$val) continue;
-
-                if (is_string($val)) {
-                    $decoded = json_decode($val, true);
-                    if (json_last_error() === JSON_ERROR_NONE) $val = $decoded;
-                }
-                if (!is_array($val)) continue;
-
-                foreach ($val as $p) {
-                    if (is_int($p) || is_string($p)) $out[] = $p;
-                    if (is_array($p) && array_key_exists('parameter_id', $p)) $out[] = $p['parameter_id'];
-                }
-            }
-        }
-
-        return $out;
     }
 }

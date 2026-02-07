@@ -10,7 +10,7 @@ use App\Models\Staff;
 use App\Models\Parameter;
 use App\Support\AuditLogger;
 use App\Support\SampleStatusTransitions;
-use App\Support\WorkflowGroupResolver;
+use App\Services\WorkflowGroupResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -200,8 +200,8 @@ class SampleController extends Controller
         // ✅ Step 9.1 source-of-truth resolver (ranges + exclude param 18)
         $oldGroup = $sample->workflow_group;
 
-        $resolved = WorkflowGroupResolver::resolveFromParameterIds($parameterIds);
-        $newGroup = $resolved?->value; // stored as string in samples.workflow_group
+        $resolved = (new WorkflowGroupResolver())->resolveFromParameterIds($parameterIds);
+        $newGroup = $resolved?->value;
 
         // Only write & audit when changed (anti-spam)
         if ($newGroup !== $oldGroup) {

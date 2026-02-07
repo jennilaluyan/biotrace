@@ -531,24 +531,6 @@ export default function SampleRequestDetailPage() {
                             </div>
                         </div>
 
-                        {labSampleCode ? (
-                            <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                                <div className="font-semibold">This request has been promoted to a lab sample.</div>
-                                <div className="mt-1">
-                                    Lab code: <span className="font-mono">{labSampleCode}</span>
-                                </div>
-                                <div className="mt-3">
-                                    <button
-                                        type="button"
-                                        className="lims-btn-primary"
-                                        onClick={() => navigate(`/samples/${requestId}`)}
-                                    >
-                                        Open in Samples
-                                    </button>
-                                </div>
-                            </div>
-                        ) : null}
-
                         {isDraft ? (
                             <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-4 text-sm text-red-800">
                                 This request is still <span className="font-semibold">draft</span> and is only visible to the client.
@@ -779,17 +761,10 @@ export default function SampleRequestDetailPage() {
                                                     <>
                                                         {canVerify ? (
                                                             <>
-                                                                <div className="sm:col-span-2 text-xs text-amber-800 bg-amber-50 border border-amber-100 px-3 py-2 rounded-xl">
-                                                                    Status sekarang <span className="font-semibold">awaiting_verification</span>.{" "}
-                                                                    Setelah <span className="font-semibold">Verify</span>, sistem otomatis assign{" "}
-                                                                    <span className="font-semibold">Sample ID (BML)</span> dan request akan pindah ke halaman{" "}
-                                                                    <span className="font-semibold">Samples</span>.
-                                                                </div>
-
                                                                 <div className="sm:col-span-2">
                                                                     <WorkflowActionButton
                                                                         title="Verify (OM/LH)"
-                                                                        subtitle="Verify + auto-assign Sample ID (BML) + promote to lab sample."
+                                                                        subtitle="Verify + auto-assign Sample ID (BML)"
                                                                         onClick={doVerify}
                                                                         disabled={!canVerify || verifyBusy}
                                                                         busy={verifyBusy}

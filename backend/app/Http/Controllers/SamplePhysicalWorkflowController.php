@@ -280,9 +280,13 @@ class SamplePhysicalWorkflowController extends Controller
                 $sample->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
             }
 
-            // ✅ untuk action baru ini: JANGAN ubah request_status (handoff fisik lab-side)
-            // sc_delivered_to_analyst
-            // analyst_received
+            if ($action === 'sc_delivered_to_analyst') {
+                $sample->request_status = SampleRequestStatus::IN_TRANSIT_TO_ANALYST->value;
+            }
+
+            if ($action === 'analyst_received') {
+                $sample->request_status = SampleRequestStatus::RECEIVED_BY_ANALYST->value;
+            }
 
             $sample->save();
 

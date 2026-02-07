@@ -3,19 +3,27 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class TestingBoardAddColumnRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        return true; // policy/role check di controller
     }
 
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'min:2', 'max:80'],
-            'position' => ['nullable', 'integer', 'min:1'],
+            'workflow_group' => ['required', 'string', 'max:50'],
+            'name' => ['required', 'string', 'max:120'],
+
+            // legacy
+            'position' => ['nullable', 'integer', 'min:0'],
+
+            // new
+            'relative_to_column_id' => ['nullable', 'integer', 'exists:testing_columns,column_id'],
+            'side' => ['nullable', Rule::in(['left', 'right'])],
         ];
     }
 }

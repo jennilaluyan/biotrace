@@ -5,10 +5,33 @@ import { Topbar } from "./Topbar";
 import { useAuth } from "../../hooks/useAuth";
 import { getUserRoleId, ROLE_ID } from "../../utils/roles";
 
+import {
+    Users,
+    TestTube2,
+    Inbox,
+    ClipboardCheck,
+    FileText,
+    Beaker,
+    ShieldCheck,
+    BarChart3,
+    Shield,
+} from "lucide-react";
+
+type NavIcon =
+    | "users"
+    | "samples"
+    | "inbox"
+    | "approval"
+    | "loo"
+    | "reagents"
+    | "qc"
+    | "reports"
+    | "audit";
+
 type NavItem = {
     label: string;
     path: string;
-    icon?: "users" | "flask" | "check";
+    icon?: NavIcon;
 };
 
 export const AppLayout = () => {
@@ -21,11 +44,6 @@ export const AppLayout = () => {
     const isAdmin = roleId === ROLE_ID.ADMIN;
     const isSampleCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
 
-    const canAccessQAModules =
-        roleId === ROLE_ID.ANALYST ||
-        roleId === ROLE_ID.LAB_HEAD ||
-        roleId === ROLE_ID.OPERATIONAL_MANAGER;
-
     const canSeeAuditLogs =
         roleId === ROLE_ID.ADMIN ||
         roleId === ROLE_ID.SAMPLE_COLLECTOR ||
@@ -35,81 +53,71 @@ export const AppLayout = () => {
 
     const canSeeReports = isStaff;
 
+    // -----------------------------
+    // NAV LABELS (UX copy)
+    // -----------------------------
     const portalItems: NavItem[] = isClient
-        ? [{ label: "My Requests", path: "/portal/requests", icon: "flask" }]
+        ? [{ label: "My Requests", path: "/portal/requests", icon: "inbox" }]
         : [];
 
     const staffBaseItems: NavItem[] = isStaff
         ? [
             { label: "Clients", path: "/clients", icon: "users" },
-            { label: "Samples", path: "/samples", icon: "flask" },
+            { label: "Samples", path: "/samples", icon: "samples" },
         ]
         : [];
 
     const adminItems: NavItem[] = isAdmin
         ? [
-            { label: "Client Approvals", path: "/clients/approvals", icon: "check" },
-            { label: "Request Queue", path: "/samples/requests", icon: "check" },
+            { label: "Client Approvals", path: "/clients/approvals", icon: "approval" },
+            { label: "Request Queue", path: "/samples/requests", icon: "inbox" },
         ]
         : [];
 
     const scOnlyItems: NavItem[] = isSampleCollector
         ? [
-            { label: "Request Queue", path: "/samples/requests", icon: "check" as const },
-            { label: "Samples", path: "/samples", icon: "flask" as const },
+            { label: "Request Queue", path: "/samples/requests", icon: "inbox" as const },
+            { label: "Samples", path: "/samples", icon: "samples" as const },
         ]
         : [];
 
-    const isOmOrLh =
-        roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
+    const isOmOrLh = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
 
     const omLhItems: NavItem[] = isOmOrLh
         ? [
-            { label: "Request Queue", path: "/samples/requests", icon: "check" as const },
-            { label: "LOO Generator", path: "/loo", icon: "flask" as const },
-            { label: "Reagent Approvals", path: "/reagents/approvals", icon: "check" as const },
+            { label: "Request Queue", path: "/samples/requests", icon: "inbox" as const },
+            { label: "LOO Workspace", path: "/loo", icon: "loo" as const },
+            { label: "Reagent Approvals", path: "/reagents/approvals", icon: "reagents" as const },
 
-            // ✅ Quality Cover approvals flow (To-Do 12)
             ...(roleId === ROLE_ID.OPERATIONAL_MANAGER
-                ? [{ label: "Quality Cover (Verify)", path: "/quality-covers/inbox/om", icon: "check" as const }]
+                ? [{ label: "Quality Cover (Verify)", path: "/quality-covers/inbox/om", icon: "qc" as const }]
                 : []),
             ...(roleId === ROLE_ID.LAB_HEAD
-                ? [{ label: "Quality Cover (Validate)", path: "/quality-covers/inbox/lh", icon: "check" as const }]
+                ? [{ label: "Quality Cover (Validate)", path: "/quality-covers/inbox/lh", icon: "qc" as const }]
                 : []),
         ]
         : [];
 
     const labHeadItems: NavItem[] =
         roleId === ROLE_ID.LAB_HEAD
-            ? [{ label: "Staff Approvals", path: "/staff/approvals", icon: "check" }]
+            ? [{ label: "Staff Approvals", path: "/staff/approvals", icon: "approval" }]
             : [];
 
-    const qaItems: NavItem[] = canAccessQAModules
-        ? [
-            { label: "QA Parameters", path: "/qa/parameters", icon: "check" },
-            { label: "QA Methods", path: "/qa/methods", icon: "check" },
-            { label: "Consumables Catalog", path: "/qa/consumables-catalog", icon: "check" },
-        ]
-        : [];
-
     const reportItems: NavItem[] = canSeeReports
-        ? [{ label: "Reports", path: "/reports", icon: "check" }]
+        ? [{ label: "Reports", path: "/reports", icon: "reports" }]
         : [];
 
     const auditItems: NavItem[] = canSeeAuditLogs
-        ? [{ label: "Audit Logs", path: "/audit-logs", icon: "check" }]
+        ? [{ label: "Audit Logs", path: "/audit-logs", icon: "audit" }]
         : [];
 
     const navItems: NavItem[] = (() => {
         if (isClient) return [...portalItems];
-        if (isSampleCollector) {
-            return [...scOnlyItems, ...auditItems];
-        }
+        if (isSampleCollector) return [...scOnlyItems, ...auditItems];
         if (isStaff) {
             return [
                 ...staffBaseItems,
                 ...omLhItems,
-                ...qaItems,
                 ...reportItems,
                 ...auditItems,
                 ...adminItems,
@@ -119,55 +127,34 @@ export const AppLayout = () => {
         return [];
     })();
 
-    const renderIcon = (icon?: NavItem["icon"]) => {
-        if (icon === "flask") {
-            return (
-                <svg
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                >
-                    <path d="M10 2v6l-5 9a3 3 0 0 0 2.6 4.5h8.8A3 3 0 0 0 19 17l-5-9V2" />
-                    <path d="M8 8h8" />
-                </svg>
-            );
+    // -----------------------------
+    // ICONS (lucide-react)
+    // -----------------------------
+    const iconClass = "h-4 w-4";
+
+    const renderIcon = (icon?: NavIcon) => {
+        switch (icon) {
+            case "users":
+                return <Users className={iconClass} />;
+            case "samples":
+                return <TestTube2 className={iconClass} />;
+            case "inbox":
+                return <Inbox className={iconClass} />;
+            case "approval":
+                return <ClipboardCheck className={iconClass} />;
+            case "loo":
+                return <FileText className={iconClass} />;
+            case "reagents":
+                return <Beaker className={iconClass} />;
+            case "qc":
+                return <ShieldCheck className={iconClass} />;
+            case "reports":
+                return <BarChart3 className={iconClass} />;
+            case "audit":
+                return <Shield className={iconClass} />;
+            default:
+                return <Shield className={iconClass} />;
         }
-        if (icon === "check") {
-            return (
-                <svg
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                >
-                    <path d="M9 11l3 3L22 4" />
-                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1-2-2h11" />
-                </svg>
-            );
-        }
-        return (
-            <svg
-                viewBox="0 0 24 24"
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-            >
-                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="3" />
-                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-            </svg>
-        );
     };
 
     const renderNavItem = (item: NavItem, closeOnClick = false) => {
@@ -240,6 +227,8 @@ export const AppLayout = () => {
                     <button
                         className="text-white text-xl leading-none"
                         onClick={() => setSidebarOpen(false)}
+                        aria-label="Close sidebar"
+                        title="Close"
                     >
                         ✕
                     </button>
