@@ -171,6 +171,24 @@ async function handleAxios<T>(promise: Promise<any>): Promise<T> {
     }
 }
 
+// ✅ NEW: handle binary (pdf/blob) without normalizeData
+async function handleAxiosBlob(promise: Promise<any>): Promise<Blob> {
+    try {
+        const res = await promise;
+        return res.data as Blob;
+    } catch (err) {
+        const error = err as AxiosError;
+
+        if (error.response) {
+            throw {
+                status: error.response.status,
+                data: error.response.data, // could be json or blob depending on backend
+            };
+        }
+        throw err;
+    }
+}
+
 function normalizePath(path: string) {
     let p = path.startsWith("/") ? path : `/${path}`;
     const base = (http.defaults.baseURL ?? "").replace(/\/+$/, "");
@@ -250,6 +268,20 @@ export async function apiPatchRaw<T = any>(path: string, body?: any, options?: A
     return normalizeData(res.data) as T;
 }
 
+// ✅ NEW: GET blob (PDF) with auth headers handled by interceptors
+export async function apiGetBlob(path: string, options?: AxiosRequestConfig): Promise<Blob> {
+    return handleAxiosBlob(
+        http.get(normalizePath(path), {
+            responseType: "blob",
+            headers: {
+                Accept: "application/pdf",
+                ...(options?.headers || {}),
+            },
+            ...options,
+        })
+    );
+}
+
 export const api = {
     http,
     get: apiGet,
@@ -257,6 +289,7 @@ export const api = {
     patch: apiPatch,
     put: apiPut,
     delete: apiDelete,
+    getBlob: apiGetBlob,
 };
 
 // Backward compatible default import (some components may do: import api from "./api")

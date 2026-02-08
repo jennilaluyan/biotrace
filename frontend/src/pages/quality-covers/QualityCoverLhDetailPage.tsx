@@ -7,6 +7,7 @@ import {
     lhValidate,
     QualityCoverInboxItem,
 } from "../../services/qualityCovers";
+import { apiGetBlob } from "../../services/api";
 
 type DecisionMode = "validate" | "reject";
 
@@ -22,6 +23,10 @@ export function QualityCoverLhDetailPage() {
     const [reason, setReason] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    // ✅ Step 7: download state
+    const [downloadBusy, setDownloadBusy] = useState(false);
+    const [downloadError, setDownloadError] = useState<string | null>(null);
 
     async function load() {
         setLoading(true);
@@ -49,17 +54,67 @@ export function QualityCoverLhDetailPage() {
 
         setSubmitting(true);
         setError(null);
+        setDownloadError(null);
+
         try {
-            if (mode === "validate") await lhValidate(data.quality_cover_id);
-            if (mode === "reject") await lhReject(data.quality_cover_id, reason.trim());
-            setMode(null);
-            setReason("");
-            await load();
-            nav("/quality-covers/inbox/lh");
+            if (mode === "validate") {
+                await lhValidate(data.quality_cover_id);
+
+                // ✅ stay on page, refresh data so button Download can appear
+                setMode(null);
+                setReason("");
+                await load();
+                return;
+            }
+
+            if (mode === "reject") {
+                await lhReject(data.quality_cover_id, reason.trim());
+                setMode(null);
+                setReason("");
+                await load();
+                nav("/quality-covers/inbox/lh");
+            }
         } catch (e: any) {
             setError(e?.message || "Failed to submit decision.");
         } finally {
             setSubmitting(false);
+        }
+    }
+
+    // ✅ Step 7: download COA by sample (needs auth header -> use apiGetBlob)
+    async function downloadCoa() {
+        if (!data?.sample_id) return;
+
+        setDownloadBusy(true);
+        setDownloadError(null);
+
+        try {
+            const blob = await apiGetBlob(`/v1/samples/${data.sample_id}/coa`);
+            const url = window.URL.createObjectURL(blob);
+
+            // try open in new tab
+            const win = window.open(url, "_blank");
+            if (!win) {
+                // fallback to download if popup blocked
+                const code = data.sample?.lab_sample_code ?? String(data.sample_id);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `LHU-COA_${code}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            }
+
+            setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+        } catch (e: any) {
+            // apiGetBlob throws {status, data} or Error
+            const msg =
+                e?.data?.message ||
+                e?.message ||
+                "Failed to download LHU/CoA.";
+            setDownloadError(msg);
+        } finally {
+            setDownloadBusy(false);
         }
     }
 
@@ -144,8 +199,9 @@ export function QualityCoverLhDetailPage() {
                         </div>
                     </div>
 
+                    {/* ✅ Step 7: actions */}
                     {data.status === "verified" ? (
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
                             <button
                                 onClick={() => setMode("validate")}
                                 className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
@@ -158,6 +214,28 @@ export function QualityCoverLhDetailPage() {
                             >
                                 Reject
                             </button>
+                        </div>
+                    ) : data.status === "validated" ? (
+                        <div className="space-y-2">
+                            <div className="text-sm text-slate-700">
+                                Cover already <span className="font-semibold">validated</span>. LHU/CoA should be available now.
+                            </div>
+
+                            {downloadError ? (
+                                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                                    {downloadError}
+                                </div>
+                            ) : null}
+
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    onClick={downloadCoa}
+                                    disabled={downloadBusy}
+                                    className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+                                >
+                                    {downloadBusy ? "Downloading..." : "Download LHU/CoA"}
+                                </button>
+                            </div>
                         </div>
                     ) : (
                         <div className="text-sm text-slate-600">
@@ -190,7 +268,7 @@ export function QualityCoverLhDetailPage() {
                                 </>
                             ) : (
                                 <div className="text-sm text-slate-700">
-                                    This will mark the cover as <span className="font-semibold">validated</span>.
+                                    This will mark the cover as <span className="font-semibold">validated</span> and auto-generate LHU/CoA PDF.
                                 </div>
                             )}
 
