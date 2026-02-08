@@ -3,9 +3,9 @@
 namespace App\Services;
 
 use App\Models\Report;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class CoaAutoGenerateService
 {
@@ -28,16 +28,14 @@ class CoaAutoGenerateService
         $runner = function () use ($sampleId, $lhStaffId, $templateCode) {
 
             // 0) Ensure sample exists + lock it to prevent race
-            $sample = DB::table('samples')
-                ->where('sample_id', $sampleId)
-                ->lockForUpdate()
-                ->first();
+            $sampleQ = DB::table('samples')->where('sample_id', $sampleId)->lockForUpdate();
+            $sample = $sampleQ->first();
 
             if (!$sample) {
                 throw new ConflictHttpException('Sample not found.');
             }
 
-            // 1) Hard gate: latest Quality Cover must be validated
+            // 1) Hard gate: Quality Cover must be validated (latest QC only)
             $qc = DB::table('quality_covers')
                 ->where('sample_id', $sampleId)
                 ->orderByDesc('quality_cover_id')
@@ -65,8 +63,10 @@ class CoaAutoGenerateService
             /** @var Report|null $report */
             $report = $rq->orderByDesc('report_id')->lockForUpdate()->first();
 
+            $hasIsLockedCol = Schema::hasColumn('reports', 'is_locked');
+
             // 3a) Idempotent: already locked => return
-            if ($report && (bool) $report->is_locked === true) {
+            if ($report && $hasIsLockedCol && (bool) $report->is_locked === true) {
                 return [
                     'report_id' => (int) $report->report_id,
                     'pdf_url' => (string) ($report->pdf_url ?? ''),
@@ -79,18 +79,11 @@ class CoaAutoGenerateService
             if (!$report) {
                 try {
                     $generated = $this->reportGeneration->generateForSample($sampleId, $lhStaffId);
-                } catch (\RuntimeException $e) {
-                    $msg = (string) $e->getMessage();
-
-                    // map common business-gate errors -> 409
-                    if ($msg !== '' && stripos($msg, 'no tests') !== false) {
+                } catch (\Throwable $e) {
+                    $msg = strtolower((string) $e->getMessage());
+                    if (str_contains($msg, 'no tests')) {
                         throw new ConflictHttpException('Cannot generate COA: no tests for this sample.');
                     }
-
-                    // fallback: still a conflict (better than 500 for gate-like runtime exceptions)
-                    throw new ConflictHttpException($msg !== '' ? $msg : 'Cannot generate COA report.');
-                } catch (\Throwable $e) {
-                    // unknown error => keep it 500 (controller will handle)
                     throw $e;
                 }
 
@@ -105,18 +98,22 @@ class CoaAutoGenerateService
                     throw new ConflictHttpException('Failed to generate report record.');
                 }
 
-                $report = Report::query()
-                    ->where('report_id', (int) $rid)
-                    ->lockForUpdate()
-                    ->first();
-
+                $report = Report::query()->where('report_id', (int) $rid)->lockForUpdate()->first();
                 if (!$report) {
                     throw new ConflictHttpException('Generated report not found.');
                 }
             }
 
-            // 5) Finalize (render PDF + lock report)
-            $final = $this->coaFinalize->finalize((int) $report->report_id, $lhStaffId, $templateCode);
+            // 5) Finalize (render PDF + lock report). CoaFinalizeService handles view selection.
+            try {
+                $final = $this->coaFinalize->finalize((int) $report->report_id, $lhStaffId, $templateCode);
+            } catch (\Throwable $e) {
+                $msg = strtolower((string) $e->getMessage());
+                if (str_contains($msg, 'no tests')) {
+                    throw new ConflictHttpException('Cannot generate COA: no tests for this sample.');
+                }
+                throw $e;
+            }
 
             $report->refresh();
 
@@ -124,11 +121,10 @@ class CoaAutoGenerateService
                 'report_id' => (int) $report->report_id,
                 'pdf_url' => (string) ($report->pdf_url ?? ($final['pdf_url'] ?? '')),
                 'template_code' => (string) ($final['template_code'] ?? ($report->template_code ?? '')),
-                'is_locked' => (bool) $report->is_locked,
+                'is_locked' => $hasIsLockedCol ? (bool) $report->is_locked : false,
             ];
         };
 
-        // Reuse outer transaction if already running
         if (method_exists(DB::class, 'transactionLevel') && DB::transactionLevel() > 0) {
             return $runner();
         }

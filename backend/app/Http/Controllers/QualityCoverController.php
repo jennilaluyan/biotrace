@@ -92,10 +92,6 @@ class QualityCoverController extends Controller
         }
     }
 
-    /**
-     * POST /v1/quality-covers/{qualityCover}/verify
-     * OM verifies a submitted quality cover.
-     */
     public function omVerify(Request $request, QualityCover $qualityCover): JsonResponse
     {
         /** @var Staff $staff */
@@ -144,10 +140,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * POST /v1/quality-covers/{qualityCover}/reject
-     * OM rejects a submitted quality cover (reason required).
-     */
     public function omReject(Request $request, QualityCover $qualityCover): JsonResponse
     {
         /** @var Staff $staff */
@@ -210,10 +202,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * GET /v1/samples/{sample}/quality-cover
-     * Return latest cover for analyst (draft/submitted/etc).
-     */
     public function show(Sample $sample): JsonResponse
     {
         /** @var Staff $staff */
@@ -241,10 +229,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * POST /v1/samples/{sample}/quality-cover/submit
-     * Analyst submits (creates or updates) cover and locks fields.
-     */
     public function submit(QualityCoverSubmitRequest $request, Sample $sample): JsonResponse
     {
         $payload = $request->validated();
@@ -318,10 +302,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * GET /v1/quality-covers/inbox/om
-     * Inbox OM: list covers that are ready to be verified (submitted).
-     */
     public function inboxOm(Request $request): JsonResponse
     {
         /** @var Staff $staff */
@@ -379,10 +359,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * GET /v1/quality-covers/inbox/lh
-     * Inbox LH: list covers that are ready to be validated (verified by OM).
-     */
     public function inboxLh(Request $request): JsonResponse
     {
         /** @var Staff $staff */
@@ -441,10 +417,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * GET /v1/quality-covers/{qualityCover}
-     * Read one quality cover (for OM/LH detail pages).
-     */
     public function showById(Request $request, QualityCover $qualityCover): JsonResponse
     {
         /** @var Staff $staff */
@@ -478,8 +450,9 @@ class QualityCoverController extends Controller
     }
 
     /**
-     * POST /v1/quality-covers/{qualityCover}/validate
-     * LH validates a verified quality cover (final) + AUTO GENERATE COA PDF.
+     * ✅ FIX UTAMA:
+     * Validasi QC harus COMMIT dulu.
+     * COA auto-generate boleh gagal TANPA menggagalkan validasi QC.
      */
     public function lhValidate(Request $request, QualityCover $qualityCover): JsonResponse
     {
@@ -506,13 +479,11 @@ class QualityCoverController extends Controller
         }
 
         $sampleId = (int) $qualityCover->sample_id;
-        $actorId  = (int) $staff->staff_id;
+        $actorId = (int) $staff->staff_id;
 
-        $coa = null;
-
+        // 1) Commit VALIDATION first (atomic)
         try {
-            $coa = DB::transaction(function () use ($qualityCover, $sampleId, $actorId) {
-
+            DB::transaction(function () use ($qualityCover, $sampleId, $actorId) {
                 $qualityCover->status = 'validated';
                 $qualityCover->validated_at = now();
                 $qualityCover->validated_by_staff_id = $actorId;
@@ -531,25 +502,9 @@ class QualityCoverController extends Controller
                     ->where('sample_id', $sampleId)
                     ->lockForUpdate()
                     ->update([$statusCol => 'validated']);
-
-                return app(CoaAutoGenerateService::class)->run($sampleId, $actorId);
             });
-        } catch (ConflictHttpException $e) {
-            return response()->json([
-                'message' => $e->getMessage(),
-            ], 409);
         } catch (\Throwable $e) {
-            $msg = (string) $e->getMessage();
-
-            // fallback mapping (kalau ada yang lolos dari service)
-            if ($msg !== '' && stripos($msg, 'no tests') !== false) {
-                return response()->json([
-                    'message' => 'Cannot generate COA: no tests for this sample.',
-                ], 409);
-            }
-
             report($e);
-
             return response()->json([
                 'message' => 'Failed to validate quality cover.',
             ], 500);
@@ -563,19 +518,32 @@ class QualityCoverController extends Controller
             toStatus: 'validated',
         );
 
+        // 2) Try auto-generate COA AFTER validation commit
+        $coa = null;
+        $coaError = null;
+
+        try {
+            $coa = app(CoaAutoGenerateService::class)->run($sampleId, $actorId);
+        } catch (ConflictHttpException $e) {
+            // jangan gagalkan QC validated — cukup informasikan
+            $coaError = $e->getMessage();
+        } catch (\Throwable $e) {
+            report($e);
+            $coaError = 'Failed to generate COA.';
+        }
+
         return response()->json([
-            'message' => 'Quality cover validated (LH). CoA generated.',
+            'message' => $coaError
+                ? 'Quality cover validated (LH), but COA generation is blocked.'
+                : 'Quality cover validated (LH). CoA generated.',
             'data' => [
-                'quality_cover' => $qualityCover,
+                'quality_cover' => $qualityCover->fresh(),
                 'report' => $coa,
+                'coa_error' => $coaError,
             ],
         ]);
     }
 
-    /**
-     * POST /v1/quality-covers/{qualityCover}/reject-lh
-     * LH rejects a verified quality cover (reason required).
-     */
     public function lhReject(Request $request, QualityCover $qualityCover): JsonResponse
     {
         /** @var Staff $staff */
@@ -638,10 +606,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * PUT /v1/samples/{sample}/quality-cover/draft
-     * Upsert draft for a sample.
-     */
     public function saveDraft(QualityCoverDraftSaveRequest $request, Sample $sample): JsonResponse
     {
         $payload = $request->validated();
