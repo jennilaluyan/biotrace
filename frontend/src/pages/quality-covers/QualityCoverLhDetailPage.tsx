@@ -1,22 +1,15 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, Link } from "react-router-dom";
 import { formatDateTimeLocal } from "../../utils/date";
 import {
     getQualityCoverById,
     lhReject,
     lhValidate,
     QualityCoverInboxItem,
-    type LhValidateResponse,
+    CoaReportResult,
 } from "../../services/qualityCovers";
 
 type DecisionMode = "validate" | "reject";
-
-type FlashPayload = {
-    type: "success" | "warning" | "error";
-    message: string;
-    sampleId?: number;
-    canDownload?: boolean;
-};
 
 export function QualityCoverLhDetailPage() {
     const { qualityCoverId } = useParams();
@@ -30,6 +23,10 @@ export function QualityCoverLhDetailPage() {
     const [reason, setReason] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    // ✅ success toast (green)
+    const [success, setSuccess] = useState<string | null>(null);
+    const [report, setReport] = useState<CoaReportResult>(null);
 
     async function load() {
         setLoading(true);
@@ -57,61 +54,34 @@ export function QualityCoverLhDetailPage() {
 
         setSubmitting(true);
         setError(null);
+        setSuccess(null);
+        setReport(null);
 
         try {
             if (mode === "validate") {
-                const res = (await lhValidate(data.quality_cover_id)) as LhValidateResponse;
+                const res = await lhValidate(data.quality_cover_id);
 
-                const qc = res?.data?.quality_cover ?? null;
-                const report = res?.data?.report ?? null;
-                const coaError = res?.data?.coa_error ?? null;
+                // ✅ green message
+                setSuccess(res?.message || "Quality cover validated. COA generated.");
 
-                const sampleId = qc?.sample_id ?? data.sample_id;
+                // ✅ report info (for UX)
+                const r = res?.data?.report ?? null;
+                setReport(r);
 
-                let flash: FlashPayload;
-
-                if (report && typeof report.report_id === "number" && report.report_id > 0) {
-                    flash = {
-                        type: "success",
-                        message: "Quality cover validated. COA berhasil di-generate dan tersimpan di halaman Reports.",
-                        sampleId,
-                        canDownload: true,
-                    };
-                } else {
-                    flash = {
-                        type: "warning",
-                        message:
-                            coaError ||
-                            res?.message ||
-                            "Quality cover validated, tapi COA generation masih diblok (cek tests/hasil dulu).",
-                        sampleId,
-                        canDownload: false,
-                    };
-                }
+                // refresh detail view (status jadi validated)
+                await load();
 
                 setMode(null);
                 setReason("");
-
-                // redirect to inbox with flash banner
-                nav("/quality-covers/inbox/lh", { state: { flash } });
                 return;
             }
 
-            // reject
             if (mode === "reject") {
                 await lhReject(data.quality_cover_id, reason.trim());
-
-                const flash: FlashPayload = {
-                    type: "success",
-                    message: "Quality cover rejected.",
-                    sampleId: data.sample_id,
-                    canDownload: false,
-                };
-
                 setMode(null);
                 setReason("");
-
-                nav("/quality-covers/inbox/lh", { state: { flash } });
+                await load();
+                nav("/quality-covers/inbox/lh");
                 return;
             }
         } catch (e: any) {
@@ -147,6 +117,27 @@ export function QualityCoverLhDetailPage() {
                     </button>
                 </div>
             </div>
+
+            {/* ✅ green notification */}
+            {success ? (
+                <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                    <div className="font-medium">{success}</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                        <Link
+                            to="/reports"
+                            className="inline-flex items-center rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm hover:bg-emerald-50"
+                        >
+                            Open Reports Page
+                        </Link>
+
+                        {report?.report_id ? (
+                            <div className="text-xs text-emerald-800 flex items-center">
+                                Report ID: <span className="font-semibold ml-1">#{report.report_id}</span>
+                            </div>
+                        ) : null}
+                    </div>
+                </div>
+            ) : null}
 
             {loading ? (
                 <div className="text-sm text-slate-600">Loading...</div>
@@ -253,8 +244,7 @@ export function QualityCoverLhDetailPage() {
                                 </>
                             ) : (
                                 <div className="text-sm text-slate-700">
-                                    This will mark the cover as <span className="font-semibold">validated</span>.
-                                    {" "}If tests exist, COA will be generated automatically.
+                                    This will mark the cover as <span className="font-semibold">validated</span> and generate COA.
                                 </div>
                             )}
 
