@@ -2,89 +2,73 @@
 
 namespace App\Services;
 
-use Barryvdh\DomPDF\Facade\Pdf;
-use Illuminate\Support\Facades\Storage;
-use InvalidArgumentException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class CoaPdfService
 {
-    public function disk(): string
+    /**
+     * Resolve final COA blade view + normalized template code.
+     *
+     * Rules:
+     * - WGS (workflow_group contains 'wgs') => reports.coa.wgs
+     * - Institution client => reports.coa.institution
+     * - else => reports.coa.individual
+     *
+     * Override template code (optional) can force mapping but still respects WGS priority.
+     */
+    public function resolveView(int $reportId, ?string $overrideTemplateCode = null): array
     {
-        return (string) config('coa.storage_disk', 'local');
-    }
-
-    public function resolveView(string $templateKey): string
-    {
-        $k = strtolower(trim($templateKey));
-
-        return match ($k) {
-            // individual
-            'individual', 'ind', 'individual_v1', 'individual_v2' => 'reports.coa.individual',
-
-            // institution 
-            'institution', 'inst', 'inst_v1', 'inst_v2', 'institution_v1', 'institution_v2' => 'reports.coa.institution',
-
-            // wgs
-            'wgs', 'coa_wgs' => 'reports.coa.wgs',
-
-            default => throw new InvalidArgumentException("Unknown CoA template key [$templateKey]."),
-        };
-    }
-
-    public function buildPath(string $reportNo, string $templateKey): string
-    {
-        $base = trim((string) config('coa.storage_path', 'reports/coa'), '/');
-        $safe = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $reportNo) ?: 'coa';
-        return "{$base}/{$safe}_{$templateKey}.pdf";
-    }
-
-    public function render(string $view, array $data): string
-    {
-        $pdf = Pdf::loadView($view, $data)->setPaper('a4', 'portrait');
-        return $pdf->output();
-    }
-
-    public function store(string $path, string $binary): void
-    {
-        Storage::disk($this->disk())->put($path, $binary);
-    }
-
-    public function generateQrPng(string $url): string
-    {
-        return \SimpleSoftwareIO\QrCode\Facades\QrCode::format('png')
-            ->size(120)
-            ->margin(1)
-            ->generate($url);
-    }
-
-    public function renderWithMetadata(
-        string $view,
-        array $payload,
-        array $meta
-    ): string {
-        /** @var \Barryvdh\DomPDF\PDF $pdf */
-        $pdf = Pdf::loadView($view, $payload)->setPaper('a4', 'portrait');
-
-        $dompdf = $pdf->getDomPDF();
-
-        // ✅ METADATA RESMI
-        $dompdf->addInfo('Title', $meta['title'] ?? 'Certificate of Analysis');
-        $dompdf->addInfo('Author', $meta['author'] ?? 'BioTrace LIMS');
-        $dompdf->addInfo('Subject', $meta['subject'] ?? 'Laboratory Test Result');
-        $dompdf->addInfo('Keywords', $meta['keywords'] ?? '');
-
-        // 🧾 FORENSIC MARKER (HALUS)
-        if (!empty($meta['legal_marker'])) {
-            $pdf->getCanvas()->page_text(
-                20,
-                820,
-                $meta['legal_marker'],
-                null,
-                6,
-                [0.95, 0.95, 0.95]
-            );
+        $report = DB::table('reports')->where('report_id', $reportId)->first();
+        if (!$report) {
+            throw new \RuntimeException("Report {$reportId} not found.");
         }
 
-        return $pdf->output();
+        $sample = DB::table('samples')->where('sample_id', $report->sample_id)->first();
+
+        // client type (individual / institution)
+        $clientType = 'individual';
+        if ($sample && isset($sample->client_id) && $sample->client_id) {
+            $clientType = (string) (DB::table('clients')->where('client_id', $sample->client_id)->value('type') ?: 'individual');
+        }
+
+        // workflow group -> wgs?
+        $workflowGroup = $sample?->workflow_group ?? null;
+        $group = strtolower(trim((string) $workflowGroup));
+        $isWgs = $group !== '' && str_contains($group, 'wgs');
+
+        // normalize template override / stored template_code
+        $rawTemplate = $overrideTemplateCode;
+        if (!$rawTemplate && Schema::hasColumn('reports', 'template_code')) {
+            $rawTemplate = (string) ($report->template_code ?? '');
+        }
+        $normalized = strtoupper(trim((string) $rawTemplate));
+
+        // choose final template
+        $finalTemplate = 'INDIVIDUAL';
+
+        // WGS always wins (by workflow group)
+        if ($isWgs || $normalized === 'WGS') {
+            $finalTemplate = 'WGS';
+        } elseif ($clientType === 'institution' || $normalized === 'INSTITUTION' || str_contains($normalized, 'INST')) {
+            // legacy INST_* treated as INSTITUTION
+            $finalTemplate = 'INSTITUTION';
+        } else {
+            $finalTemplate = 'INDIVIDUAL';
+        }
+
+        // map to blade view
+        $view = match ($finalTemplate) {
+            'WGS' => 'reports.coa.wgs',
+            'INSTITUTION' => 'reports.coa.institution',
+            default => 'reports.coa.individual',
+        };
+
+        return [
+            'template_code' => $finalTemplate,
+            'view' => $view,
+            'is_wgs' => $isWgs,
+            'client_type' => $clientType,
+        ];
     }
 }
