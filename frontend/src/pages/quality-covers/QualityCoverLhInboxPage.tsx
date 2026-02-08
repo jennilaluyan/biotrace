@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
     listLhInbox,
     lhReject,
     lhValidate,
     QualityCoverInboxItem,
     InboxMeta,
+    type LhValidateResponse,
 } from "../../services/qualityCovers";
 import { formatDateTimeLocal } from "../../utils/date";
+import { openCoaPdfBySample } from "../../services/coa";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -24,7 +26,17 @@ type DecisionState =
         error?: string | null;
     };
 
+type FlashPayload = {
+    type: "success" | "warning" | "error";
+    message: string;
+    sampleId?: number;
+    canDownload?: boolean;
+};
+
 export function QualityCoverLhInboxPage() {
+    const location = useLocation();
+    const nav = useNavigate();
+
     const [rows, setRows] = useState<QualityCoverInboxItem[]>([]);
     const [meta, setMeta] = useState<InboxMeta | null>(null);
     const [loading, setLoading] = useState(false);
@@ -34,6 +46,9 @@ export function QualityCoverLhInboxPage() {
     const perPage = 25;
 
     const [decision, setDecision] = useState<DecisionState>({ open: false });
+
+    // ✅ flash banner after validate/reject
+    const [flash, setFlash] = useState<FlashPayload | null>(null);
 
     const canPrev = !!meta && meta.current_page > 1;
     const canNext = !!meta && meta.current_page < meta.last_page;
@@ -48,6 +63,25 @@ export function QualityCoverLhInboxPage() {
             setLoading(false);
         }
     }
+
+    // read flash from navigation state (from detail page)
+    useEffect(() => {
+        const st = (location.state as any)?.flash as FlashPayload | undefined;
+        if (st && typeof st.message === "string") {
+            setFlash(st);
+
+            // clear state so it doesn't reappear on refresh/back
+            nav(location.pathname + location.search, { replace: true, state: {} });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // auto dismiss flash
+    useEffect(() => {
+        if (!flash) return;
+        const t = window.setTimeout(() => setFlash(null), 9000);
+        return () => window.clearTimeout(t);
+    }, [flash]);
 
     useEffect(() => {
         fetchData();
@@ -99,9 +133,39 @@ export function QualityCoverLhInboxPage() {
             const id = decision.item.quality_cover_id;
 
             if (decision.mode === "approve") {
-                await lhValidate(id);
+                const res = (await lhValidate(id)) as LhValidateResponse;
+
+                const qc = res?.data?.quality_cover ?? null;
+                const report = res?.data?.report ?? null;
+                const coaError = res?.data?.coa_error ?? null;
+                const sampleId = qc?.sample_id ?? decision.item.sample_id;
+
+                if (report && typeof report.report_id === "number" && report.report_id > 0) {
+                    setFlash({
+                        type: "success",
+                        message: "Quality cover validated. COA berhasil di-generate dan tersimpan di halaman Reports.",
+                        sampleId,
+                        canDownload: true,
+                    });
+                } else {
+                    setFlash({
+                        type: "warning",
+                        message:
+                            coaError ||
+                            res?.message ||
+                            "Quality cover validated, tapi COA generation masih diblok (cek tests/hasil dulu).",
+                        sampleId,
+                        canDownload: false,
+                    });
+                }
             } else {
                 await lhReject(id, decision.reason.trim());
+                setFlash({
+                    type: "success",
+                    message: "Quality cover rejected.",
+                    sampleId: decision.item.sample_id,
+                    canDownload: false,
+                });
             }
 
             closeModal();
@@ -141,6 +205,42 @@ export function QualityCoverLhInboxPage() {
                     </button>
                 </div>
             </div>
+
+            {/* ✅ Flash banner */}
+            {flash ? (
+                <div
+                    className={cx(
+                        "mb-4 rounded-2xl border px-4 py-3 text-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3",
+                        flash.type === "success" && "border-emerald-200 bg-emerald-50 text-emerald-900",
+                        flash.type === "warning" && "border-amber-200 bg-amber-50 text-amber-900",
+                        flash.type === "error" && "border-rose-200 bg-rose-50 text-rose-900"
+                    )}
+                >
+                    <div className="leading-relaxed">{flash.message}</div>
+
+                    <div className="flex items-center gap-2 justify-end">
+                        {flash.canDownload && flash.sampleId ? (
+                            <button
+                                onClick={() => openCoaPdfBySample(flash.sampleId!, `COA_${flash.sampleId}.pdf`)}
+                                className="rounded-xl border px-3 py-1.5 text-xs hover:bg-white/60"
+                            >
+                                Download COA
+                            </button>
+                        ) : null}
+
+                        <Link to="/reports" className="rounded-xl border px-3 py-1.5 text-xs hover:bg-white/60">
+                            Open Reports
+                        </Link>
+
+                        <button
+                            onClick={() => setFlash(null)}
+                            className="rounded-xl border px-3 py-1.5 text-xs hover:bg-white/60"
+                        >
+                            Dismiss
+                        </button>
+                    </div>
+                </div>
+            ) : null}
 
             <div className="rounded-2xl border bg-white">
                 <div className="flex items-center justify-between border-b px-4 py-3">
@@ -266,7 +366,7 @@ export function QualityCoverLhInboxPage() {
                             ) : (
                                 <div className="text-sm text-slate-700">
                                     This is the final step. The cover will become{" "}
-                                    <span className="font-semibold">validated</span>.
+                                    <span className="font-semibold">validated</span>. If tests exist, COA will be generated.
                                 </div>
                             )}
 

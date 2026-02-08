@@ -6,9 +6,17 @@ import {
     lhReject,
     lhValidate,
     QualityCoverInboxItem,
+    type LhValidateResponse,
 } from "../../services/qualityCovers";
 
 type DecisionMode = "validate" | "reject";
+
+type FlashPayload = {
+    type: "success" | "warning" | "error";
+    message: string;
+    sampleId?: number;
+    canDownload?: boolean;
+};
 
 export function QualityCoverLhDetailPage() {
     const { qualityCoverId } = useParams();
@@ -49,18 +57,64 @@ export function QualityCoverLhDetailPage() {
 
         setSubmitting(true);
         setError(null);
+
         try {
-            if (mode === "validate") await lhValidate(data.quality_cover_id);
-            if (mode === "reject") await lhReject(data.quality_cover_id, reason.trim());
+            if (mode === "validate") {
+                const res = (await lhValidate(data.quality_cover_id)) as LhValidateResponse;
 
-            setMode(null);
-            setReason("");
-            await load();
+                const qc = res?.data?.quality_cover ?? null;
+                const report = res?.data?.report ?? null;
+                const coaError = res?.data?.coa_error ?? null;
 
-            // keep current behavior (back to inbox)
-            nav("/quality-covers/inbox/lh");
+                const sampleId = qc?.sample_id ?? data.sample_id;
+
+                let flash: FlashPayload;
+
+                if (report && typeof report.report_id === "number" && report.report_id > 0) {
+                    flash = {
+                        type: "success",
+                        message: "Quality cover validated. COA berhasil di-generate dan tersimpan di halaman Reports.",
+                        sampleId,
+                        canDownload: true,
+                    };
+                } else {
+                    flash = {
+                        type: "warning",
+                        message:
+                            coaError ||
+                            res?.message ||
+                            "Quality cover validated, tapi COA generation masih diblok (cek tests/hasil dulu).",
+                        sampleId,
+                        canDownload: false,
+                    };
+                }
+
+                setMode(null);
+                setReason("");
+
+                // redirect to inbox with flash banner
+                nav("/quality-covers/inbox/lh", { state: { flash } });
+                return;
+            }
+
+            // reject
+            if (mode === "reject") {
+                await lhReject(data.quality_cover_id, reason.trim());
+
+                const flash: FlashPayload = {
+                    type: "success",
+                    message: "Quality cover rejected.",
+                    sampleId: data.sample_id,
+                    canDownload: false,
+                };
+
+                setMode(null);
+                setReason("");
+
+                nav("/quality-covers/inbox/lh", { state: { flash } });
+                return;
+            }
         } catch (e: any) {
-            // ✅ show backend message (409 etc)
             const msg =
                 e?.message ||
                 e?.data?.message ||
@@ -200,6 +254,7 @@ export function QualityCoverLhDetailPage() {
                             ) : (
                                 <div className="text-sm text-slate-700">
                                     This will mark the cover as <span className="font-semibold">validated</span>.
+                                    {" "}If tests exist, COA will be generated automatically.
                                 </div>
                             )}
 

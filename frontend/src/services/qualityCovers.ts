@@ -30,6 +30,11 @@ export type QualityCover = {
 
     rejected_at?: string | null;
     rejected_by_staff_id?: number | null;
+
+    // backend biasanya pakai `reject_reason`
+    reject_reason?: string | null;
+
+    // backward/typo-friendly (biar aman kalau ada payload lama)
     rejected_reason?: string | null;
 };
 
@@ -53,11 +58,24 @@ export type QualityCoverInboxItem = QualityCover & {
     validated_by?: { staff_id: number; name?: string | null } | null;
 };
 
-export async function listOmInbox(params: {
-    search?: string;
-    per_page?: number;
-    page?: number;
-}) {
+// === COA generation payload from LH validate ===
+export type CoaGeneratedReportInfo = {
+    report_id: number;
+    pdf_url?: string | null;
+    template_code?: string | null;
+    is_locked?: boolean;
+};
+
+export type LhValidateResponse = {
+    message: string;
+    data: {
+        quality_cover: QualityCoverInboxItem;
+        report: CoaGeneratedReportInfo | null;
+        coa_error?: string | null; // optional: kalau backend mengirim alasan blocked
+    };
+};
+
+export async function listOmInbox(params: { search?: string; per_page?: number; page?: number }) {
     const qs = new URLSearchParams();
     if (params.search) qs.set("search", params.search);
     if (params.per_page) qs.set("per_page", String(params.per_page));
@@ -68,11 +86,7 @@ export async function listOmInbox(params: {
     );
 }
 
-export async function listLhInbox(params: {
-    search?: string;
-    per_page?: number;
-    page?: number;
-}) {
+export async function listLhInbox(params: { search?: string; per_page?: number; page?: number }) {
     const qs = new URLSearchParams();
     if (params.search) qs.set("search", params.search);
     if (params.per_page) qs.set("per_page", String(params.per_page));
@@ -84,31 +98,24 @@ export async function listLhInbox(params: {
 }
 
 export async function omVerify(qualityCoverId: number) {
-    return apiPost<{ message: string; data: QualityCoverInboxItem }>(
-        `/v1/quality-covers/${qualityCoverId}/verify`,
-        {}
-    );
+    return apiPost<{ message: string; data: QualityCoverInboxItem }>(`/v1/quality-covers/${qualityCoverId}/verify`, {});
 }
 
 export async function omReject(qualityCoverId: number, reason: string) {
-    return apiPost<{ message: string; data: QualityCoverInboxItem }>(
-        `/v1/quality-covers/${qualityCoverId}/reject`,
-        { reason }
-    );
+    return apiPost<{ message: string; data: QualityCoverInboxItem }>(`/v1/quality-covers/${qualityCoverId}/reject`, {
+        reason,
+    });
 }
 
 export async function lhValidate(qualityCoverId: number) {
-    return apiPost<{ message: string; data: QualityCoverInboxItem }>(
-        `/v1/quality-covers/${qualityCoverId}/validate`,
-        {}
-    );
+    // ✅ new shape: { data: { quality_cover, report, coa_error } }
+    return apiPost<LhValidateResponse>(`/v1/quality-covers/${qualityCoverId}/validate`, {});
 }
 
 export async function lhReject(qualityCoverId: number, reason: string) {
-    return apiPost<{ message: string; data: QualityCoverInboxItem }>(
-        `/v1/quality-covers/${qualityCoverId}/reject-lh`,
-        { reason }
-    );
+    return apiPost<{ message: string; data: QualityCoverInboxItem }>(`/v1/quality-covers/${qualityCoverId}/reject-lh`, {
+        reason,
+    });
 }
 
 function unwrapApi(res: any) {
@@ -157,9 +164,7 @@ export async function getQualityCover(sampleId: number): Promise<QualityCover | 
 /**
  * OM/LH detail page uses this.
  */
-export async function getQualityCoverById(
-    qualityCoverId: number
-): Promise<QualityCoverInboxItem> {
+export async function getQualityCoverById(qualityCoverId: number): Promise<QualityCoverInboxItem> {
     try {
         const res = await apiGet<any>(`/v1/quality-covers/${qualityCoverId}`);
         const payload = unwrapApi(res);
