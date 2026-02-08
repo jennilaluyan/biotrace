@@ -15,10 +15,18 @@ class CoaPdfService
 
     public function resolveView(string $templateKey): string
     {
-        return match ($templateKey) {
-            'individual' => 'reports.coa.individual',
-            'institution_v1' => 'reports.coa.institution_v1',
-            'institution_v2' => 'reports.coa.institution_v2',
+        $k = strtolower(trim($templateKey));
+
+        return match ($k) {
+            // individual
+            'individual', 'ind', 'individual_v1', 'individual_v2' => 'reports.coa.individual',
+
+            // institution 
+            'institution', 'inst', 'inst_v1', 'inst_v2', 'institution_v1', 'institution_v2' => 'reports.coa.institution',
+
+            // wgs
+            'wgs', 'coa_wgs' => 'reports.coa.wgs',
+
             default => throw new InvalidArgumentException("Unknown CoA template key [$templateKey]."),
         };
     }

@@ -40,10 +40,14 @@ class CoaFinalizeService
                 ->where('samples.sample_id', $report->sample_id)
                 ->value('clients.type') ?: 'individual';
 
-            // 4b️⃣ determine workflow group (wgs / pcr / others)
-            $workflowGroup = DB::table('samples')
-                ->where('sample_id', $report->sample_id)
-                ->value('workflow_group');
+            // 4b️⃣ determine workflow group (wgs / pcr / others) with safe fallback
+            $workflowGroup = null;
+
+            if (Schema::hasColumn('samples', 'workflow_group')) {
+                $workflowGroup = DB::table('samples')->where('sample_id', $report->sample_id)->value('workflow_group');
+            } elseif (Schema::hasColumn('samples', 'workflow_group_code')) {
+                $workflowGroup = DB::table('samples')->where('sample_id', $report->sample_id)->value('workflow_group_code');
+            }
 
             $group = strtolower(trim((string) $workflowGroup));
             $isWgs = $group !== '' && str_contains($group, 'wgs');
@@ -53,7 +57,7 @@ class CoaFinalizeService
                 'INDIVIDUAL',
                 'INSTITUTION',
                 'WGS',
-                // legacy codes (in case older data / manual override)
+                // legacy codes (older/manual override)
                 'INST_V1',
                 'INST_V2',
                 'INSTITUTION_V1',
@@ -61,56 +65,61 @@ class CoaFinalizeService
             ];
 
             $normalized = null;
-            if ($templateCode && in_array($templateCode, $allowed, true)) {
-                $normalized = $templateCode;
-            }
-
-            // 4d️⃣ choose final template + blade view (must match your blade filenames)
-            // - WGS always uses reports.coa.wgs
-            // - Institution uses reports.coa.institution
-            // - Individual uses reports.coa.individual
-            $finalTemplate = 'INDIVIDUAL';
-            $view = 'reports.coa.individual';
-
-            if ($isWgs) {
-                $finalTemplate = 'WGS';
-                $view = 'reports.coa.wgs';
-            } elseif ($clientType === 'institution') {
-                $finalTemplate = 'INSTITUTION';
-                $view = 'reports.coa.institution';
-            } else {
-                $finalTemplate = 'INDIVIDUAL';
-                $view = 'reports.coa.individual';
-            }
-
-            // allow explicit override ONLY if it doesn't break the blade mapping you asked for
-            if ($normalized) {
-                // map legacy overrides into current stable codes
-                if (in_array($normalized, ['INST_V1', 'INSTITUTION_V1'], true)) {
-                    $finalTemplate = 'INSTITUTION';
-                    $view = 'reports.coa.institution';
-                } elseif (in_array($normalized, ['INST_V2', 'INSTITUTION_V2'], true)) {
-                    // your project uses wgs.blade.php for WGS
-                    // institution v2 doesn't exist in your blade list, so we map to institution
-                    $finalTemplate = $isWgs ? 'WGS' : 'INSTITUTION';
-                    $view = $isWgs ? 'reports.coa.wgs' : 'reports.coa.institution';
-                } elseif ($normalized === 'WGS') {
-                    $finalTemplate = 'WGS';
-                    $view = 'reports.coa.wgs';
-                } elseif ($normalized === 'INSTITUTION') {
-                    $finalTemplate = 'INSTITUTION';
-                    $view = 'reports.coa.institution';
-                } elseif ($normalized === 'INDIVIDUAL') {
-                    $finalTemplate = 'INDIVIDUAL';
-                    $view = 'reports.coa.individual';
+            if ($templateCode) {
+                $candidate = strtoupper(trim((string) $templateCode));
+                if (in_array($candidate, $allowed, true)) {
+                    $normalized = $candidate;
                 }
             }
 
-            // 5️⃣ build view data (builder already prepares: $client, $sample, $items, qr_data_uri, lh_signature_data_uri, etc)
+            // 4d️⃣ choose final template code (stored in reports.template_code)
+            // NOTE: Blade view mapping is centralized in CoaPdfService::resolveView()
+            $finalTemplate = 'INDIVIDUAL';
+
+            if ($isWgs) {
+                $finalTemplate = 'WGS';
+            } elseif ($clientType === 'institution') {
+                $finalTemplate = 'INSTITUTION';
+            } else {
+                $finalTemplate = 'INDIVIDUAL';
+            }
+
+            // allow explicit override, but keep it compatible with your blade filenames:
+            // - reports.coa.individual
+            // - reports.coa.institution
+            // - reports.coa.wgs
+            if ($normalized) {
+                if (in_array($normalized, ['INST_V1', 'INSTITUTION_V1'], true)) {
+                    $finalTemplate = 'INSTITUTION';
+                } elseif (in_array($normalized, ['INST_V2', 'INSTITUTION_V2'], true)) {
+                    // project blade list does not include institution_v2
+                    // keep institution unless workflow is WGS
+                    $finalTemplate = $isWgs ? 'WGS' : 'INSTITUTION';
+                } elseif ($normalized === 'WGS') {
+                    $finalTemplate = 'WGS';
+                } elseif ($normalized === 'INSTITUTION') {
+                    $finalTemplate = 'INSTITUTION';
+                } elseif ($normalized === 'INDIVIDUAL') {
+                    $finalTemplate = 'INDIVIDUAL';
+                }
+            }
+
+            // 5️⃣ resolve blade view using centralized resolver (step 4)
+            $view = app(CoaPdfService::class)->resolveView($finalTemplate);
+
+            // 6️⃣ build view data (must support your templates: qr_data_uri, lh_signature_data_uri, items, etc)
             $viewData = app(CoaViewDataBuilder::class)
                 ->build($report->report_id, $sig['data_uri'], $actorStaffId);
 
-            // 6️⃣ render FINAL PDF
+            // compat: your PCR templates use $qr_data_uri, WGS uses $lh_signature_data_uri (fallback to qr)
+            if (!array_key_exists('lh_signature_data_uri', $viewData) || empty($viewData['lh_signature_data_uri'])) {
+                $viewData['lh_signature_data_uri'] = $sig['data_uri'] ?? null;
+            }
+            if (!array_key_exists('qr_data_uri', $viewData) || empty($viewData['qr_data_uri'])) {
+                $viewData['qr_data_uri'] = $viewData['lh_signature_data_uri'] ?? ($sig['data_uri'] ?? null);
+            }
+
+            // 7️⃣ render FINAL PDF
             $pdf = Pdf::loadView($view, $viewData)->setPaper('a4');
             $bytes = $pdf->output();
 
@@ -123,7 +132,7 @@ class CoaFinalizeService
             $path = "reports/coa/{$year}/{$safeNo}_{$finalTemplate}_FINAL.pdf";
             Storage::disk($disk)->put($path, $bytes);
 
-            // 7️⃣ update report
+            // 8️⃣ update report
             $update = [
                 'pdf_url'   => $path,
                 'is_locked' => true,
@@ -141,7 +150,7 @@ class CoaFinalizeService
 
             DB::table('reports')->where('report_id', $reportId)->update($update);
 
-            // 8️⃣ upsert signature
+            // 9️⃣ upsert signature
             DB::table('report_signatures')->updateOrInsert(
                 ['report_id' => $reportId, 'role_code' => 'LH'],
                 [
@@ -150,7 +159,7 @@ class CoaFinalizeService
                 ]
             );
 
-            // 9️⃣ set sample → reported
+            // 🔟 set sample → reported
             $statusCol = Schema::hasColumn('samples', 'current_status')
                 ? 'current_status'
                 : 'status';

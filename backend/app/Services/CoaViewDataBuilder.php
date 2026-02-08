@@ -36,8 +36,9 @@ class CoaViewDataBuilder
             'report' => $report,
             'sample' => $sample,
             'client' => $client,
-            'items'  => $items,
+            'items' => $items,
             'lh_signature_data_uri' => $lhSignatureDataUri,
+            'qr_data_uri' => $lhSignatureDataUri,
             'lh' => $lh,
             'signed_at' => now(),
         ];
