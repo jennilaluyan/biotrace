@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class QualityCoverController extends Controller
 {
@@ -38,7 +39,6 @@ class QualityCoverController extends Controller
     private function isAnalyst(Staff $staff): bool
     {
         $name = $this->roleName($staff);
-        // allow minor variance
         return $name === 'analyst';
     }
 
@@ -124,7 +124,6 @@ class QualityCoverController extends Controller
         $qualityCover->verified_at = now();
         $qualityCover->verified_by_staff_id = (int) $staff->staff_id;
 
-        // reset reject fields (kalau ada data lama)
         $qualityCover->rejected_at = null;
         $qualityCover->rejected_by_staff_id = null;
         $qualityCover->reject_reason = null;
@@ -191,7 +190,6 @@ class QualityCoverController extends Controller
         $qualityCover->rejected_by_staff_id = (int) $staff->staff_id;
         $qualityCover->reject_reason = $reason;
 
-        // reset verify fields (biar konsisten)
         $qualityCover->verified_at = null;
         $qualityCover->verified_by_staff_id = null;
 
@@ -266,7 +264,6 @@ class QualityCoverController extends Controller
             ], 500);
         }
 
-        // Find existing draft
         $cover = QualityCover::query()
             ->where('sample_id', (int) $sample->sample_id)
             ->where('status', 'draft')
@@ -274,7 +271,6 @@ class QualityCoverController extends Controller
             ->first();
 
         if (!$cover) {
-            // block double submit if latest is already submitted
             $latest = QualityCover::query()
                 ->where('sample_id', (int) $sample->sample_id)
                 ->orderByDesc('quality_cover_id')
@@ -290,19 +286,15 @@ class QualityCoverController extends Controller
             $cover = new QualityCover();
             $cover->sample_id = (int) $sample->sample_id;
             $cover->status = 'draft';
-            // ✅ Carbon instance (fix: typed date|null)
             $cover->date_of_analysis = Carbon::today();
             $cover->checked_by_staff_id = (int) $staff->staff_id;
         }
 
-        // Determine workflow group (from To-Do 9)
         $group = (string) ($sample->workflow_group ?? 'others');
         $group = strtolower(trim($group)) ?: 'others';
 
-        // Group-aware validation (submit is strict)
         $this->validateQcPayloadByGroup($payload['qc_payload'], $group);
 
-        // Lock fields at submit time
         $cover->workflow_group = $group;
         $cover->method_of_analysis = $payload['method_of_analysis'];
         $cover->qc_payload = $payload['qc_payload'];
@@ -452,9 +444,6 @@ class QualityCoverController extends Controller
     /**
      * GET /v1/quality-covers/{qualityCover}
      * Read one quality cover (for OM/LH detail pages).
-     *
-     * IMPORTANT:
-     * If you still get 403 after this, the blocker is very likely route middleware/policy.
      */
     public function showById(Request $request, QualityCover $qualityCover): JsonResponse
     {
@@ -517,35 +506,54 @@ class QualityCoverController extends Controller
         }
 
         $sampleId = (int) $qualityCover->sample_id;
-        $actorId = (int) $staff->staff_id;
+        $actorId  = (int) $staff->staff_id;
 
-        $coa = DB::transaction(function () use ($qualityCover, $sampleId, $actorId) {
+        $coa = null;
 
-            // 1) validate QC
-            $qualityCover->status = 'validated';
-            $qualityCover->validated_at = now();
-            $qualityCover->validated_by_staff_id = $actorId;
+        try {
+            $coa = DB::transaction(function () use ($qualityCover, $sampleId, $actorId) {
 
-            // clear reject fields just in case
-            $qualityCover->rejected_at = null;
-            $qualityCover->rejected_by_staff_id = null;
-            $qualityCover->reject_reason = null;
+                $qualityCover->status = 'validated';
+                $qualityCover->validated_at = now();
+                $qualityCover->validated_by_staff_id = $actorId;
 
-            $qualityCover->save();
+                $qualityCover->rejected_at = null;
+                $qualityCover->rejected_by_staff_id = null;
+                $qualityCover->reject_reason = null;
 
-            // 2) Ensure sample status => validated (ReportGenerationService usually expects this)
-            $statusCol = Schema::hasColumn('samples', 'current_status')
-                ? 'current_status'
-                : 'status';
+                $qualityCover->save();
 
-            DB::table('samples')
-                ->where('sample_id', $sampleId)
-                ->lockForUpdate()
-                ->update([$statusCol => 'validated']);
+                $statusCol = Schema::hasColumn('samples', 'current_status')
+                    ? 'current_status'
+                    : 'status';
 
-            // 3) Auto-generate + finalize COA (idempotent)
-            return app(CoaAutoGenerateService::class)->run($sampleId, $actorId);
-        });
+                DB::table('samples')
+                    ->where('sample_id', $sampleId)
+                    ->lockForUpdate()
+                    ->update([$statusCol => 'validated']);
+
+                return app(CoaAutoGenerateService::class)->run($sampleId, $actorId);
+            });
+        } catch (ConflictHttpException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 409);
+        } catch (\Throwable $e) {
+            $msg = (string) $e->getMessage();
+
+            // fallback mapping (kalau ada yang lolos dari service)
+            if ($msg !== '' && stripos($msg, 'no tests') !== false) {
+                return response()->json([
+                    'message' => 'Cannot generate COA: no tests for this sample.',
+                ], 409);
+            }
+
+            report($e);
+
+            return response()->json([
+                'message' => 'Failed to validate quality cover.',
+            ], 500);
+        }
 
         AuditLogger::logQualityCoverLhValidated(
             staffId: $actorId,
@@ -610,7 +618,6 @@ class QualityCoverController extends Controller
         $qualityCover->rejected_by_staff_id = (int) $staff->staff_id;
         $qualityCover->reject_reason = $reason;
 
-        // clear validated fields (biar konsisten)
         $qualityCover->validated_at = null;
         $qualityCover->validated_by_staff_id = null;
 
@@ -660,7 +667,6 @@ class QualityCoverController extends Controller
             ->orderByDesc('quality_cover_id')
             ->first();
 
-        // ✅ Carbon instance (fix: typed date|null)
         $today = Carbon::today();
 
         if (!$cover) {

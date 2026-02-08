@@ -3,9 +3,9 @@
 namespace App\Services;
 
 use App\Models\Report;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class CoaAutoGenerateService
 {
@@ -28,15 +28,16 @@ class CoaAutoGenerateService
         $runner = function () use ($sampleId, $lhStaffId, $templateCode) {
 
             // 0) Ensure sample exists + lock it to prevent race
-            $sampleQ = DB::table('samples')->where('sample_id', $sampleId)->lockForUpdate();
-            $sample = $sampleQ->first();
+            $sample = DB::table('samples')
+                ->where('sample_id', $sampleId)
+                ->lockForUpdate()
+                ->first();
 
             if (!$sample) {
                 throw new ConflictHttpException('Sample not found.');
             }
 
-            // 1) Hard gate: Quality Cover must be validated
-            // (latest QC only)
+            // 1) Hard gate: latest Quality Cover must be validated
             $qc = DB::table('quality_covers')
                 ->where('sample_id', $sampleId)
                 ->orderByDesc('quality_cover_id')
@@ -47,7 +48,7 @@ class CoaAutoGenerateService
                 throw new ConflictHttpException('Quality cover belum validated oleh LH.');
             }
 
-            // 2) Hard gate: sample status should be validated (ReportGenerationService biasanya butuh ini)
+            // 2) Hard gate: sample status should be validated/reported
             $statusCol = Schema::hasColumn('samples', 'current_status') ? 'current_status' : 'status';
             $currentStatus = (string) ($sample->{$statusCol} ?? '');
 
@@ -76,7 +77,22 @@ class CoaAutoGenerateService
 
             // 4) Ensure report exists (generate if missing)
             if (!$report) {
-                $generated = $this->reportGeneration->generateForSample($sampleId, $lhStaffId);
+                try {
+                    $generated = $this->reportGeneration->generateForSample($sampleId, $lhStaffId);
+                } catch (\RuntimeException $e) {
+                    $msg = (string) $e->getMessage();
+
+                    // map common business-gate errors -> 409
+                    if ($msg !== '' && stripos($msg, 'no tests') !== false) {
+                        throw new ConflictHttpException('Cannot generate COA: no tests for this sample.');
+                    }
+
+                    // fallback: still a conflict (better than 500 for gate-like runtime exceptions)
+                    throw new ConflictHttpException($msg !== '' ? $msg : 'Cannot generate COA report.');
+                } catch (\Throwable $e) {
+                    // unknown error => keep it 500 (controller will handle)
+                    throw $e;
+                }
 
                 $rid = null;
                 if (is_array($generated)) {
@@ -89,16 +105,19 @@ class CoaAutoGenerateService
                     throw new ConflictHttpException('Failed to generate report record.');
                 }
 
-                $report = Report::query()->where('report_id', (int) $rid)->lockForUpdate()->first();
+                $report = Report::query()
+                    ->where('report_id', (int) $rid)
+                    ->lockForUpdate()
+                    ->first();
+
                 if (!$report) {
                     throw new ConflictHttpException('Generated report not found.');
                 }
             }
 
-            // 5) Finalize (render PDF + lock report). CoaFinalizeService already handles view selection.
+            // 5) Finalize (render PDF + lock report)
             $final = $this->coaFinalize->finalize((int) $report->report_id, $lhStaffId, $templateCode);
 
-            // Re-fetch for latest values
             $report->refresh();
 
             return [
@@ -109,7 +128,7 @@ class CoaAutoGenerateService
             ];
         };
 
-        // Reuse outer transaction if already running (so controller can be fully atomic)
+        // Reuse outer transaction if already running
         if (method_exists(DB::class, 'transactionLevel') && DB::transactionLevel() > 0) {
             return $runner();
         }
