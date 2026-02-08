@@ -5,13 +5,17 @@ namespace App\Http\Controllers;
 use App\Http\Requests\QualityCoverDraftSaveRequest;
 use App\Http\Requests\QualityCoverSubmitRequest;
 use App\Models\QualityCover;
+use App\Models\Report;
 use App\Models\Sample;
 use App\Models\Staff;
+use App\Services\CoaFinalizeService;
+use App\Services\ReportGenerationService;
 use App\Support\AuditLogger;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 
@@ -487,7 +491,7 @@ class QualityCoverController extends Controller
 
     /**
      * POST /v1/quality-covers/{qualityCover}/validate
-     * LH validates a verified quality cover (final).
+     * LH validates a verified quality cover (final) + AUTO GENERATE COA PDF.
      */
     public function lhValidate(Request $request, QualityCover $qualityCover): JsonResponse
     {
@@ -513,28 +517,108 @@ class QualityCoverController extends Controller
             ], 409);
         }
 
-        $qualityCover->status = 'validated';
-        $qualityCover->validated_at = now();
-        $qualityCover->validated_by_staff_id = (int) $staff->staff_id;
+        $sampleId = (int) $qualityCover->sample_id;
+        $actorId = (int) $staff->staff_id;
 
-        // clear reject fields just in case
-        $qualityCover->rejected_at = null;
-        $qualityCover->rejected_by_staff_id = null;
-        $qualityCover->reject_reason = null;
+        $reportId = null;
 
-        $qualityCover->save();
+        DB::transaction(function () use ($qualityCover, $sampleId, $actorId, &$reportId) {
+            // 1) validate QC
+            $qualityCover->status = 'validated';
+            $qualityCover->validated_at = now();
+            $qualityCover->validated_by_staff_id = $actorId;
+
+            // clear reject fields just in case
+            $qualityCover->rejected_at = null;
+            $qualityCover->rejected_by_staff_id = null;
+            $qualityCover->reject_reason = null;
+
+            $qualityCover->save();
+
+            // 2) IMPORTANT: set sample status => validated (ReportGenerationService expects this)
+            $statusCol = Schema::hasColumn('samples', 'current_status')
+                ? 'current_status'
+                : 'status';
+
+            DB::table('samples')
+                ->where('sample_id', $sampleId)
+                ->update([$statusCol => 'validated']);
+
+            // 3) ensure report exists (idempotent)
+            $q = Report::query()->where('sample_id', $sampleId);
+
+            if (Schema::hasColumn('reports', 'report_type')) {
+                $q->where('report_type', 'coa');
+            }
+
+            /** @var Report|null $existing */
+            $existing = $q->orderByDesc('report_id')->first();
+
+            if ($existing) {
+                $reportId = (int) $existing->report_id;
+                return;
+            }
+
+            $generated = app(ReportGenerationService::class)->generateForSample($sampleId, $actorId);
+
+            $rid = null;
+            if (is_array($generated)) {
+                $rid = $generated['report_id'] ?? null;
+            } else {
+                $rid = $generated->report_id ?? null;
+            }
+
+            $reportId = (int) $rid;
+        });
+
+        // 4) finalize report -> generate PDF (only if not locked)
+        /** @var Report $report */
+        $report = Report::query()->where('report_id', (int) $reportId)->firstOrFail();
+
+        $final = null;
+        if (!(bool) $report->is_locked) {
+            $final = app(CoaFinalizeService::class)->finalize((int) $report->report_id, $actorId);
+            $report->refresh();
+        } else {
+            $final = [
+                'report_id' => (int) $report->report_id,
+                'pdf_url' => (string) ($report->pdf_url ?? ''),
+                'template_code' => (string) ($report->template_code ?? ''),
+            ];
+        }
 
         AuditLogger::logQualityCoverLhValidated(
-            staffId: (int) $staff->staff_id,
-            sampleId: (int) $qualityCover->sample_id,
+            staffId: $actorId,
+            sampleId: $sampleId,
             qualityCoverId: (int) $qualityCover->quality_cover_id,
             fromStatus: 'verified',
             toStatus: 'validated',
         );
 
+        // optional extra audit trail for CoA generation (keeps ISO-style trace)
+        AuditLogger::log(
+            actorStaffId: $actorId,
+            action: 'coa_auto_generated',
+            entity: 'reports',
+            entityId: (int) $report->report_id,
+            meta: [
+                'sample_id' => $sampleId,
+                'pdf_url' => (string) ($report->pdf_url ?? ''),
+                'template_code' => (string) ($final['template_code'] ?? ''),
+            ]
+        );
+
         return response()->json([
-            'message' => 'Quality cover validated (LH).',
-            'data' => $qualityCover,
+            'message' => 'Quality cover validated (LH). CoA generated.',
+            'data' => [
+                'quality_cover' => $qualityCover,
+                'report' => [
+                    'report_id' => (int) $report->report_id,
+                    'pdf_url' => (string) ($report->pdf_url ?? ''),
+                    'is_locked' => (bool) $report->is_locked,
+                    'template_code' => (string) ($final['template_code'] ?? ($report->template_code ?? '')),
+                ],
+            ],
         ]);
     }
 
