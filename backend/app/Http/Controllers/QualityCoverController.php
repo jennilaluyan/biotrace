@@ -5,11 +5,9 @@ namespace App\Http\Controllers;
 use App\Http\Requests\QualityCoverDraftSaveRequest;
 use App\Http\Requests\QualityCoverSubmitRequest;
 use App\Models\QualityCover;
-use App\Models\Report;
 use App\Models\Sample;
 use App\Models\Staff;
-use App\Services\CoaFinalizeService;
-use App\Services\ReportGenerationService;
+use App\Services\CoaAutoGenerateService;
 use App\Support\AuditLogger;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -292,7 +290,8 @@ class QualityCoverController extends Controller
             $cover = new QualityCover();
             $cover->sample_id = (int) $sample->sample_id;
             $cover->status = 'draft';
-            $cover->date_of_analysis = Carbon::now()->toDateString();
+            // ✅ Carbon instance (fix: typed date|null)
+            $cover->date_of_analysis = Carbon::today();
             $cover->checked_by_staff_id = (int) $staff->staff_id;
         }
 
@@ -520,9 +519,8 @@ class QualityCoverController extends Controller
         $sampleId = (int) $qualityCover->sample_id;
         $actorId = (int) $staff->staff_id;
 
-        $reportId = null;
+        $coa = DB::transaction(function () use ($qualityCover, $sampleId, $actorId) {
 
-        DB::transaction(function () use ($qualityCover, $sampleId, $actorId, &$reportId) {
             // 1) validate QC
             $qualityCover->status = 'validated';
             $qualityCover->validated_at = now();
@@ -535,57 +533,19 @@ class QualityCoverController extends Controller
 
             $qualityCover->save();
 
-            // 2) IMPORTANT: set sample status => validated (ReportGenerationService expects this)
+            // 2) Ensure sample status => validated (ReportGenerationService usually expects this)
             $statusCol = Schema::hasColumn('samples', 'current_status')
                 ? 'current_status'
                 : 'status';
 
             DB::table('samples')
                 ->where('sample_id', $sampleId)
+                ->lockForUpdate()
                 ->update([$statusCol => 'validated']);
 
-            // 3) ensure report exists (idempotent)
-            $q = Report::query()->where('sample_id', $sampleId);
-
-            if (Schema::hasColumn('reports', 'report_type')) {
-                $q->where('report_type', 'coa');
-            }
-
-            /** @var Report|null $existing */
-            $existing = $q->orderByDesc('report_id')->first();
-
-            if ($existing) {
-                $reportId = (int) $existing->report_id;
-                return;
-            }
-
-            $generated = app(ReportGenerationService::class)->generateForSample($sampleId, $actorId);
-
-            $rid = null;
-            if (is_array($generated)) {
-                $rid = $generated['report_id'] ?? null;
-            } else {
-                $rid = $generated->report_id ?? null;
-            }
-
-            $reportId = (int) $rid;
+            // 3) Auto-generate + finalize COA (idempotent)
+            return app(CoaAutoGenerateService::class)->run($sampleId, $actorId);
         });
-
-        // 4) finalize report -> generate PDF (only if not locked)
-        /** @var Report $report */
-        $report = Report::query()->where('report_id', (int) $reportId)->firstOrFail();
-
-        $final = null;
-        if (!(bool) $report->is_locked) {
-            $final = app(CoaFinalizeService::class)->finalize((int) $report->report_id, $actorId);
-            $report->refresh();
-        } else {
-            $final = [
-                'report_id' => (int) $report->report_id,
-                'pdf_url' => (string) ($report->pdf_url ?? ''),
-                'template_code' => (string) ($report->template_code ?? ''),
-            ];
-        }
 
         AuditLogger::logQualityCoverLhValidated(
             staffId: $actorId,
@@ -595,29 +555,11 @@ class QualityCoverController extends Controller
             toStatus: 'validated',
         );
 
-        // optional extra audit trail for CoA generation (keeps ISO-style trace)
-        AuditLogger::log(
-            actorStaffId: $actorId,
-            action: 'coa_auto_generated',
-            entity: 'reports',
-            entityId: (int) $report->report_id,
-            meta: [
-                'sample_id' => $sampleId,
-                'pdf_url' => (string) ($report->pdf_url ?? ''),
-                'template_code' => (string) ($final['template_code'] ?? ''),
-            ]
-        );
-
         return response()->json([
             'message' => 'Quality cover validated (LH). CoA generated.',
             'data' => [
                 'quality_cover' => $qualityCover,
-                'report' => [
-                    'report_id' => (int) $report->report_id,
-                    'pdf_url' => (string) ($report->pdf_url ?? ''),
-                    'is_locked' => (bool) $report->is_locked,
-                    'template_code' => (string) ($final['template_code'] ?? ($report->template_code ?? '')),
-                ],
+                'report' => $coa,
             ],
         ]);
     }
@@ -718,7 +660,8 @@ class QualityCoverController extends Controller
             ->orderByDesc('quality_cover_id')
             ->first();
 
-        $today = Carbon::now()->toDateString();
+        // ✅ Carbon instance (fix: typed date|null)
+        $today = Carbon::today();
 
         if (!$cover) {
             $cover = new QualityCover();
