@@ -296,27 +296,31 @@ class QualityCoverController extends Controller
         $group = (string) ($sample->workflow_group ?? 'others');
         $group = strtolower(trim($group)) ?: 'others';
 
-        // ✅ lebih aman: kalau FE kirim qc_payload sebagai string JSON, tetap bisa diproses
         $this->validateQcPayloadByGroup($payload['qc_payload'] ?? null, $group);
 
         $cover->workflow_group = $group;
 
-        // ✅ selalu set ulang pada submit (biar akurat walau draft lama)
+        // selalu set ulang pada submit
         $cover->date_of_analysis = Carbon::today();
         $cover->checked_by_staff_id = (int) $staff->staff_id;
 
         $cover->method_of_analysis = $payload['method_of_analysis'];
         $cover->qc_payload = $payload['qc_payload'];
 
-        // ✅ SNAPSHOT parameter (biar tidak null)
+        // ✅ parameter snapshot: set SEBELUM save (biar gak null lagi)
         $snap = $this->deriveParameterSnapshot($sample);
 
-        $paramId = array_key_exists('parameter_id', $payload) ? $payload['parameter_id'] : $snap['parameter_id'];
-        $paramLabel = array_key_exists('parameter_label', $payload) ? $payload['parameter_label'] : $snap['parameter_label'];
+        if (array_key_exists('parameter_id', $payload)) {
+            $cover->parameter_id = $payload['parameter_id'];
+        } else {
+            $cover->parameter_id = $snap['parameter_id'];
+        }
 
-        // set only when available (avoid overriding with null)
-        if (!is_null($paramId)) $cover->parameter_id = $paramId;
-        if (!is_null($paramLabel) && trim((string) $paramLabel) !== '') $cover->parameter_label = $paramLabel;
+        if (array_key_exists('parameter_label', $payload)) {
+            $cover->parameter_label = $payload['parameter_label'];
+        } else {
+            $cover->parameter_label = $snap['parameter_label'];
+        }
 
         $cover->status = 'submitted';
         $cover->submitted_at = now();
@@ -560,7 +564,6 @@ class QualityCoverController extends Controller
         try {
             $coa = app(CoaAutoGenerateService::class)->run($sampleId, $actorId);
         } catch (ConflictHttpException $e) {
-            // jangan gagalkan QC validated — cukup informasikan
             $coaError = $e->getMessage();
         } catch (\Throwable $e) {
             report($e);
@@ -689,14 +692,20 @@ class QualityCoverController extends Controller
             $cover->qc_payload = $payload['qc_payload'];
         }
 
-        // ✅ SNAPSHOT parameter (biar tidak null walau FE tidak kirim)
+        // ✅ parameter snapshot: set SEBELUM save
         $snap = $this->deriveParameterSnapshot($sample);
 
-        $paramId = array_key_exists('parameter_id', $payload) ? $payload['parameter_id'] : $snap['parameter_id'];
-        $paramLabel = array_key_exists('parameter_label', $payload) ? $payload['parameter_label'] : $snap['parameter_label'];
+        if (array_key_exists('parameter_id', $payload)) {
+            $cover->parameter_id = $payload['parameter_id'];
+        } else {
+            $cover->parameter_id = $snap['parameter_id'];
+        }
 
-        if (!is_null($paramId)) $cover->parameter_id = $paramId;
-        if (!is_null($paramLabel) && trim((string) $paramLabel) !== '') $cover->parameter_label = $paramLabel;
+        if (array_key_exists('parameter_label', $payload)) {
+            $cover->parameter_label = $payload['parameter_label'];
+        } else {
+            $cover->parameter_label = $snap['parameter_label'];
+        }
 
         $cover->save();
 
@@ -774,14 +783,8 @@ class QualityCoverController extends Controller
         }
     }
 
-    /**
-     * Try get parameter snapshot from:
-     * 1) samples.requested_parameters (JSON) if exists and has data
-     * 2) fallback to sample_tests + parameters (if tables exist)
-     */
     private function deriveParameterSnapshot(Sample $sample): array
     {
-        // ---------- 1) requested_parameters ----------
         $raw = $sample->requested_parameters ?? null;
 
         if (is_string($raw) && trim($raw) !== '') {
@@ -807,36 +810,9 @@ class QualityCoverController extends Controller
         $names = array_values(array_unique(array_filter(array_map('trim', $names))));
         $ids = array_values(array_unique(array_filter($ids)));
 
-        if ($names || $ids) {
-            return [
-                'parameter_label' => $names ? implode(', ', $names) : null,
-                'parameter_id' => count($ids) === 1 ? $ids[0] : null,
-            ];
-        }
-
-        // ---------- 2) fallback sample_tests + parameters ----------
-        if (Schema::hasTable('sample_tests') && Schema::hasTable('parameters')) {
-            $rows = DB::table('sample_tests')
-                ->join('parameters', 'parameters.parameter_id', '=', 'sample_tests.parameter_id')
-                ->where('sample_tests.sample_id', (int) $sample->sample_id)
-                ->select(['parameters.parameter_id', 'parameters.name'])
-                ->distinct()
-                ->get();
-
-            if ($rows->isNotEmpty()) {
-                $names2 = $rows->pluck('name')->filter()->map(fn($v) => trim((string) $v))->filter()->unique()->values()->all();
-                $ids2 = $rows->pluck('parameter_id')->filter()->unique()->values()->all();
-
-                return [
-                    'parameter_label' => $names2 ? implode(', ', $names2) : null,
-                    'parameter_id' => count($ids2) === 1 ? (int) $ids2[0] : null,
-                ];
-            }
-        }
-
         return [
-            'parameter_label' => null,
-            'parameter_id' => null,
+            'parameter_label' => $names ? implode(', ', $names) : null,
+            'parameter_id' => count($ids) === 1 ? $ids[0] : null,
         ];
     }
 }

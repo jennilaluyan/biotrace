@@ -177,4 +177,73 @@ class CoaAutoGenerateService
 
         return DB::transaction($runner);
     }
+
+    /**
+     * DOMPDF-safe QR data uri (PNG->SVG->Bacon SVG).
+     */
+    private function makeQrDataUri(?string $payload): ?string
+    {
+        $payload = $payload ? trim($payload) : '';
+        if ($payload === '') return null;
+
+        // 1) Try PNG (SimpleSoftwareIO)
+        try {
+            if (class_exists(\SimpleSoftwareIO\QrCode\Facades\QrCode::class)) {
+                $png = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('png')
+                    ->size(110)->margin(1)->generate($payload);
+
+                if (is_string($png) && $png !== '') {
+                    return 'data:image/png;base64,' . base64_encode($png);
+                }
+            }
+        } catch (\Throwable $e) {
+            // ignore -> fallback SVG
+        }
+
+        // 2) SVG (SimpleSoftwareIO)
+        try {
+            if (class_exists(\SimpleSoftwareIO\QrCode\Facades\QrCode::class)) {
+                $svg = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('svg')
+                    ->size(110)->margin(0)->generate($payload);
+
+                if (is_string($svg) && trim($svg) !== '') {
+                    $svg2 = $svg;
+                    if (stripos($svg2, 'width=') === false) {
+                        $svg2 = preg_replace('/<svg\b/', '<svg width="110" height="110"', $svg2, 1);
+                    }
+                    return 'data:image/svg+xml;base64,' . base64_encode($svg2);
+                }
+            }
+        } catch (\Throwable $e) {
+            // ignore -> fallback bacon
+        }
+
+        // 3) BaconQrCode SVG fallback
+        try {
+            if (
+                class_exists(\BaconQrCode\Writer::class) &&
+                class_exists(\BaconQrCode\Renderer\ImageRenderer::class) &&
+                class_exists(\BaconQrCode\Renderer\RendererStyle\RendererStyle::class) &&
+                class_exists(\BaconQrCode\Renderer\Image\SvgImageBackEnd::class)
+            ) {
+                $style = new \BaconQrCode\Renderer\RendererStyle\RendererStyle(110);
+                $backend = new \BaconQrCode\Renderer\Image\SvgImageBackEnd();
+                $renderer = new \BaconQrCode\Renderer\ImageRenderer($style, $backend);
+                $writer = new \BaconQrCode\Writer($renderer);
+
+                $svg = $writer->writeString($payload);
+                if (is_string($svg) && trim($svg) !== '') {
+                    $svg2 = $svg;
+                    if (stripos($svg2, 'width=') === false) {
+                        $svg2 = preg_replace('/<svg\b/', '<svg width="110" height="110"', $svg2, 1);
+                    }
+                    return 'data:image/svg+xml;base64,' . base64_encode($svg2);
+                }
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        return null;
+    }
 }
