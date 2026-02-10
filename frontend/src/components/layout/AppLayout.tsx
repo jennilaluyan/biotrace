@@ -44,6 +44,10 @@ export const AppLayout = () => {
     const isAdmin = roleId === ROLE_ID.ADMIN;
     const isSampleCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
 
+    // ✅ FIX: define these booleans (were missing)
+    const isOperationalManager = roleId === ROLE_ID.OPERATIONAL_MANAGER;
+    const isLabHead = roleId === ROLE_ID.LAB_HEAD;
+
     const canSeeAuditLogs =
         roleId === ROLE_ID.ADMIN ||
         roleId === ROLE_ID.SAMPLE_COLLECTOR ||
@@ -66,6 +70,12 @@ export const AppLayout = () => {
             { label: "Samples", path: "/samples", icon: "samples" },
         ]
         : [];
+
+    // ✅ Archive page is Admin/OM/LH only
+    const archiveItems: NavItem[] =
+        isAdmin || isOperationalManager || isLabHead
+            ? [{ label: "Samples Archive", path: "/samples/archive", icon: "samples" }]
+            : [];
 
     const adminItems: NavItem[] = isAdmin
         ? [
@@ -117,6 +127,7 @@ export const AppLayout = () => {
         if (isStaff) {
             return [
                 ...staffBaseItems,
+                ...archiveItems,
                 ...omLhItems,
                 ...reportItems,
                 ...auditItems,
@@ -160,6 +171,7 @@ export const AppLayout = () => {
     const renderNavItem = (item: NavItem, closeOnClick = false) => {
         const end =
             item.path === "/samples" ||
+            item.path === "/samples/archive" || // ✅ NEW
             item.path === "/clients" ||
             item.path === "/portal" ||
             item.path === "/qa/parameters" ||
@@ -186,15 +198,11 @@ export const AppLayout = () => {
                 className={({ isActive }) =>
                     [
                         "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition",
-                        isActive
-                            ? "bg-white/10 text-white"
-                            : "text-white/80 hover:bg-white/10 hover:text-white",
+                        isActive ? "bg-white/10 text-white" : "text-white/80 hover:bg-white/10 hover:text-white",
                     ].join(" ")
                 }
             >
-                <span className="inline-flex h-5 w-5 items-center justify-center">
-                    {renderIcon(item.icon)}
-                </span>
+                <span className="inline-flex h-5 w-5 items-center justify-center">{renderIcon(item.icon)}</span>
                 <span>{item.label}</span>
             </NavLink>
         );
@@ -206,16 +214,11 @@ export const AppLayout = () => {
                 <div className="px-6 py-5 border-b border-black/10 flex items-center">
                     <img src={BiotraceLogo} alt="Biotrace" className="h-10 w-auto" />
                 </div>
-                <nav className="flex-1 px-3 py-4 space-y-1">
-                    {navItems.map((i) => renderNavItem(i))}
-                </nav>
+                <nav className="flex-1 px-3 py-4 space-y-1">{navItems.map((i) => renderNavItem(i))}</nav>
             </aside>
 
             {sidebarOpen && (
-                <div
-                    className="fixed inset-0 z-30 bg-black/40 lg:hidden"
-                    onClick={() => setSidebarOpen(false)}
-                />
+                <div className="fixed inset-0 z-30 bg-black/40 lg:hidden" onClick={() => setSidebarOpen(false)} />
             )}
 
             <aside
@@ -233,9 +236,7 @@ export const AppLayout = () => {
                         ✕
                     </button>
                 </div>
-                <nav className="px-3 py-4 space-y-1">
-                    {navItems.map((i) => renderNavItem(i, true))}
-                </nav>
+                <nav className="px-3 py-4 space-y-1">{navItems.map((i) => renderNavItem(i, true))}</nav>
             </aside>
 
             <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
