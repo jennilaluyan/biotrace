@@ -80,4 +80,9 @@ class CoaPdfService
             'client_type' => $clientType,
         ];
     }
+
+    public function disk(): string
+    {
+        return (string) (config('coa.storage_disk') ?: 'local');
+    }
 }
