@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\auth\AuthPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -140,6 +139,10 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const subtitleRegister = isPortal
         ? "Register as a client. Your account will be verified by admin."
         : "Register as staff. Your account will be verified by Laboratory Head.";
+
+    useEffect(() => {
+        setMode(initialMode);
+    }, [initialMode]);
 
     useEffect(() => {
         const check = () => setIsMobile(window.innerWidth <= 768);
@@ -685,6 +688,20 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                                 onChange={(e) => setRegName(e.target.value)}
                                 className={inputClass}
                                 placeholder="Your full name"
+                                autoComplete="name"
+                            />
+                        </div>
+
+                        {/* ✅ FIX: staff register needs email field */}
+                        <div>
+                            <label className={labelClass}>Email</label>
+                            <input
+                                type="email"
+                                value={regEmail}
+                                onChange={(e) => setRegEmail(e.target.value)}
+                                className={inputClass}
+                                placeholder="Enter your email"
+                                autoComplete="email"
                             />
                         </div>
 
