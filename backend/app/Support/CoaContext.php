@@ -82,7 +82,7 @@ final class CoaContext
         }
 
         return $clientType === 'institution'
-            ? 'institution_v1'
+            ? 'institution'
             : 'individual';
     }
 

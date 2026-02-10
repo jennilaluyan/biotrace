@@ -308,17 +308,20 @@ class QualityCoverController extends Controller
         $cover->method_of_analysis = $payload['method_of_analysis'];
         $cover->qc_payload = $payload['qc_payload'];
 
+        // ✅ SNAPSHOT parameter (biar tidak null)
+        $snap = $this->deriveParameterSnapshot($sample);
+
+        $paramId = array_key_exists('parameter_id', $payload) ? $payload['parameter_id'] : $snap['parameter_id'];
+        $paramLabel = array_key_exists('parameter_label', $payload) ? $payload['parameter_label'] : $snap['parameter_label'];
+
+        // set only when available (avoid overriding with null)
+        if (!is_null($paramId)) $cover->parameter_id = $paramId;
+        if (!is_null($paramLabel) && trim((string) $paramLabel) !== '') $cover->parameter_label = $paramLabel;
+
         $cover->status = 'submitted';
         $cover->submitted_at = now();
 
         $cover->save();
-
-        if (array_key_exists('parameter_id', $payload)) {
-            $cover->parameter_id = $payload['parameter_id'];
-        }
-        if (array_key_exists('parameter_label', $payload)) {
-            $cover->parameter_label = $payload['parameter_label'];
-        }
 
         AuditLogger::logQualityCoverSubmitted(
             staffId: (int) $staff->staff_id,
@@ -561,7 +564,9 @@ class QualityCoverController extends Controller
             $coaError = $e->getMessage();
         } catch (\Throwable $e) {
             report($e);
-            $coaError = 'Failed to generate COA.';
+            $coaError = config('app.debug')
+                ? ('COA error: ' . $e->getMessage())
+                : 'Failed to generate COA.';
         }
 
         return response()->json([
@@ -684,14 +689,16 @@ class QualityCoverController extends Controller
             $cover->qc_payload = $payload['qc_payload'];
         }
 
-        $cover->save();
+        // ✅ SNAPSHOT parameter (biar tidak null walau FE tidak kirim)
+        $snap = $this->deriveParameterSnapshot($sample);
 
-        if (array_key_exists('parameter_id', $payload)) {
-            $cover->parameter_id = $payload['parameter_id'];
-        }
-        if (array_key_exists('parameter_label', $payload)) {
-            $cover->parameter_label = $payload['parameter_label'];
-        }
+        $paramId = array_key_exists('parameter_id', $payload) ? $payload['parameter_id'] : $snap['parameter_id'];
+        $paramLabel = array_key_exists('parameter_label', $payload) ? $payload['parameter_label'] : $snap['parameter_label'];
+
+        if (!is_null($paramId)) $cover->parameter_id = $paramId;
+        if (!is_null($paramLabel) && trim((string) $paramLabel) !== '') $cover->parameter_label = $paramLabel;
+
+        $cover->save();
 
         AuditLogger::logQualityCoverSaved(
             staffId: (int) $staff->staff_id,
@@ -765,5 +772,71 @@ class QualityCoverController extends Controller
                 'errors' => $v->errors(),
             ], 422));
         }
+    }
+
+    /**
+     * Try get parameter snapshot from:
+     * 1) samples.requested_parameters (JSON) if exists and has data
+     * 2) fallback to sample_tests + parameters (if tables exist)
+     */
+    private function deriveParameterSnapshot(Sample $sample): array
+    {
+        // ---------- 1) requested_parameters ----------
+        $raw = $sample->requested_parameters ?? null;
+
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) $raw = $decoded;
+        }
+
+        $names = [];
+        $ids = [];
+
+        if (is_array($raw)) {
+            foreach ($raw as $p) {
+                if (is_array($p)) {
+                    if (!empty($p['name'])) $names[] = (string) $p['name'];
+                    if (isset($p['parameter_id']) && is_numeric($p['parameter_id'])) $ids[] = (int) $p['parameter_id'];
+                } elseif (is_object($p)) {
+                    if (!empty($p->name)) $names[] = (string) $p->name;
+                    if (isset($p->parameter_id) && is_numeric($p->parameter_id)) $ids[] = (int) $p->parameter_id;
+                }
+            }
+        }
+
+        $names = array_values(array_unique(array_filter(array_map('trim', $names))));
+        $ids = array_values(array_unique(array_filter($ids)));
+
+        if ($names || $ids) {
+            return [
+                'parameter_label' => $names ? implode(', ', $names) : null,
+                'parameter_id' => count($ids) === 1 ? $ids[0] : null,
+            ];
+        }
+
+        // ---------- 2) fallback sample_tests + parameters ----------
+        if (Schema::hasTable('sample_tests') && Schema::hasTable('parameters')) {
+            $rows = DB::table('sample_tests')
+                ->join('parameters', 'parameters.parameter_id', '=', 'sample_tests.parameter_id')
+                ->where('sample_tests.sample_id', (int) $sample->sample_id)
+                ->select(['parameters.parameter_id', 'parameters.name'])
+                ->distinct()
+                ->get();
+
+            if ($rows->isNotEmpty()) {
+                $names2 = $rows->pluck('name')->filter()->map(fn($v) => trim((string) $v))->filter()->unique()->values()->all();
+                $ids2 = $rows->pluck('parameter_id')->filter()->unique()->values()->all();
+
+                return [
+                    'parameter_label' => $names2 ? implode(', ', $names2) : null,
+                    'parameter_id' => count($ids2) === 1 ? (int) $ids2[0] : null,
+                ];
+            }
+        }
+
+        return [
+            'parameter_label' => null,
+            'parameter_id' => null,
+        ];
     }
 }

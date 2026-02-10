@@ -4,9 +4,10 @@ namespace App\Support;
 
 final class CoaTemplate
 {
-    public const INSTITUTION_V1 = 'institution_v1';
-    public const INSTITUTION_V2 = 'institution_v2';
+    public const INSTITUTION = 'institution';
     public const INDIVIDUAL = 'individual';
+    public const WGS = 'wgs';
+    public const OTHER = 'other';
 
     public static function keys(): array
     {

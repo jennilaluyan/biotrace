@@ -35,6 +35,52 @@ class CoaAutoGenerateService
                 throw new ConflictHttpException('Sample not found.');
             }
 
+            // ✅ AUTO TEMPLATE SELECT (rule kamu)
+            $group = strtolower(trim((string) ($sample->workflow_group ?? '')));
+
+            if (!$templateCode) {
+                // 1) WGS -> wgs.blade.php
+                if ($group !== '' && str_contains($group, 'wgs')) {
+                    $templateCode = 'wgs';
+                }
+                // 2) PCR SARS-CoV-2 -> institution OR individual (based on client.type)
+                elseif (
+                    $group !== '' &&
+                    str_contains($group, 'pcr') &&
+                    (str_contains($group, 'sars') || str_contains($group, 'cov'))
+                ) {
+                    $clientType = 'individual';
+
+                    if (!empty($sample->client_id)) {
+                        $client = DB::table('clients')->where('client_id', (int) $sample->client_id)->first();
+                        if ($client) {
+                            $field = (string) config('coa.client_type.field', 'type');
+                            $raw = strtolower(trim((string) data_get($client, $field, '')));
+
+                            $institutionValues = array_map('strtolower', (array) config('coa.client_type.institution_values', []));
+                            $individualValues = array_map('strtolower', (array) config('coa.client_type.individual_values', []));
+
+                            if ($raw !== '' && in_array($raw, $institutionValues, true)) {
+                                $clientType = 'institution';
+                            } elseif ($raw !== '' && in_array($raw, $individualValues, true)) {
+                                $clientType = 'individual';
+                            }
+                        }
+                    }
+
+                    $templateCode = $clientType === 'institution' ? 'institution' : 'individual';
+                }
+                // 3) selain itu -> other (notes textbox)
+                else {
+                    $templateCode = 'other';
+                }
+            }
+
+            // safety: kalau key gak ada di config, fallback
+            if (!\App\Support\CoaTemplate::exists((string) $templateCode)) {
+                $templateCode = 'individual';
+            }
+
             // 1) Hard gate: Quality Cover must be validated (latest QC only)
             $qc = DB::table('quality_covers')
                 ->where('sample_id', $sampleId)
