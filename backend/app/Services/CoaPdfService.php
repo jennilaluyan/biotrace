@@ -83,6 +83,9 @@ class CoaPdfService
 
     public function disk(): string
     {
-        return (string) (config('coa.storage_disk') ?: 'local');
+        // prioritas: config coa, fallback ke filesystem default
+        return (string) (config('coa.storage_disk')
+            ?: config('filesystems.default')
+            ?: 'local');
     }
 }
