@@ -17,8 +17,17 @@ class CoaPdfService
      *
      * Override template code (optional) can force mapping but still respects WGS priority.
      */
-    public function resolveView(int $reportId, ?string $overrideTemplateCode = null): array
+    public function resolveView(int|string $reportId, ?string $overrideTemplateCode = null): array
     {
+        // ✅ tolerate numeric string ("10") but reject non-numeric ("WGS")
+        if (!is_int($reportId)) {
+            $rid = trim((string) $reportId);
+            if ($rid === '' || !ctype_digit($rid)) {
+                throw new \InvalidArgumentException('Invalid reportId (must be numeric).');
+            }
+            $reportId = (int) $rid;
+        }
+
         $report = DB::table('reports')->where('report_id', $reportId)->first();
         if (!$report) {
             throw new \RuntimeException("Report {$reportId} not found.");
