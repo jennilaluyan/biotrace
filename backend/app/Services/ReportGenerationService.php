@@ -14,9 +14,12 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class ReportGenerationService
 {
-    public function __construct(
-        private readonly ReportNumberGenerator $numberGenerator = new ReportNumberGenerator('UNSRAT-BML')
-    ) {}
+    private readonly ReportNumberGenerator $numberGenerator;
+
+    public function __construct(?ReportNumberGenerator $numberGenerator = null)
+    {
+        $this->numberGenerator = $numberGenerator ?? new ReportNumberGenerator('UNSRAT-BML');
+    }
 
     /**
      * Generate report for a sample.
@@ -114,6 +117,17 @@ class ReportGenerationService
         try {
             $driver = DB::getDriverName();
 
+            if ($driver === 'sqlite') {
+                $cols = DB::select("PRAGMA table_info('report_items')");
+                foreach ($cols as $c) {
+                    if ((string) ($c->name ?? '') === 'sample_test_id') {
+                        // notnull: 1 = NOT NULL, 0 = nullable
+                        return (int) ($c->notnull ?? 0) === 0;
+                    }
+                }
+                return true; // fail-open if column not found
+            }
+
             if ($driver === 'pgsql') {
                 $row = DB::selectOne(
                     "SELECT is_nullable
@@ -207,7 +221,6 @@ class ReportGenerationService
         $sampleTestIdNullable = $this->reportItemsSampleTestIdNullable();
 
         if (!$sampleTestIdNullable) {
-            // Kalau ini ternyata NOT NULL + FK, jangan nebak-nebak.
             throw new ConflictHttpException(
                 'Cannot generate COA: report_items.sample_test_id is NOT NULL, but sample has no sample_tests. Create tests first.'
             );
@@ -273,7 +286,6 @@ class ReportGenerationService
                     'result_value' => $value !== null ? (string) $value : null,
                     'unit_label' => null,
                     'flags' => null,
-                    // gabungkan result + interpretation biar tetap kebaca di template yang cuma punya 1 field
                     'interpretation' => trim(implode(' — ', array_filter([
                         $result !== null ? (string) $result : null,
                         $interp !== null ? (string) $interp : null,
@@ -323,8 +335,10 @@ class ReportGenerationService
                 throw new RuntimeException('Sample not found.');
             }
 
+            // ✅ lock existing report check (avoid double-create race)
             $existing = \App\Models\Report::query()
                 ->where('sample_id', $sampleId)
+                ->lockForUpdate()
                 ->latest('report_id')
                 ->first();
 
@@ -361,7 +375,6 @@ class ReportGenerationService
                 'updated_at' => null,
             ];
 
-            // ✅ penting: CoaFinalizeService akan ngecek report_type kalau kolom ada
             if (Schema::hasColumn('reports', 'report_type')) {
                 $create['report_type'] = 'coa';
             }
@@ -373,7 +386,6 @@ class ReportGenerationService
             if ($tests->isEmpty()) {
                 $this->buildReportItemsFromQualityCover($sampleId, $report);
 
-                // signatures tetap dibuat
                 $roles = ReportSignatureRole::query()
                     ->orderBy('sort_order')
                     ->get(['role_code']);

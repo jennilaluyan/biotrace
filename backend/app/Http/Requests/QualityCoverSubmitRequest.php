@@ -14,6 +14,9 @@ class QualityCoverSubmitRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'parameter_id' => ['nullable', 'integer'],
+            'parameter_label' => ['nullable', 'string', 'max:255'],
+
             'method_of_analysis' => ['required', 'string', 'max:255'],
             'qc_payload' => ['required', 'array'],
         ];

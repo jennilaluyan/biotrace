@@ -92,6 +92,25 @@ class QualityCoverController extends Controller
         }
     }
 
+    /**
+     * 🔒 Step 12 gate (server-side):
+     * Analyst tidak boleh akses Quality Cover sebelum sample "unlock" (masuk kolom kanban terakhir).
+     * Fail-open kalau kolomnya belum ada di DB (biar migration bertahap aman).
+     */
+    private function assertQualityCoverUnlockedOrFail(Sample $sample): void
+    {
+        if (!Schema::hasColumn('samples', 'quality_cover_unlocked_at')) {
+            return; // fail-open kalau migration belum ada
+        }
+
+        if (empty($sample->quality_cover_unlocked_at)) {
+            abort(response()->json([
+                'message' => 'Quality cover masih terkunci. Sampel harus mencapai tahap testing terakhir dulu.',
+                'hint' => 'Pindahkan sampel ke kolom Kanban terakhir untuk membuka Quality Cover.',
+            ], 409));
+        }
+    }
+
     public function omVerify(Request $request, QualityCover $qualityCover): JsonResponse
     {
         /** @var Staff $staff */
@@ -211,6 +230,7 @@ class QualityCoverController extends Controller
         }
 
         $this->assertAnalyst($staff);
+        $this->assertQualityCoverUnlockedOrFail($sample);
 
         if (!Schema::hasTable('quality_covers')) {
             return response()->json([
@@ -240,6 +260,7 @@ class QualityCoverController extends Controller
         }
 
         $this->assertAnalyst($staff);
+        $this->assertQualityCoverUnlockedOrFail($sample);
 
         if (!Schema::hasTable('quality_covers')) {
             return response()->json([
@@ -270,16 +291,20 @@ class QualityCoverController extends Controller
             $cover = new QualityCover();
             $cover->sample_id = (int) $sample->sample_id;
             $cover->status = 'draft';
-            $cover->date_of_analysis = Carbon::today();
-            $cover->checked_by_staff_id = (int) $staff->staff_id;
         }
 
         $group = (string) ($sample->workflow_group ?? 'others');
         $group = strtolower(trim($group)) ?: 'others';
 
-        $this->validateQcPayloadByGroup($payload['qc_payload'], $group);
+        // ✅ lebih aman: kalau FE kirim qc_payload sebagai string JSON, tetap bisa diproses
+        $this->validateQcPayloadByGroup($payload['qc_payload'] ?? null, $group);
 
         $cover->workflow_group = $group;
+
+        // ✅ selalu set ulang pada submit (biar akurat walau draft lama)
+        $cover->date_of_analysis = Carbon::today();
+        $cover->checked_by_staff_id = (int) $staff->staff_id;
+
         $cover->method_of_analysis = $payload['method_of_analysis'];
         $cover->qc_payload = $payload['qc_payload'];
 
@@ -287,6 +312,13 @@ class QualityCoverController extends Controller
         $cover->submitted_at = now();
 
         $cover->save();
+
+        if (array_key_exists('parameter_id', $payload)) {
+            $cover->parameter_id = $payload['parameter_id'];
+        }
+        if (array_key_exists('parameter_label', $payload)) {
+            $cover->parameter_label = $payload['parameter_label'];
+        }
 
         AuditLogger::logQualityCoverSubmitted(
             staffId: (int) $staff->staff_id,
@@ -534,7 +566,7 @@ class QualityCoverController extends Controller
 
         return response()->json([
             'message' => $coaError
-                ? 'Quality cover validated (LH), but COA generation is blocked.'
+                ? ('Quality cover validated (LH), but COA generation failed: ' . $coaError)
                 : 'Quality cover validated (LH). CoA generated.',
             'data' => [
                 'quality_cover' => $qualityCover->fresh(),
@@ -617,6 +649,7 @@ class QualityCoverController extends Controller
         }
 
         $this->assertAnalyst($staff);
+        $this->assertQualityCoverUnlockedOrFail($sample);
 
         if (!Schema::hasTable('quality_covers')) {
             return response()->json([
@@ -631,15 +664,17 @@ class QualityCoverController extends Controller
             ->orderByDesc('quality_cover_id')
             ->first();
 
-        $today = Carbon::today();
-
         if (!$cover) {
             $cover = new QualityCover();
             $cover->sample_id = (int) $sample->sample_id;
             $cover->status = 'draft';
         }
 
-        $cover->date_of_analysis = $today;
+        $group = (string) ($sample->workflow_group ?? 'others');
+        $group = strtolower(trim($group)) ?: 'others';
+        $cover->workflow_group = $group;
+
+        $cover->date_of_analysis = Carbon::today();
         $cover->checked_by_staff_id = (int) $staff->staff_id;
 
         if (array_key_exists('method_of_analysis', $payload)) {
@@ -650,6 +685,13 @@ class QualityCoverController extends Controller
         }
 
         $cover->save();
+
+        if (array_key_exists('parameter_id', $payload)) {
+            $cover->parameter_id = $payload['parameter_id'];
+        }
+        if (array_key_exists('parameter_label', $payload)) {
+            $cover->parameter_label = $payload['parameter_label'];
+        }
 
         AuditLogger::logQualityCoverSaved(
             staffId: (int) $staff->staff_id,
@@ -666,8 +708,28 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    private function validateQcPayloadByGroup(array $qc, string $group): void
+    /**
+     * ✅ more tolerant:
+     * - accept array OR JSON string (avoid TypeError)
+     */
+    private function validateQcPayloadByGroup(mixed $qcPayload, string $group): void
     {
+        $qc = null;
+
+        if (is_array($qcPayload)) {
+            $qc = $qcPayload;
+        } elseif (is_string($qcPayload) && trim($qcPayload) !== '') {
+            $decoded = json_decode($qcPayload, true);
+            if (is_array($decoded)) $qc = $decoded;
+        }
+
+        if (!is_array($qc)) {
+            abort(response()->json([
+                'message' => 'Invalid qc_payload: must be an object/array.',
+                'errors' => ['qc_payload' => ['qc_payload must be an object/array']],
+            ], 422));
+        }
+
         $isPcr = str_contains($group, 'pcr');
         $isWgs = str_contains($group, 'wgs');
 

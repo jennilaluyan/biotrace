@@ -15,12 +15,14 @@ export type QualityCover = {
     workflow_group?: string | null;
     status: QualityCoverStatus;
 
+    parameter_id?: number | null;
+    parameter_label?: string | null;
+
     date_of_analysis?: string | null;
     method_of_analysis?: string | null;
     checked_by_staff_id?: number | null;
 
     qc_payload?: any;
-
     submitted_at?: string | null;
     verified_at?: string | null;
     validated_at?: string | null;
@@ -65,6 +67,7 @@ export type LhValidateResponse = {
     data: {
         quality_cover: QualityCoverInboxItem;
         report: CoaReportResult;
+        coa_error?: string | null;
     };
 };
 
@@ -171,7 +174,7 @@ export async function getQualityCoverById(qualityCoverId: number): Promise<Quali
 
 export async function saveQualityCoverDraft(
     sampleId: number,
-    body: { method_of_analysis?: string; qc_payload?: any }
+    body: { parameter_id?: number; parameter_label?: string; method_of_analysis?: string; qc_payload?: any }
 ): Promise<QualityCover> {
     try {
         const res = await apiPut<any>(`/v1/samples/${sampleId}/quality-cover/draft`, body);
@@ -185,7 +188,7 @@ export async function saveQualityCoverDraft(
 
 export async function submitQualityCover(
     sampleId: number,
-    body: { method_of_analysis: string; qc_payload: any }
+    body: { parameter_id?: number; parameter_label?: string; method_of_analysis: string; qc_payload: any }
 ): Promise<QualityCover> {
     try {
         const res = await apiPost<any>(`/v1/samples/${sampleId}/quality-cover/submit`, body);
