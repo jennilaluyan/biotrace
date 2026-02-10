@@ -163,4 +163,21 @@ class SamplePolicy
             'Laboratory Head',
         ]);
     }
+
+    /**
+     * Archive index is only for: Admin (1), OM (5), LH (6)
+     */
+    public function viewArchiveIndex(Staff $user): bool
+    {
+        return in_array((int) $user->role_id, [1, 5, 6], true);
+    }
+
+    /**
+     * Archive detail: must be authorized role AND sample must be completed ("reported")
+     */
+    public function viewArchiveDetail(Staff $user, Sample $sample): bool
+    {
+        if (!$this->viewArchiveIndex($user)) return false;
+        return (string) $sample->current_status === 'reported';
+    }
 }

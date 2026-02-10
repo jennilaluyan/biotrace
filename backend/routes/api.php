@@ -25,6 +25,7 @@ use App\Http\Controllers\SampleStatusHistoryController;
 use App\Http\Controllers\SampleCommentController;
 use App\Http\Controllers\SamplePhysicalWorkflowController;
 use App\Http\Controllers\SampleCrosscheckController;
+use App\Http\Controllers\SampleArchiveController;
 
 // Intake
 use App\Http\Controllers\SampleIntakeChecklistController;
@@ -261,6 +262,11 @@ Route::prefix('v1')->group(function () {
         Route::get('samples/{sample}', [SampleController::class, 'show'])->whereNumber('sample');
         Route::patch('samples/{sample}', [SampleController::class, 'update'])->whereNumber('sample');
         Route::put('samples/{sample}', [SampleController::class, 'update'])->whereNumber('sample');
+
+        // Sample Archives
+        Route::get('/v1/samples/archive', [SampleArchiveController::class, 'index']);
+        Route::get('/v1/samples/archive/{sampleId}', [SampleArchiveController::class, 'show'])
+            ->whereNumber('sampleId');
 
         // Physical workflow (single canonical route)
         Route::patch('samples/{sample}/physical-workflow', [SamplePhysicalWorkflowController::class, 'update'])
