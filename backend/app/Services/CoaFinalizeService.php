@@ -34,40 +34,40 @@ class CoaFinalizeService
             // 3️⃣ resolve signature LH
             $sig = CoaSignatureResolver::resolveLabHeadSignature($actorStaffId);
 
-            // 4️⃣ tentukan template
-            $clientType = DB::table('clients')
-                ->join('samples', 'samples.client_id', '=', 'clients.client_id')
-                ->where('samples.sample_id', $report->sample_id)
-                ->value('clients.type') ?: 'individual';
+            // 4️⃣ resolve template + view (single source of truth)
+            // - resolver already enforces: WGS wins, institution vs individual, legacy codes
+            $resolved = app(CoaPdfService::class)->resolveView($reportId, $templateCode);
 
-            if ($clientType === 'institution') {
-                $finalTemplate = $templateCode ?: 'INST_V1';
-            } else {
-                $finalTemplate = 'INDIVIDUAL';
-            }
+            // ✅ keep everything consistent downstream (filename, reports.template_code, etc.)
+            $finalTemplate = $resolved['template_code'];
+            $view = $resolved['view'];
 
-            // 5️⃣ build view
-            $view = $clientType === 'institution'
-                ? ($finalTemplate === 'INST_V2'
-                    ? 'reports.coa.institution_v2'
-                    : 'reports.coa.institution_v1')
-                : 'reports.coa.individual';
-
+            // 6️⃣ build view data (must support your templates: qr_data_uri, lh_signature_data_uri, items, etc)
             $viewData = app(CoaViewDataBuilder::class)
                 ->build($report->report_id, $sig['data_uri'], $actorStaffId);
 
-            // 6️⃣ render FINAL PDF
+            // compat: your PCR templates use $qr_data_uri, WGS uses $lh_signature_data_uri (fallback to qr)
+            if (!array_key_exists('lh_signature_data_uri', $viewData) || empty($viewData['lh_signature_data_uri'])) {
+                $viewData['lh_signature_data_uri'] = $sig['data_uri'] ?? null;
+            }
+            if (!array_key_exists('qr_data_uri', $viewData) || empty($viewData['qr_data_uri'])) {
+                $viewData['qr_data_uri'] = $viewData['lh_signature_data_uri'] ?? ($sig['data_uri'] ?? null);
+            }
+
+            // 7️⃣ render FINAL PDF
             $pdf = Pdf::loadView($view, $viewData)->setPaper('a4');
             $bytes = $pdf->output();
 
             $disk = config('coa.storage_disk', 'local');
             $year = now()->format('Y');
-            $safeNo = str_replace('/', '-', $report->report_no);
-            $path = "reports/coa/{$year}/{$safeNo}_{$finalTemplate}_FINAL.pdf";
 
+            $reportNo = (string) ($report->report_no ?: "REPORT-{$report->report_id}");
+            $safeNo = str_replace('/', '-', $reportNo);
+
+            $path = "reports/coa/{$year}/{$safeNo}_{$finalTemplate}_FINAL.pdf";
             Storage::disk($disk)->put($path, $bytes);
 
-            // 7️⃣ update report
+            // 8️⃣ update report
             $update = [
                 'pdf_url'   => $path,
                 'is_locked' => true,
@@ -85,7 +85,7 @@ class CoaFinalizeService
 
             DB::table('reports')->where('report_id', $reportId)->update($update);
 
-            // 8️⃣ upsert signature
+            // 9️⃣ upsert signature
             DB::table('report_signatures')->updateOrInsert(
                 ['report_id' => $reportId, 'role_code' => 'LH'],
                 [
@@ -94,7 +94,7 @@ class CoaFinalizeService
                 ]
             );
 
-            // 9️⃣ set sample → reported
+            // 🔟 set sample → reported
             $statusCol = Schema::hasColumn('samples', 'current_status')
                 ? 'current_status'
                 : 'status';
@@ -104,8 +104,8 @@ class CoaFinalizeService
                 ->update([$statusCol => 'reported']);
 
             return [
-                'report_id'    => $reportId,
-                'pdf_url'      => $path,
+                'report_id'     => $reportId,
+                'pdf_url'       => $path,
                 'template_code' => $finalTemplate,
             ];
         });

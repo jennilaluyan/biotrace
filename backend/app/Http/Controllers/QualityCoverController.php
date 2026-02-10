@@ -7,13 +7,16 @@ use App\Http\Requests\QualityCoverSubmitRequest;
 use App\Models\QualityCover;
 use App\Models\Sample;
 use App\Models\Staff;
+use App\Services\CoaAutoGenerateService;
 use App\Support\AuditLogger;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class QualityCoverController extends Controller
 {
@@ -36,7 +39,6 @@ class QualityCoverController extends Controller
     private function isAnalyst(Staff $staff): bool
     {
         $name = $this->roleName($staff);
-        // allow minor variance
         return $name === 'analyst';
     }
 
@@ -91,9 +93,24 @@ class QualityCoverController extends Controller
     }
 
     /**
-     * POST /v1/quality-covers/{qualityCover}/verify
-     * OM verifies a submitted quality cover.
+     * 🔒 Step 12 gate (server-side):
+     * Analyst tidak boleh akses Quality Cover sebelum sample "unlock" (masuk kolom kanban terakhir).
+     * Fail-open kalau kolomnya belum ada di DB (biar migration bertahap aman).
      */
+    private function assertQualityCoverUnlockedOrFail(Sample $sample): void
+    {
+        if (!Schema::hasColumn('samples', 'quality_cover_unlocked_at')) {
+            return; // fail-open kalau migration belum ada
+        }
+
+        if (empty($sample->quality_cover_unlocked_at)) {
+            abort(response()->json([
+                'message' => 'Quality cover masih terkunci. Sampel harus mencapai tahap testing terakhir dulu.',
+                'hint' => 'Pindahkan sampel ke kolom Kanban terakhir untuk membuka Quality Cover.',
+            ], 409));
+        }
+    }
+
     public function omVerify(Request $request, QualityCover $qualityCover): JsonResponse
     {
         /** @var Staff $staff */
@@ -122,7 +139,6 @@ class QualityCoverController extends Controller
         $qualityCover->verified_at = now();
         $qualityCover->verified_by_staff_id = (int) $staff->staff_id;
 
-        // reset reject fields (kalau ada data lama)
         $qualityCover->rejected_at = null;
         $qualityCover->rejected_by_staff_id = null;
         $qualityCover->reject_reason = null;
@@ -143,10 +159,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * POST /v1/quality-covers/{qualityCover}/reject
-     * OM rejects a submitted quality cover (reason required).
-     */
     public function omReject(Request $request, QualityCover $qualityCover): JsonResponse
     {
         /** @var Staff $staff */
@@ -189,7 +201,6 @@ class QualityCoverController extends Controller
         $qualityCover->rejected_by_staff_id = (int) $staff->staff_id;
         $qualityCover->reject_reason = $reason;
 
-        // reset verify fields (biar konsisten)
         $qualityCover->verified_at = null;
         $qualityCover->verified_by_staff_id = null;
 
@@ -210,10 +221,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * GET /v1/samples/{sample}/quality-cover
-     * Return latest cover for analyst (draft/submitted/etc).
-     */
     public function show(Sample $sample): JsonResponse
     {
         /** @var Staff $staff */
@@ -223,6 +230,7 @@ class QualityCoverController extends Controller
         }
 
         $this->assertAnalyst($staff);
+        $this->assertQualityCoverUnlockedOrFail($sample);
 
         if (!Schema::hasTable('quality_covers')) {
             return response()->json([
@@ -241,10 +249,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * POST /v1/samples/{sample}/quality-cover/submit
-     * Analyst submits (creates or updates) cover and locks fields.
-     */
     public function submit(QualityCoverSubmitRequest $request, Sample $sample): JsonResponse
     {
         $payload = $request->validated();
@@ -256,6 +260,7 @@ class QualityCoverController extends Controller
         }
 
         $this->assertAnalyst($staff);
+        $this->assertQualityCoverUnlockedOrFail($sample);
 
         if (!Schema::hasTable('quality_covers')) {
             return response()->json([
@@ -264,7 +269,6 @@ class QualityCoverController extends Controller
             ], 500);
         }
 
-        // Find existing draft
         $cover = QualityCover::query()
             ->where('sample_id', (int) $sample->sample_id)
             ->where('status', 'draft')
@@ -272,7 +276,6 @@ class QualityCoverController extends Controller
             ->first();
 
         if (!$cover) {
-            // block double submit if latest is already submitted
             $latest = QualityCover::query()
                 ->where('sample_id', (int) $sample->sample_id)
                 ->orderByDesc('quality_cover_id')
@@ -288,21 +291,36 @@ class QualityCoverController extends Controller
             $cover = new QualityCover();
             $cover->sample_id = (int) $sample->sample_id;
             $cover->status = 'draft';
-            $cover->date_of_analysis = Carbon::now()->toDateString();
-            $cover->checked_by_staff_id = (int) $staff->staff_id;
         }
 
-        // Determine workflow group (from To-Do 9)
         $group = (string) ($sample->workflow_group ?? 'others');
         $group = strtolower(trim($group)) ?: 'others';
 
-        // Group-aware validation (submit is strict)
-        $this->validateQcPayloadByGroup($payload['qc_payload'], $group);
+        $this->validateQcPayloadByGroup($payload['qc_payload'] ?? null, $group);
 
-        // Lock fields at submit time
         $cover->workflow_group = $group;
+
+        // selalu set ulang pada submit
+        $cover->date_of_analysis = Carbon::today();
+        $cover->checked_by_staff_id = (int) $staff->staff_id;
+
         $cover->method_of_analysis = $payload['method_of_analysis'];
         $cover->qc_payload = $payload['qc_payload'];
+
+        // ✅ parameter snapshot: set SEBELUM save (biar gak null lagi)
+        $snap = $this->deriveParameterSnapshot($sample);
+
+        if (array_key_exists('parameter_id', $payload)) {
+            $cover->parameter_id = $payload['parameter_id'];
+        } else {
+            $cover->parameter_id = $snap['parameter_id'];
+        }
+
+        if (array_key_exists('parameter_label', $payload)) {
+            $cover->parameter_label = $payload['parameter_label'];
+        } else {
+            $cover->parameter_label = $snap['parameter_label'];
+        }
 
         $cover->status = 'submitted';
         $cover->submitted_at = now();
@@ -323,10 +341,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * GET /v1/quality-covers/inbox/om
-     * Inbox OM: list covers that are ready to be verified (submitted).
-     */
     public function inboxOm(Request $request): JsonResponse
     {
         /** @var Staff $staff */
@@ -384,10 +398,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * GET /v1/quality-covers/inbox/lh
-     * Inbox LH: list covers that are ready to be validated (verified by OM).
-     */
     public function inboxLh(Request $request): JsonResponse
     {
         /** @var Staff $staff */
@@ -446,13 +456,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * GET /v1/quality-covers/{qualityCover}
-     * Read one quality cover (for OM/LH detail pages).
-     *
-     * IMPORTANT:
-     * If you still get 403 after this, the blocker is very likely route middleware/policy.
-     */
     public function showById(Request $request, QualityCover $qualityCover): JsonResponse
     {
         /** @var Staff $staff */
@@ -486,8 +489,9 @@ class QualityCoverController extends Controller
     }
 
     /**
-     * POST /v1/quality-covers/{qualityCover}/validate
-     * LH validates a verified quality cover (final).
+     * ✅ FIX UTAMA:
+     * Validasi QC harus COMMIT dulu.
+     * COA auto-generate boleh gagal TANPA menggagalkan validasi QC.
      */
     public function lhValidate(Request $request, QualityCover $qualityCover): JsonResponse
     {
@@ -513,35 +517,73 @@ class QualityCoverController extends Controller
             ], 409);
         }
 
-        $qualityCover->status = 'validated';
-        $qualityCover->validated_at = now();
-        $qualityCover->validated_by_staff_id = (int) $staff->staff_id;
+        $sampleId = (int) $qualityCover->sample_id;
+        $actorId = (int) $staff->staff_id;
 
-        // clear reject fields just in case
-        $qualityCover->rejected_at = null;
-        $qualityCover->rejected_by_staff_id = null;
-        $qualityCover->reject_reason = null;
+        // 1) Commit VALIDATION first (atomic)
+        try {
+            DB::transaction(function () use ($qualityCover, $sampleId, $actorId) {
+                $qualityCover->status = 'validated';
+                $qualityCover->validated_at = now();
+                $qualityCover->validated_by_staff_id = $actorId;
 
-        $qualityCover->save();
+                $qualityCover->rejected_at = null;
+                $qualityCover->rejected_by_staff_id = null;
+                $qualityCover->reject_reason = null;
+
+                $qualityCover->save();
+
+                $statusCol = Schema::hasColumn('samples', 'current_status')
+                    ? 'current_status'
+                    : 'status';
+
+                DB::table('samples')
+                    ->where('sample_id', $sampleId)
+                    ->lockForUpdate()
+                    ->update([$statusCol => 'validated']);
+            });
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json([
+                'message' => 'Failed to validate quality cover.',
+            ], 500);
+        }
 
         AuditLogger::logQualityCoverLhValidated(
-            staffId: (int) $staff->staff_id,
-            sampleId: (int) $qualityCover->sample_id,
+            staffId: $actorId,
+            sampleId: $sampleId,
             qualityCoverId: (int) $qualityCover->quality_cover_id,
             fromStatus: 'verified',
             toStatus: 'validated',
         );
 
+        // 2) Try auto-generate COA AFTER validation commit
+        $coa = null;
+        $coaError = null;
+
+        try {
+            $coa = app(CoaAutoGenerateService::class)->run($sampleId, $actorId);
+        } catch (ConflictHttpException $e) {
+            $coaError = $e->getMessage();
+        } catch (\Throwable $e) {
+            report($e);
+            $coaError = config('app.debug')
+                ? ('COA error: ' . $e->getMessage())
+                : 'Failed to generate COA.';
+        }
+
         return response()->json([
-            'message' => 'Quality cover validated (LH).',
-            'data' => $qualityCover,
+            'message' => $coaError
+                ? ('Quality cover validated (LH), but COA generation failed: ' . $coaError)
+                : 'Quality cover validated (LH). CoA generated.',
+            'data' => [
+                'quality_cover' => $qualityCover->fresh(),
+                'report' => $coa,
+                'coa_error' => $coaError,
+            ],
         ]);
     }
 
-    /**
-     * POST /v1/quality-covers/{qualityCover}/reject-lh
-     * LH rejects a verified quality cover (reason required).
-     */
     public function lhReject(Request $request, QualityCover $qualityCover): JsonResponse
     {
         /** @var Staff $staff */
@@ -584,7 +626,6 @@ class QualityCoverController extends Controller
         $qualityCover->rejected_by_staff_id = (int) $staff->staff_id;
         $qualityCover->reject_reason = $reason;
 
-        // clear validated fields (biar konsisten)
         $qualityCover->validated_at = null;
         $qualityCover->validated_by_staff_id = null;
 
@@ -605,10 +646,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * PUT /v1/samples/{sample}/quality-cover/draft
-     * Upsert draft for a sample.
-     */
     public function saveDraft(QualityCoverDraftSaveRequest $request, Sample $sample): JsonResponse
     {
         $payload = $request->validated();
@@ -620,6 +657,7 @@ class QualityCoverController extends Controller
         }
 
         $this->assertAnalyst($staff);
+        $this->assertQualityCoverUnlockedOrFail($sample);
 
         if (!Schema::hasTable('quality_covers')) {
             return response()->json([
@@ -634,15 +672,17 @@ class QualityCoverController extends Controller
             ->orderByDesc('quality_cover_id')
             ->first();
 
-        $today = Carbon::now()->toDateString();
-
         if (!$cover) {
             $cover = new QualityCover();
             $cover->sample_id = (int) $sample->sample_id;
             $cover->status = 'draft';
         }
 
-        $cover->date_of_analysis = $today;
+        $group = (string) ($sample->workflow_group ?? 'others');
+        $group = strtolower(trim($group)) ?: 'others';
+        $cover->workflow_group = $group;
+
+        $cover->date_of_analysis = Carbon::today();
         $cover->checked_by_staff_id = (int) $staff->staff_id;
 
         if (array_key_exists('method_of_analysis', $payload)) {
@@ -650,6 +690,21 @@ class QualityCoverController extends Controller
         }
         if (array_key_exists('qc_payload', $payload)) {
             $cover->qc_payload = $payload['qc_payload'];
+        }
+
+        // ✅ parameter snapshot: set SEBELUM save
+        $snap = $this->deriveParameterSnapshot($sample);
+
+        if (array_key_exists('parameter_id', $payload)) {
+            $cover->parameter_id = $payload['parameter_id'];
+        } else {
+            $cover->parameter_id = $snap['parameter_id'];
+        }
+
+        if (array_key_exists('parameter_label', $payload)) {
+            $cover->parameter_label = $payload['parameter_label'];
+        } else {
+            $cover->parameter_label = $snap['parameter_label'];
         }
 
         $cover->save();
@@ -669,8 +724,28 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    private function validateQcPayloadByGroup(array $qc, string $group): void
+    /**
+     * ✅ more tolerant:
+     * - accept array OR JSON string (avoid TypeError)
+     */
+    private function validateQcPayloadByGroup(mixed $qcPayload, string $group): void
     {
+        $qc = null;
+
+        if (is_array($qcPayload)) {
+            $qc = $qcPayload;
+        } elseif (is_string($qcPayload) && trim($qcPayload) !== '') {
+            $decoded = json_decode($qcPayload, true);
+            if (is_array($decoded)) $qc = $decoded;
+        }
+
+        if (!is_array($qc)) {
+            abort(response()->json([
+                'message' => 'Invalid qc_payload: must be an object/array.',
+                'errors' => ['qc_payload' => ['qc_payload must be an object/array']],
+            ], 422));
+        }
+
         $isPcr = str_contains($group, 'pcr');
         $isWgs = str_contains($group, 'wgs');
 
@@ -706,5 +781,38 @@ class QualityCoverController extends Controller
                 'errors' => $v->errors(),
             ], 422));
         }
+    }
+
+    private function deriveParameterSnapshot(Sample $sample): array
+    {
+        $raw = $sample->requested_parameters ?? null;
+
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) $raw = $decoded;
+        }
+
+        $names = [];
+        $ids = [];
+
+        if (is_array($raw)) {
+            foreach ($raw as $p) {
+                if (is_array($p)) {
+                    if (!empty($p['name'])) $names[] = (string) $p['name'];
+                    if (isset($p['parameter_id']) && is_numeric($p['parameter_id'])) $ids[] = (int) $p['parameter_id'];
+                } elseif (is_object($p)) {
+                    if (!empty($p->name)) $names[] = (string) $p->name;
+                    if (isset($p->parameter_id) && is_numeric($p->parameter_id)) $ids[] = (int) $p->parameter_id;
+                }
+            }
+        }
+
+        $names = array_values(array_unique(array_filter(array_map('trim', $names))));
+        $ids = array_values(array_unique(array_filter($ids)));
+
+        return [
+            'parameter_label' => $names ? implode(', ', $names) : null,
+            'parameter_id' => count($ids) === 1 ? $ids[0] : null,
+        ];
     }
 }

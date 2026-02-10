@@ -1,44 +1,37 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Eye, RefreshCw, Search, ChevronLeft, ChevronRight } from "lucide-react";
+
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
-import { fetchReports, ReportRow, Paginator } from "../../services/reports";
+import { fetchReports, ReportRow } from "../../services/reports";
 import { listReportDocuments, type ReportDocumentRow } from "../../services/reportDocuments";
 import { ReportPreviewModal } from "../../components/reports/ReportPreviewModal";
 
 type DateFilter = "all" | "today" | "7d" | "30d";
 
-const PAGE_SIZE = 10;
+const DOC_PAGE_SIZE = 12; // UI pagination (gabungan semua dokumen)
 
-type AnyDocRow = ReportRow & {
-    // optional fields (for “all documents” mode / future backend expansion)
-    file_url?: string | null;
-    doc_type?: string | null;
-    type?: string | null;
+type UnifiedDoc = {
+    key: string;
+    documentName: string;
+    typeCode: string; // small label under document name
+    codeOrNumber: string;
+    generatedAt: string | null;
+    status: string | null;
 
-    // LOO-ish fields (if backend includes them in the same endpoint)
-    lo_id?: number;
-    number?: string | null; // e.g. 007/LAB-BM/LOO/2026
-    loo_number?: string | null;
-    loa_number?: string | null;
-    loa_status?: string | null;
-
-    // sample fields (sometimes the endpoint uses different names)
-    lab_sample_code?: string | null;
-    sample_code?: string | null;
-
-    // time fields
-    created_at?: string | null;
-    updated_at?: string | null;
+    // actions
+    kind: "pdf_url" | "report_preview";
+    pdfUrl?: string | null;
+    reportId?: number | null;
 };
 
+function cx(...arr: Array<string | false | null | undefined>) {
+    return arr.filter(Boolean).join(" ");
+}
+
 function resolvePublicFileUrl(fileUrl: string): string {
-    // If already absolute URL
     if (/^https?:\/\//i.test(fileUrl)) return fileUrl;
-
-    // If already absolute path
     if (fileUrl.startsWith("/")) return fileUrl;
-
-    // Default: assume Laravel public disk -> /storage/...
     return `/storage/${fileUrl}`;
 }
 
@@ -49,50 +42,26 @@ function fmtDate(iso?: string | null): string {
     return d.toLocaleString();
 }
 
-function getDocLabel(r: AnyDocRow): string {
-    // Prefer explicit type
-    const t = (r.doc_type ?? r.type ?? "").toString().toLowerCase();
+function isWithinDateFilter(iso: string | null | undefined, filter: DateFilter): boolean {
+    if (!iso || filter === "all") return true;
 
-    if (t.includes("loo") || t.includes("letter_of_order") || t.includes("letter of order")) {
-        return "LOO";
-    }
-    if (t.includes("loa") || t.includes("letter_of_acceptance") || t.includes("letter of acceptance")) {
-        return "LOA";
-    }
-    if (t.includes("report") || t.includes("hasil") || t.includes("laporan")) {
-        return "Report";
-    }
+    const dt = new Date(iso);
+    if (Number.isNaN(dt.getTime())) return true;
 
-    // Heuristics based on fields
-    if (r.lo_id || r.number || r.loo_number || r.loa_number) return "LOO";
-    if (r.report_no) return "Report";
+    const now = new Date();
+    const t = dt.getTime();
 
-    return "Document";
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    if (filter === "today") return t >= startOfToday;
+    if (filter === "7d") return t >= now.getTime() - 7 * 24 * 60 * 60 * 1000;
+    if (filter === "30d") return t >= now.getTime() - 30 * 24 * 60 * 60 * 1000;
+
+    return true;
 }
 
-function getDocNo(r: AnyDocRow): string {
-    // Prefer known document numbers
-    const no =
-        r.report_no ??
-        r.number ??
-        r.loo_number ??
-        r.loa_number ??
-        null;
-
-    if (no && String(no).trim() !== "") return String(no);
-
-    // fallback
-    if (typeof r.report_id === "number") return `#${r.report_id}`;
-    if (typeof r.lo_id === "number") return `#${r.lo_id}`;
-    return "-";
-}
-
-function getSampleLabel(r: AnyDocRow): string {
-    const code = r.lab_sample_code ?? r.sample_code;
-    if (code && String(code).trim() !== "") return String(code);
-
-    if (typeof r.sample_id === "number") return `#${r.sample_id}`;
-    return "-";
+function normalizeDocStatus(s: any): string | null {
+    const raw = String(s ?? "").trim();
+    return raw ? raw : null;
 }
 
 export const ReportsPage = () => {
@@ -104,125 +73,146 @@ export const ReportsPage = () => {
     const canViewReports = !!roleId && roleId !== ROLE_ID.CLIENT;
 
     // ---- state ----
-    const [pager, setPager] = useState<Paginator<ReportRow> | null>(null);
-    const [reportDocs, setReportDocs] = useState<ReportDocumentRow[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    // sources
+    const [reportDocs, setReportDocs] = useState<ReportDocumentRow[]>([]);
+    const [coaRows, setCoaRows] = useState<ReportRow[]>([]);
 
     // filters
     const [searchTerm, setSearchTerm] = useState("");
     const [dateFilter, setDateFilter] = useState<DateFilter>("all");
-    const [currentPage, setCurrentPage] = useState(1);
-    const [previewReportId, setPreviewReportId] = useState<number | null>(null);
 
+    // UI pagination (gabungan)
+    const [page, setPage] = useState(1);
+
+    // preview modals
+    const [previewReportId, setPreviewReportId] = useState<number | null>(null);
     const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
     const [previewTitle, setPreviewTitle] = useState<string>("PDF Preview");
     const [previewOpen, setPreviewOpen] = useState(false);
 
-    // ---- fetch ----
-    const loadReports = async (opts?: { keepPage?: boolean }) => {
+    const load = async () => {
         try {
             setLoading(true);
             setError(null);
 
-            const page = opts?.keepPage ? currentPage : 1;
+            const q = searchTerm.trim() || undefined;
 
-            const [reportsData, docs] = await Promise.all([
+            const [docs, reportsData] = await Promise.all([
+                listReportDocuments(),
                 fetchReports({
-                    page,
-                    per_page: PAGE_SIZE,
-                    q: searchTerm.trim() || undefined,
+                    page: 1,
+                    per_page: 200, // ambil banyak supaya COA bisa “nyatu” di list atas
+                    q,
                     date: dateFilter !== "all" ? dateFilter : undefined,
                 }),
-                listReportDocuments(),
             ]);
 
-            if (!reportsData || !Array.isArray((reportsData as any).data)) {
-                console.warn("Unexpected reports response", reportsData);
-            }
-
-            setPager(reportsData);
             setReportDocs(docs ?? []);
-            if (!opts?.keepPage) setCurrentPage(1);
+            setCoaRows(Array.isArray((reportsData as any)?.data) ? ((reportsData as any).data as ReportRow[]) : []);
+            setPage(1);
         } catch (err: any) {
-            const msg =
-                err?.data?.message ??
-                err?.message ??
-                "Failed to load reports.";
+            const msg = err?.data?.message ?? err?.message ?? "Failed to load reports.";
             setError(msg);
         } finally {
             setLoading(false);
         }
     };
 
-    // initial + pagination
     useEffect(() => {
         if (!canViewReports) return;
-        loadReports({ keepPage: true });
+        load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canViewReports, currentPage]);
+    }, [canViewReports]);
 
-    useEffect(() => {
-        if (!canViewReports) return;
-        setCurrentPage(1);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [searchTerm, dateFilter]);
+    // ---- derived (unified table) ----
+    const unifiedDocs: UnifiedDoc[] = useMemo(() => {
+        const docsFromEndpoint: UnifiedDoc[] = (reportDocs ?? []).map((d) => {
+            const docName = d.document_name ?? d.type ?? "Document";
+            const typeCode = String(d.type ?? "").toUpperCase();
+            const code = d.document_code ?? d.number ?? "-";
+            const url = d.download_url ?? null;
 
-    // ---- derived ----
-    const items: AnyDocRow[] = ((pager?.data ?? []) as unknown) as AnyDocRow[];
-    const totalReports = pager?.total ?? 0;
-    const totalPages = pager?.last_page ?? 1;
+            return {
+                key: `doc:${typeCode}:${d.id}`,
+                documentName: docName,
+                typeCode: typeCode || "DOC",
+                codeOrNumber: code || "-",
+                generatedAt: (d.generated_at ?? d.created_at ?? null) as any,
+                status: normalizeDocStatus(d.status) ?? "-",
+                kind: url ? "pdf_url" : "pdf_url",
+                pdfUrl: url,
+            };
+        });
 
-    const handlePageChange = (page: number) => {
-        if (page < 1 || page > totalPages) return;
-        setCurrentPage(page);
-    };
+        // ✅ COA (dari reports endpoint) => masuk bareng list atas
+        const docsFromCoa: UnifiedDoc[] = (coaRows ?? []).map((r: any) => {
+            const code = r.report_no ?? (typeof r.report_id === "number" ? `#${r.report_id}` : "-");
+            const generatedAt = (r.generated_at ?? r.created_at ?? null) as string | null;
 
-    const openPdf = (fileUrl: string) => {
-        // NOTE:
-        // Kalau fileUrl itu path storage biasa, sering 404 karena backoffice (Vite) tidak serve /storage.
-        // Jadi kita preview saja di modal (kalau gagal, modal tampilkan error).
+            const status =
+                typeof r.is_locked === "boolean"
+                    ? r.is_locked
+                        ? "locked"
+                        : "draft"
+                    : normalizeDocStatus(r.status) ?? "generated";
+
+            return {
+                key: `coa:${r.report_id ?? code}:${r.sample_id ?? "x"}`,
+                documentName: "Certificate of Analysis",
+                typeCode: "COA",
+                codeOrNumber: String(code ?? "-"),
+                generatedAt,
+                status,
+                kind: "report_preview",
+                reportId: typeof r.report_id === "number" ? r.report_id : null,
+            };
+        });
+
+        // merge + filter + sort
+        const all = [...docsFromEndpoint, ...docsFromCoa];
+
+        const q = searchTerm.trim().toLowerCase();
+        const filtered = all.filter((x) => {
+            if (!isWithinDateFilter(x.generatedAt, dateFilter)) return false;
+            if (!q) return true;
+
+            const hay = `${x.documentName} ${x.typeCode} ${x.codeOrNumber} ${x.status ?? ""}`.toLowerCase();
+            return hay.includes(q);
+        });
+
+        filtered.sort((a, b) => {
+            const ta = a.generatedAt ? new Date(a.generatedAt).getTime() : 0;
+            const tb = b.generatedAt ? new Date(b.generatedAt).getTime() : 0;
+            return tb - ta;
+        });
+
+        return filtered;
+    }, [reportDocs, coaRows, searchTerm, dateFilter]);
+
+    const total = unifiedDocs.length;
+    const totalPages = Math.max(1, Math.ceil(total / DOC_PAGE_SIZE));
+    const clampedPage = Math.min(Math.max(1, page), totalPages);
+    const pageItems = unifiedDocs.slice((clampedPage - 1) * DOC_PAGE_SIZE, clampedPage * DOC_PAGE_SIZE);
+
+    const canPrev = clampedPage > 1;
+    const canNext = clampedPage < totalPages;
+
+    const openPdf = (fileUrl: string, title?: string) => {
         const url = resolvePublicFileUrl(fileUrl);
-
         setPreviewPdfUrl(url);
-        setPreviewTitle("PDF Preview");
+        setPreviewTitle(title ?? "PDF Preview");
         setPreviewOpen(true);
     };
-
-    const filteredDocs = reportDocs.filter((d) => {
-        const q = searchTerm.trim().toLowerCase();
-        const hay =
-            `${d.type ?? ""} ${d.document_name ?? ""} ${d.document_code ?? ""} ${d.number ?? ""}`.toLowerCase();
-
-        if (q && !hay.includes(q)) return false;
-
-        const iso = d.generated_at ?? d.created_at;
-        if (!iso || dateFilter === "all") return true;
-
-        const dt = new Date(iso);
-        if (Number.isNaN(dt.getTime())) return true;
-
-        const now = new Date();
-        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-        const t = dt.getTime();
-
-        if (dateFilter === "today") return t >= startOfToday;
-        if (dateFilter === "7d") return t >= now.getTime() - 7 * 24 * 60 * 60 * 1000;
-        if (dateFilter === "30d") return t >= now.getTime() - 30 * 24 * 60 * 60 * 1000;
-
-        return true;
-    });
 
     if (!canViewReports) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
-                <h1 className="text-2xl font-semibold text-primary mb-2">
-                    403 – Access denied
-                </h1>
+                <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
                 <p className="text-sm text-gray-600">
-                    Your role{" "}
-                    <span className="font-semibold">({roleLabel})</span> is not
-                    allowed to access reports.
+                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access reports.
                 </p>
             </div>
         );
@@ -233,55 +223,55 @@ export const ReportsPage = () => {
             {/* Header */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                        Reports
-                    </h1>
-                    <p className="text-xs text-gray-600 mt-1">
-                        Semua dokumen PDF (Report, LOO, dll) ditampilkan di sini. Kalau tersedia file PDF, akan muncul tombol download/open.
-                    </p>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">Reports</h1>
+                    <p className="text-xs text-gray-500 mt-1">Semua dokumen PDF (LOO, Reagent Request, COA, dll).</p>
                 </div>
+
+                <button
+                    type="button"
+                    className="lims-icon-button self-start md:self-auto"
+                    onClick={load}
+                    aria-label="Refresh"
+                    title="Refresh"
+                    disabled={loading}
+                >
+                    <RefreshCw size={16} />
+                </button>
             </div>
 
-            {/* Card */}
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Filters */}
+                {/* Filter bar (gaya SamplesPage) */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     <div className="flex-1">
-                        <label className="sr-only" htmlFor="report-search">
-                            Search reports
+                        <label className="sr-only" htmlFor="doc-search">
+                            Search documents
                         </label>
+
                         <div className="relative">
                             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
-                                <svg
-                                    viewBox="0 0 24 24"
-                                    className="h-4 w-4"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.8"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                >
-                                    <circle cx="11" cy="11" r="6" />
-                                    <line x1="16" y1="16" x2="21" y2="21" />
-                                </svg>
+                                <Search size={16} />
                             </span>
+
                             <input
-                                id="report-search"
+                                id="doc-search"
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="Search by document no, client, sample…"
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") load();
+                                }}
+                                placeholder="Search by document name / code / status…"
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
                     </div>
 
                     <div className="w-full md:w-48">
-                        <label className="sr-only" htmlFor="report-date-filter">
+                        <label className="sr-only" htmlFor="doc-date-filter">
                             Date filter
                         </label>
                         <select
-                            id="report-date-filter"
+                            id="doc-date-filter"
                             value={dateFilter}
                             onChange={(e) => setDateFilter(e.target.value as DateFilter)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
@@ -295,308 +285,152 @@ export const ReportsPage = () => {
 
                     <button
                         type="button"
-                        className="lims-btn-primary"
-                        onClick={() => loadReports({ keepPage: false })}
+                        className="lims-icon-button"
+                        onClick={load}
+                        aria-label="Apply filters"
+                        title="Apply filters"
                         disabled={loading}
                     >
-                        Apply
+                        <Search size={16} />
                     </button>
-                </div>
-
-                {/* Documents (LOO now, extensible later) */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 mb-4">
-                    <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                        <div>
-                            <h2 className="text-sm font-semibold text-gray-900">Documents</h2>
-                            <p className="text-xs text-gray-500">
-                                Letter of Order sekarang muncul di sini. Dokumen PDF lain nanti tinggal masuk via endpoint yang sama.
-                            </p>
-                        </div>
-                        <div className="text-xs text-gray-500">
-                            {filteredDocs.length} item(s)
-                        </div>
-                    </div>
-
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full text-sm">
-                            <thead className="text-xs text-gray-500">
-                                <tr className="border-b border-gray-100">
-                                    <th className="text-left px-4 py-3">Document</th>
-                                    <th className="text-left px-4 py-3">Code / Number</th>
-                                    <th className="text-left px-4 py-3">Generated</th>
-                                    <th className="text-left px-4 py-3">Status</th>
-                                    <th className="text-right px-4 py-3">Action</th>
-                                </tr>
-                            </thead>
-
-                            <tbody className="divide-y divide-gray-100">
-                                {filteredDocs.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={7} className="px-4 py-6 text-center text-gray-500">
-                                            No documents found.
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    filteredDocs.map((d) => {
-                                        const docName = d.document_name ?? d.type ?? "Document";
-                                        const docCode = d.document_code ?? d.number ?? "-";
-                                        const url = d.download_url ?? null;
-                                        return (
-                                            <tr key={`${d.type}-${d.id}`} className="hover:bg-gray-50">
-                                                <td className="px-4 py-3 font-medium text-gray-900">
-                                                    {docName}
-                                                    <div className="text-xs text-gray-500">{String(d.type ?? "").toUpperCase()}</div>
-                                                </td>
-
-                                                <td className="px-4 py-3 text-gray-700">{docCode}</td>
-
-                                                <td className="px-4 py-3 text-gray-700">
-                                                    {fmtDate(d.generated_at ?? d.created_at)}
-                                                </td>
-
-                                                <td className="px-4 py-3 text-gray-700">{d.status ?? "-"}</td>
-
-                                                <td className="px-4 py-3 text-right">
-                                                    {url ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setPreviewPdfUrl(url);          // ✅ absolute API URL already
-                                                                setPreviewTitle(`${docName} Preview`);
-                                                                setPreviewOpen(true);
-                                                            }}
-                                                            className="px-3 py-1 rounded-full text-xs bg-primary text-white hover:opacity-90"
-                                                        >
-                                                            Open PDF
-                                                        </button>
-                                                    ) : (
-                                                        <span className="text-xs text-gray-400">No file</span>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        );
-
-                                    })
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
                 </div>
 
                 {/* Content */}
                 <div className="px-4 md:px-6 py-4">
-                    {loading && (
-                        <div className="text-sm text-gray-600">
-                            Loading reports...
-                        </div>
-                    )}
-
                     {error && !loading && (
-                        <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">
-                            {error}
-                        </div>
+                        <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
                     )}
 
-                    {!loading && !error && (
+                    {loading ? (
+                        <div className="text-sm text-gray-600">Loading documents…</div>
+                    ) : pageItems.length === 0 ? (
+                        <div className="text-sm text-gray-600">No documents found.</div>
+                    ) : (
                         <>
-                            {items.length === 0 ? (
-                                <div className="text-sm text-gray-600">
-                                    No documents found.
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full text-sm">
+                                    <thead className="bg-white text-gray-700 border-b border-gray-100">
+                                        <tr>
+                                            <th className="text-left font-semibold px-4 py-3">Document</th>
+                                            <th className="text-left font-semibold px-4 py-3">Code / Number</th>
+                                            <th className="text-left font-semibold px-4 py-3">Generated</th>
+                                            <th className="text-left font-semibold px-4 py-3">Status</th>
+                                            <th className="text-right font-semibold px-4 py-3">Actions</th>
+                                        </tr>
+                                    </thead>
+
+                                    <tbody className="divide-y divide-gray-100">
+                                        {pageItems.map((d) => {
+                                            return (
+                                                <tr key={d.key} className="hover:bg-gray-50">
+                                                    <td className="px-4 py-3 text-gray-900">
+                                                        <div className="font-medium">{d.documentName}</div>
+                                                        <div className="text-xs text-gray-500">{d.typeCode}</div>
+                                                    </td>
+
+                                                    <td className="px-4 py-3 text-gray-700">
+                                                        <span className="font-mono text-xs">{d.codeOrNumber}</span>
+                                                    </td>
+
+                                                    <td className="px-4 py-3 text-gray-700">{fmtDate(d.generatedAt)}</td>
+
+                                                    <td className="px-4 py-3 text-gray-700">{d.status ?? "-"}</td>
+
+                                                    <td className="px-4 py-3">
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            {/* Open */}
+                                                            <button
+                                                                type="button"
+                                                                className="lims-icon-button"
+                                                                aria-label="Open PDF"
+                                                                title="Open PDF"
+                                                                onClick={() => {
+                                                                    if (d.kind === "report_preview" && d.reportId) {
+                                                                        setPreviewReportId(d.reportId);
+                                                                        return;
+                                                                    }
+
+                                                                    const url = d.pdfUrl ?? null;
+                                                                    if (!url) return;
+
+                                                                    // url dari endpoint docs biasanya sudah absolute API URL
+                                                                    setPreviewPdfUrl(url);
+                                                                    setPreviewTitle(`${d.documentName} Preview`);
+                                                                    setPreviewOpen(true);
+                                                                }}
+                                                                disabled={d.kind === "pdf_url" && !d.pdfUrl}
+                                                            >
+                                                                <Eye size={16} />
+                                                            </button>
+
+                                                            {/* Optional: if pdfUrl is storage path (legacy) */}
+                                                            {d.kind === "pdf_url" && d.pdfUrl && !/^https?:\/\//i.test(d.pdfUrl) ? (
+                                                                <button
+                                                                    type="button"
+                                                                    className="lims-icon-button"
+                                                                    aria-label="Open storage PDF"
+                                                                    title="Open storage PDF"
+                                                                    onClick={() => openPdf(d.pdfUrl!, `${d.documentName} Preview`)}
+                                                                >
+                                                                    <Eye size={16} />
+                                                                </button>
+                                                            ) : null}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Pagination */}
+                            <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
+                                <div className="text-xs text-gray-600">
+                                    Showing{" "}
+                                    <span className="font-semibold">{total === 0 ? 0 : (clampedPage - 1) * DOC_PAGE_SIZE + 1}</span>{" "}
+                                    to <span className="font-semibold">{Math.min(clampedPage * DOC_PAGE_SIZE, total)}</span> of{" "}
+                                    <span className="font-semibold">{total}</span>
                                 </div>
-                            ) : (
-                                <div className="overflow-x-auto">
-                                    <table className="min-w-full text-sm">
-                                        <thead className="bg-gray-50">
-                                            <tr className="text-xs text-gray-500 uppercase tracking-wide">
-                                                <th className="px-4 py-3 text-left">
-                                                    Document No
-                                                </th>
-                                                <th className="px-4 py-3 text-left">
-                                                    Type
-                                                </th>
-                                                <th className="px-4 py-3 text-left">
-                                                    Client
-                                                </th>
-                                                <th className="px-4 py-3 text-left">
-                                                    Sample
-                                                </th>
-                                                <th className="px-4 py-3 text-left">
-                                                    Generated At
-                                                </th>
-                                                <th className="px-4 py-3 text-right">
-                                                    Actions
-                                                </th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {items.map((r) => {
-                                                const docNo = getDocNo(r);
-                                                const docType = getDocLabel(r);
-                                                const clientName = (r as any).client_name ?? "-";
-                                                const sampleLabel = getSampleLabel(r);
 
-                                                const generated =
-                                                    (r as any).generated_at ??
-                                                    r.created_at ??
-                                                    null;
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                        disabled={!canPrev}
+                                        className="lims-icon-button disabled:opacity-40 disabled:cursor-not-allowed"
+                                        aria-label="Previous"
+                                        title="Previous"
+                                    >
+                                        <ChevronLeft size={16} />
+                                    </button>
 
-                                                const hasPreview =
-                                                    typeof r.report_id === "number" &&
-                                                    r.report_id > 0;
-
-                                                const fileUrl =
-                                                    (r as any).file_url ??
-                                                    null;
-
-                                                return (
-                                                    <tr
-                                                        key={`${r.report_id ?? "x"}-${(r as any).lo_id ?? "y"}-${docNo}`}
-                                                        className="border-t border-gray-100 hover:bg-gray-50/60"
-                                                    >
-                                                        <td className="px-4 py-3 font-medium text-gray-900">
-                                                            {docNo}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-gray-700">
-                                                            {docType}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-gray-700">
-                                                            {clientName}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-gray-700">
-                                                            {sampleLabel}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-gray-700">
-                                                            {fmtDate(generated)}
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                            <div className="flex items-center justify-end gap-2">
-                                                                {/* View (modal) - only for report rows */}
-                                                                <button
-                                                                    type="button"
-                                                                    className="lims-icon-button text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed"
-                                                                    onClick={() => {
-                                                                        if (!hasPreview) return;
-                                                                        setPreviewReportId(r.report_id);
-                                                                    }}
-                                                                    aria-label="View document"
-                                                                    disabled={!hasPreview}
-                                                                    title={hasPreview ? "View" : "Preview not available"}
-                                                                >
-                                                                    <svg
-                                                                        viewBox="0 0 24 24"
-                                                                        className="h-4 w-4"
-                                                                        fill="none"
-                                                                        stroke="currentColor"
-                                                                        strokeWidth="1.8"
-                                                                        strokeLinecap="round"
-                                                                        strokeLinejoin="round"
-                                                                    >
-                                                                        <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
-                                                                        <circle cx="12" cy="12" r="3" />
-                                                                    </svg>
-                                                                </button>
-
-                                                                {/* Download/Open PDF if file_url exists */}
-                                                                <button
-                                                                    type="button"
-                                                                    className="lims-icon-button text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed"
-                                                                    onClick={() => {
-                                                                        if (!fileUrl) return;
-                                                                        openPdf(String(fileUrl));
-                                                                    }}
-                                                                    aria-label="Open PDF"
-                                                                    disabled={!fileUrl}
-                                                                    title={fileUrl ? "Open PDF" : "PDF not available"}
-                                                                >
-                                                                    <svg
-                                                                        viewBox="0 0 24 24"
-                                                                        className="h-4 w-4"
-                                                                        fill="none"
-                                                                        stroke="currentColor"
-                                                                        strokeWidth="1.8"
-                                                                        strokeLinecap="round"
-                                                                        strokeLinejoin="round"
-                                                                    >
-                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                                                        <path d="M7 10l5 5 5-5" />
-                                                                        <path d="M12 15V3" />
-                                                                    </svg>
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-
-                                    {/* Pagination */}
-                                    <div className="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-xs text-gray-600">
-                                        <div>
-                                            Showing{" "}
-                                            <span className="font-semibold">
-                                                {totalReports === 0
-                                                    ? 0
-                                                    : (currentPage - 1) * PAGE_SIZE + 1}
-                                            </span>{" "}
-                                            –{" "}
-                                            <span className="font-semibold">
-                                                {Math.min(currentPage * PAGE_SIZE, totalReports)}
-                                            </span>{" "}
-                                            of{" "}
-                                            <span className="font-semibold">
-                                                {totalReports}
-                                            </span>{" "}
-                                            documents
-                                        </div>
-
-                                        <div className="flex items-center justify-end gap-1">
-                                            <button
-                                                type="button"
-                                                onClick={() => handlePageChange(currentPage - 1)}
-                                                disabled={currentPage === 1}
-                                                className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
-                                            >
-                                                Previous
-                                            </button>
-
-                                            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                                                <button
-                                                    key={page}
-                                                    type="button"
-                                                    onClick={() => handlePageChange(page)}
-                                                    className={`px-3 py-1 rounded-full text-xs border ${page === currentPage
-                                                        ? "bg-primary text-white border-primary"
-                                                        : "bg-white text-gray-700 hover:bg-gray-50"
-                                                        }`}
-                                                >
-                                                    {page}
-                                                </button>
-                                            ))}
-
-                                            <button
-                                                type="button"
-                                                onClick={() => handlePageChange(currentPage + 1)}
-                                                disabled={currentPage === totalPages}
-                                                className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
-                                            >
-                                                Next
-                                            </button>
-                                        </div>
+                                    <div className="text-xs text-gray-600">
+                                        Page <span className="font-semibold">{clampedPage}</span> /{" "}
+                                        <span className="font-semibold">{totalPages}</span>
                                     </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setPage((p) => p + 1)}
+                                        disabled={!canNext}
+                                        className="lims-icon-button disabled:opacity-40 disabled:cursor-not-allowed"
+                                        aria-label="Next"
+                                        title="Next"
+                                    >
+                                        <ChevronRight size={16} />
+                                    </button>
                                 </div>
-                            )}
+                            </div>
                         </>
                     )}
                 </div>
             </div>
 
-            <ReportPreviewModal
-                open={previewReportId !== null}
-                reportId={previewReportId}
-                onClose={() => setPreviewReportId(null)}
-            />
+            {/* COA preview (by reportId) */}
+            <ReportPreviewModal open={previewReportId !== null} reportId={previewReportId} onClose={() => setPreviewReportId(null)} />
 
+            {/* PDF preview (by url) */}
             <ReportPreviewModal
                 open={previewOpen}
                 onClose={() => {
@@ -606,7 +440,6 @@ export const ReportsPage = () => {
                 pdfUrl={previewPdfUrl}
                 title={previewTitle}
             />
-
         </div>
     );
 };

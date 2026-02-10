@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Report;
 use App\Models\AuditLog;
 use App\Services\CoaPdfService;
+use App\Services\CoaFinalizeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -12,7 +13,8 @@ use Illuminate\Support\Facades\Storage;
 class CoaPdfController extends Controller
 {
     public function __construct(
-        private readonly CoaPdfService $coaPdf
+        private readonly CoaPdfService $coaPdf,
+        private readonly CoaFinalizeService $finalizer,
     ) {}
 
     public function downloadBySample(Request $request, int $sampleId)
@@ -33,7 +35,7 @@ class CoaPdfController extends Controller
         }
 
         $report = Report::where('sample_id', $sampleId)->firstOrFail();
-        $disk   = $this->coaPdf->disk();
+        $disk   = config('coa.storage_disk', 'local');
 
         /**
          * 🔒 IMMUTABLE MODE (SELF-HEALING)
@@ -43,9 +45,11 @@ class CoaPdfController extends Controller
             if (Storage::disk($disk)->exists($report->pdf_url)) {
                 $binary = Storage::disk($disk)->get($report->pdf_url);
 
-                if (hash('sha256', $binary) === $report->document_hash) {
+                // ✅ kalau document_hash belum ada, tetap allow preview
+                $hashOk = empty($report->document_hash) || hash('sha256', $binary) === $report->document_hash;
 
-                    // ✅ STEP 7 — AUDIT LOG
+                if ($hashOk) {
+
                     AuditLog::create([
                         'staff_id'   => $staff->staff_id,
                         'entity_name' => 'report',
@@ -64,9 +68,8 @@ class CoaPdfController extends Controller
                 }
             }
 
-            // ❌ FILE / HASH RUSAK → RESET STATE
+            // ✅ jangan sentuh pdf_url (kolom NOT NULL)
             $report->update([
-                'pdf_url'       => null,
                 'document_hash' => null,
                 'is_locked'     => false,
             ]);
@@ -75,76 +78,28 @@ class CoaPdfController extends Controller
         /**
          * 🔓 GENERATE MODE (ONCE ONLY)
          */
-        $report->loadMissing(['sample.client', 'items', 'signatures']);
+        // optional template override dari query ?template_code=WGS/INSTITUTION/INDIVIDUAL
+        $templateCode = $request->query('template_code');
+        $templateCode = is_string($templateCode) && trim($templateCode) !== '' ? $templateCode : null;
 
-        // 1️⃣ Placeholder URL
-        $verificationUrl = '__HASH__';
-
-        // 2️⃣ Payload awal (tanpa QR)
-        $payload = [
-            'report'          => $report,
-            'sample'          => $report->sample,
-            'client'          => $report->sample->client,
-            'items'           => $report->items,
-            'signatures'      => $report->signatures,
-            'verificationUrl' => $verificationUrl,
-            'qr_data_uri'     => null,
-        ];
-
-        // 3️⃣ Render TANPA QR
-        $binary = $this->coaPdf->renderWithMetadata(
-            'reports.coa.individual',
-            $payload,
-            [
-                'title'   => 'COA ' . $report->report_no,
-                'author'  => 'Laboratorium Biomolekuler UNSRAT',
-                'subject' => 'Certificate of Analysis',
-            ]
+        // ✅ finalize akan render PDF, simpan ke storage, set pdf_url + lock
+        $res = $this->finalizer->finalize(
+            (int) $report->report_id,
+            (int) $staff->staff_id,
+            $templateCode
         );
 
-        // 4️⃣ HASH FINAL
-        $hash = hash('sha256', $binary);
+        $path = (string) $res['pdf_url'];
 
-        // 5️⃣ Verification URL FINAL
-        $verificationUrl = url('/api/v1/verify/coa/' . $hash);
+        if (!Storage::disk($disk)->exists($path)) {
+            return response()->json(['message' => 'COA generated but PDF file not found in storage.'], 500);
+        }
 
-        // 6️⃣ Generate QR
-        $qrPng = file_get_contents(
-            'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' .
-                urlencode($verificationUrl)
-        );
+        $binaryFinal = Storage::disk($disk)->get($path);
 
-        // 7️⃣ Render FINAL + QR
-        $payload['verificationUrl'] = $verificationUrl;
-        $payload['qr_data_uri']     = 'data:image/png;base64,' . base64_encode($qrPng);
+        // refresh supaya document_hash/is_locked terbaru kalau dibutuhkan
+        $report->refresh();
 
-        $binaryFinal = $this->coaPdf->renderWithMetadata(
-            'reports.coa.individual',
-            $payload,
-            [
-                'title'   => 'COA ' . $report->report_no,
-                'author'  => 'Laboratorium Biomolekuler UNSRAT',
-                'subject' => 'Certificate of Analysis',
-                'legal_marker' => implode(' | ', [
-                    'BioTrace COA',
-                    'ReportNo=' . $report->report_no,
-                    'Hash=' . $hash,
-                    'Verify=' . $verificationUrl,
-                ]),
-            ]
-        );
-
-        // 8️⃣ SIMPAN & LOCK
-        $path = $this->coaPdf->buildPath($report->report_no, 'individual');
-        $this->coaPdf->store($path, $binaryFinal);
-
-        $report->update([
-            'pdf_url'       => $path,
-            'document_hash' => hash('sha256', $binaryFinal),
-            'is_locked'     => true,
-        ]);
-
-        // ✅ STEP 7 — AUDIT LOG (GENERATE)
         AuditLog::create([
             'staff_id'   => $staff->staff_id,
             'entity_name' => 'report',
@@ -152,7 +107,7 @@ class CoaPdfController extends Controller
             'action'     => 'GENERATE_COA',
             'ip_address' => $request->ip(),
             'new_values' => [
-                'hash' => hash('sha256', $binaryFinal),
+                'pdf_url' => $path,
             ],
         ]);
 

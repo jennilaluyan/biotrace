@@ -52,26 +52,34 @@ return [
      * - 1 untuk individu (auto)
      */
     'templates' => [
-        'institution_v1' => [
-            'label' => 'CoA Institusi (Versi 1)',
+        'institution' => [
+            'label' => 'CoA Institusi',
             'client_type' => 'institution',
-            'view' => 'reports.coa.institution_v1',
-        ],
-        'institution_v2' => [
-            'label' => 'CoA Institusi (Versi 2)',
-            'client_type' => 'institution',
-            'view' => 'reports.coa.institution_v2',
+            // ✅ match file: resources/views/reports/coa/institution.blade.php
+            'view' => 'reports.coa.institution',
         ],
         'individual' => [
             'label' => 'CoA Individu',
             'client_type' => 'individual',
+            // ✅ match file: resources/views/reports/coa/individual.blade.php
             'view' => 'reports.coa.individual',
+        ],
+        'wgs' => [
+            'label' => 'CoA WGS',
+            'client_type' => 'individual',
+            // ✅ match file: resources/views/reports/coa/wgs.blade.php
+            'view' => 'reports.coa.wgs',
+        ],
+        'other' => [
+            'label' => 'CoA Lainnya (Notes)',
+            'client_type' => 'individual',
+            // ✅ NEW file we add below
+            'view' => 'reports.coa.other',
         ],
     ],
 
-    // Default otomatis berdasarkan jenis client
     'default_template_by_client_type' => [
-        'institution' => 'institution_v1',
+        'institution' => 'institution',
         'individual' => 'individual',
     ],
 

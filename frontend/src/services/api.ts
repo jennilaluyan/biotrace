@@ -103,9 +103,6 @@ http.interceptors.request.use((config) => {
     const url = config.url ?? "";
     const clientReq = isClientPath(url);
 
-    // 🔥 FIX UTAMA:
-    // Client endpoint tidak boleh mengirim cookie staff (session),
-    // supaya backend tidak membaca actorRole=Administrator dan memblokir (CLIENT_ONLY).
     if (clientReq) {
         config.withCredentials = false;
     } else {
@@ -136,7 +133,6 @@ http.interceptors.response.use(
             if (isClientPath(url)) {
                 setClientAuthToken(null);
                 publishAuthEvent("client", "session_expired");
-                // jangan hapus legacy staff key di sini
             } else {
                 setStaffAuthToken(null);
                 localStorage.removeItem(AUTH_TOKEN_KEY);
@@ -154,6 +150,14 @@ function normalizeData(data: any) {
     return data;
 }
 
+function extractMessage(payload: any, fallback?: string) {
+    if (!payload) return fallback ?? "Request failed.";
+    if (typeof payload === "string") return payload;
+    if (typeof payload?.message === "string" && payload.message.trim()) return payload.message.trim();
+    if (typeof payload?.error === "string" && payload.error.trim()) return payload.error.trim();
+    return fallback ?? "Request failed.";
+}
+
 async function handleAxios<T>(promise: Promise<any>): Promise<T> {
     try {
         const res = await promise;
@@ -162,11 +166,17 @@ async function handleAxios<T>(promise: Promise<any>): Promise<T> {
         const error = err as AxiosError;
 
         if (error.response) {
+            const data = normalizeData(error.response.data);
+            const message = extractMessage(data, error.message);
+
+            // ✅ IMPORTANT: expose message so pages can show backend error text
             throw {
                 status: error.response.status,
-                data: normalizeData(error.response.data),
+                data,
+                message,
             };
         }
+
         throw err;
     }
 }
@@ -238,6 +248,55 @@ export async function apiDelete<T = any>(path: string, options?: AxiosRequestCon
 export async function apiGetRaw<T = any>(path: string, options?: AxiosRequestConfig): Promise<T> {
     const res = await http.get(normalizePath(path), options);
     return normalizeData(res.data) as T;
+}
+
+export async function apiGetBlob(path: string, options?: AxiosRequestConfig): Promise<Blob> {
+    try {
+        const res = await http.get(normalizePath(path), {
+            ...options,
+            responseType: "blob",
+            headers: {
+                Accept: "application/pdf",
+                ...(options?.headers || {}),
+            },
+        });
+
+        return res.data as Blob;
+    } catch (err) {
+        const error = err as AxiosError;
+
+        if (error.response) {
+            let data: any = normalizeData(error.response.data);
+            let message = error.message;
+
+            // kalau backend balikin JSON error tapi kita request blob, axios kasih Blob
+            if (typeof Blob !== "undefined" && data instanceof Blob) {
+                try {
+                    const text = await data.text();
+                    try {
+                        const json = JSON.parse(text);
+                        data = json;
+                        message = extractMessage(json, message);
+                    } catch {
+                        data = text;
+                        message = text || message;
+                    }
+                } catch {
+                    // ignore parsing failure
+                }
+            } else {
+                message = extractMessage(data, message);
+            }
+
+            throw {
+                status: error.response.status,
+                data,
+                message,
+            };
+        }
+
+        throw err;
+    }
 }
 
 export async function apiPostRaw<T = any>(path: string, body?: any, options?: AxiosRequestConfig): Promise<T> {

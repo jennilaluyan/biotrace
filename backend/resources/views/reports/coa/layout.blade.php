@@ -3,20 +3,23 @@
 
 <head>
     <meta charset="utf-8">
-    <title>{{ $title ?? 'Sertifikat Hasil Pengujian' }}</title>
+    <title>{{ $title ?? 'Laporan Hasil Uji' }}</title>
 
     <style>
         @page {
-            margin: 18mm 14mm 18mm 14mm;
+            /* Margin atas/bawah disesuaikan untuk header & footer */
+            margin: 10mm 15mm 15mm 15mm;
         }
 
         body {
-            font-family: DejaVu Sans, sans-serif;
+            font-family: Arial, sans-serif;
             font-size: 11px;
             color: #000;
-            line-height: 1.35;
+            line-height: 1.2;
+            text-align: left;
         }
 
+        /* Helper Classes */
         .text-center {
             text-align: center;
         }
@@ -29,89 +32,97 @@
             font-weight: bold;
         }
 
-        .small {
+        .text-small {
             font-size: 9px;
         }
 
-        .xs {
+        .text-xs {
             font-size: 8px;
         }
 
-        .mb-6 {
-            margin-bottom: 6px;
+        .italic {
+            font-style: italic;
         }
 
-        .mb-10 {
-            margin-bottom: 10px;
+        .mb-5 {
+            margin-bottom: 5px;
         }
 
-        .mt-6 {
-            margin-top: 6px;
+        .mt-5 {
+            margin-top: 5px;
         }
 
-        .mt-10 {
-            margin-top: 10px;
-        }
-
+        /* Tabel Standar */
         table {
             width: 100%;
             border-collapse: collapse;
         }
 
-        .tbl th,
-        .tbl td {
-            border: 1px solid #000;
-            padding: 5px 6px;
+        td,
+        th {
             vertical-align: top;
+            padding: 2px;
         }
 
-        .no-border td,
-        .no-border th {
-            border: none;
-            padding: 0;
+        /* Tabel dengan Border (untuk Hasil & QC) */
+        .bordered {
+            width: 100%;
+            border-collapse: collapse;
         }
 
-        .header td {
-            border: none;
+        .bordered th,
+        .bordered td {
+            border: 1px solid #000;
+            padding: 4px;
             vertical-align: middle;
         }
 
-        .hr {
-            border-top: 2px solid #000;
-            margin: 6px 0 10px 0;
+        /* Header Table Style (Tanpa Border) */
+        .header-table td {
+            border: none;
+            vertical-align: middle;
+            padding: 0;
         }
 
-        .label {
-            width: 35%;
+        /* Info Table (Titik dua sejajar) */
+        .info-table td {
+            border: none;
+            padding: 1px 0;
         }
 
-        .value {
-            width: 65%;
+        /* Bagian Tanda Tangan */
+        .signature-section {
+            margin-top: 20px;
+            page-break-inside: avoid;
         }
 
-        .signature-box {
-            border: 1px solid #000;
-            padding: 8px;
-            height: 85px;
-        }
-
-        .page-footer {
+        /* Footer Form Number (Pojok Kanan Bawah) */
+        .form-footer {
             position: fixed;
-            bottom: -10mm;
-            left: 0;
+            bottom: 0;
             right: 0;
-            font-size: 8px;
+            font-size: 9px;
+            font-weight: bold;
+        }
+
+        /* Logo KAN Container */
+        .kan-box {
             text-align: center;
+            font-size: 8px;
+            font-weight: bold;
+        }
+
+        /* Garis Pemisah Header */
+        .header-line {
+            border-bottom: 2px solid #000;
+            margin-top: 5px;
+            margin-bottom: 2px;
         }
     </style>
 </head>
 
 <body>
     @yield('content')
-
-    <div class="page-footer">
-        {{ $footer_text ?? '' }}
-    </div>
 </body>
 
 </html>

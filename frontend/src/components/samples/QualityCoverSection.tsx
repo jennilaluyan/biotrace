@@ -122,7 +122,13 @@ export function QualityCoverSection(props: Props) {
         setQcError(null);
 
         try {
+            const requested = ((sample as any)?.requested_parameters || (sample as any)?.requestedParameters || []) as any[];
+            const parameterId =
+                requested.length === 1 && requested?.[0]?.parameter_id ? Number(requested[0].parameter_id) : undefined;
+
             const c = await saveQualityCoverDraft(sampleId, {
+                parameter_id: parameterId,
+                parameter_label: paramLabel !== "—" ? paramLabel : undefined,
                 method_of_analysis: methodOfAnalysis || undefined,
                 qc_payload: qcPayload,
             });
@@ -145,14 +151,20 @@ export function QualityCoverSection(props: Props) {
         setQcError(null);
 
         try {
-            // ensure draft exists
+            const requested = ((sample as any)?.requested_parameters || (sample as any)?.requestedParameters || []) as any[];
+            const parameterId =
+                requested.length === 1 && requested?.[0]?.parameter_id ? Number(requested[0].parameter_id) : undefined;
+
             const ensuredDraft = await saveQualityCoverDraft(sampleId, {
+                parameter_id: parameterId,
+                parameter_label: paramLabel !== "—" ? paramLabel : undefined,
                 method_of_analysis: methodOfAnalysis.trim(),
                 qc_payload: qcPayload,
             });
-            setCover(ensuredDraft);
 
             const submitted = await submitQualityCover(sampleId, {
+                parameter_id: parameterId,
+                parameter_label: paramLabel !== "—" ? paramLabel : undefined,
                 method_of_analysis: methodOfAnalysis.trim(),
                 qc_payload: qcPayload,
             });

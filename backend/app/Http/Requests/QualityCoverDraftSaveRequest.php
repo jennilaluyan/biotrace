@@ -14,13 +14,11 @@ class QualityCoverDraftSaveRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // manual field
+            'parameter_id' => ['nullable', 'integer'],
+            'parameter_label' => ['nullable', 'string', 'max:255'],
+
             'method_of_analysis' => ['nullable', 'string', 'max:255'],
-
-            // group-aware qc payload (stored as JSON)
             'qc_payload' => ['nullable', 'array'],
-
-            // allow nested payload freely (draft stage)
             'qc_payload.*' => ['nullable'],
         ];
     }

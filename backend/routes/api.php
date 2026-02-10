@@ -62,6 +62,7 @@ use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ReportSignatureController;
 use App\Http\Controllers\CoaPdfController;
+use App\Http\Controllers\CoaDownloadController;
 use App\Http\Controllers\PublicCoaVerificationController;
 
 // LOO
@@ -444,6 +445,9 @@ Route::prefix('v1')->group(function () {
         // COA PDF
         Route::get('reports/{report}/pdf', [CoaPdfController::class, 'downloadByReport'])->whereNumber('report');
         Route::get('samples/{sample}/coa', [CoaPdfController::class, 'downloadBySample'])->whereNumber('sample');
+
+        Route::get('/v1/samples/{sample}/coa', [CoaDownloadController::class, 'bySample']);
+        Route::get('/v1/reports/{report}/pdf', [CoaDownloadController::class, 'byReport']);
 
         // Public COA verification
         Route::get('verify/coa/{hash}', [PublicCoaVerificationController::class, 'verify']);
