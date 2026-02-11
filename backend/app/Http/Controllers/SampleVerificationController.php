@@ -142,18 +142,11 @@ class SampleVerificationController extends Controller
         ];
 
         DB::transaction(function () use ($sample, $actorStaffId, $now, $verifiedByRole) {
-            // 1) Mark verified
             $sample->verified_at = $now;
             $sample->verified_by_staff_id = $actorStaffId;
             $sample->verified_by_role = $verifiedByRole;
 
-            // 2) ✅ AUTO-ASSIGN Sample ID (BML) immediately after verified
-            if (!$sample->lab_sample_code) {
-                $sample->lab_sample_code = LabSampleCode::next();
-            }
-
-            // 3) ✅ Promote out of request queue
-            $sample->request_status = SampleRequestStatus::INTAKE_VALIDATED->value;
+            $sample->request_status = SampleRequestStatus::WAITING_SAMPLE_ID_ASSIGNMENT->value;
 
             $sample->save();
         }, 3);

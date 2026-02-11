@@ -19,6 +19,10 @@ use App\Http\Controllers\ClientSampleRequestController;
 use App\Http\Controllers\SampleRequestQueueController;
 use App\Http\Controllers\SampleRequestStatusController;
 
+// Sample ID Approval Flow
+use App\Http\Controllers\SampleIdAdminController;
+use App\Http\Controllers\SampleIdChangeRequestController;
+
 // Samples & Workflow
 use App\Http\Controllers\SampleController;
 use App\Http\Controllers\SampleStatusHistoryController;
@@ -305,15 +309,38 @@ Route::prefix('v1')->group(function () {
 
         /*
         |--------------------------------------------------------------------------
+        | Sample ID Suggestion + Assign (Admin)
+        |--------------------------------------------------------------------------
+        */
+        Route::get('sample-requests/{sample}/sample-id/suggestion', [SampleIdAdminController::class, 'suggestion'])
+            ->whereNumber('sample');
+        Route::post('sample-requests/{sample}/sample-id/assign', [SampleIdAdminController::class, 'assign'])
+            ->whereNumber('sample');
+        Route::post('sample-requests/{sample}/sample-id/propose-change', [SampleIdAdminController::class, 'proposeChange'])
+            ->whereNumber('sample');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Sample ID Change Requests (OM/LH)
+        |--------------------------------------------------------------------------
+        */
+        Route::get('sample-id-change-requests', [SampleIdChangeRequestController::class, 'index']);
+        Route::get('sample-id-change-requests/{changeRequestId}', [SampleIdChangeRequestController::class, 'show'])
+            ->whereNumber('changeRequestId');
+        Route::post('sample-id-change-requests/{changeRequestId}/approve', [SampleIdChangeRequestController::class, 'approve'])
+            ->whereNumber('changeRequestId');
+        Route::post('sample-id-change-requests/{changeRequestId}/reject', [SampleIdChangeRequestController::class, 'reject'])
+            ->whereNumber('changeRequestId');
+
+        /*
+        |--------------------------------------------------------------------------
         | Intake
         |--------------------------------------------------------------------------
         */
         Route::post('samples/{sample}/intake-checklist', [SampleIntakeChecklistController::class, 'store'])
             ->whereNumber('sample');
-
         Route::post('samples/{sample}/verify', [\App\Http\Controllers\SampleVerificationController::class, 'verify'])
             ->whereNumber('sample');
-
         Route::post('samples/{sample}/intake-validate', [SampleIntakeValidationController::class, 'validateIntake'])
             ->whereNumber('sample');
 
@@ -324,28 +351,20 @@ Route::prefix('v1')->group(function () {
         */
         Route::post('samples/{sample}/sample-tests/bulk', [SampleTestBulkController::class, 'store'])
             ->whereNumber('sample');
-
         Route::get('samples/{sample}/sample-tests', [SampleTestController::class, 'indexBySample'])
             ->whereNumber('sample');
-
         Route::post('sample-tests/{sampleTest}/status', [SampleTestStatusController::class, 'update'])
             ->whereNumber('sampleTest');
-
         Route::post('sample-tests/{sampleTest}/om/decision', [SampleTestDecisionController::class, 'omDecision'])
             ->whereNumber('sampleTest');
-
         Route::post('sample-tests/{sampleTest}/lh/decision', [SampleTestDecisionController::class, 'lhDecision'])
             ->whereNumber('sampleTest');
-
         Route::post('sample-tests/{sampleTest}/verify', [SampleTestDecisionController::class, 'verifyAsOM'])
             ->whereNumber('sampleTest');
-
         Route::post('sample-tests/{sampleTest}/validate', [SampleTestDecisionController::class, 'validateAsLH'])
             ->whereNumber('sampleTest');
-
         Route::post('sample-tests/{sampleTest}/results', [TestResultController::class, 'store'])
             ->whereNumber('sampleTest');
-
         Route::patch('test-results/{testResult}', [TestResultController::class, 'update'])
             ->whereNumber('testResult');
 
