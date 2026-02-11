@@ -35,6 +35,10 @@ class Sample extends Model
         'ready_at',
         'physically_received_at',
         'lab_sample_code',
+        'sample_id_prefix',
+        'sample_id_number',
+        'sample_id_assigned_at',
+        'sample_id_assigned_by_staff_id',
         'additional_notes',
         'created_by',
         'assigned_to',
@@ -103,6 +107,9 @@ class Sample extends Model
         'collector_returned_to_admin_at' => 'datetime',
         'admin_received_from_collector_at' => 'datetime',
         'client_picked_up_at' => 'datetime',
+
+        'sample_id_number' => 'integer',
+        'sample_id_assigned_at' => 'datetime',
 
         // OM/LH verification gate + LOA metadata
         'verified_at' => 'datetime',

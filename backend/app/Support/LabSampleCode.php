@@ -6,49 +6,138 @@ use Illuminate\Support\Facades\DB;
 
 class LabSampleCode
 {
-    /**
-     * Generate next lab sample code in format: BML-001, BML-002, ...
-     *
-     * Prefers PostgreSQL sequence `lab_sample_code_seq` (concurrency-safe).
-     * Falls back to scanning existing codes if not pgsql.
-     */
     public static function next(string $prefix = 'BML', int $pad = 3): string
     {
-        $driver = DB::getDriverName();
+        $norm = self::normalizePrefix($prefix);
 
-        if ($driver === 'pgsql') {
-            $row = DB::selectOne("SELECT nextval('lab_sample_code_seq') AS v");
-            $n = (int) ($row->v ?? 0);
+        if (!self::hasCountersTable()) {
+            $n = (int) (microtime(true) * 1000) % 100000;
             if ($n <= 0) $n = 1;
-
-            return sprintf('%s-%0' . $pad . 'd', $prefix, $n);
+            return self::format($norm, $n, $pad);
         }
 
-        // Fallback (non-pgsql): derive next number from existing records.
-        // Not as concurrency-safe as sequence, but still reasonable for dev.
-        $lastNum = 0;
+        return DB::transaction(function () use ($norm, $pad) {
+            $row = DB::table('sample_id_counters')
+                ->where('prefix', $norm)
+                ->lockForUpdate()
+                ->first();
 
-        $q = DB::table('samples')
-            ->whereNotNull('lab_sample_code')
-            ->where('lab_sample_code', 'like', $prefix . '-%');
+            if (!$row) {
+                DB::table('sample_id_counters')->insert([
+                    'prefix' => $norm,
+                    'last_number' => 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
-        if ($driver === 'mysql') {
-            $row = $q->orderByRaw("CAST(SUBSTRING_INDEX(lab_sample_code,'-',-1) AS UNSIGNED) DESC")->first();
-        } elseif ($driver === 'sqlite') {
-            $row = $q->orderByRaw("CAST(substr(lab_sample_code, instr(lab_sample_code,'-')+1) AS INTEGER) DESC")->first();
-        } else {
-            // Generic: lexical desc (works OK for pad==3 under 999)
-            $row = $q->orderByDesc('lab_sample_code')->first();
-        }
-
-        if ($row && isset($row->lab_sample_code)) {
-            $raw = (string) $row->lab_sample_code;
-            if (preg_match('/^' . preg_quote($prefix, '/') . '\-(\d+)$/', $raw, $m)) {
-                $lastNum = (int) $m[1];
+                $last = 0;
+            } else {
+                $last = (int) ($row->last_number ?? 0);
             }
+
+            $next = max(1, $last + 1);
+
+            DB::table('sample_id_counters')
+                ->where('prefix', $norm)
+                ->update([
+                    'last_number' => $next,
+                    'updated_at' => now(),
+                ]);
+
+            return self::format($norm, $next, $pad);
+        });
+    }
+
+    public static function normalize(string $raw, int $pad = 3): ?array
+    {
+        $raw = trim($raw);
+        if ($raw === '') return null;
+
+        if (preg_match('/^([A-Za-z]{2,10})\s+(\d{1,6})$/', $raw, $m)) {
+            $prefix = self::normalizePrefix($m[1]);
+            $num = (int) $m[2];
+            if ($num <= 0) return null;
+
+            return [
+                'prefix' => $prefix,
+                'number' => $num,
+                'code' => self::format($prefix, $num, $pad),
+            ];
         }
 
-        $next = max(1, $lastNum + 1);
-        return sprintf('%s-%0' . $pad . 'd', $prefix, $next);
+        if (preg_match('/^([A-Za-z]{2,10})-(\d{1,6})$/', $raw, $m)) {
+            $prefix = self::normalizePrefix($m[1]);
+            $num = (int) $m[2];
+            if ($num <= 0) return null;
+
+            return [
+                'prefix' => $prefix,
+                'number' => $num,
+                'code' => self::format($prefix, $num, $pad),
+            ];
+        }
+
+        return null;
+    }
+
+    public static function syncCounterFromCode(string $code): void
+    {
+        $parsed = self::normalize($code, 3);
+        if (!$parsed) return;
+
+        if (!self::hasCountersTable()) return;
+
+        $prefix = $parsed['prefix'];
+        $num = (int) $parsed['number'];
+
+        DB::transaction(function () use ($prefix, $num) {
+            $row = DB::table('sample_id_counters')
+                ->where('prefix', $prefix)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$row) {
+                DB::table('sample_id_counters')->insert([
+                    'prefix' => $prefix,
+                    'last_number' => $num,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+                return;
+            }
+
+            $last = (int) ($row->last_number ?? 0);
+            if ($num > $last) {
+                DB::table('sample_id_counters')
+                    ->where('prefix', $prefix)
+                    ->update([
+                        'last_number' => $num,
+                        'updated_at' => now(),
+                    ]);
+            }
+        });
+    }
+
+    private static function format(string $prefix, int $number, int $pad): string
+    {
+        return $prefix . ' ' . str_pad((string) $number, $pad, '0', STR_PAD_LEFT);
+    }
+
+    private static function normalizePrefix(string $prefix): string
+    {
+        $prefix = strtoupper(trim($prefix));
+        $prefix = preg_replace('/\s+/', '', $prefix) ?? $prefix;
+        $prefix = preg_replace('/[^A-Z0-9]/', '', $prefix) ?? $prefix;
+        if ($prefix === '') $prefix = 'BML';
+        return $prefix;
+    }
+
+    private static function hasCountersTable(): bool
+    {
+        try {
+            return DB::connection()->getSchemaBuilder()->hasTable('sample_id_counters');
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 }
