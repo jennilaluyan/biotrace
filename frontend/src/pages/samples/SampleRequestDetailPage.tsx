@@ -261,7 +261,13 @@ export default function SampleRequestDetailPage() {
         try {
             setWfBusy(true);
             setWfError(null);
-            await apiPost(`/v1/samples/${requestId}/request-status`, { action: "received", note: null });
+
+            // ✅ record admin_received_from_client_at (physical workflow evidence)
+            await apiPatch(`/v1/samples/${requestId}/physical-workflow`, {
+                action: "admin_received_from_client",
+                note: null,
+            });
+
             await load({ silent: true });
             setTab("workflow");
         } catch (err: any) {

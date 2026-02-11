@@ -536,19 +536,15 @@ export function SampleRequestWorkflowTab(props: {
                             />
                         ) : null}
 
-                        {isAdmin ? (
+                        {isAdmin && canAssignSampleId ? (
                             <ActionCard
                                 title="Admin: Assign Sample ID"
-                                subtitle={
-                                    isSampleIdChangePending
-                                        ? "Locked: waiting OM/LH verification for Sample ID change."
-                                        : "Assign the final lab code (BML)."
-                                }
+                                subtitle="Assign the final lab code (BML)."
                                 icon={<Hash size={18} />}
                                 onClick={props.onOpenAssignSampleId}
-                                disabled={!canAssignSampleId || props.wfBusy}
+                                disabled={props.wfBusy}
                                 tone="primary"
-                                rightText={!canAssignSampleId ? "Locked" : "Open"}
+                                rightText="Open"
                             />
                         ) : null}
 
@@ -561,7 +557,7 @@ export function SampleRequestWorkflowTab(props: {
                             !canAdminReceiveBack &&
                             !canAdminClientPickup &&
                             !canVerify &&
-                            !(isAdmin && (canAssignSampleId || isSampleIdChangePending)) ? (
+                            !(isAdmin && canAssignSampleId) ? (
                             <div className="text-sm text-gray-600">No actions required from your role right now.</div>
                         ) : null}
                     </div>
