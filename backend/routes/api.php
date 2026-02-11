@@ -382,8 +382,6 @@ Route::prefix('v1')->group(function () {
             ->where('workflowGroup', '^[a-z0-9_]+$');
         Route::put('testing-board/{workflowGroup}/columns/reorder', [\App\Http\Controllers\TestingBoardController::class, 'reorderColumns'])
             ->where('workflowGroup', '^[a-z0-9_]+$');
-
-        // ✅ NEW: delete column endpoint (FE uses DELETE /v1/testing-board/columns/{columnId})
         Route::delete('testing-board/columns/{columnId}', [\App\Http\Controllers\TestingBoardController::class, 'deleteColumn'])
             ->whereNumber('columnId');
 
@@ -471,8 +469,8 @@ Route::prefix('v1')->group(function () {
         Route::get('reports/{report}/pdf', [CoaPdfController::class, 'downloadByReport'])->whereNumber('report');
         Route::get('samples/{sample}/coa', [CoaPdfController::class, 'downloadBySample'])->whereNumber('sample');
 
-        Route::get('/v1/samples/{sample}/coa', [CoaDownloadController::class, 'bySample']);
-        Route::get('/v1/reports/{report}/pdf', [CoaDownloadController::class, 'byReport']);
+        Route::get('samples/{sample}/coa', [CoaDownloadController::class, 'bySample']);
+        Route::get('reports/{report}/pdf', [CoaDownloadController::class, 'byReport']);
 
         // Public COA verification
         Route::get('verify/coa/{hash}', [PublicCoaVerificationController::class, 'verify']);
@@ -487,12 +485,8 @@ Route::prefix('v1')->group(function () {
         |-------------------------------------------------------------------------- 
         */
         Route::post('samples/{sampleId}/loo', [LetterOfOrderController::class, 'generate']);
-
-        // ✅ ADD: fetch LOO detail by id (used by Reagent Approval detail page)
         Route::get('letters-of-order/{looId}', [LetterOfOrderController::class, 'show'])
             ->whereNumber('looId');
-
-        // (optional alias, kalau mau konsisten dengan /v1/loo/*)
         Route::get('loo/{looId}', [LetterOfOrderController::class, 'show'])
             ->whereNumber('looId');
 

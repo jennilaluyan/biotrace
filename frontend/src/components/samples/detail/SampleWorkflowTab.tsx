@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\detail\SampleWorkflowTab.tsx
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, XCircle, Truck, Hand } from "lucide-react";
 import type { Sample } from "../../../services/samples";
