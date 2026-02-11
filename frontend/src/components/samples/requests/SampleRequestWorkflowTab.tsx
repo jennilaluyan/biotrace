@@ -1,6 +1,15 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { CheckCircle2, XCircle, ArrowRight, Truck, Hand, ClipboardCheck, Hash, ShieldCheck, RotateCcw } from "lucide-react";
+import {
+    CheckCircle2,
+    ArrowRight,
+    Truck,
+    Hand,
+    ClipboardCheck,
+    Hash,
+    ShieldCheck,
+    RotateCcw,
+} from "lucide-react";
 
 import type { Sample } from "../../../services/samples";
 import { ROLE_ID } from "../../../utils/roles";
@@ -15,7 +24,6 @@ type TimelineEvent = {
     title: string;
     actor: string;
     at?: string | null;
-    tone: "done" | "fail" | "neutral";
     note?: string | null;
 };
 
@@ -60,9 +68,7 @@ function ActionCard(props: {
                         <div className="text-xs text-slate-600 mt-0.5">{subtitle}</div>
                     </div>
                 </div>
-                <div className="text-slate-400 text-sm shrink-0">
-                    {disabled ? "Locked" : rightText ?? "→"}
-                </div>
+                <div className="text-slate-400 text-sm shrink-0">{disabled ? "Locked" : rightText ?? "→"}</div>
             </div>
         </button>
     );
@@ -94,7 +100,6 @@ export function SampleRequestWorkflowTab(props: {
     const requestStatus = s?.request_status ?? null;
     const requestStatusKey = String(requestStatus ?? "").trim().toLowerCase();
     const labSampleCode = String(s?.lab_sample_code ?? "").trim();
-
     const returnNote = String(s?.request_return_note ?? "").trim() || null;
 
     const sampleIdChangeObj = s?.sample_id_change ?? null;
@@ -124,10 +129,7 @@ export function SampleRequestWorkflowTab(props: {
         !s?.admin_received_from_client_at;
 
     const canAdminBringToCollector =
-        isAdmin &&
-        !labSampleCode &&
-        !!s?.admin_received_from_client_at &&
-        !s?.admin_brought_to_collector_at;
+        isAdmin && !labSampleCode && !!s?.admin_received_from_client_at && !s?.admin_brought_to_collector_at;
 
     const canCollectorReceive =
         isCollector &&
@@ -151,10 +153,7 @@ export function SampleRequestWorkflowTab(props: {
         !s?.collector_returned_to_admin_at;
 
     const canAdminReceiveBack =
-        isAdmin &&
-        !labSampleCode &&
-        !!s?.collector_returned_to_admin_at &&
-        !s?.admin_received_from_collector_at;
+        isAdmin && !labSampleCode && !!s?.collector_returned_to_admin_at && !s?.admin_received_from_collector_at;
 
     const canAdminClientPickup =
         isAdmin &&
@@ -166,10 +165,7 @@ export function SampleRequestWorkflowTab(props: {
     const verifiedAt = s?.verified_at ?? null;
     const awaitingVerify = requestStatusKey === "awaiting_verification" && !labSampleCode;
 
-    const canVerify =
-        isOmLh &&
-        !labSampleCode &&
-        (awaitingVerify || isSampleIdChangePending);
+    const canVerify = isOmLh && !labSampleCode && (awaitingVerify || isSampleIdChangePending);
 
     const canAssignSampleId =
         isAdmin &&
@@ -189,21 +185,17 @@ export function SampleRequestWorkflowTab(props: {
                 title: "Client submitted request",
                 actor: "Client",
                 at: submittedAt,
-                tone: "done",
             });
         }
 
         const acceptedAt = pickAt(s, ["request_accepted_at", "accepted_at", "approved_at", "request_approved_at"]);
-        const progressed =
-            requestStatusKey &&
-            !["draft", "submitted", "returned", "needs_revision"].includes(requestStatusKey);
+        const progressed = requestStatusKey && !["draft", "submitted", "returned", "needs_revision"].includes(requestStatusKey);
         if (progressed) {
             out.push({
                 key: "admin_accept",
                 title: "Admin accepted request",
                 actor: "Admin",
                 at: acceptedAt ?? null,
-                tone: "done",
             });
         }
 
@@ -214,7 +206,6 @@ export function SampleRequestWorkflowTab(props: {
                 title: "Admin returned request to client",
                 actor: "Admin",
                 at: retAt ?? null,
-                tone: "fail",
                 note: returnNote,
             });
         }
@@ -225,7 +216,6 @@ export function SampleRequestWorkflowTab(props: {
                 title: "Admin received sample from client",
                 actor: "Admin",
                 at: String(s.admin_received_from_client_at),
-                tone: "done",
             });
         }
 
@@ -235,7 +225,6 @@ export function SampleRequestWorkflowTab(props: {
                 title: "Admin brought sample to Sample Collector",
                 actor: "Admin",
                 at: String(s.admin_brought_to_collector_at),
-                tone: "done",
             });
         }
 
@@ -245,7 +234,6 @@ export function SampleRequestWorkflowTab(props: {
                 title: "Sample Collector received sample from admin",
                 actor: "Sample Collector",
                 at: String(s.collector_received_at),
-                tone: "done",
             });
         }
 
@@ -256,7 +244,6 @@ export function SampleRequestWorkflowTab(props: {
                 title: failed ? "Sample Collector intake failed" : "Sample Collector intake completed (all passed)",
                 actor: "Sample Collector",
                 at: String(s.collector_intake_completed_at),
-                tone: failed ? "fail" : "done",
             });
         }
 
@@ -266,7 +253,6 @@ export function SampleRequestWorkflowTab(props: {
                 title: "Sample Collector returned sample to admin",
                 actor: "Sample Collector",
                 at: String(s.collector_returned_to_admin_at),
-                tone: "neutral",
             });
         }
 
@@ -276,7 +262,6 @@ export function SampleRequestWorkflowTab(props: {
                 title: "Admin received sample back from Sample Collector",
                 actor: "Admin",
                 at: String(s.admin_received_from_collector_at),
-                tone: "done",
             });
         }
 
@@ -286,7 +271,6 @@ export function SampleRequestWorkflowTab(props: {
                 title: "OM/LH verified intake from Sample Collector",
                 actor: "OM/LH",
                 at: String(verifiedAt),
-                tone: "done",
             });
         }
 
@@ -297,7 +281,6 @@ export function SampleRequestWorkflowTab(props: {
                 title: "Admin requested Sample ID change",
                 actor: "Admin",
                 at: sidReqAt ?? null,
-                tone: "neutral",
             });
         }
 
@@ -308,7 +291,6 @@ export function SampleRequestWorkflowTab(props: {
                 title: isSampleIdChangeApproved ? "OM/LH approved Sample ID change" : "OM/LH rejected Sample ID change",
                 actor: "OM/LH",
                 at: sidDecidedAt ?? null,
-                tone: isSampleIdChangeApproved ? "done" : "fail",
             });
         }
 
@@ -319,7 +301,6 @@ export function SampleRequestWorkflowTab(props: {
                 title: "Admin assigned Sample ID",
                 actor: "Admin",
                 at: assignedAt ?? null,
-                tone: "done",
             });
         }
 
@@ -329,14 +310,13 @@ export function SampleRequestWorkflowTab(props: {
                 title: "Client picked up sample",
                 actor: "Client",
                 at: String(s.client_picked_up_at),
-                tone: "done",
             });
         }
 
         out.sort((a, b) => {
             const ta = a.at ? new Date(a.at).getTime() : 0;
             const tb = b.at ? new Date(b.at).getTime() : 0;
-            return ta - tb;
+            return tb - ta;
         });
 
         return out;
@@ -356,7 +336,10 @@ export function SampleRequestWorkflowTab(props: {
         if (props.assignFlash) return props.assignFlash;
 
         if (labSampleCode) {
-            return { type: "success" as const, message: `Sample ID assigned: ${labSampleCode}. Workflow actions are now locked.` };
+            return {
+                type: "success" as const,
+                message: `Sample ID assigned: ${labSampleCode}. Workflow actions are now locked.`,
+            };
         }
 
         if (isSampleIdChangePending) {
@@ -567,9 +550,7 @@ export function SampleRequestWorkflowTab(props: {
                     <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
                         <div className="text-sm font-bold text-gray-900">Next actions</div>
                     </div>
-                    <div className="px-5 py-4 text-sm text-gray-600">
-                        Sample ID has been assigned. Actions are hidden.
-                    </div>
+                    <div className="px-5 py-4 text-sm text-gray-600">Sample ID has been assigned. Actions are hidden.</div>
                 </div>
             )}
 
@@ -584,45 +565,20 @@ export function SampleRequestWorkflowTab(props: {
                         <div className="text-sm text-gray-600">No workflow events yet.</div>
                     ) : (
                         <ol className="space-y-2">
-                            {timeline.map((e) => {
-                                const toneCls =
-                                    e.tone === "done"
-                                        ? "border-emerald-200 bg-emerald-50"
-                                        : e.tone === "fail"
-                                            ? "border-rose-200 bg-rose-50"
-                                            : "border-gray-200 bg-gray-50";
+                            {timeline.map((e) => (
+                                <li key={e.key} className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                                    <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                                        <div className="text-sm font-semibold text-gray-900">{e.title}</div>
+                                        <div className="text-xs text-gray-600">{e.at ? formatDateTimeLocal(e.at) : "-"}</div>
+                                    </div>
 
-                                const dot =
-                                    e.tone === "done" ? (
-                                        <span className="mt-1 h-2.5 w-2.5 rounded-full bg-emerald-500 border border-emerald-600" />
-                                    ) : e.tone === "fail" ? (
-                                        <span className="mt-1 h-2.5 w-2.5 rounded-full bg-rose-500 border border-rose-600" />
-                                    ) : (
-                                        <span className="mt-1 h-2.5 w-2.5 rounded-full bg-gray-300 border border-gray-400" />
-                                    );
+                                    <div className="mt-1 text-xs text-gray-600">By: {e.actor}</div>
 
-                                return (
-                                    <li key={e.key} className={cx("rounded-2xl border p-4", toneCls)}>
-                                        <div className="flex items-start gap-3">
-                                            {dot}
-                                            <div className="flex-1">
-                                                <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-                                                    <div className="text-sm font-semibold text-gray-900">{e.title}</div>
-                                                    <div className="text-xs text-gray-600">
-                                                        {e.at ? formatDateTimeLocal(e.at) : "-"}
-                                                    </div>
-                                                </div>
-
-                                                <div className="mt-1 text-xs text-gray-600">By: {e.actor}</div>
-
-                                                {e.note ? (
-                                                    <div className="mt-2 text-sm text-gray-700 whitespace-pre-wrap">{e.note}</div>
-                                                ) : null}
-                                            </div>
-                                        </div>
-                                    </li>
-                                );
-                            })}
+                                    {e.note ? (
+                                        <div className="mt-2 text-sm text-gray-700 whitespace-pre-wrap">{e.note}</div>
+                                    ) : null}
+                                </li>
+                            ))}
                         </ol>
                     )}
                 </div>

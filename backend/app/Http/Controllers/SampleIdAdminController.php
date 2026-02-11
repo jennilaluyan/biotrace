@@ -9,6 +9,7 @@ use App\Models\Staff;
 use App\Services\SampleIdService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class SampleIdAdminController extends Controller
 {
@@ -32,6 +33,31 @@ class SampleIdAdminController extends Controller
         }
     }
 
+    private function resolveSampleIdPrefix(?string $workflowGroup): ?string
+    {
+        $g = strtolower(trim((string) $workflowGroup));
+        if ($g === '') return null;
+
+        $g = str_replace([' ', '-'], '_', $g);
+        $g = preg_replace('/_+/', '_', $g);
+
+        if ($g === 'pcr_sars_cov_2') return 'USR';
+        if ($g === 'wgs_sars_cov_2') return 'WGS';
+        if ($g === 'group_19_22' || $g === 'group_23_32') return 'BML';
+        if (str_contains($g, 'antigen')) return 'LBMA';
+
+        return null;
+    }
+
+    private function fallbackSuggestionFromCounter(string $prefix): string
+    {
+        $row = DB::table('sample_id_counters')->where('prefix', $prefix)->first();
+        $last = (int) ($row->last_number ?? 0);
+        $next = $last + 1;
+        $tail = str_pad((string) $next, 3, '0', STR_PAD_LEFT);
+        return "{$prefix}-{$tail}";
+    }
+
     public function suggestion(Sample $sample): JsonResponse
     {
         $this->assertAdminOr403();
@@ -42,7 +68,23 @@ class SampleIdAdminController extends Controller
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
+        // ✅ NEW: ensure prefix exists (helps old samples too)
+        if (empty($sample->sample_id_prefix)) {
+            $prefix = $this->resolveSampleIdPrefix($sample->workflow_group);
+            if ($prefix) {
+                $sample->sample_id_prefix = $prefix;
+                $sample->save();
+            }
+        }
+
         $payload = $this->svc->buildSuggestionPayload($sample);
+
+        // ✅ NEW: hard fallback if service returns empty
+        if (empty($payload['suggested_sample_id']) && !empty($sample->sample_id_prefix)) {
+            $fallback = $this->fallbackSuggestionFromCounter((string) $sample->sample_id_prefix);
+            $payload['suggested_sample_id'] = $fallback;
+            $payload['suggested_lab_sample_code'] = $payload['suggested_lab_sample_code'] ?? $fallback;
+        }
 
         if (!empty($payload['suggested_sample_id'])) {
             $this->svc->auditSuggestion($actor, $sample, (string) $payload['suggested_sample_id']);

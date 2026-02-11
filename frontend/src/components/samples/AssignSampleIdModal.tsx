@@ -127,12 +127,20 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
         (async () => {
             try {
                 const s = await getSuggestedSampleId(sampleId);
-                if (s) setSuggested(s);
+                if (!s) return;
+
+                const norm = applyPad3Tail(s);
+
+                setSuggested(norm);
+
+                if (!lockedToApproved) {
+                    setValue((prev) => (prev.trim() ? prev : norm));
+                }
             } catch {
                 // ignore
             }
         })();
-    }, [open, suggested, sampleId]);
+    }, [open, suggested, sampleId, lockedToApproved]);
 
     const validation = useMemo(() => validateSampleId(value), [value]);
 
