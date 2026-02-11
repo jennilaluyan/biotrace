@@ -28,7 +28,7 @@ class SampleController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = Sample::query()
-            ->select('samples.*') // ✅ penting: jangan biarkan join menimpa kolom model
+            ->select('samples.*')
             ->with(['client', 'creator', 'assignee', 'requestedParameters']);
 
         // Filter out requests: lab samples must have lab_sample_code
@@ -149,6 +149,22 @@ class SampleController extends Controller
             if ($enum) {
                 $query->whereIn('current_status', $enum->currentStatuses());
             }
+        }
+
+        /**
+         * ✅ Default: hide completed samples (current_status = reported) from Sample Management
+         * Reason: reported = COA sudah keluar, harus pindah ke Archive page.
+         *
+         * Override (optional): /v1/samples?include_reported=1
+         * NOTE: kalau user pakai status_enum, jangan override filter ini (biar filter status tetap bekerja).
+         */
+        $includeReported = filter_var((string) $request->query('include_reported', '0'), FILTER_VALIDATE_BOOLEAN);
+
+        if ($hasCurrentStatus && !$includeReported && !$request->filled('status_enum')) {
+            $query->where(function ($w) {
+                $w->whereNull('samples.current_status')
+                    ->orWhere('samples.current_status', '!=', 'reported');
+            });
         }
 
         if ($request->filled('from')) {

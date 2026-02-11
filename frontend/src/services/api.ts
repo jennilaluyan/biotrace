@@ -1,29 +1,19 @@
-import axios, { AxiosRequestConfig, AxiosError } from "axios";
+import axios, { AxiosError, AxiosRequestConfig } from "axios";
 import { publishAuthEvent } from "../utils/authSync";
 
 const API_URL = import.meta.env.VITE_API_URL;
-if (!API_URL) {
-    console.error("VITE_API_URL is not set");
-}
 
 export const http = axios.create({
     baseURL: API_URL,
-    withCredentials: true, // default true (staff/backoffice). Client requests will override to false.
+    withCredentials: true,
     headers: {
         Accept: "application/json",
     },
 });
 
-/**
- * Separate staff vs client tokens.
- */
 const STAFF_TOKEN_KEY = "biotrace_staff_token";
 const CLIENT_TOKEN_KEY = "biotrace_client_token";
-
-/**
- * Backward compatible legacy key (staff only).
- */
-const AUTH_TOKEN_KEY = "biotrace_auth_token";
+const LEGACY_AUTH_TOKEN_KEY = "biotrace_auth_token";
 
 function normalizeUrlForCheck(url?: string) {
     return (url ?? "").toLowerCase();
@@ -31,7 +21,6 @@ function normalizeUrlForCheck(url?: string) {
 
 function isClientPath(url?: string) {
     const u = normalizeUrlForCheck(url);
-
     return (
         u.includes("/v1/client/") ||
         u.includes("/v1/clients/") ||
@@ -68,49 +57,33 @@ export function getClientAuthToken() {
     return sanitizeToken(localStorage.getItem(CLIENT_TOKEN_KEY));
 }
 
-/**
- * Backward compatible (STAFF only).
- * Jangan dipakai untuk client portal.
- */
 export function setAuthToken(token: string | null) {
     const t = sanitizeToken(token);
     if (t) {
-        localStorage.setItem(AUTH_TOKEN_KEY, t);
+        localStorage.setItem(LEGACY_AUTH_TOKEN_KEY, t);
         setStaffAuthToken(t);
     } else {
-        localStorage.removeItem(AUTH_TOKEN_KEY);
+        localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
         setStaffAuthToken(null);
     }
 }
 
 export function getAuthToken() {
-    return getStaffAuthToken() ?? sanitizeToken(localStorage.getItem(AUTH_TOKEN_KEY));
+    return getStaffAuthToken() ?? sanitizeToken(localStorage.getItem(LEGACY_AUTH_TOKEN_KEY));
 }
 
-/**
- * Token rules:
- * - Client endpoints MUST use client token ONLY (no legacy fallback!)
- * - Staff endpoints use staff token, fallback legacy staff token
- */
 function resolveTokenForRequest(url?: string) {
-    if (isClientPath(url)) {
-        return getClientAuthToken(); // 🔥 penting: STOP fallback ke legacy
-    }
-    return getStaffAuthToken() ?? sanitizeToken(localStorage.getItem(AUTH_TOKEN_KEY)) ?? null;
+    if (isClientPath(url)) return getClientAuthToken();
+    return getStaffAuthToken() ?? sanitizeToken(localStorage.getItem(LEGACY_AUTH_TOKEN_KEY)) ?? null;
 }
 
 http.interceptors.request.use((config) => {
     const url = config.url ?? "";
     const clientReq = isClientPath(url);
 
-    if (clientReq) {
-        config.withCredentials = false;
-    } else {
-        config.withCredentials = true;
-    }
+    config.withCredentials = !clientReq;
 
     const token = resolveTokenForRequest(url);
-
     if (token) {
         config.headers = config.headers ?? {};
         (config.headers as any).Authorization = `Bearer ${token}`;
@@ -128,14 +101,13 @@ http.interceptors.response.use(
         const status = error?.response?.status;
         const url = (error as any)?.config?.url ?? "";
 
-        // Avoid cross-clearing
         if (status === 401) {
             if (isClientPath(url)) {
                 setClientAuthToken(null);
                 publishAuthEvent("client", "session_expired");
             } else {
                 setStaffAuthToken(null);
-                localStorage.removeItem(AUTH_TOKEN_KEY);
+                localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
                 publishAuthEvent("staff", "session_expired");
             }
         }
@@ -144,7 +116,6 @@ http.interceptors.response.use(
     }
 );
 
-// Helper normalize
 function normalizeData(data: any) {
     if (data === "" || data === undefined) return null;
     return data;
@@ -168,8 +139,6 @@ async function handleAxios<T>(promise: Promise<any>): Promise<T> {
         if (error.response) {
             const data = normalizeData(error.response.data);
             const message = extractMessage(data, error.message);
-
-            // ✅ IMPORTANT: expose message so pages can show backend error text
             throw {
                 status: error.response.status,
                 data,
@@ -241,10 +210,6 @@ export async function apiDelete<T = any>(path: string, options?: AxiosRequestCon
     return handleAxios<T>(http.delete(normalizePath(path), options));
 }
 
-/**
- * RAW helpers (tidak unwrap)
- * Dipakai khusus saat FE butuh meta pagination dsb.
- */
 export async function apiGetRaw<T = any>(path: string, options?: AxiosRequestConfig): Promise<T> {
     const res = await http.get(normalizePath(path), options);
     return normalizeData(res.data) as T;
@@ -269,7 +234,6 @@ export async function apiGetBlob(path: string, options?: AxiosRequestConfig): Pr
             let data: any = normalizeData(error.response.data);
             let message = error.message;
 
-            // kalau backend balikin JSON error tapi kita request blob, axios kasih Blob
             if (typeof Blob !== "undefined" && data instanceof Blob) {
                 try {
                     const text = await data.text();
@@ -282,7 +246,7 @@ export async function apiGetBlob(path: string, options?: AxiosRequestConfig): Pr
                         message = text || message;
                     }
                 } catch {
-                    // ignore parsing failure
+                    // ignore
                 }
             } else {
                 message = extractMessage(data, message);
@@ -318,5 +282,4 @@ export const api = {
     delete: apiDelete,
 };
 
-// Backward compatible default import (some components may do: import api from "./api")
 export default http;

@@ -84,10 +84,6 @@ class SamplePolicy
             return false;
         }
 
-        // Yang boleh mengubah request_status:
-        // - Administrator (review + approve + mark physically received + return)
-        // - Sample Collector (checklist pass/fail)  (future)
-        // - Laboratory Head (validate intake)       (future)
         return $this->hasRoleName($user, [
             'Administrator',
             'Sample Collector',
@@ -126,12 +122,10 @@ class SamplePolicy
             'collector_received',
             'collector_intake_completed',
             'collector_returned_to_admin',
-            // ✅ NEW: SC delivers to analyst
             'sc_delivered_to_analyst',
         ];
 
         $analystActions = [
-            // ✅ NEW: analyst confirms received
             'analyst_received',
         ];
 
@@ -152,7 +146,6 @@ class SamplePolicy
      */
     public function verifySampleRequest(Staff $user, Sample $sample): bool
     {
-        // Draft request tidak boleh di-handle staff
         $isDraftRequest = (($sample->request_status ?? null) === 'draft') && empty($sample->lab_sample_code);
         if ($isDraftRequest) {
             return false;
@@ -162,5 +155,27 @@ class SamplePolicy
             'Operational Manager',
             'Laboratory Head',
         ]);
+    }
+
+    /**
+     * Archive index is only for: Admin / OM / LH
+     * (Disimpan untuk konsistensi, walau controller archive sudah punya guard sendiri)
+     */
+    public function viewArchiveIndex(Staff $user): bool
+    {
+        return $this->hasRoleName($user, [
+            'Administrator',
+            'Operational Manager',
+            'Laboratory Head',
+        ]);
+    }
+
+    /**
+     * Archive detail: must be authorized role AND sample must be completed ("reported")
+     */
+    public function viewArchiveDetail(Staff $user, Sample $sample): bool
+    {
+        if (!$this->viewArchiveIndex($user)) return false;
+        return (string) ($sample->current_status ?? '') === 'reported';
     }
 }

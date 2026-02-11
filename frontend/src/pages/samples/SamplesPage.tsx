@@ -33,7 +33,6 @@ const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
     return null;
 };
 
-// Normalize any status label to: lowercase, spaces (no underscores), not too long.
 const normalizeStatusLabel = (label: string) => {
     const s = String(label || "")
         .trim()
@@ -67,6 +66,20 @@ const normalizeStatusLabel = (label: string) => {
     }
 
     return s;
+};
+
+const isArchivedSample = (s: any) => {
+    // best-effort: kalau backend sudah menandai sample masuk archive, jangan tampil di management
+    return Boolean(
+        s?.archived_at ||
+        s?.is_archived ||
+        s?.coa_generated_at ||
+        s?.coa_file_url ||
+        s?.coa_report_id ||
+        s?.report_generated_at ||
+        s?.report_pdf_url ||
+        s?.report?.pdf_url
+    );
 };
 
 export const SamplesPage = () => {
@@ -127,7 +140,9 @@ export const SamplesPage = () => {
      * Sample Requests harusnya ada di /samples/requests.
      */
     const labOnlyItems = useMemo(() => {
-        return (items ?? []).filter((s: Sample) => !!s.lab_sample_code);
+        return (items ?? [])
+            .filter((s: Sample) => !!s.lab_sample_code)
+            .filter((s: Sample) => !isArchivedSample(s as any)); // ✅ hide finished/archived
     }, [items]);
 
     const visibleItems = useMemo(() => {
@@ -169,10 +184,16 @@ export const SamplesPage = () => {
                 return { label: normalizeStatusLabel("reagent request (draft)"), className: statusChipClass("gray") };
             }
             if (rrStatus === "submitted") {
-                return { label: normalizeStatusLabel("reagent request (submitted)"), className: statusChipClass("yellow") };
+                return {
+                    label: normalizeStatusLabel("reagent request (submitted)"),
+                    className: statusChipClass("yellow"),
+                };
             }
             if (rrStatus === "approved") {
-                return { label: normalizeStatusLabel("reagent request (approved)"), className: statusChipClass("green") };
+                return {
+                    label: normalizeStatusLabel("reagent request (approved)"),
+                    className: statusChipClass("green"),
+                };
             }
             if (rrStatus === "rejected" || rrStatus === "denied") {
                 return { label: normalizeStatusLabel("reagent request (denied)"), className: statusChipClass("red") };
@@ -190,19 +211,25 @@ export const SamplesPage = () => {
                 return { label: normalizeStatusLabel("received"), className: statusChipClass("blue") };
             }
 
-            // for other request statuses: show it but keep it calmer
-            // (you can tweak tones per status later)
             const label = normalizeStatusLabel(rs);
             const tone =
-                rs.includes("rejected") ? "red" :
-                    rs.includes("failed") ? "red" :
-                        rs.includes("returned") ? "red" :
-                            rs.includes("submitted") ? "yellow" :
-                                rs.includes("ready") ? "yellow" :
-                                    rs.includes("awaiting") ? "yellow" :
-                                        rs.includes("validated") ? "green" :
-                                            rs.includes("passed") ? "green" :
-                                                "gray";
+                rs.includes("rejected")
+                    ? "red"
+                    : rs.includes("failed")
+                        ? "red"
+                        : rs.includes("returned")
+                            ? "red"
+                            : rs.includes("submitted")
+                                ? "yellow"
+                                : rs.includes("ready")
+                                    ? "yellow"
+                                    : rs.includes("awaiting")
+                                        ? "yellow"
+                                        : rs.includes("validated")
+                                            ? "green"
+                                            : rs.includes("passed")
+                                                ? "green"
+                                                : "gray";
 
             return { label, className: statusChipClass(tone as any) };
         }
@@ -226,7 +253,8 @@ export const SamplesPage = () => {
         const current = String(s.current_status ?? "").toLowerCase().replace(/_/g, " ");
         if (current === "received") return { label: normalizeStatusLabel("received"), className: statusChipClass("blue") };
         if (current === "in progress") return { label: normalizeStatusLabel("in progress"), className: statusChipClass("blue") };
-        if (current === "testing completed") return { label: normalizeStatusLabel("testing completed"), className: statusChipClass("blue") };
+        if (current === "testing completed")
+            return { label: normalizeStatusLabel("testing completed"), className: statusChipClass("blue") };
         if (current === "verified") return { label: normalizeStatusLabel("verified"), className: statusChipClass("green") };
         if (current === "validated") return { label: normalizeStatusLabel("validated"), className: statusChipClass("green") };
         if (current === "reported") return { label: normalizeStatusLabel("reported"), className: statusChipClass("green") };
@@ -452,9 +480,7 @@ export const SamplesPage = () => {
                 </div>
 
                 <div className="px-4 md:px-6 py-4">
-                    {error && (
-                        <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
-                    )}
+                    {error && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
 
                     {loading ? (
                         <div className="text-sm text-gray-600">Loading samples…</div>
@@ -528,7 +554,6 @@ export const SamplesPage = () => {
                                                 <table className="min-w-full text-sm">
                                                     <thead className="bg-white text-gray-700 border-b border-gray-100">
                                                         <tr>
-                                                            {/* Removed: Sample ID */}
                                                             <th className="text-left font-semibold px-4 py-3">Lab Code</th>
                                                             <th className="text-left font-semibold px-4 py-3">Sample Type</th>
                                                             <th className="text-left font-semibold px-4 py-3">Status</th>
@@ -545,9 +570,7 @@ export const SamplesPage = () => {
                                                                 <tr key={s.sample_id} className="hover:bg-gray-50">
                                                                     <td className="px-4 py-3 text-gray-900">
                                                                         <div className="flex items-center gap-2">
-                                                                            <span className="font-mono text-xs">
-                                                                                {s.lab_sample_code ?? "-"}
-                                                                            </span>
+                                                                            <span className="font-mono text-xs">{s.lab_sample_code ?? "-"}</span>
                                                                         </div>
                                                                     </td>
 

@@ -1,13 +1,10 @@
 import { apiGet } from "./api";
 
 export type ReportDocumentRow = {
-    type: "LOO" | string;
+    type: string;
     id: number;
-
-    // existing
     number: string;
 
-    // ✅ NEW doc-centric fields
     document_name?: string | null;
     document_code?: string | null;
 
@@ -15,29 +12,29 @@ export type ReportDocumentRow = {
     generated_at?: string | null;
     created_at?: string | null;
 
-    // legacy fields (no longer used in UI)
-    client_name?: string | null;
-    client_org?: string | null;
-    sample_codes?: string[];
-
     file_url?: string | null;
     download_url?: string | null;
+
+    sample_ids?: number[];
+    lo_id?: number | null;
+    reagent_request_id?: number | null;
+    report_id?: number | null;
 };
 
 type ReportDocumentsResponse =
-    | { data: ReportDocumentRow[] }                 // expected shape
-    | { data: { data: ReportDocumentRow[] } }       // axios-ish nested shape
-    | ReportDocumentRow[];                          // if API returns array directly
+    | { data: ReportDocumentRow[] }
+    | { data: { data: ReportDocumentRow[] } }
+    | ReportDocumentRow[];
 
-export async function listReportDocuments(): Promise<ReportDocumentRow[]> {
-    const res = (await apiGet<ReportDocumentsResponse>("/v1/reports/documents")) as any;
-
-    // Normalize safely across possible apiGet return shapes
+function unwrap(res: any): ReportDocumentRow[] {
     if (Array.isArray(res)) return res as ReportDocumentRow[];
-
     if (res && Array.isArray(res.data)) return res.data as ReportDocumentRow[];
-
     if (res && res.data && Array.isArray(res.data.data)) return res.data.data as ReportDocumentRow[];
-
     return [];
+}
+
+export async function listReportDocuments(opts?: { sampleId?: number }): Promise<ReportDocumentRow[]> {
+    const params = opts?.sampleId ? { sample_id: opts.sampleId } : undefined;
+    const res = await apiGet<ReportDocumentsResponse>("/v1/reports/documents", params ? { params } : undefined);
+    return unwrap(res);
 }
