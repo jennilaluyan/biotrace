@@ -2,7 +2,7 @@ import { apiGet, apiPost } from "./api";
 
 function unwrapApi(res: any) {
     let x = res?.data ?? res;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
         if (x && typeof x === "object" && "data" in x && (x as any).data != null) {
             x = (x as any).data;
             continue;
@@ -13,6 +13,7 @@ function unwrapApi(res: any) {
 }
 
 export type SampleIdChangeRow = {
+    change_request_id?: number;
     sample_id_change_id?: number;
     id?: number;
 
@@ -46,6 +47,9 @@ export type InboxMeta = {
     last_page?: number;
 };
 
+const CHANGE_BASE = "/v1/sample-id-change-requests";
+const SAMPLE_ID_ADMIN_BASE = "/v1/sample-requests";
+
 export async function listSampleIdChanges(params: {
     status?: string;
     search?: string;
@@ -58,7 +62,7 @@ export async function listSampleIdChanges(params: {
     qs.set("page", String(params.page ?? 1));
     qs.set("per_page", String(params.per_page ?? 25));
 
-    const res = await apiGet<any>(`/v1/sample-id-changes${qs.toString() ? `?${qs.toString()}` : ""}`);
+    const res = await apiGet<any>(`${CHANGE_BASE}${qs.toString() ? `?${qs.toString()}` : ""}`);
     const payload = unwrapApi(res);
 
     const data: SampleIdChangeRow[] = Array.isArray(payload?.data)
@@ -73,23 +77,27 @@ export async function listSampleIdChanges(params: {
 }
 
 export async function getSampleIdChangeById(changeId: number) {
-    const res = await apiGet<any>(`/v1/sample-id-changes/${changeId}`);
-    const payload = unwrapApi(res);
-    return payload as any;
+    const res = await apiGet<any>(`${CHANGE_BASE}/${changeId}`);
+    return unwrapApi(res) as any;
 }
 
 export async function approveSampleIdChange(changeId: number) {
-    const res = await apiPost<any>(`/v1/sample-id-changes/${changeId}/approve`, {});
+    const res = await apiPost<any>(`${CHANGE_BASE}/${changeId}/approve`, {});
     return unwrapApi(res);
 }
 
 export async function rejectSampleIdChange(changeId: number, reason: string) {
-    const res = await apiPost<any>(`/v1/sample-id-changes/${changeId}/reject`, { reason });
+    const body = {
+        reason,
+        note: reason,
+        review_note: reason,
+    };
+    const res = await apiPost<any>(`${CHANGE_BASE}/${changeId}/reject`, body);
     return unwrapApi(res);
 }
 
 export async function getSuggestedSampleId(sampleId: number): Promise<string | null> {
-    const res = await apiGet<any>(`/v1/samples/${sampleId}/sample-id-suggestion`);
+    const res = await apiGet<any>(`${SAMPLE_ID_ADMIN_BASE}/${sampleId}/sample-id/suggestion`);
     const payload = unwrapApi(res);
 
     const v =
@@ -108,7 +116,7 @@ export async function assignSampleId(sampleId: number, labSampleCode: string) {
         sample_id: labSampleCode,
         sample_code: labSampleCode,
     };
-    const res = await apiPost<any>(`/v1/samples/${sampleId}/assign-sample-id`, body);
+    const res = await apiPost<any>(`${SAMPLE_ID_ADMIN_BASE}/${sampleId}/sample-id/assign`, body);
     return unwrapApi(res);
 }
 
@@ -119,6 +127,6 @@ export async function proposeSampleIdChange(sampleId: number, proposedLabSampleC
         lab_sample_code: proposedLabSampleCode,
         sample_id: proposedLabSampleCode,
     };
-    const res = await apiPost<any>(`/v1/samples/${sampleId}/propose-sample-id-change`, body);
+    const res = await apiPost<any>(`${SAMPLE_ID_ADMIN_BASE}/${sampleId}/sample-id/propose-change`, body);
     return unwrapApi(res);
 }

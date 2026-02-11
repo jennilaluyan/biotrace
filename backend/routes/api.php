@@ -319,6 +319,13 @@ Route::prefix('v1')->group(function () {
         Route::post('sample-requests/{sample}/sample-id/propose-change', [SampleIdAdminController::class, 'proposeChange'])
             ->whereNumber('sample');
 
+        Route::get('samples/{sample}/sample-id-suggestion', [SampleIdAdminController::class, 'suggestion'])
+            ->whereNumber('sample');
+        Route::post('samples/{sample}/assign-sample-id', [SampleIdAdminController::class, 'assign'])
+            ->whereNumber('sample');
+        Route::post('samples/{sample}/propose-sample-id-change', [SampleIdAdminController::class, 'proposeChange'])
+            ->whereNumber('sample');
+
         /*
         |--------------------------------------------------------------------------
         | Sample ID Change Requests (OM/LH)
@@ -330,6 +337,14 @@ Route::prefix('v1')->group(function () {
         Route::post('sample-id-change-requests/{changeRequestId}/approve', [SampleIdChangeRequestController::class, 'approve'])
             ->whereNumber('changeRequestId');
         Route::post('sample-id-change-requests/{changeRequestId}/reject', [SampleIdChangeRequestController::class, 'reject'])
+            ->whereNumber('changeRequestId');
+
+        Route::get('sample-id-changes', [SampleIdChangeRequestController::class, 'index']);
+        Route::get('sample-id-changes/{changeRequestId}', [SampleIdChangeRequestController::class, 'show'])
+            ->whereNumber('changeRequestId');
+        Route::post('sample-id-changes/{changeRequestId}/approve', [SampleIdChangeRequestController::class, 'approve'])
+            ->whereNumber('changeRequestId');
+        Route::post('sample-id-changes/{changeRequestId}/reject', [SampleIdChangeRequestController::class, 'reject'])
             ->whereNumber('changeRequestId');
 
         /*
