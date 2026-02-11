@@ -34,18 +34,11 @@ const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
 };
 
 const normalizeStatusLabel = (label: string) => {
-    const raw = String(label || "").trim();
-    const s = raw
+    const s = String(label || "")
+        .trim()
         .toLowerCase()
         .replace(/_/g, " ")
         .replace(/\s+/g, " ");
-
-    // ✅ Request workflow specific mapping (OM/LH verification chain)
-    if (s === "awaiting verify om") return "waiting OM verify";
-    if (s === "verified by om") return "verified by OM";
-    if (s === "awaiting approval lh") return "waiting LH validation";
-    if (s === "approved by lh") return "validated by LH";
-    if (s === "reported" || s === "coa issued" || s === "coa-issued") return "COA issued";
 
     // small cleanups
     if (s === "in progress") return "in progress";
@@ -54,6 +47,8 @@ const normalizeStatusLabel = (label: string) => {
     if (s === "awaiting analyst intake") return "awaiting intake";
     if (s === "in transit to analyst") return "in transit to analyst";
     if (s === "received by analyst") return "received";
+    if (s === "received_by_analyst") return "received";
+    if (s === "in_transit_to_analyst") return "in transit to analyst";
     if (s === "awaiting lab promotion") return "awaiting promotion";
     if (s === "awaiting crosscheck") return "awaiting crosscheck";
     if (s === "crosscheck passed") return "crosscheck passed";
@@ -73,15 +68,18 @@ const normalizeStatusLabel = (label: string) => {
     return s;
 };
 
-const isArchivedCoaIssued = (s: any) => {
-    const cur = String(s?.current_status ?? "").trim().toLowerCase();
-    const req = String(s?.request_status ?? "").trim().toLowerCase();
-
-    // ✅ final stage markers
-    if (cur === "reported" || cur === "coa_issued" || cur === "coa-issued") return true;
-    if (req === "reported" || req === "coa_issued" || req === "coa-issued") return true;
-
-    return false;
+const isArchivedSample = (s: any) => {
+    // best-effort: kalau backend sudah menandai sample masuk archive, jangan tampil di management
+    return Boolean(
+        s?.archived_at ||
+        s?.is_archived ||
+        s?.coa_generated_at ||
+        s?.coa_file_url ||
+        s?.coa_report_id ||
+        s?.report_generated_at ||
+        s?.report_pdf_url ||
+        s?.report?.pdf_url
+    );
 };
 
 export const SamplesPage = () => {
@@ -137,11 +135,14 @@ export const SamplesPage = () => {
     }, [clientFilter, statusFilter, dateFrom, dateTo]);
 
     /**
-     * ✅ SamplesPage = hanya "Lab Samples" (yang SUDAH punya lab_sample_code).
-     * ✅ Plus: hide COA-issued/reported (mereka pindah ke Archive).
+     * ✅ STEP 6 (F1):
+     * SamplesPage = hanya "Lab Samples" (yang SUDAH punya lab_sample_code).
+     * Sample Requests harusnya ada di /samples/requests.
      */
     const labOnlyItems = useMemo(() => {
-        return (items ?? []).filter((s: Sample) => !!s.lab_sample_code && !isArchivedCoaIssued(s as any));
+        return (items ?? [])
+            .filter((s: Sample) => !!s.lab_sample_code)
+            .filter((s: Sample) => !isArchivedSample(s as any)); // ✅ hide finished/archived
     }, [items]);
 
     const visibleItems = useMemo(() => {
@@ -200,24 +201,9 @@ export const SamplesPage = () => {
             return { label: normalizeStatusLabel(`reagent request (${rrStatus})`), className: statusChipClass("gray") };
         }
 
-        // ✅ 1) Request workflow status (includes OM/LH verify chain)
+        // ✅ 1) Request/Intake workflow status (includes SC→Analyst handoff)
         const rs = String(anyS?.request_status ?? "").trim().toLowerCase();
-
         if (rs) {
-            // special nicer labels
-            if (rs === "awaiting_verify_om") {
-                return { label: "waiting OM verify", className: statusChipClass("yellow") };
-            }
-            if (rs === "verified_by_om") {
-                return { label: "verified by OM", className: statusChipClass("blue") };
-            }
-            if (rs === "awaiting_approval_lh") {
-                return { label: "waiting LH validation", className: statusChipClass("yellow") };
-            }
-            if (rs === "approved_by_lh") {
-                return { label: "validated by LH", className: statusChipClass("green") };
-            }
-
             if (rs === "in_transit_to_analyst") {
                 return { label: normalizeStatusLabel("in transit to analyst"), className: statusChipClass("yellow") };
             }
@@ -239,7 +225,7 @@ export const SamplesPage = () => {
                                     ? "yellow"
                                     : rs.includes("awaiting")
                                         ? "yellow"
-                                        : rs.includes("validated") || rs.includes("approved")
+                                        : rs.includes("validated")
                                             ? "green"
                                             : rs.includes("passed")
                                                 ? "green"
@@ -267,9 +253,11 @@ export const SamplesPage = () => {
         const current = String(s.current_status ?? "").toLowerCase().replace(/_/g, " ");
         if (current === "received") return { label: normalizeStatusLabel("received"), className: statusChipClass("blue") };
         if (current === "in progress") return { label: normalizeStatusLabel("in progress"), className: statusChipClass("blue") };
-        if (current === "testing completed") return { label: normalizeStatusLabel("testing completed"), className: statusChipClass("blue") };
+        if (current === "testing completed")
+            return { label: normalizeStatusLabel("testing completed"), className: statusChipClass("blue") };
         if (current === "verified") return { label: normalizeStatusLabel("verified"), className: statusChipClass("green") };
         if (current === "validated") return { label: normalizeStatusLabel("validated"), className: statusChipClass("green") };
+        if (current === "reported") return { label: normalizeStatusLabel("reported"), className: statusChipClass("green") };
 
         // 5) Default
         return { label: normalizeStatusLabel("awaiting crosscheck"), className: statusChipClass("yellow") };
@@ -447,7 +435,7 @@ export const SamplesPage = () => {
                             <option value="all">All status</option>
                             <option value="registered">Registered</option>
                             <option value="testing">Testing</option>
-                            {/* ✅ reported removed because it lives in Archive */}
+                            <option value="reported">Reported</option>
                         </select>
                     </div>
 
@@ -510,8 +498,7 @@ export const SamplesPage = () => {
                             <div className="space-y-4">
                                 {groups.map((g) => {
                                     const allPassed = g.samples.every(
-                                        (s) =>
-                                            String((s as any)?.crosscheck_status ?? "pending").toLowerCase() === "passed"
+                                        (s) => String((s as any)?.crosscheck_status ?? "pending").toLowerCase() === "passed"
                                     );
                                     const rr = (g.reagentRequestStatus ?? null) as string | null;
 
@@ -536,10 +523,7 @@ export const SamplesPage = () => {
                                                     : "bg-white text-primary border-primary/30";
 
                                     return (
-                                        <div
-                                            key={g.key}
-                                            className="rounded-2xl border border-gray-200 bg-white overflow-hidden"
-                                        >
+                                        <div key={g.key} className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
                                             <div className="px-4 md:px-6 py-4 bg-gray-50 border-b border-gray-100 flex items-start justify-between gap-3 flex-wrap">
                                                 <div>
                                                     <div className="text-sm font-extrabold text-gray-900">
@@ -547,8 +531,7 @@ export const SamplesPage = () => {
                                                     </div>
                                                     <div className="text-xs text-gray-600 mt-1">
                                                         {g.loId
-                                                            ? `samples: ${g.samples.length} • crosscheck: ${allPassed ? "passed" : "not ready"
-                                                            }`
+                                                            ? `samples: ${g.samples.length} • crosscheck: ${allPassed ? "passed" : "not ready"}`
                                                             : `samples: ${g.samples.length}`}
                                                     </div>
                                                 </div>
@@ -559,11 +542,7 @@ export const SamplesPage = () => {
                                                         className={`px-3 py-2 rounded-xl border text-xs font-bold ${rrTone} ${!allPassed ? "opacity-50 cursor-not-allowed" : ""
                                                             }`}
                                                         disabled={!allPassed}
-                                                        title={
-                                                            !allPassed
-                                                                ? "Blocked: all samples in this LOO must be crosscheck passed"
-                                                                : undefined
-                                                        }
+                                                        title={!allPassed ? "Blocked: all samples in this LOO must be crosscheck passed" : undefined}
                                                         onClick={() => navigate(`/reagents/requests/loo/${g.loId}`)}
                                                     >
                                                         {rrLabel}
@@ -591,15 +570,11 @@ export const SamplesPage = () => {
                                                                 <tr key={s.sample_id} className="hover:bg-gray-50">
                                                                     <td className="px-4 py-3 text-gray-900">
                                                                         <div className="flex items-center gap-2">
-                                                                            <span className="font-mono text-xs">
-                                                                                {s.lab_sample_code ?? "-"}
-                                                                            </span>
+                                                                            <span className="font-mono text-xs">{s.lab_sample_code ?? "-"}</span>
                                                                         </div>
                                                                     </td>
 
-                                                                    <td className="px-4 py-3 text-gray-700">
-                                                                        {s.sample_type ?? "-"}
-                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-700">{s.sample_type ?? "-"}</td>
 
                                                                     <td className="px-4 py-3">
                                                                         <span

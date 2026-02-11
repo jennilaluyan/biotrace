@@ -14,8 +14,8 @@ class SampleArchiveService
      *
      * Return shape:
      * {
-     *   data: [{ sample: ..., client: ..., report: ... }],
-     *   meta: { page, per_page, total, last_page }
+     *   data: [SampleArchiveListItem],
+     *   meta: { current_page, last_page, per_page, total }
      * }
      */
     public function paginate(array $filters): array
@@ -28,19 +28,41 @@ class SampleArchiveService
 
         $query = Sample::query()
             ->with('client')
-            ->where('current_status', '=', 'reported')
+            ->when(Schema::hasColumn('samples', 'current_status'), fn($qq) => $qq->where('current_status', '=', 'reported'))
             ->orderByDesc((new Sample())->getKeyName());
 
         if ($q !== '') {
             $query->where(function ($qq) use ($q) {
                 // sample fields
-                $qq->where('lab_sample_code', 'like', "%{$q}%")
-                    ->orWhere('sample_id', (int) $q);
+                if (Schema::hasColumn('samples', 'lab_sample_code')) {
+                    $qq->where('lab_sample_code', 'like', "%{$q}%");
+                }
+
+                // numeric sample id
+                if (ctype_digit($q)) {
+                    $qq->orWhere('sample_id', '=', (int) $q);
+                }
 
                 // client name
                 $qq->orWhereHas('client', function ($qc) use ($q) {
                     $qc->where('name', 'like', "%{$q}%");
                 });
+
+                // COA/report number (best-effort)
+                if (Schema::hasTable('reports') && Schema::hasColumn('reports', 'sample_id')) {
+                    $numberCol =
+                        Schema::hasColumn('reports', 'report_no') ? 'report_no'
+                        : (Schema::hasColumn('reports', 'number') ? 'number' : null);
+
+                    if ($numberCol) {
+                        $qq->orWhereExists(function ($sub) use ($q, $numberCol) {
+                            $sub->selectRaw('1')
+                                ->from('reports')
+                                ->whereColumn('reports.sample_id', 'samples.sample_id')
+                                ->where($numberCol, 'like', "%{$q}%");
+                        });
+                    }
+                }
             });
         }
 
@@ -50,39 +72,139 @@ class SampleArchiveService
         $items = $paginator->items();
         $sampleIds = collect($items)->map(fn($s) => (int) $s->getKey())->values()->all();
 
-        // Attach report summary if reports table exists
-        $reportsBySampleId = collect();
-        if (Schema::hasTable('reports') && !empty($sampleIds)) {
-            $reportsBySampleId = DB::table('reports')
+        // -------------------------
+        // LOO map: sample_id -> latest lo_id
+        // -------------------------
+        $loIdBySampleId = collect();
+        $loById = collect();
+
+        if (
+            Schema::hasTable('letter_of_order_items')
+            && Schema::hasColumn('letter_of_order_items', 'sample_id')
+            && Schema::hasColumn('letter_of_order_items', 'lo_id')
+            && !empty($sampleIds)
+        ) {
+            $loIdBySampleId = DB::table('letter_of_order_items')
+                ->selectRaw('sample_id, MAX(lo_id) as lo_id')
                 ->whereIn('sample_id', $sampleIds)
-                ->select([
-                    'report_id',
-                    'sample_id',
-                    'report_no',
-                    'file_url',
-                    'created_at',
-                ])
+                ->groupBy('sample_id')
                 ->get()
-                ->keyBy('sample_id');
+                ->keyBy('sample_id')
+                ->map(fn($r) => (int) $r->lo_id);
+
+            $loIds = $loIdBySampleId->values()->unique()->filter()->values()->all();
+
+            if (
+                !empty($loIds)
+                && Schema::hasTable('letters_of_order')
+                && Schema::hasColumn('letters_of_order', 'lo_id')
+            ) {
+                $loById = DB::table('letters_of_order')
+                    ->whereIn('lo_id', $loIds)
+                    ->get()
+                    ->keyBy('lo_id');
+            }
         }
 
+        // -------------------------
+        // Latest report per sample
+        // -------------------------
+        $reportBySampleId = collect();
+
+        if (Schema::hasTable('reports') && Schema::hasColumn('reports', 'sample_id') && !empty($sampleIds)) {
+            $reportIdCol =
+                Schema::hasColumn('reports', 'report_id') ? 'report_id'
+                : (Schema::hasColumn('reports', 'id') ? 'id' : null);
+
+            if ($reportIdCol) {
+                $reportIdBySample = DB::table('reports')
+                    ->selectRaw("sample_id, MAX({$reportIdCol}) as report_id")
+                    ->whereIn('sample_id', $sampleIds)
+                    ->groupBy('sample_id')
+                    ->get()
+                    ->keyBy('sample_id')
+                    ->map(fn($r) => (int) $r->report_id);
+
+                $reportIds = $reportIdBySample->values()->unique()->filter()->values()->all();
+
+                if (!empty($reportIds)) {
+                    $reports = DB::table('reports')
+                        ->whereIn($reportIdCol, $reportIds)
+                        ->get()
+                        ->keyBy('sample_id');
+
+                    $reportBySampleId = $reports;
+                }
+            }
+        }
+
+        // -------------------------
+        // Build flat list items (FE-friendly)
+        // -------------------------
         $data = [];
+
         foreach ($items as $sample) {
             $sid = (int) $sample->getKey();
+
+            $loId = $loIdBySampleId->get($sid);
+            $loRow = $loId ? $loById->get($loId) : null;
+
+            $reportRow = $reportBySampleId->get($sid);
+
+            // best-effort columns
+            $loNumber = $loRow?->number ?? null;
+            $loGeneratedAt = $loRow?->generated_at ?? null;
+            $loFileUrl = $loRow?->file_url ?? ($loRow?->pdf_url ?? null);
+
+            $coaNumber =
+                $reportRow?->report_no
+                ?? ($reportRow?->number ?? null);
+
+            $coaGeneratedAt =
+                $reportRow?->generated_at
+                ?? ($reportRow?->created_at ?? null);
+
+            $coaFileUrl =
+                $reportRow?->file_url
+                ?? ($reportRow?->pdf_url ?? null);
+
+            $archivedAt =
+                (Schema::hasColumn('samples', 'archived_at') ? ($sample->archived_at ?? null) : null)
+                ?? (Schema::hasColumn('samples', 'reported_at') ? ($sample->reported_at ?? null) : null)
+                ?? ($sample->updated_at ?? null);
+
             $data[] = [
-                'sample' => $sample,
-                'client' => $sample->client,
-                'report' => $reportsBySampleId->get($sid),
+                'sample_id' => $sid,
+                'lab_sample_code' => $sample->lab_sample_code ?? null,
+                'workflow_group' => $sample->workflow_group ?? null,
+
+                'client_id' => $sample->client_id ?? null,
+                'client_name' => $sample->client?->name ?? null,
+
+                'current_status' => $sample->current_status ?? null,
+                'request_status' => $sample->request_status ?? null,
+
+                'archived_at' => $archivedAt,
+
+                'lo_id' => $loId ?: null,
+                'lo_number' => $loNumber,
+                'lo_generated_at' => $loGeneratedAt,
+                'lo_file_url' => $loFileUrl,
+
+                'coa_report_id' => $reportRow?->report_id ?? ($reportRow?->id ?? null),
+                'coa_number' => $coaNumber,
+                'coa_generated_at' => $coaGeneratedAt,
+                'coa_file_url' => $coaFileUrl,
             ];
         }
 
         return [
             'data' => $data,
             'meta' => [
-                'page' => $paginator->currentPage(),
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
                 'per_page' => $paginator->perPage(),
                 'total' => $paginator->total(),
-                'last_page' => $paginator->lastPage(),
             ],
         ];
     }
@@ -93,162 +215,228 @@ class SampleArchiveService
      */
     public function detail(Sample $sample): array
     {
+        $sample->loadMissing(['client', 'requestedParameters']);
+
         $sampleId = (int) $sample->getKey();
 
-        $bundle = [
+        // LOO (best-effort)
+        $loId = null;
+        $lo = null;
+
+        if (
+            Schema::hasTable('letter_of_order_items')
+            && Schema::hasColumn('letter_of_order_items', 'sample_id')
+            && Schema::hasColumn('letter_of_order_items', 'lo_id')
+        ) {
+            $loId = DB::table('letter_of_order_items')
+                ->where('sample_id', '=', $sampleId)
+                ->max('lo_id');
+
+            if ($loId && Schema::hasTable('letters_of_order') && Schema::hasColumn('letters_of_order', 'lo_id')) {
+                $lo = DB::table('letters_of_order')
+                    ->where('lo_id', '=', (int) $loId)
+                    ->first();
+            }
+        }
+
+        // Reports / COA
+        $reports = collect();
+        $reportItems = collect();
+        $reportSignoffs = collect();
+
+        if (Schema::hasTable('reports') && Schema::hasColumn('reports', 'sample_id')) {
+            $reportOrderCol =
+                Schema::hasColumn('reports', 'report_id') ? 'report_id'
+                : (Schema::hasColumn('reports', 'id') ? 'id' : (Schema::hasColumn('reports', 'created_at') ? 'created_at' : null));
+
+            $rq = DB::table('reports')
+                ->where('sample_id', '=', $sampleId);
+
+            if ($reportOrderCol) {
+                $rq->orderBy($reportOrderCol, 'desc');
+            }
+
+            $reports = $rq->get();
+
+            $reportIds = $reports->pluck('report_id')->filter()->values()->all();
+
+            if (!empty($reportIds) && Schema::hasTable('report_items') && Schema::hasColumn('report_items', 'report_id')) {
+                $itemOrderCol =
+                    Schema::hasColumn('report_items', 'report_item_id') ? 'report_item_id'
+                    : (Schema::hasColumn('report_items', 'id') ? 'id'
+                        : (Schema::hasColumn('report_items', 'created_at') ? 'created_at' : null));
+
+                $q = DB::table('report_items')
+                    ->whereIn('report_id', $reportIds);
+
+                if ($itemOrderCol) {
+                    $q->orderBy($itemOrderCol, $itemOrderCol === 'created_at' ? 'asc' : 'asc');
+                }
+
+                $reportItems = $q->get();
+            }
+
+            if (!empty($reportIds) && Schema::hasTable('report_signoffs') && Schema::hasColumn('report_signoffs', 'report_id')) {
+                $signoffOrderCol =
+                    Schema::hasColumn('report_signoffs', 'report_signoff_id') ? 'report_signoff_id'
+                    : (Schema::hasColumn('report_signoffs', 'id') ? 'id'
+                        : (Schema::hasColumn('report_signoffs', 'created_at') ? 'created_at' : null));
+
+                $q = DB::table('report_signoffs')
+                    ->whereIn('report_id', $reportIds);
+
+                if ($signoffOrderCol) {
+                    $q->orderBy($signoffOrderCol, $signoffOrderCol === 'created_at' ? 'asc' : 'asc');
+                }
+
+                $reportSignoffs = $q->get();
+            }
+        }
+
+        // Audit logs (history) ✅ FIX: fallback order column
+        $auditLogs = collect();
+        if (Schema::hasTable('audit_logs')) {
+            $auditOrderCol =
+                Schema::hasColumn('audit_logs', 'audit_log_id') ? 'audit_log_id'
+                : (Schema::hasColumn('audit_logs', 'id') ? 'id'
+                    : (Schema::hasColumn('audit_logs', 'created_at') ? 'created_at' : null));
+
+            $q = DB::table('audit_logs')
+                ->where(function ($qq) use ($sampleId) {
+                    if (Schema::hasColumn('audit_logs', 'entity_table') && Schema::hasColumn('audit_logs', 'entity_id')) {
+                        $qq->where('entity_table', '=', 'samples')->where('entity_id', '=', $sampleId);
+                        return;
+                    }
+                    if (Schema::hasColumn('audit_logs', 'sample_id')) {
+                        $qq->where('sample_id', '=', $sampleId);
+                        return;
+                    }
+                    $qq->whereRaw('1=0');
+                })
+                ->limit(500);
+
+            if ($auditOrderCol) {
+                $q->orderBy($auditOrderCol, 'desc');
+            }
+
+            $auditLogs = $q->get();
+        }
+
+        // Sample tests & results (best-effort ordering)
+        $sampleTests = collect();
+        if (Schema::hasTable('sample_tests') && Schema::hasColumn('sample_tests', 'sample_id')) {
+            $orderCol =
+                Schema::hasColumn('sample_tests', 'sample_test_id') ? 'sample_test_id'
+                : (Schema::hasColumn('sample_tests', 'id') ? 'id'
+                    : (Schema::hasColumn('sample_tests', 'created_at') ? 'created_at' : null));
+
+            $q = DB::table('sample_tests')
+                ->where('sample_id', '=', $sampleId);
+
+            if ($orderCol) {
+                $q->orderBy($orderCol, $orderCol === 'created_at' ? 'asc' : 'asc');
+            }
+
+            $sampleTests = $q->get();
+        }
+
+        $testResults = collect();
+        if (Schema::hasTable('test_results') && Schema::hasColumn('test_results', 'sample_id')) {
+            $orderCol =
+                Schema::hasColumn('test_results', 'test_result_id') ? 'test_result_id'
+                : (Schema::hasColumn('test_results', 'id') ? 'id'
+                    : (Schema::hasColumn('test_results', 'created_at') ? 'created_at' : null));
+
+            $q = DB::table('test_results')
+                ->where('sample_id', '=', $sampleId);
+
+            if ($orderCol) {
+                $q->orderBy($orderCol, $orderCol === 'created_at' ? 'asc' : 'asc');
+            }
+
+            $testResults = $q->get();
+        }
+
+        // Quality Cover
+        $qualityCovers = collect();
+        if (Schema::hasTable('quality_covers') && Schema::hasColumn('quality_covers', 'sample_id')) {
+            $orderCol =
+                Schema::hasColumn('quality_covers', 'quality_cover_id') ? 'quality_cover_id'
+                : (Schema::hasColumn('quality_covers', 'id') ? 'id'
+                    : (Schema::hasColumn('quality_covers', 'created_at') ? 'created_at' : null));
+
+            $q = DB::table('quality_covers')
+                ->where('sample_id', '=', $sampleId);
+
+            if ($orderCol) {
+                $q->orderBy($orderCol, 'desc');
+            }
+
+            $qualityCovers = $q->get();
+        }
+
+        // Reagent requests (linked by lo_id in project kamu)
+        $reagentRequests = collect();
+        if ($loId && Schema::hasTable('reagent_requests') && Schema::hasColumn('reagent_requests', 'lo_id')) {
+            $orderCol =
+                Schema::hasColumn('reagent_requests', 'reagent_request_id') ? 'reagent_request_id'
+                : (Schema::hasColumn('reagent_requests', 'id') ? 'id'
+                    : (Schema::hasColumn('reagent_requests', 'created_at') ? 'created_at' : null));
+
+            $q = DB::table('reagent_requests')
+                ->where('lo_id', '=', (int) $loId);
+
+            if ($orderCol) {
+                $q->orderBy($orderCol, 'desc');
+            }
+
+            $reagentRequests = $q->get();
+        }
+
+        // Sample comments
+        $sampleComments = collect();
+        if (Schema::hasTable('sample_comments') && Schema::hasColumn('sample_comments', 'sample_id')) {
+            $orderCol =
+                Schema::hasColumn('sample_comments', 'sample_comment_id') ? 'sample_comment_id'
+                : (Schema::hasColumn('sample_comments', 'id') ? 'id'
+                    : (Schema::hasColumn('sample_comments', 'created_at') ? 'created_at' : null));
+
+            $q = DB::table('sample_comments')
+                ->where('sample_id', '=', $sampleId);
+
+            if ($orderCol) {
+                $q->orderBy($orderCol, 'desc');
+            }
+
+            $sampleComments = $q->get();
+        }
+
+        return [
             'sample' => $sample,
             'client' => $sample->client,
+
+            'requested_parameters' => $sample->requestedParameters
+                ? $sample->requestedParameters->map(fn($p) => [
+                    'parameter_id' => (int) $p->parameter_id,
+                    'name' => (string) $p->name,
+                ])->values()->all()
+                : [],
+
+            'loo' => $lo,
+            'lo_id' => $loId,
+
+            'reports' => $reports,
+            'report_items' => $reportItems,
+            'report_signoffs' => $reportSignoffs,
+
+            'audit_logs' => $auditLogs,
+
+            'sample_tests' => $sampleTests,
+            'test_results' => $testResults,
+
+            'quality_covers' => $qualityCovers,
+            'reagent_requests' => $reagentRequests,
+            'sample_comments' => $sampleComments,
         ];
-
-        // =========================
-        // Audit logs (history)
-        // =========================
-        if (Schema::hasTable('audit_logs')) {
-            // We don’t assume exact column naming beyond the common ones used in this project.
-            // If your schema differs, adjust the where keys below.
-            $bundle['audit_logs'] = DB::table('audit_logs')
-                ->where(function ($q) use ($sampleId) {
-                    // common patterns in this repo: entity_table + entity_id
-                    if (Schema::hasColumn('audit_logs', 'entity_table') && Schema::hasColumn('audit_logs', 'entity_id')) {
-                        $q->where('entity_table', '=', 'samples')->where('entity_id', '=', $sampleId);
-                        return;
-                    }
-                    // fallback: sample_id
-                    if (Schema::hasColumn('audit_logs', 'sample_id')) {
-                        $q->where('sample_id', '=', $sampleId);
-                        return;
-                    }
-                    // last resort: do nothing (avoid SQL error)
-                    $q->whereRaw('1=0');
-                })
-                ->orderByDesc('audit_log_id')
-                ->limit(500)
-                ->get();
-        } else {
-            $bundle['audit_logs'] = [];
-        }
-
-        // =========================
-        // Reports / COA documents
-        // =========================
-        if (Schema::hasTable('reports')) {
-            $bundle['reports'] = DB::table('reports')
-                ->where('sample_id', '=', $sampleId)
-                ->orderByDesc('report_id')
-                ->get();
-
-            if (Schema::hasTable('report_items')) {
-                $bundle['report_items'] = DB::table('report_items')
-                    ->whereIn('report_id', collect($bundle['reports'])->pluck('report_id')->values()->all())
-                    ->orderBy('report_item_id')
-                    ->get();
-            } else {
-                $bundle['report_items'] = [];
-            }
-
-            if (Schema::hasTable('report_signoffs')) {
-                $bundle['report_signoffs'] = DB::table('report_signoffs')
-                    ->whereIn('report_id', collect($bundle['reports'])->pluck('report_id')->values()->all())
-                    ->orderBy('report_signoff_id')
-                    ->get();
-            } else {
-                $bundle['report_signoffs'] = [];
-            }
-        } else {
-            $bundle['reports'] = [];
-            $bundle['report_items'] = [];
-            $bundle['report_signoffs'] = [];
-        }
-
-        if (Schema::hasTable('coa_documents')) {
-            $bundle['coa_documents'] = DB::table('coa_documents')
-                ->where('sample_id', '=', $sampleId)
-                ->orderByDesc('coa_document_id')
-                ->get();
-        } else {
-            $bundle['coa_documents'] = [];
-        }
-
-        // =========================
-        // Letter of Order (LOO)
-        // =========================
-        if (Schema::hasTable('letter_of_order_items')) {
-            $looItem = DB::table('letter_of_order_items')
-                ->where('sample_id', '=', $sampleId)
-                ->orderByDesc('letter_of_order_item_id')
-                ->first();
-
-            $bundle['loo_item'] = $looItem;
-
-            if ($looItem && Schema::hasTable('letter_of_orders') && isset($looItem->letter_of_order_id)) {
-                $bundle['loo'] = DB::table('letter_of_orders')
-                    ->where('letter_of_order_id', '=', (int) $looItem->letter_of_order_id)
-                    ->first();
-            } else {
-                $bundle['loo'] = null;
-            }
-        } else {
-            $bundle['loo_item'] = null;
-            $bundle['loo'] = null;
-        }
-
-        // =========================
-        // Sample tests & results
-        // =========================
-        if (Schema::hasTable('sample_tests')) {
-            $bundle['sample_tests'] = DB::table('sample_tests')
-                ->where('sample_id', '=', $sampleId)
-                ->orderBy('sample_test_id')
-                ->get();
-        } else {
-            $bundle['sample_tests'] = [];
-        }
-
-        if (Schema::hasTable('test_results')) {
-            $bundle['test_results'] = DB::table('test_results')
-                ->where('sample_id', '=', $sampleId)
-                ->orderBy('test_result_id')
-                ->get();
-        } else {
-            $bundle['test_results'] = [];
-        }
-
-        // =========================
-        // Quality Cover
-        // =========================
-        if (Schema::hasTable('quality_covers')) {
-            $bundle['quality_covers'] = DB::table('quality_covers')
-                ->where('sample_id', '=', $sampleId)
-                ->orderByDesc('quality_cover_id')
-                ->get();
-        } else {
-            $bundle['quality_covers'] = [];
-        }
-
-        // =========================
-        // Reagent Requests (if linked)
-        // =========================
-        if (Schema::hasTable('reagent_requests')) {
-            $bundle['reagent_requests'] = DB::table('reagent_requests')
-                ->where('sample_id', '=', $sampleId)
-                ->orderByDesc('reagent_request_id')
-                ->get();
-        } else {
-            $bundle['reagent_requests'] = [];
-        }
-
-        // =========================
-        // Sample Comments
-        // =========================
-        if (Schema::hasTable('sample_comments')) {
-            $bundle['sample_comments'] = DB::table('sample_comments')
-                ->where('sample_id', '=', $sampleId)
-                ->orderByDesc('sample_comment_id')
-                ->get();
-        } else {
-            $bundle['sample_comments'] = [];
-        }
-
-        return $bundle;
     }
 }

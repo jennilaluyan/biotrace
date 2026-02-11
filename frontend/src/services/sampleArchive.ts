@@ -60,16 +60,105 @@ export type SampleArchiveDetail = SampleArchiveListItem & {
     raw?: any;
 };
 
-function normalizeMeta(meta: any | undefined | null): PaginatedMeta | undefined {
-    if (!meta) return undefined;
+type ListResponse = { data: SampleArchiveListItem[]; meta?: PaginatedMeta };
 
-    // backend bisa pakai current_page atau page
-    const current_page = Number(meta.current_page ?? meta.page ?? 1);
-    const last_page = Number(meta.last_page ?? meta.lastPage ?? 1);
-    const per_page = Number(meta.per_page ?? meta.perPage ?? 15);
-    const total = Number(meta.total ?? 0);
+const LIST_ENDPOINTS = [
+    // ✅ canonical (yang kita pakai sekarang)
+    "/v1/sample-archive",
+    // ✅ fallback legacy (kalau ada project yang terlanjur pakai ini)
+    "/v1/samples/archive",
+] as const;
 
-    return { current_page, last_page, per_page, total };
+function isMetaLike(x: any): x is PaginatedMeta {
+    return (
+        x &&
+        typeof x === "object" &&
+        typeof x.current_page === "number" &&
+        typeof x.last_page === "number" &&
+        typeof x.per_page === "number" &&
+        typeof x.total === "number"
+    );
+}
+
+function normalizeListPayload(payload: any): ListResponse {
+    // Case A: { data: [...], meta: {...} }
+    if (payload && Array.isArray(payload.data)) {
+        return {
+            data: payload.data,
+            meta: isMetaLike(payload.meta) ? payload.meta : undefined,
+        };
+    }
+
+    // Case B: paginator langsung: { current_page, data: [...], last_page, per_page, total }
+    if (payload && Array.isArray(payload.data) && typeof payload.current_page === "number") {
+        return {
+            data: payload.data,
+            meta: {
+                current_page: payload.current_page,
+                last_page: payload.last_page ?? payload.current_page,
+                per_page: payload.per_page ?? payload.data.length,
+                total: payload.total ?? payload.data.length,
+            },
+        };
+    }
+
+    // Case C: wrapper: { data: { data: [...], meta } }
+    const inner = payload?.data;
+    if (inner && Array.isArray(inner.data)) {
+        return {
+            data: inner.data,
+            meta: isMetaLike(inner.meta)
+                ? inner.meta
+                : typeof inner.current_page === "number"
+                    ? {
+                        current_page: inner.current_page,
+                        last_page: inner.last_page ?? inner.current_page,
+                        per_page: inner.per_page ?? inner.data.length,
+                        total: inner.total ?? inner.data.length,
+                    }
+                    : undefined,
+        };
+    }
+
+    // Case D: raw array
+    if (Array.isArray(payload)) {
+        return { data: payload, meta: undefined };
+    }
+
+    // fallback: empty
+    return { data: [], meta: undefined };
+}
+
+function normalizeDetailPayload(payload: any): { data: SampleArchiveDetail } {
+    // Case A: { data: {...} }
+    if (payload && payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)) {
+        return { data: payload.data as SampleArchiveDetail };
+    }
+    // Case B: {...} langsung
+    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+        return { data: payload as SampleArchiveDetail };
+    }
+    return { data: { sample_id: 0, raw: payload } as SampleArchiveDetail };
+}
+
+async function apiGetWith404Fallback<T>(paths: string[], options?: any): Promise<T> {
+    let lastErr: any = null;
+
+    for (const p of paths) {
+        try {
+            return await apiGet<T>(p, options);
+        } catch (err: any) {
+            lastErr = err;
+
+            // ✅ kalau 404: coba endpoint berikutnya
+            if (err?.status === 404) continue;
+
+            // selain 404: jangan di-swallow (403/422/500 harus muncul)
+            throw err;
+        }
+    }
+
+    throw lastErr;
 }
 
 export async function fetchSampleArchive(params: {
@@ -78,23 +167,13 @@ export async function fetchSampleArchive(params: {
     page?: number;
     per_page?: number;
 }): Promise<{ data: SampleArchiveListItem[]; meta?: PaginatedMeta }> {
-    const queryParams: Record<string, any> = {};
-    if (params.q) queryParams.q = params.q;
-    if (typeof params.client_id === "number") queryParams.client_id = params.client_id;
-    if (typeof params.page === "number") queryParams.page = params.page;
-    if (typeof params.per_page === "number") queryParams.per_page = params.per_page;
-
-    // ✅ apiGet expects AxiosRequestConfig, so use { params: ... }
-    const res: any = await apiGet("/v1/samples/archive", { params: queryParams });
-
-    return {
-        data: (res?.data ?? []) as SampleArchiveListItem[],
-        meta: normalizeMeta(res?.meta),
-    };
+    // ✅ FIX TS2559: apiGet arg2 harus AxiosRequestConfig → pakai { params }
+    const payload = await apiGetWith404Fallback<any>([...LIST_ENDPOINTS], { params });
+    return normalizeListPayload(payload);
 }
 
 export async function fetchSampleArchiveDetail(sampleId: number): Promise<{ data: SampleArchiveDetail }> {
-    // ✅ match backend route: /v1/samples/archive/{id}
-    const res: any = await apiGet(`/v1/samples/archive/${sampleId}`);
-    return { data: (res?.data ?? null) as SampleArchiveDetail };
+    const paths = LIST_ENDPOINTS.map((base) => `${base}/${sampleId}`);
+    const payload = await apiGetWith404Fallback<any>(paths);
+    return normalizeDetailPayload(payload);
 }

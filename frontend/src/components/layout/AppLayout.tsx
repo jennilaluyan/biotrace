@@ -44,7 +44,7 @@ export const AppLayout = () => {
     const isAdmin = roleId === ROLE_ID.ADMIN;
     const isSampleCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
 
-    // ✅ FIX: define these booleans (were missing)
+    // ✅ FIX: define missing flags used in archiveItems
     const isOperationalManager = roleId === ROLE_ID.OPERATIONAL_MANAGER;
     const isLabHead = roleId === ROLE_ID.LAB_HEAD;
 
@@ -71,10 +71,9 @@ export const AppLayout = () => {
         ]
         : [];
 
-    // ✅ Archive page is Admin/OM/LH only
     const archiveItems: NavItem[] =
         isAdmin || isOperationalManager || isLabHead
-            ? [{ label: "Samples Archive", path: "/samples/archive", icon: "samples" }]
+            ? [{ label: "Samples Archive", path: "/samples/archive", icon: "reports" }]
             : [];
 
     const adminItems: NavItem[] = isAdmin
@@ -113,13 +112,9 @@ export const AppLayout = () => {
             ? [{ label: "Staff Approvals", path: "/staff/approvals", icon: "approval" }]
             : [];
 
-    const reportItems: NavItem[] = canSeeReports
-        ? [{ label: "Reports", path: "/reports", icon: "reports" }]
-        : [];
+    const reportItems: NavItem[] = canSeeReports ? [{ label: "Reports", path: "/reports", icon: "reports" }] : [];
 
-    const auditItems: NavItem[] = canSeeAuditLogs
-        ? [{ label: "Audit Logs", path: "/audit-logs", icon: "audit" }]
-        : [];
+    const auditItems: NavItem[] = canSeeAuditLogs ? [{ label: "Audit Logs", path: "/audit-logs", icon: "audit" }] : [];
 
     const navItems: NavItem[] = (() => {
         if (isClient) return [...portalItems];
@@ -127,12 +122,13 @@ export const AppLayout = () => {
         if (isStaff) {
             return [
                 ...staffBaseItems,
-                ...archiveItems,
                 ...omLhItems,
+                ...archiveItems,
                 ...reportItems,
                 ...auditItems,
                 ...adminItems,
                 ...labHeadItems,
+                ...scOnlyItems,
             ];
         }
         return [];
@@ -171,7 +167,6 @@ export const AppLayout = () => {
     const renderNavItem = (item: NavItem, closeOnClick = false) => {
         const end =
             item.path === "/samples" ||
-            item.path === "/samples/archive" || // ✅ NEW
             item.path === "/clients" ||
             item.path === "/portal" ||
             item.path === "/qa/parameters" ||

@@ -1,7 +1,6 @@
-// frontend/src/pages/samples/SampleArchivePage.tsx
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { RefreshCw, Search } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { ChevronLeft, ChevronRight, Eye, RefreshCw, Search, X } from "lucide-react";
 import { getErrorMessage } from "../../utils/errors";
 import { formatDateTimeLocal } from "../../utils/date";
 import { fetchSampleArchive, type PaginatedMeta, type SampleArchiveListItem } from "../../services/sampleArchive";
@@ -17,6 +16,8 @@ function safeText(v: any) {
 }
 
 export function SampleArchivePage() {
+    const navigate = useNavigate();
+
     const [items, setItems] = useState<SampleArchiveListItem[]>([]);
     const [meta, setMeta] = useState<PaginatedMeta | null>(null);
     const [q, setQ] = useState("");
@@ -48,44 +49,57 @@ export function SampleArchivePage() {
     const canPrev = (meta?.current_page ?? page) > 1;
     const canNext = meta ? meta.current_page < meta.last_page : items.length === perPage;
 
-    const totalText = useMemo(() => {
+    const total = meta?.total ?? items.length;
+    const totalPages = meta?.last_page ?? (items.length === 0 ? 1 : 999);
+    const from = meta ? (meta.current_page - 1) * meta.per_page + 1 : items.length ? 1 : 0;
+    const to = meta ? Math.min(meta.current_page * meta.per_page, meta.total) : items.length;
+
+    const helperText = useMemo(() => {
         if (!meta) return "";
         return `Total: ${meta.total}`;
     }, [meta]);
 
     return (
-        <div className="p-4 space-y-4">
-            <div className="flex items-center justify-between">
+        <div className="min-h-[60vh]">
+
+            {/* Header */}
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
-                    <h1 className="text-xl font-semibold">Samples Archive</h1>
-                    <p className="text-sm text-slate-600">
-                        Semua sample yang workflow-nya sudah selesai (COA sudah keluar). {totalText}
-                    </p>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">Samples Archive</h1>
                 </div>
 
                 <button
-                    className={cx(
-                        "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm",
-                        "bg-white hover:bg-slate-50"
-                    )}
+                    type="button"
+                    className="lims-icon-button self-start md:self-auto"
                     onClick={() => load(page, q)}
                     disabled={loading}
+                    aria-label="Refresh"
+                    title="Refresh"
                 >
-                    <RefreshCw className={cx("h-4 w-4", loading && "animate-spin")} />
-                    Refresh
+                    <RefreshCw size={16} className={cx(loading && "animate-spin")} />
                 </button>
             </div>
 
-            <div className="rounded-lg border bg-white p-4 space-y-3">
-                <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-                    <div className="w-full md:max-w-md">
-                        <label className="block text-sm font-medium text-slate-700">Search</label>
-                        <div className="mt-1 flex gap-2">
+            <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                {/* Filter bar */}
+                <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
+                    <div className="flex-1">
+                        <label className="sr-only" htmlFor="archive-search">
+                            Search archive
+                        </label>
+
+                        <div className="relative">
+                            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
+                                <Search className="h-4 w-4" />
+                            </span>
+
                             <input
-                                className="w-full rounded-md border px-3 py-2 text-sm"
-                                placeholder="Cari lab sample code / client name / COA number..."
+                                id="archive-search"
+                                type="text"
                                 value={q}
                                 onChange={(e) => setQ(e.target.value)}
+                                placeholder="Cari lab code / client / COA number…"
+                                className="w-full rounded-xl border border-gray-300 pl-9 pr-10 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                                 onKeyDown={(e) => {
                                     if (e.key === "Enter") {
                                         setPage(1);
@@ -93,112 +107,198 @@ export function SampleArchivePage() {
                                     }
                                 }}
                             />
-                            <button
-                                className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800"
-                                onClick={() => {
-                                    setPage(1);
-                                    load(1, q);
-                                }}
-                                disabled={loading}
-                            >
-                                <Search className="h-4 w-4" />
-                                Search
-                            </button>
+
+                            {q.trim().length > 0 ? (
+                                <button
+                                    type="button"
+                                    className="absolute inset-y-0 right-2 my-auto lims-icon-button"
+                                    aria-label="Clear search"
+                                    title="Clear"
+                                    onClick={() => {
+                                        setQ("");
+                                        setPage(1);
+                                        load(1, "");
+                                    }}
+                                >
+                                    <X size={16} />
+                                </button>
+                            ) : null}
                         </div>
                     </div>
 
-                    <div className="text-sm text-slate-600">
-                        Page: {meta?.current_page ?? page}
-                        {meta ? ` / ${meta.last_page}` : ""}
+                    <div className="w-full md:w-auto flex items-center justify-start md:justify-end gap-2">
+                        <button
+                            type="button"
+                            className="lims-icon-button"
+                            onClick={() => {
+                                setPage(1);
+                                load(1, q);
+                            }}
+                            disabled={loading}
+                            aria-label="Search"
+                            title="Search"
+                        >
+                            <Search size={16} />
+                        </button>
                     </div>
                 </div>
 
-                {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+                <div className="px-4 md:px-6 py-4">
+                    {error && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
 
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead>
-                            <tr className="border-b bg-slate-50 text-left">
-                                <th className="px-3 py-2">Lab Code</th>
-                                <th className="px-3 py-2">Client</th>
-                                <th className="px-3 py-2">Workflow</th>
-                                <th className="px-3 py-2">COA</th>
-                                <th className="px-3 py-2">Archived At</th>
-                                <th className="px-3 py-2"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {loading && (
+                    {/* Top meta */}
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
+                        <div className="text-xs text-gray-600">
+                            Showing <span className="font-semibold">{from}</span> to{" "}
+                            <span className="font-semibold">{to}</span> of{" "}
+                            <span className="font-semibold">{total}</span>.
+                        </div>
+
+                        <div className="text-xs text-gray-600">
+                            Page{" "}
+                            <span className="font-semibold">{meta?.current_page ?? page}</span>
+                            {meta ? (
+                                <>
+                                    {" "}
+                                    of <span className="font-semibold">{meta.last_page}</span>
+                                </>
+                            ) : null}
+                        </div>
+                    </div>
+
+                    {/* Table */}
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                            <thead className="bg-white text-gray-700 border-b border-gray-100">
                                 <tr>
-                                    <td className="px-3 py-6 text-slate-500" colSpan={6}>
-                                        Loading...
-                                    </td>
+                                    <th className="text-left font-semibold px-4 py-3">Lab Code</th>
+                                    <th className="text-left font-semibold px-4 py-3">Client</th>
+                                    <th className="text-left font-semibold px-4 py-3">Workflow</th>
+                                    <th className="text-left font-semibold px-4 py-3">COA</th>
+                                    <th className="text-left font-semibold px-4 py-3">Archived</th>
+                                    <th className="text-right font-semibold px-4 py-3">Actions</th>
                                 </tr>
-                            )}
+                            </thead>
 
-                            {!loading && items.length === 0 && (
-                                <tr>
-                                    <td className="px-3 py-6 text-slate-500" colSpan={6}>
-                                        Tidak ada data.
-                                    </td>
-                                </tr>
-                            )}
-
-                            {!loading &&
-                                items.map((s) => (
-                                    <tr key={s.sample_id} className="border-b last:border-b-0">
-                                        <td className="px-3 py-2 font-medium">
-                                            <Link className="text-slate-900 hover:underline" to={`/samples/archive/${s.sample_id}`}>
-                                                {safeText(s.lab_sample_code ?? `#${s.sample_id}`)}
-                                            </Link>
-                                        </td>
-                                        <td className="px-3 py-2">{safeText(s.client_name ?? s.client_id)}</td>
-                                        <td className="px-3 py-2">{safeText(s.workflow_group)}</td>
-                                        <td className="px-3 py-2">
-                                            <div className="flex flex-col">
-                                                <span>{safeText(s.coa_number ?? s.coa_report_id)}</span>
-                                                {s.coa_generated_at ? (
-                                                    <span className="text-xs text-slate-500">{formatDateTimeLocal(s.coa_generated_at)}</span>
-                                                ) : null}
-                                            </div>
-                                        </td>
-                                        <td className="px-3 py-2">{s.archived_at ? formatDateTimeLocal(s.archived_at) : "-"}</td>
-                                        <td className="px-3 py-2 text-right">
-                                            <Link
-                                                className="inline-flex items-center rounded-md border bg-white px-3 py-1.5 text-xs hover:bg-slate-50"
-                                                to={`/samples/archive/${s.sample_id}`}
-                                            >
-                                                View
-                                            </Link>
+                            <tbody className="divide-y divide-gray-100">
+                                {loading ? (
+                                    <tr>
+                                        <td className="px-4 py-6 text-gray-600" colSpan={6}>
+                                            Loading…
                                         </td>
                                     </tr>
-                                ))}
-                        </tbody>
-                    </table>
-                </div>
+                                ) : items.length === 0 ? (
+                                    <tr>
+                                        <td className="px-4 py-6 text-gray-600" colSpan={6}>
+                                            Tidak ada data.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    items.map((s) => (
+                                        <tr key={s.sample_id} className="hover:bg-gray-50">
+                                            <td className="px-4 py-3 text-gray-900">
+                                                <Link
+                                                    to={`/samples/archive/${s.sample_id}`}
+                                                    className="inline-flex items-center gap-2"
+                                                >
+                                                    <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
+                                                        {safeText(s.lab_sample_code ?? `#${s.sample_id}`)}
+                                                    </span>
+                                                </Link>
+                                            </td>
 
-                <div className="flex items-center justify-between pt-2">
-                    <button
-                        className={cx(
-                            "rounded-md border px-3 py-2 text-sm",
-                            canPrev ? "bg-white hover:bg-slate-50" : "bg-slate-50 text-slate-400"
-                        )}
-                        disabled={!canPrev || loading}
-                        onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    >
-                        Prev
-                    </button>
+                                            <td className="px-4 py-3 text-gray-700">
+                                                {safeText(s.client_name ?? s.client_id)}
+                                            </td>
 
-                    <button
-                        className={cx(
-                            "rounded-md border px-3 py-2 text-sm",
-                            canNext ? "bg-white hover:bg-slate-50" : "bg-slate-50 text-slate-400"
-                        )}
-                        disabled={!canNext || loading}
-                        onClick={() => setPage((p) => p + 1)}
-                    >
-                        Next
-                    </button>
+                                            <td className="px-4 py-3 text-gray-700">
+                                                {safeText(s.workflow_group)}
+                                            </td>
+
+                                            <td className="px-4 py-3 text-gray-700">
+                                                <div className="flex flex-col">
+                                                    <span className="font-medium text-gray-900">
+                                                        {safeText(s.coa_number ?? s.coa_report_id)}
+                                                    </span>
+                                                    {s.coa_generated_at ? (
+                                                        <span className="text-xs text-gray-500">
+                                                            {formatDateTimeLocal(s.coa_generated_at)}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                            </td>
+
+                                            <td className="px-4 py-3 text-gray-700">
+                                                {s.archived_at ? formatDateTimeLocal(s.archived_at) : "-"}
+                                            </td>
+
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <button
+                                                        type="button"
+                                                        className="lims-icon-button"
+                                                        aria-label="View detail"
+                                                        title="View detail"
+                                                        onClick={() => navigate(`/samples/archive/${s.sample_id}`)}
+                                                    >
+                                                        <Eye size={16} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Pagination */}
+                    <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
+                        <div className="text-xs text-gray-600">
+                            Page <span className="font-semibold">{meta?.current_page ?? page}</span>
+                            {meta ? (
+                                <>
+                                    {" "}
+                                    of <span className="font-semibold">{meta.last_page}</span>
+                                </>
+                            ) : (
+                                <>
+                                    {" "}
+                                    <span className="text-gray-400">(meta belum tersedia)</span>
+                                </>
+                            )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                className={cx(
+                                    "lims-icon-button",
+                                    (!canPrev || loading) && "opacity-40 cursor-not-allowed"
+                                )}
+                                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                disabled={!canPrev || loading}
+                                aria-label="Previous page"
+                                title="Prev"
+                            >
+                                <ChevronLeft size={16} />
+                            </button>
+
+                            <button
+                                type="button"
+                                className={cx(
+                                    "lims-icon-button",
+                                    (!canNext || loading) && "opacity-40 cursor-not-allowed"
+                                )}
+                                onClick={() => setPage((p) => p + 1)}
+                                disabled={!canNext || loading}
+                                aria-label="Next page"
+                                title="Next"
+                            >
+                                <ChevronRight size={16} />
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
