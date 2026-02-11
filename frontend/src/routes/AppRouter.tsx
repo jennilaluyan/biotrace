@@ -22,6 +22,8 @@ import { SampleArchivePage } from "../pages/samples/SampleArchivePage";
 import { SampleArchiveDetailPage } from "../pages/samples/SampleArchiveDetailPage";
 import SampleRequestsQueuePage from "../pages/samples/SampleRequestsQueuePage";
 import SampleRequestDetailPage from "../pages/samples/SampleRequestDetailPage";
+import SampleIdChangeApprovalsInboxPage from "../pages/samples/SampleIdChangeApprovalsInboxPage";
+import SampleIdChangeApprovalDetailPage from "../pages/samples/SampleIdChangeApprovalDetailPage";
 import { LooGeneratorPage } from "../pages/loo/LooGeneratorPage";
 import { StaffApprovalsPage } from "../pages/staff/StaffApprovalsPage";
 import { AuditLogsPage } from "../pages/audit/AuditLogsPage";
@@ -366,6 +368,25 @@ export const AppRouter = () => {
                                 </RoleGuard>
                             }
                         />
+
+                        <Route
+                            path="/samples/sample-id-changes"
+                            element={
+                                <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
+                                    <SampleIdChangeApprovalsInboxPage />
+                                </RoleGuard>
+                            }
+                        />
+
+                        <Route
+                            path="/samples/sample-id-changes/:changeId"
+                            element={
+                                <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
+                                    <SampleIdChangeApprovalDetailPage />
+                                </RoleGuard>
+                            }
+                        />
+
                     </Route>
                 </Route>
             </Route>

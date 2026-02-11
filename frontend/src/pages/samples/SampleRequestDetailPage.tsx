@@ -6,8 +6,10 @@ import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import { formatDateTimeLocal } from "../../utils/date";
 import { sampleService, type Sample } from "../../services/samples";
 import { apiPost, apiPatch } from "../../services/api";
+import { Hash } from "lucide-react";
 import { UpdateRequestStatusModal } from "../../components/samples/UpdateRequestStatusModal";
 import { IntakeChecklistModal } from "../../components/intake/IntakeChecklistModal";
+import AssignSampleIdModal from "../../components/samples/AssignSampleIdModal";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -196,6 +198,11 @@ export default function SampleRequestDetailPage() {
         [roleId]
     );
 
+    const isAdmin = roleId === ROLE_ID.ADMIN;
+    const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
+    const isOperationalManager = roleId === ROLE_ID.OPERATIONAL_MANAGER;
+    const isLabHead = roleId === ROLE_ID.LAB_HEAD;
+
     const [sample, setSample] = useState<Sample | null>(null);
     const [loading, setLoading] = useState(true);
     const [pageRefreshing, setPageRefreshing] = useState(false);
@@ -206,8 +213,35 @@ export default function SampleRequestDetailPage() {
 
     const [intakeOpen, setIntakeOpen] = useState(false);
 
+    const [assignOpen, setAssignOpen] = useState(false);
+    const [assignFlash, setAssignFlash] = useState<{ type: "success" | "warning" | "error"; message: string } | null>(null);
+
     const requestStatus = (sample as any)?.request_status ?? null;
     const labSampleCode = (sample as any)?.lab_sample_code ?? null;
+    const requestStatusKey = String(requestStatus ?? "").trim().toLowerCase();
+
+    const sampleIdChangeObj = (sample as any)?.sample_id_change ?? null;
+
+    const sampleIdChangeStatusKey = String(
+        sampleIdChangeObj?.status ??
+        (sample as any)?.sample_id_change_status ??
+        (sample as any)?.sample_id_change_state ??
+        ""
+    )
+        .trim()
+        .toLowerCase();
+
+    const isSampleIdChangePending =
+        sampleIdChangeStatusKey === "pending" || sampleIdChangeStatusKey === "submitted" || sampleIdChangeStatusKey === "waiting";
+
+    const isSampleIdChangeApproved = sampleIdChangeStatusKey === "approved";
+    const isSampleIdChangeRejected = sampleIdChangeStatusKey === "rejected";
+
+    const canAssignSampleId =
+        isAdmin &&
+        !labSampleCode &&
+        (requestStatusKey === "waiting_sample_id_assignment" || requestStatusKey === "approved_for_assignment") &&
+        !isSampleIdChangePending;
 
     const isDraft = requestStatus === "draft" && !labSampleCode;
     const isSubmitted = requestStatus === "submitted";
@@ -235,12 +269,6 @@ export default function SampleRequestDetailPage() {
     const collectorReturnedToAdminAt = (sample as any)?.collector_returned_to_admin_at ?? null;
     const adminReceivedFromCollectorAt = (sample as any)?.admin_received_from_collector_at ?? null;
     const clientPickedUpAt = (sample as any)?.client_picked_up_at ?? null;
-
-    const isAdmin = roleId === ROLE_ID.ADMIN;
-    const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
-
-    const isOperationalManager = roleId === ROLE_ID.OPERATIONAL_MANAGER;
-    const isLabHead = roleId === ROLE_ID.LAB_HEAD;
 
     const verifiedAt = (sample as any)?.verified_at ?? null;
 
@@ -519,6 +547,25 @@ export default function SampleRequestDetailPage() {
                             </div>
 
                             <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    className={cx("lims-icon-button", !canAssignSampleId && "opacity-40 cursor-not-allowed")}
+                                    disabled={!canAssignSampleId}
+                                    onClick={() => setAssignOpen(true)}
+                                    aria-label="Assign Sample ID"
+                                    title={
+                                        !isAdmin
+                                            ? "Admin only"
+                                            : labSampleCode
+                                                ? "Already assigned"
+                                                : isSampleIdChangePending
+                                                    ? "Pending OM/LH verification"
+                                                    : "Assign Sample ID"
+                                    }
+                                >
+                                    <Hash size={16} />
+                                </button>
+
                                 <SmallButton
                                     type="button"
                                     onClick={refresh}
@@ -552,6 +599,37 @@ export default function SampleRequestDetailPage() {
                                             </SmallButton>
                                         </>
                                     )}
+
+                                    {assignFlash ? (
+                                        <div
+                                            className={cx(
+                                                "rounded-2xl border px-4 py-3 text-sm",
+                                                assignFlash.type === "success" && "border-emerald-200 bg-emerald-50 text-emerald-900",
+                                                assignFlash.type === "warning" && "border-amber-200 bg-amber-50 text-amber-900",
+                                                assignFlash.type === "error" && "border-rose-200 bg-rose-50 text-rose-900"
+                                            )}
+                                        >
+                                            {assignFlash.message}
+                                        </div>
+                                    ) : null}
+
+                                    {isSampleIdChangePending ? (
+                                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                            Sent to OM/LH for verification.
+                                        </div>
+                                    ) : null}
+
+                                    {isSampleIdChangeApproved ? (
+                                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                                            Approved change by OM/LH.
+                                        </div>
+                                    ) : null}
+
+                                    {isSampleIdChangeRejected ? (
+                                        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                                            Sample ID change rejected by OM/LH.
+                                        </div>
+                                    ) : null}
 
                                     {isAdmin && requestStatus === "ready_for_delivery" && (
                                         <SmallButton type="button" onClick={openReceived}>
@@ -802,6 +880,21 @@ export default function SampleRequestDetailPage() {
                                 )}
                             </>
                         )}
+
+                        <AssignSampleIdModal
+                            open={assignOpen}
+                            sample={sample}
+                            onClose={() => setAssignOpen(false)}
+                            onDone={async (payload) => {
+                                setAssignOpen(false);
+                                setAssignFlash(payload.type ? { type: payload.type, message: payload.message } : null);
+                                await load({ silent: true });
+
+                                if (payload.type) {
+                                    window.setTimeout(() => setAssignFlash(null), 9000);
+                                }
+                            }}
+                        />
 
                         <UpdateRequestStatusModal
                             open={modalOpen}
