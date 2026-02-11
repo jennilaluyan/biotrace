@@ -204,8 +204,8 @@ export function SampleArchiveDetailPage() {
                 : null;
 
     const docs = useMemo<RenderDoc[]>(() => {
-        if (repoDocs.length) {
-            return repoDocs
+        const primary: RenderDoc[] = repoDocs.length
+            ? (repoDocs
                 .map((r) => {
                     const url = (r.download_url ?? r.file_url ?? "").trim();
                     if (!url) return null;
@@ -216,10 +216,27 @@ export function SampleArchiveDetailPage() {
                         pdfUrl: url,
                     };
                 })
-                .filter(Boolean) as RenderDoc[];
+                .filter(Boolean) as RenderDoc[])
+            : [];
+
+        const fallback = normalizeFallbackDocs(data, latestReportId);
+
+        // Merge + dedupe (repo docs biasanya punya LOO/RR, fallback punya COA preview)
+        const out: RenderDoc[] = [];
+        const seen = new Set<string>();
+
+        for (const d of [...primary, ...fallback]) {
+            const key =
+                d.kind === "report_preview"
+                    ? `report:${d.reportId ?? ""}`
+                    : `url:${String(d.pdfUrl ?? "").trim()}`;
+
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            out.push(d);
         }
 
-        return normalizeFallbackDocs(data, latestReportId);
+        return out;
     }, [repoDocs, data, latestReportId]);
 
     const timeline = useMemo(() => normalizeTimeline(data), [data]);

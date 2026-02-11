@@ -12,7 +12,8 @@ use Illuminate\Support\Facades\Storage;
 
 class CoaPdfController extends Controller
 {
-    private const ALLOWED_ROLE_IDS = [1, 5, 6];
+    private const ALLOWED_ROLE_IDS = [2, 5, 6];
+    private const ALLOWED_ROLE_NAME_HINTS = ['Administrator', 'admin', 'administrator'];
 
     public function __construct(
         private readonly CoaPdfService $coaPdf,
@@ -22,13 +23,35 @@ class CoaPdfController extends Controller
     private function assertCoaViewer(Request $request): void
     {
         $user = $request->user();
-        $roleId = (int) ($user->role_id ?? 0);
-
-        if (!$user || !in_array($roleId, self::ALLOWED_ROLE_IDS, true)) {
-            abort(403, 'Forbidden.');
+        if (!$user) {
+            abort(401, 'Unauthenticated.');
         }
-    }
 
+        $roleId = (int) ($user->role_id ?? 0);
+        if (in_array($roleId, self::ALLOWED_ROLE_IDS, true)) {
+            return;
+        }
+
+        $roleName = strtolower(trim((string) (
+            $user->role_name
+            ?? $user->role_label
+            ?? ($user->role->name ?? null)
+            ?? ($user->role->label ?? null)
+            ?? ''
+        )));
+
+        foreach (self::ALLOWED_ROLE_NAME_HINTS as $hint) {
+            if ($hint !== '' && str_contains($roleName, $hint)) {
+                return;
+            }
+        }
+
+        if ((int) ($user->is_admin ?? 0) === 1) {
+            return;
+        }
+
+        abort(403, 'Forbidden.');
+    }
     private function latestCoaReportForSample(int $sampleId): Report
     {
         $q = Report::query()->where('sample_id', $sampleId);
