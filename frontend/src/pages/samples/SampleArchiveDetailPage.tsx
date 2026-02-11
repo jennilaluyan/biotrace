@@ -1,6 +1,7 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleArchiveDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ExternalLink, FileText, RefreshCw } from "lucide-react";
+import { ArrowLeft, FileText, RefreshCw, Eye } from "lucide-react";
 import { getErrorMessage } from "../../utils/errors";
 import { formatDateTimeLocal } from "../../utils/date";
 import {
@@ -9,6 +10,13 @@ import {
     type ArchiveTimelineEvent,
     type SampleArchiveDetail,
 } from "../../services/sampleArchive";
+import { ReportPreviewModal } from "../../components/reports/ReportPreviewModal";
+
+type RenderDoc = ArchiveDocument & {
+    kind: "pdf_url" | "report_preview";
+    pdfUrl?: string | null;
+    reportId?: number | null;
+};
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -20,8 +28,25 @@ function safeText(v: any) {
     return s.length ? s : "-";
 }
 
-function normalizeDocList(d?: SampleArchiveDetail | null): ArchiveDocument[] {
-    const docs: ArchiveDocument[] = [];
+function resolveDocUrl(fileUrl: string): string {
+    const s = String(fileUrl || "").trim();
+    if (!s) return s;
+
+    // absolute URL
+    if (/^https?:\/\//i.test(s)) return s;
+
+    // already absolute path
+    if (s.startsWith("/")) return s;
+
+    // api-ish relative path
+    if (s.startsWith("v1/") || s.startsWith("api/")) return `/${s}`;
+
+    // default: storage path
+    return `/storage/${s}`;
+}
+
+function normalizeDocList(d?: SampleArchiveDetail | null, latestReportId?: number | null): RenderDoc[] {
+    const docs: RenderDoc[] = [];
 
     const fromArray = ((d as any)?.documents ?? []) as any[];
     for (const x of fromArray) {
@@ -31,17 +56,22 @@ function normalizeDocList(d?: SampleArchiveDetail | null): ArchiveDocument[] {
                 type: String(x?.type ?? "document"),
                 label: String(x?.label ?? x?.name ?? "Document"),
                 file_url: String(file_url),
+                kind: "pdf_url",
+                pdfUrl: String(file_url),
             });
         }
     }
 
     // fallback fields (best-effort) - support flat + nested
+
     // LOO (flat)
     if ((d as any)?.lo_file_url) {
         docs.push({
             type: "loo",
             label: `LOO (${safeText((d as any)?.lo_number ?? (d as any)?.lo_id)})`,
             file_url: String((d as any)?.lo_file_url),
+            kind: "pdf_url",
+            pdfUrl: String((d as any)?.lo_file_url),
         });
     }
 
@@ -53,6 +83,8 @@ function normalizeDocList(d?: SampleArchiveDetail | null): ArchiveDocument[] {
             type: "loo",
             label: `LOO (${safeText(loo?.number ?? (d as any)?.lo_id)})`,
             file_url: String(loFile),
+            kind: "pdf_url",
+            pdfUrl: String(loFile),
         });
     }
 
@@ -62,6 +94,8 @@ function normalizeDocList(d?: SampleArchiveDetail | null): ArchiveDocument[] {
             type: "reagent_request",
             label: "Reagent Request PDF",
             file_url: String((d as any).reagent_request_file_url),
+            kind: "pdf_url",
+            pdfUrl: String((d as any).reagent_request_file_url),
         });
     }
 
@@ -71,6 +105,9 @@ function normalizeDocList(d?: SampleArchiveDetail | null): ArchiveDocument[] {
             type: "coa",
             label: `COA (${safeText((d as any)?.coa_number ?? (d as any)?.coa_report_id)})`,
             file_url: String((d as any)?.coa_file_url),
+            kind: latestReportId ? "report_preview" : "pdf_url",
+            pdfUrl: latestReportId ? null : String((d as any)?.coa_file_url),
+            reportId: latestReportId ?? null,
         });
     }
 
@@ -83,6 +120,9 @@ function normalizeDocList(d?: SampleArchiveDetail | null): ArchiveDocument[] {
             type: "coa",
             label: `COA (${safeText(latest?.report_no ?? latest?.number ?? latest?.report_id)})`,
             file_url: String(coaFile),
+            kind: latestReportId ? "report_preview" : "pdf_url",
+            pdfUrl: latestReportId ? null : String(coaFile),
+            reportId: latestReportId ?? null,
         });
     }
 
@@ -118,8 +158,8 @@ function normalizeTimeline(d?: SampleArchiveDetail | null): ArchiveTimelineEvent
         });
     }
 
-    // sort ascending
-    out.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+    // ✅ sort: latest -> earliest
+    out.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
     return out;
 }
 
@@ -132,6 +172,12 @@ export function SampleArchiveDetailPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [pageRefreshing, setPageRefreshing] = useState(false);
+
+    // preview modals (same behavior as ReportsPage)
+    const [previewReportId, setPreviewReportId] = useState<number | null>(null);
+    const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
+    const [previewTitle, setPreviewTitle] = useState<string>("PDF Preview");
+    const [previewOpen, setPreviewOpen] = useState(false);
 
     async function load(opts?: { silent?: boolean }) {
         try {
@@ -164,15 +210,22 @@ export function SampleArchiveDetailPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sampleId]);
 
-    const docs = useMemo(() => normalizeDocList(data), [data]);
-    const timeline = useMemo(() => normalizeTimeline(data), [data]);
-
     // Support nested payload: { sample, client, loo, reports[] }
     const sample = (data as any)?.sample ?? null;
     const client = (data as any)?.client ?? null;
     const loo = (data as any)?.loo ?? null;
     const reports = (((data as any)?.reports ?? []) as any[]) || [];
     const latestReport = reports?.[0] ?? null;
+
+    const latestReportId =
+        typeof latestReport?.report_id === "number"
+            ? (latestReport.report_id as number)
+            : typeof (data as any)?.coa_report_id === "number"
+                ? ((data as any).coa_report_id as number)
+                : null;
+
+    const docs = useMemo(() => normalizeDocList(data, latestReportId), [data, latestReportId]);
+    const timeline = useMemo(() => normalizeTimeline(data), [data]);
 
     const labCode = (data as any)?.lab_sample_code ?? sample?.lab_sample_code ?? `#${sampleId}`;
     const clientName = (data as any)?.client_name ?? client?.name ?? (data as any)?.client_id ?? sample?.client_id;
@@ -210,6 +263,21 @@ export function SampleArchiveDetailPage() {
             sample?.requestedParameters ??
             []) as any[];
 
+    const openDocPreview = (doc: RenderDoc) => {
+        if (doc.kind === "report_preview" && doc.reportId) {
+            setPreviewReportId(doc.reportId);
+            return;
+        }
+
+        const rawUrl = doc.pdfUrl ?? doc.file_url ?? "";
+        if (!rawUrl) return;
+
+        const url = resolveDocUrl(rawUrl);
+        setPreviewPdfUrl(url);
+        setPreviewTitle(`${doc.label} Preview`);
+        setPreviewOpen(true);
+    };
+
     return (
         <div className="min-h-[60vh]">
             {/* Breadcrumb */}
@@ -236,7 +304,7 @@ export function SampleArchiveDetailPage() {
 
                 {!loading && !error && (
                     <div className="space-y-6">
-                        {/* Header (mirip SampleDetailPage) */}
+                        {/* Header */}
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                             <div className="flex items-start gap-3">
                                 <button
@@ -367,12 +435,11 @@ export function SampleArchiveDetailPage() {
                                     ) : (
                                         <div className="space-y-2">
                                             {docs.map((d, idx) => (
-                                                <a
+                                                <button
                                                     key={`${d.type}-${idx}`}
-                                                    href={d.file_url}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm hover:bg-gray-50"
+                                                    type="button"
+                                                    onClick={() => openDocPreview(d)}
+                                                    className="w-full text-left flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm hover:bg-gray-50"
                                                 >
                                                     <div className="min-w-0 flex items-start gap-2">
                                                         <span className="mt-0.5 text-gray-500">
@@ -381,12 +448,16 @@ export function SampleArchiveDetailPage() {
 
                                                         <div className="min-w-0">
                                                             <div className="font-semibold text-gray-900 truncate">{d.label}</div>
-                                                            <div className="text-xs text-gray-500 truncate">{d.type}</div>
+                                                            <div className="text-xs text-gray-500 truncate">
+                                                                {d.type?.toUpperCase?.() ?? d.type}
+                                                            </div>
                                                         </div>
                                                     </div>
 
-                                                    <ExternalLink className="h-4 w-4 text-gray-500 shrink-0" />
-                                                </a>
+                                                    <span className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 shrink-0">
+                                                        <Eye size={16} />
+                                                    </span>
+                                                </button>
                                             ))}
                                         </div>
                                     )}
@@ -435,6 +506,24 @@ export function SampleArchiveDetailPage() {
                     </div>
                 )}
             </div>
+
+            {/* COA preview (by reportId) */}
+            <ReportPreviewModal
+                open={previewReportId !== null}
+                reportId={previewReportId}
+                onClose={() => setPreviewReportId(null)}
+            />
+
+            {/* PDF preview (by url) */}
+            <ReportPreviewModal
+                open={previewOpen}
+                onClose={() => {
+                    setPreviewOpen(false);
+                    setPreviewPdfUrl(null);
+                }}
+                pdfUrl={previewPdfUrl}
+                title={previewTitle}
+            />
         </div>
     );
 }
