@@ -17,7 +17,6 @@ class SampleIdService
     public function buildSuggestionPayload(Sample $sample): array
     {
         $suggested = $this->gen->suggestForSample($sample);
-
         $sample->loadMissing(['client', 'requestedParameters']);
 
         return [
@@ -26,11 +25,13 @@ class SampleIdService
             'request_status' => $sample->request_status,
             'verified_at' => $sample->verified_at,
             'suggested_sample_id' => $suggested,
-            'client' => $sample->client ? [
-                'client_id' => (int) $sample->client->client_id,
-                'name' => $sample->client->name,
-                'email' => $sample->client->email,
-            ] : null,
+            'client' => $sample->client
+                ? [
+                    'client_id' => (int) $sample->client->client_id,
+                    'name' => $sample->client->name,
+                    'email' => $sample->client->email,
+                ]
+                : null,
             'sample_type' => $sample->sample_type,
             'requested_parameters' => $sample->requestedParameters?->map(fn($p) => [
                 'parameter_id' => (int) ($p->parameter_id ?? 0),
@@ -65,7 +66,7 @@ class SampleIdService
             throw new \RuntimeException('Sample can only propose change when request_status is waiting_sample_id_assignment.');
         }
 
-        $suggested = $this->gen->suggestForSample($sample);
+        $suggested = $this->gen->normalize($this->gen->suggestForSample($sample));
         $proposed = $this->gen->normalize($proposedRaw);
 
         if ($proposed === $suggested) {
@@ -141,7 +142,6 @@ class SampleIdService
             $cr->status = 'APPROVED';
             $cr->reviewed_by_staff_id = (int) $actor->staff_id;
             $cr->review_note = is_string($note) && trim($note) !== '' ? trim($note) : null;
-            $cr->updated_at = Carbon::now('UTC');
             $cr->save();
 
             $sample->request_status = SampleRequestStatus::SAMPLE_ID_APPROVED_FOR_ASSIGNMENT->value;
@@ -197,7 +197,6 @@ class SampleIdService
             $cr->status = 'REJECTED';
             $cr->reviewed_by_staff_id = (int) $actor->staff_id;
             $cr->review_note = $note;
-            $cr->updated_at = Carbon::now('UTC');
             $cr->save();
 
             $sample->request_status = SampleRequestStatus::WAITING_SAMPLE_ID_ASSIGNMENT->value;
@@ -244,7 +243,12 @@ class SampleIdService
             throw new \RuntimeException('Sample ID can only be assigned when request_status is waiting_sample_id_assignment or sample_id_approved_for_assignment.');
         }
 
-        if (!empty($inputSampleId) && $rs !== SampleRequestStatus::SAMPLE_ID_APPROVED_FOR_ASSIGNMENT->value) {
+        $suggested = $this->gen->normalize($this->gen->suggestForSample($sample));
+        $inputNorm = !empty($inputSampleId) ? $this->gen->normalize((string) $inputSampleId) : null;
+
+        $isOverride = $inputNorm !== null && $inputNorm !== $suggested;
+
+        if ($isOverride && $rs !== SampleRequestStatus::SAMPLE_ID_APPROVED_FOR_ASSIGNMENT->value) {
             throw new \RuntimeException('Override requires approval. Use propose-change first.');
         }
 
@@ -259,7 +263,7 @@ class SampleIdService
             throw new \RuntimeException('Only PASSED intake checklists can be assigned sample id.');
         }
 
-        return DB::transaction(function () use ($actor, $sample, $rs, $inputSampleId) {
+        return DB::transaction(function () use ($actor, $sample, $rs, $suggested) {
             $now = Carbon::now();
 
             $old = [
@@ -270,8 +274,6 @@ class SampleIdService
                 'sample_id_assigned_at' => $sample->sample_id_assigned_at,
                 'sample_id_assigned_by_staff_id' => $sample->sample_id_assigned_by_staff_id,
             ];
-
-            $final = null;
 
             if ($rs === SampleRequestStatus::SAMPLE_ID_APPROVED_FOR_ASSIGNMENT->value) {
                 $approved = SampleIdChangeRequest::query()
@@ -284,12 +286,11 @@ class SampleIdService
                     throw new \RuntimeException('Approved change request not found.');
                 }
 
-                $final = $approved->proposed_sample_id;
+                $final = $this->gen->normalize((string) $approved->proposed_sample_id);
             } else {
-                $final = $this->gen->suggestForSample($sample);
+                $final = $suggested;
             }
 
-            $final = $this->gen->normalize($final);
             $parsed = $this->gen->parseNormalized($final);
 
             $exists = Sample::query()

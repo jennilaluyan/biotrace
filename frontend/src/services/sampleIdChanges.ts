@@ -87,11 +87,7 @@ export async function approveSampleIdChange(changeId: number) {
 }
 
 export async function rejectSampleIdChange(changeId: number, reason: string) {
-    const body = {
-        reason,
-        note: reason,
-        review_note: reason,
-    };
+    const body = { reason, note: reason };
     const res = await apiPost<any>(`${CHANGE_BASE}/${changeId}/reject`, body);
     return unwrapApi(res);
 }
@@ -110,23 +106,18 @@ export async function getSuggestedSampleId(sampleId: number): Promise<string | n
     return v ? String(v) : null;
 }
 
-export async function assignSampleId(sampleId: number, labSampleCode: string) {
-    const body = {
-        lab_sample_code: labSampleCode,
-        sample_id: labSampleCode,
-        sample_code: labSampleCode,
-    };
+export async function assignSampleId(sampleId: number, sampleIdOverride?: string) {
+    const body = sampleIdOverride ? { sample_id: sampleIdOverride } : {};
     const res = await apiPost<any>(`${SAMPLE_ID_ADMIN_BASE}/${sampleId}/sample-id/assign`, body);
     return unwrapApi(res);
 }
 
-export async function proposeSampleIdChange(sampleId: number, proposedLabSampleCode: string) {
+export async function proposeSampleIdChange(sampleId: number, proposedSampleId: string, note?: string) {
     const body = {
-        proposed_lab_sample_code: proposedLabSampleCode,
-        proposed_sample_id: proposedLabSampleCode,
-        lab_sample_code: proposedLabSampleCode,
-        sample_id: proposedLabSampleCode,
+        proposed_sample_id: proposedSampleId,
+        note: note?.trim() ? note.trim() : undefined,
     };
+
     const res = await apiPost<any>(`${SAMPLE_ID_ADMIN_BASE}/${sampleId}/sample-id/propose-change`, body);
     return unwrapApi(res);
 }

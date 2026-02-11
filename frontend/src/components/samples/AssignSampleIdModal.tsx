@@ -170,6 +170,7 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
 
     async function submit() {
         if (!canSubmit) return;
+
         setBusy(true);
         setErr(null);
 
@@ -183,7 +184,7 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
             }
 
             if (suggestedNorm && isSameAsSuggested) {
-                await assignSampleId(sampleId, code);
+                await assignSampleId(sampleId);
                 onDone({ type: "success", message: "Sample ID assigned." });
                 return;
             }
@@ -321,7 +322,9 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
                                             • {isSameAsSuggested ? "matches suggestion" : "differs from suggestion"}
                                         </span>
                                     ) : null}
-                                    {lockedToApproved ? <span className="text-gray-500"> • approved by OM/LH</span> : null}
+                                    {lockedToApproved ? (
+                                        <span className="text-gray-500"> • approved by OM/LH</span>
+                                    ) : null}
                                 </span>
                             ) : (
                                 <span className="text-rose-700">{validation.error}</span>
