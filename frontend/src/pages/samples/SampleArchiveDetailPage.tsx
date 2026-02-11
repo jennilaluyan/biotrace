@@ -1,18 +1,23 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleArchiveDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, FileText, RefreshCw, Eye } from "lucide-react";
+import { ArrowLeft, Eye, FileText, RefreshCw } from "lucide-react";
+
 import { getErrorMessage } from "../../utils/errors";
 import { formatDateTimeLocal } from "../../utils/date";
+
 import {
     fetchSampleArchiveDetail,
     type ArchiveDocument,
     type ArchiveTimelineEvent,
     type SampleArchiveDetail,
 } from "../../services/sampleArchive";
+
+import { listReportDocuments, type ReportDocumentRow } from "../../services/reportDocuments";
 import { ReportPreviewModal } from "../../components/reports/ReportPreviewModal";
 
-type RenderDoc = ArchiveDocument & {
+type RenderDoc = {
+    type: string;
+    label: string;
     kind: "pdf_url" | "report_preview";
     pdfUrl?: string | null;
     reportId?: number | null;
@@ -28,111 +33,10 @@ function safeText(v: any) {
     return s.length ? s : "-";
 }
 
-function resolveDocUrl(fileUrl: string): string {
-    const s = String(fileUrl || "").trim();
-    if (!s) return s;
-
-    // absolute URL
-    if (/^https?:\/\//i.test(s)) return s;
-
-    // already absolute path
-    if (s.startsWith("/")) return s;
-
-    // api-ish relative path
-    if (s.startsWith("v1/") || s.startsWith("api/")) return `/${s}`;
-
-    // default: storage path
-    return `/storage/${s}`;
-}
-
-function normalizeDocList(d?: SampleArchiveDetail | null, latestReportId?: number | null): RenderDoc[] {
-    const docs: RenderDoc[] = [];
-
-    const fromArray = ((d as any)?.documents ?? []) as any[];
-    for (const x of fromArray) {
-        const file_url = x?.file_url ?? x?.url;
-        if (file_url) {
-            docs.push({
-                type: String(x?.type ?? "document"),
-                label: String(x?.label ?? x?.name ?? "Document"),
-                file_url: String(file_url),
-                kind: "pdf_url",
-                pdfUrl: String(file_url),
-            });
-        }
-    }
-
-    // fallback fields (best-effort) - support flat + nested
-
-    // LOO (flat)
-    if ((d as any)?.lo_file_url) {
-        docs.push({
-            type: "loo",
-            label: `LOO (${safeText((d as any)?.lo_number ?? (d as any)?.lo_id)})`,
-            file_url: String((d as any)?.lo_file_url),
-            kind: "pdf_url",
-            pdfUrl: String((d as any)?.lo_file_url),
-        });
-    }
-
-    // LOO (nested)
-    const loo = (d as any)?.loo ?? null;
-    const loFile = loo?.file_url ?? loo?.pdf_url ?? null;
-    if (loFile) {
-        docs.push({
-            type: "loo",
-            label: `LOO (${safeText(loo?.number ?? (d as any)?.lo_id)})`,
-            file_url: String(loFile),
-            kind: "pdf_url",
-            pdfUrl: String(loFile),
-        });
-    }
-
-    // Reagent request (optional)
-    if ((d as any)?.reagent_request_file_url) {
-        docs.push({
-            type: "reagent_request",
-            label: "Reagent Request PDF",
-            file_url: String((d as any).reagent_request_file_url),
-            kind: "pdf_url",
-            pdfUrl: String((d as any).reagent_request_file_url),
-        });
-    }
-
-    // COA (flat)
-    if ((d as any)?.coa_file_url) {
-        docs.push({
-            type: "coa",
-            label: `COA (${safeText((d as any)?.coa_number ?? (d as any)?.coa_report_id)})`,
-            file_url: String((d as any)?.coa_file_url),
-            kind: latestReportId ? "report_preview" : "pdf_url",
-            pdfUrl: latestReportId ? null : String((d as any)?.coa_file_url),
-            reportId: latestReportId ?? null,
-        });
-    }
-
-    // COA (nested via reports[0])
-    const reports = (((d as any)?.reports ?? []) as any[]) || [];
-    const latest = reports?.[0] ?? null;
-    const coaFile = latest?.file_url ?? latest?.pdf_url ?? null;
-    if (coaFile) {
-        docs.push({
-            type: "coa",
-            label: `COA (${safeText(latest?.report_no ?? latest?.number ?? latest?.report_id)})`,
-            file_url: String(coaFile),
-            kind: latestReportId ? "report_preview" : "pdf_url",
-            pdfUrl: latestReportId ? null : String(coaFile),
-            reportId: latestReportId ?? null,
-        });
-    }
-
-    // dedupe by url
-    const seen = new Set<string>();
-    return docs.filter((x) => {
-        if (seen.has(x.file_url)) return false;
-        seen.add(x.file_url);
-        return true;
-    });
+function buildLabel(row: ReportDocumentRow) {
+    const name = (row.document_name ?? row.type ?? "Document").trim();
+    const code = (row.document_code ?? row.number ?? "").trim();
+    return code ? `${name} (${code})` : name;
 }
 
 function normalizeTimeline(d?: SampleArchiveDetail | null): ArchiveTimelineEvent[] {
@@ -149,6 +53,7 @@ function normalizeTimeline(d?: SampleArchiveDetail | null): ArchiveTimelineEvent
         const at = x?.at ?? x?.created_at ?? x?.time ?? x?.timestamp;
         const title = x?.title ?? x?.action ?? x?.event ?? x?.event_name ?? x?.status ?? "Event";
         if (!at) continue;
+
         out.push({
             at: String(at),
             title: String(title),
@@ -158,9 +63,72 @@ function normalizeTimeline(d?: SampleArchiveDetail | null): ArchiveTimelineEvent
         });
     }
 
-    // ✅ sort: latest -> earliest
     out.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
     return out;
+}
+
+function normalizeFallbackDocs(d?: SampleArchiveDetail | null, latestReportId?: number | null): RenderDoc[] {
+    const docs: RenderDoc[] = [];
+    const fromArray = ((d as any)?.documents ?? []) as Array<ArchiveDocument & { download_url?: string | null }>;
+
+    for (const x of fromArray) {
+        const url = x?.download_url ?? x?.file_url;
+        if (!url) continue;
+        docs.push({
+            type: String(x?.type ?? "document"),
+            label: String(x?.label ?? "Document"),
+            kind: "pdf_url",
+            pdfUrl: String(url),
+        });
+    }
+
+    const loo = (d as any)?.loo ?? null;
+    const loId = (d as any)?.lo_id ?? null;
+    const loNumber = (d as any)?.lo_number ?? loo?.number ?? null;
+    const loFile = (d as any)?.lo_file_url ?? loo?.file_url ?? loo?.pdf_url ?? null;
+
+    if (loId) {
+        docs.push({
+            type: "LOO",
+            label: loNumber ? `Letter of Order (LOO) (${loNumber})` : "Letter of Order (LOO)",
+            kind: "pdf_url",
+            pdfUrl: `/api/v1/reports/documents/loo/${loId}/pdf`,
+        });
+    } else if (loFile) {
+        docs.push({
+            type: "LOO",
+            label: loNumber ? `Letter of Order (LOO) (${loNumber})` : "Letter of Order (LOO)",
+            kind: "pdf_url",
+            pdfUrl: String(loFile),
+        });
+    }
+
+    const reports = (((d as any)?.reports ?? []) as any[]) || [];
+    const latest = reports?.[0] ?? null;
+
+    const reportId =
+        typeof latest?.report_id === "number"
+            ? (latest.report_id as number)
+            : typeof latestReportId === "number"
+                ? latestReportId
+                : null;
+
+    if (reportId) {
+        docs.push({
+            type: "COA",
+            label: "Certificate of Analysis (CoA)",
+            kind: "report_preview",
+            reportId,
+        });
+    }
+
+    const seen = new Set<string>();
+    return docs.filter((x) => {
+        const k = x.kind === "report_preview" ? `report:${x.reportId ?? ""}` : `url:${x.pdfUrl ?? ""}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+    });
 }
 
 export function SampleArchiveDetailPage() {
@@ -169,11 +137,13 @@ export function SampleArchiveDetailPage() {
     const sampleId = Number((params as any).sampleId ?? (params as any).sample_id);
 
     const [data, setData] = useState<SampleArchiveDetail | null>(null);
+    const [repoDocs, setRepoDocs] = useState<ReportDocumentRow[]>([]);
+    const [repoDocsError, setRepoDocsError] = useState<string | null>(null);
+
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [pageRefreshing, setPageRefreshing] = useState(false);
 
-    // preview modals (same behavior as ReportsPage)
     const [previewReportId, setPreviewReportId] = useState<number | null>(null);
     const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
     const [previewTitle, setPreviewTitle] = useState<string>("PDF Preview");
@@ -183,8 +153,18 @@ export function SampleArchiveDetailPage() {
         try {
             if (!opts?.silent) setLoading(true);
             setError(null);
+
             const res = await fetchSampleArchiveDetail(sampleId);
             setData((res as any)?.data ?? null);
+
+            try {
+                const docs = await listReportDocuments({ sampleId });
+                setRepoDocs(docs);
+                setRepoDocsError(null);
+            } catch (e) {
+                setRepoDocs([]);
+                setRepoDocsError(getErrorMessage(e));
+            }
         } catch (e) {
             setError(getErrorMessage(e));
         } finally {
@@ -210,7 +190,6 @@ export function SampleArchiveDetailPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sampleId]);
 
-    // Support nested payload: { sample, client, loo, reports[] }
     const sample = (data as any)?.sample ?? null;
     const client = (data as any)?.client ?? null;
     const loo = (data as any)?.loo ?? null;
@@ -224,7 +203,25 @@ export function SampleArchiveDetailPage() {
                 ? ((data as any).coa_report_id as number)
                 : null;
 
-    const docs = useMemo(() => normalizeDocList(data, latestReportId), [data, latestReportId]);
+    const docs = useMemo<RenderDoc[]>(() => {
+        if (repoDocs.length) {
+            return repoDocs
+                .map((r) => {
+                    const url = (r.download_url ?? r.file_url ?? "").trim();
+                    if (!url) return null;
+                    return {
+                        type: String(r.type ?? "document"),
+                        label: buildLabel(r),
+                        kind: "pdf_url" as const,
+                        pdfUrl: url,
+                    };
+                })
+                .filter(Boolean) as RenderDoc[];
+        }
+
+        return normalizeFallbackDocs(data, latestReportId);
+    }, [repoDocs, data, latestReportId]);
+
     const timeline = useMemo(() => normalizeTimeline(data), [data]);
 
     const labCode = (data as any)?.lab_sample_code ?? sample?.lab_sample_code ?? `#${sampleId}`;
@@ -241,27 +238,16 @@ export function SampleArchiveDetailPage() {
     const loGeneratedAt = (data as any)?.lo_generated_at ?? loo?.generated_at ?? loo?.created_at ?? null;
 
     const coaNumber =
-        (data as any)?.coa_number ??
-        latestReport?.report_no ??
-        latestReport?.number ??
-        (data as any)?.coa_report_id ??
-        null;
+        (data as any)?.coa_number ?? latestReport?.report_no ?? latestReport?.number ?? (data as any)?.coa_report_id ?? null;
 
     const coaGeneratedAt =
         (data as any)?.coa_generated_at ?? latestReport?.generated_at ?? latestReport?.created_at ?? null;
 
     const archivedAt =
-        (data as any)?.archived_at ??
-        sample?.archived_at ??
-        sample?.reported_at ??
-        sample?.updated_at ??
-        null;
+        (data as any)?.archived_at ?? sample?.archived_at ?? sample?.reported_at ?? sample?.updated_at ?? null;
 
     const requestedParams =
-        ((data as any)?.requested_parameters ??
-            (data as any)?.requestedParameters ??
-            sample?.requestedParameters ??
-            []) as any[];
+        ((data as any)?.requested_parameters ?? (data as any)?.requestedParameters ?? sample?.requestedParameters ?? []) as any[];
 
     const openDocPreview = (doc: RenderDoc) => {
         if (doc.kind === "report_preview" && doc.reportId) {
@@ -269,10 +255,9 @@ export function SampleArchiveDetailPage() {
             return;
         }
 
-        const rawUrl = doc.pdfUrl ?? doc.file_url ?? "";
-        if (!rawUrl) return;
+        const url = String(doc.pdfUrl ?? "").trim();
+        if (!url) return;
 
-        const url = resolveDocUrl(rawUrl);
         setPreviewPdfUrl(url);
         setPreviewTitle(`${doc.label} Preview`);
         setPreviewOpen(true);
@@ -280,7 +265,6 @@ export function SampleArchiveDetailPage() {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Breadcrumb */}
             <div className="px-0 py-2">
                 <nav className="lims-breadcrumb">
                     <Link to="/samples" className="lims-breadcrumb-link">
@@ -304,7 +288,6 @@ export function SampleArchiveDetailPage() {
 
                 {!loading && !error && (
                     <div className="space-y-6">
-                        {/* Header */}
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                             <div className="flex items-start gap-3">
                                 <button
@@ -349,13 +332,11 @@ export function SampleArchiveDetailPage() {
                             </div>
                         </div>
 
-                        {/* Content */}
                         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                            {/* Overview */}
                             <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden lg:col-span-2">
                                 <div className="px-5 py-4 border-b border-gray-100 bg-white">
                                     <div className="text-sm font-extrabold text-gray-900">Overview</div>
-                                    <div className="text-xs text-gray-500 mt-1">Ringkasan sample + dokumen yang terkait.</div>
+                                    <div className="text-xs text-gray-500 mt-1">Ringkasan sample + status akhir.</div>
                                 </div>
 
                                 <div className="px-5 py-5">
@@ -422,14 +403,21 @@ export function SampleArchiveDetailPage() {
                                 </div>
                             </div>
 
-                            {/* Documents */}
                             <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                                 <div className="px-5 py-4 border-b border-gray-100 bg-white">
                                     <div className="text-sm font-extrabold text-gray-900">Documents</div>
-                                    <div className="text-xs text-gray-500 mt-1">LOO / COA / dokumen lain (best-effort).</div>
+                                    <div className="text-xs text-gray-500 mt-1">
+                                        Dokumen diambil dari repository dokumen (sample-scoped).
+                                    </div>
                                 </div>
 
                                 <div className="px-5 py-5 space-y-3">
+                                    {repoDocsError ? (
+                                        <div className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                                            Failed to load documents repository: {repoDocsError}
+                                        </div>
+                                    ) : null}
+
                                     {docs.length === 0 ? (
                                         <div className="text-sm text-gray-600">No documents found.</div>
                                     ) : (
@@ -449,7 +437,7 @@ export function SampleArchiveDetailPage() {
                                                         <div className="min-w-0">
                                                             <div className="font-semibold text-gray-900 truncate">{d.label}</div>
                                                             <div className="text-xs text-gray-500 truncate">
-                                                                {d.type?.toUpperCase?.() ?? d.type}
+                                                                {safeText(d.type)?.toUpperCase?.() ?? d.type}
                                                             </div>
                                                         </div>
                                                     </div>
@@ -471,7 +459,6 @@ export function SampleArchiveDetailPage() {
                             </div>
                         </div>
 
-                        {/* Timeline */}
                         <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                             <div className="px-5 py-4 border-b border-gray-100 bg-white">
                                 <div className="text-sm font-extrabold text-gray-900">Workflow Timeline</div>
@@ -507,14 +494,8 @@ export function SampleArchiveDetailPage() {
                 )}
             </div>
 
-            {/* COA preview (by reportId) */}
-            <ReportPreviewModal
-                open={previewReportId !== null}
-                reportId={previewReportId}
-                onClose={() => setPreviewReportId(null)}
-            />
+            <ReportPreviewModal open={previewReportId !== null} reportId={previewReportId} onClose={() => setPreviewReportId(null)} />
 
-            {/* PDF preview (by url) */}
             <ReportPreviewModal
                 open={previewOpen}
                 onClose={() => {
