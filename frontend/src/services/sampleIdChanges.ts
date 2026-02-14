@@ -76,9 +76,10 @@ export async function listSampleIdChanges(params: {
     return { data, meta };
 }
 
-export async function getLatestSampleIdChangeBySampleId(sampleId: number) {
-    const res = await apiGet<any>(`${CHANGE_BASE}/by-sample/${sampleId}`);
-    return unwrapApi(res) as any; // bisa null kalau tidak ada
+export async function getLatestSampleIdChangeBySampleId(sampleId: number, status?: string) {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+    const res = await apiGet<any>(`${CHANGE_BASE}/by-sample/${sampleId}${qs}`);
+    return unwrapApi(res) as any;
 }
 
 export async function approveSampleIdChange(changeId: number) {

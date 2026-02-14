@@ -1,8 +1,8 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\requests\SampleRequestWorkflowTab.tsx
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { CheckCircle2, ArrowRight, Truck, Hand, ClipboardCheck, Hash, ShieldCheck, RotateCcw } from "lucide-react";
 
+import { useAuth } from "../../../hooks/useAuth";
 import type { Sample } from "../../../services/samples";
 import { ROLE_ID } from "../../../utils/roles";
 import { formatDateTimeLocal } from "../../../utils/date";
@@ -15,6 +15,7 @@ type TimelineEvent = {
     key: string;
     title: string;
     actor: string;
+    actorObj?: any;
     at?: string | null;
     note?: string | null;
 };
@@ -89,6 +90,66 @@ export function SampleRequestWorkflowTab(props: {
     const isAdmin = roleId === ROLE_ID.ADMIN;
     const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
     const isOmLh = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
+
+    const { user } = useAuth();
+
+    function pickName(obj: any): string | null {
+        const v =
+            obj?.name ??
+            obj?.full_name ??
+            obj?.staff_name ??
+            obj?.user_name ??
+            obj?.user?.name ??
+            obj?.staff?.name ??
+            obj?.data?.name ??
+            null;
+
+        const ss = typeof v === "string" ? v.trim() : "";
+        return ss ? ss : null;
+    }
+
+    function pickRoleName(obj: any): string | null {
+        const v =
+            obj?.role_name ??
+            obj?.role?.name ??
+            obj?.role?.label ??
+            obj?.user?.role?.name ??
+            obj?.staff?.role?.name ??
+            null;
+
+        const ss = typeof v === "string" ? v.trim() : "";
+        return ss ? ss : null;
+    }
+
+    function prettyRoleLabel(fallback: string) {
+        if (fallback === "Admin") return "Administrator";
+        if (fallback === "OM/LH") return "OM/LH";
+        return fallback;
+    }
+
+    const viewerName = useMemo(() => pickName(user), [user]);
+
+    function formatActor(fallbackRole: string, actorObj?: any): string {
+        const fallbackRolePretty = prettyRoleLabel(fallbackRole);
+
+        const n = pickName(actorObj);
+        const r = pickRoleName(actorObj);
+        if (n && r) return `${n} - ${r}`;
+        if (n) return `${n} - ${fallbackRolePretty}`;
+
+        if (fallbackRole === "Client") {
+            const cn = pickName(s?.client) ?? (typeof s?.client_name === "string" ? s.client_name.trim() : null);
+            if (cn) return `${cn} - Client`;
+        }
+
+        if (viewerName) {
+            if (fallbackRole === "Admin" && isAdmin) return `${viewerName} - ${roleLabel}`;
+            if (fallbackRole === "OM/LH" && isOmLh) return `${viewerName} - ${roleLabel}`;
+            if (fallbackRole === "Sample Collector" && isCollector) return `${viewerName} - ${roleLabel}`;
+        }
+
+        return fallbackRolePretty;
+    }
 
     const requestStatus = s?.request_status ?? null;
     const requestStatusKey = String(requestStatus ?? "").trim().toLowerCase();
@@ -171,7 +232,9 @@ export function SampleRequestWorkflowTab(props: {
         isAdmin &&
         !labSampleCode &&
         !isSampleIdChangePending &&
-        (requestStatusKey === "waiting_sample_id_assignment" || requestStatusKey === "approved_for_assignment");
+        (requestStatusKey === "waiting_sample_id_assignment" ||
+            requestStatusKey === "sample_id_approved_for_assignment" ||
+            requestStatusKey === "approved_for_assignment"); // legacy fallback
 
     const showActions = !labSampleCode;
 
@@ -184,12 +247,14 @@ export function SampleRequestWorkflowTab(props: {
                 key: "client_submit",
                 title: "Client submitted request",
                 actor: "Client",
+                actorObj: s?.client ?? null,
                 at: submittedAt,
             });
         }
 
         const acceptedAt = pickAt(s, ["request_accepted_at", "accepted_at", "approved_at", "request_approved_at"]);
-        const progressed = requestStatusKey && !["draft", "submitted", "returned", "needs_revision"].includes(requestStatusKey);
+        const progressed =
+            requestStatusKey && !["draft", "submitted", "returned", "needs_revision"].includes(requestStatusKey);
         if (progressed) {
             out.push({
                 key: "admin_accept",
@@ -275,11 +340,15 @@ export function SampleRequestWorkflowTab(props: {
         }
 
         const sidReqAt = pickAt(sampleIdChangeObj, ["created_at", "requested_at", "submitted_at"]);
+        const sidRequestedBy = sampleIdChangeObj?.requested_by ?? sampleIdChangeObj?.requestedBy ?? null;
+        const sidReviewedBy = sampleIdChangeObj?.reviewed_by ?? sampleIdChangeObj?.reviewedBy ?? null;
+
         if (sampleIdChangeObj && isSampleIdChangePending) {
             out.push({
                 key: "sid_change_requested",
                 title: "Admin requested Sample ID change",
                 actor: "Admin",
+                actorObj: sidRequestedBy,
                 at: sidReqAt ?? null,
             });
         }
@@ -290,12 +359,18 @@ export function SampleRequestWorkflowTab(props: {
                 key: "sid_change_decided",
                 title: isSampleIdChangeApproved ? "OM/LH approved Sample ID change" : "OM/LH rejected Sample ID change",
                 actor: "OM/LH",
+                actorObj: sidReviewedBy,
                 at: sidDecidedAt ?? null,
             });
         }
 
         if (labSampleCode) {
-            const assignedAt = pickAt(s, ["lab_sample_code_assigned_at", "sample_id_assigned_at", "assigned_at", "updated_at"]);
+            const assignedAt = pickAt(s, [
+                "lab_sample_code_assigned_at",
+                "sample_id_assigned_at",
+                "assigned_at",
+                "updated_at",
+            ]);
             out.push({
                 key: "admin_assign",
                 title: "Admin assigned Sample ID",
@@ -355,7 +430,14 @@ export function SampleRequestWorkflowTab(props: {
         }
 
         return null;
-    }, [props.assignFlash, labSampleCode, isSampleIdChangePending, isSampleIdPendingVerification, isSampleIdChangeApproved, isSampleIdChangeRejected]);
+    }, [
+        props.assignFlash,
+        labSampleCode,
+        isSampleIdChangePending,
+        isSampleIdPendingVerification,
+        isSampleIdChangeApproved,
+        isSampleIdChangeRejected,
+    ]);
 
     return (
         <div className="space-y-6">
@@ -376,7 +458,9 @@ export function SampleRequestWorkflowTab(props: {
             </div>
 
             {props.wfError ? (
-                <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">{props.wfError}</div>
+                <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
+                    {props.wfError}
+                </div>
             ) : null}
 
             {topBanner ? (
@@ -514,7 +598,6 @@ export function SampleRequestWorkflowTab(props: {
                                     if (verifyMode === "sample_id_change") return props.onVerifySampleIdChange?.();
                                     return props.onVerify();
                                 }}
-                                // ✅ jangan lock hanya karena FE belum dapat detail; biarkan klik → parent akan tampilkan warning
                                 disabled={props.verifyBusy}
                                 tone="primary"
                                 rightText={props.verifyBusy ? "Saving..." : "Verify"}
@@ -574,7 +657,7 @@ export function SampleRequestWorkflowTab(props: {
                                         <div className="text-xs text-gray-600">{e.at ? formatDateTimeLocal(e.at) : "-"}</div>
                                     </div>
 
-                                    <div className="mt-1 text-xs text-gray-600">By: {e.actor}</div>
+                                    <div className="mt-1 text-xs text-gray-600">By: {formatActor(e.actor, e.actorObj)}</div>
 
                                     {e.note ? <div className="mt-2 text-sm text-gray-700 whitespace-pre-wrap">{e.note}</div> : null}
                                 </li>

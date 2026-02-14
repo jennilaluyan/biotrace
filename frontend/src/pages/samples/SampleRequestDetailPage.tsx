@@ -20,6 +20,7 @@ import SampleIdChangeDecisionModal from "../../components/samples/SampleIdChange
 import { UpdateRequestStatusModal } from "../../components/samples/UpdateRequestStatusModal";
 import { IntakeChecklistModal } from "../../components/intake/IntakeChecklistModal";
 import AssignSampleIdModal from "../../components/samples/AssignSampleIdModal";
+import FinalizeApprovedSampleIdModal from "../../components/samples/FinalizeApprovedSampleIdModal";
 
 import { SampleRequestInfoTab } from "../../components/samples/requests/SampleRequestInfoTab";
 import { SampleRequestWorkflowTab } from "../../components/samples/requests/SampleRequestWorkflowTab";
@@ -244,6 +245,7 @@ export default function SampleRequestDetailPage() {
     const [intakeOpen, setIntakeOpen] = useState(false);
 
     const [assignOpen, setAssignOpen] = useState(false);
+    const [finalizeApprovedOpen, setFinalizeApprovedOpen] = useState(false);
     const [assignFlash, setAssignFlash] = useState<{ type: "success" | "warning" | "error"; message: string } | null>(
         null
     );
@@ -555,9 +557,20 @@ export default function SampleRequestDetailPage() {
                                             onDoPhysicalWorkflow={doPhysicalWorkflow}
                                             onOpenIntakeChecklist={() => setIntakeOpen(true)}
                                             onVerify={doVerify}
-                                            // ✅ workflow button only (no big approval card)
                                             onVerifySampleIdChange={handleVerifySampleIdChange}
-                                            onOpenAssignSampleId={() => setAssignOpen(true)}
+                                            onOpenAssignSampleId={() => {
+                                                const key = String((sample as any)?.request_status ?? "").trim().toLowerCase();
+                                                const approvedKeys = ["sample_id_approved_for_assignment", "approved_for_assignment"];
+
+                                                if (approvedKeys.includes(key)) {
+                                                    setAssignOpen(false);
+                                                    setFinalizeApprovedOpen(true);
+                                                    return;
+                                                }
+
+                                                setFinalizeApprovedOpen(false);
+                                                setAssignOpen(true);
+                                            }}
                                         />
 
                                         {sidPickOpen ? (
@@ -696,6 +709,36 @@ export default function SampleRequestDetailPage() {
                                 )}
                             </div>
                         </div>
+
+                        <AssignSampleIdModal
+                            open={assignOpen}
+                            sample={sample}
+                            onClose={() => setAssignOpen(false)}
+                            onDone={async (payload) => {
+                                setAssignOpen(false);
+                                setAssignFlash(payload.type ? { type: payload.type, message: payload.message } : null);
+                                await load({ silent: true });
+
+                                if (payload.type) {
+                                    window.setTimeout(() => setAssignFlash(null), 9000);
+                                }
+                            }}
+                        />
+
+                        <FinalizeApprovedSampleIdModal
+                            open={finalizeApprovedOpen}
+                            sample={sample}
+                            onClose={() => setFinalizeApprovedOpen(false)}
+                            onDone={async (payload) => {
+                                setFinalizeApprovedOpen(false);
+                                setAssignFlash(payload.type ? { type: payload.type, message: payload.message } : null);
+                                await load({ silent: true });
+
+                                if (payload.type) {
+                                    window.setTimeout(() => setAssignFlash(null), 9000);
+                                }
+                            }}
+                        />
 
                         <AssignSampleIdModal
                             open={assignOpen}

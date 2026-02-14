@@ -23,25 +23,13 @@ final class SampleRequestStatusTransitions
             'returned' => ['submitted'],
             'ready_for_delivery' => ['physically_received'],
             'physically_received' => ['in_transit_to_collector'],
+            'waiting_sample_id_assignment' => ['intake_validated', 'sample_id_pending_verification'],
+            'sample_id_approved_for_assignment' => ['intake_validated'],
         ],
-
         'Sample Collector' => [
-            // setelah diterima fisik & dibawa ke SC, SC isi checklist:
-            // PASS -> awaiting_verification
-            // FAIL -> inspection_failed (controller checklist yang set)
             'physically_received' => ['in_transit_to_collector', 'rejected'],
             'in_transit_to_collector' => ['under_inspection'],
             'under_inspection' => ['awaiting_verification', 'inspection_failed'],
-        ],
-
-        'Administrator' => [
-            'submitted' => ['returned', 'ready_for_delivery'],
-            'returned' => ['submitted'],
-            'ready_for_delivery' => ['physically_received'],
-            'physically_received' => ['in_transit_to_collector'],
-
-            'waiting_sample_id_assignment' => ['intake_validated', 'sample_id_pending_verification'],
-            'sample_id_approved_for_assignment' => ['intake_validated'],
         ],
 
         'Operational Manager' => [
