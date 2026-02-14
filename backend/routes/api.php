@@ -71,6 +71,9 @@ use App\Http\Controllers\PublicCoaVerificationController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ReportSignatureController;
 
+// Documents
+use App\Http\Controllers\DocumentTemplateController;
+
 // LOO
 use App\Http\Controllers\LetterOfOrderController;
 use App\Http\Controllers\LooSignatureVerificationController;
@@ -498,6 +501,11 @@ Route::prefix('v1')->group(function () {
 
         Route::get('reports/documents', [\App\Http\Controllers\ReportDocumentsController::class, 'index']);
         Route::get('reports/documents/{type}/{id}/pdf', [\App\Http\Controllers\ReportDocumentsController::class, 'pdf']);
+
+        // Documents
+        Route::get('/document-templates', [DocumentTemplateController::class, 'index']);
+        Route::patch('/document-templates/{doc_code}', [DocumentTemplateController::class, 'update']);
+        Route::post('/document-templates/{doc_code}/versions', [DocumentTemplateController::class, 'uploadVersion']);
 
         // COA PDF
         Route::get('samples/{sample}/coa', [CoaDownloadController::class, 'bySample'])->whereNumber('sample');
