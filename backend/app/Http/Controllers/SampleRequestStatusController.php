@@ -12,9 +12,11 @@ use Illuminate\Support\Facades\Schema;
 
 class SampleRequestStatusController extends Controller
 {
-    private function assertAdminOr403(): void
+    private function assertAdminOr403(Request $request): void
     {
-        $user = Auth::user(); // staff (sanctum)
+        // ✅ IMPORTANT: use sanctum request user (not web session) to avoid "System Staff" actor
+        $user = $request->user() ?? Auth::guard('sanctum')->user();
+
         $roleName = strtolower((string) ($user?->role?->name ?? $user?->role_name ?? ''));
         $roleId = (int) ($user?->role_id ?? 0);
 
@@ -41,10 +43,11 @@ class SampleRequestStatusController extends Controller
      */
     public function update(Request $request, Sample $sample): JsonResponse
     {
-        $this->assertAdminOr403();
+        $this->assertAdminOr403($request);
 
-        $user = Auth::user();
-        $staffId = (int) ($user?->staff_id ?? 0);
+        // ✅ Use request user (sanctum) to compute staffId (prevents "System Staff")
+        $user = $request->user() ?? Auth::guard('sanctum')->user();
+        $staffId = (int) (($user?->staff_id ?? null) ?: ($user?->id ?? 0));
 
         // --- Normalize incoming intent ---
         $action = strtolower(trim((string) $request->get('action', '')));
@@ -95,7 +98,6 @@ class SampleRequestStatusController extends Controller
                 ], 422);
             }
         } else {
-            // ✅ Step 7 fix: allow return from fail-path states too
             $allowedFrom = ($action === 'accept')
                 ? ['submitted', 'returned', 'needs_revision']
                 : ['submitted', 'returned', 'needs_revision', 'returned_to_admin', 'inspection_failed'];
@@ -108,8 +110,7 @@ class SampleRequestStatusController extends Controller
             }
         }
 
-        $note = (string) $request->get('note', '');
-        $note = trim($note);
+        $note = trim((string) $request->get('note', ''));
 
         if ($action === 'return' && $note === '') {
             return response()->json([
@@ -139,7 +140,6 @@ class SampleRequestStatusController extends Controller
 
             if ($action === 'return') {
                 if (Schema::hasColumn('samples', 'request_status')) {
-                    // This is the "notify client / pickup required" action in Step 7
                     $sample->request_status = 'returned';
                 }
                 if (Schema::hasColumn('samples', 'request_return_note')) {
@@ -158,7 +158,7 @@ class SampleRequestStatusController extends Controller
                     $sample->physically_received_at = $now;
                 }
 
-                // ✅ This is the key fix: first physical workflow step must be green right away
+                // ✅ first physical workflow step must be green right away
                 if (Schema::hasColumn('samples', 'admin_received_from_client_at')) {
                     if ($sample->admin_received_from_client_at === null) {
                         $sample->admin_received_from_client_at = $now;
@@ -179,14 +179,25 @@ class SampleRequestStatusController extends Controller
                         ? 'REQUEST_ACCEPTED'
                         : ($action === 'return' ? 'REQUEST_RETURNED' : 'REQUEST_PHYSICALLY_RECEIVED'),
 
-                    // ✅ fix not-null staff_id when column exists
+                    // actor fields (schema-safe; masuk hanya kalau kolom ada)
                     'staff_id' => $staffId ?: null,
+                    'performed_by' => $staffId ?: null,
+                    'user_id' => $staffId ?: null,
+                    'performed_at' => $now,
+                    'timestamp' => $now,
+                    'ip_address' => request()->ip(),
+
+                    'note' => $action === 'return' ? $note : null,
+                    'meta' => ($action === 'return' && $note !== '')
+                        ? json_encode(['note' => $note])
+                        : null,
 
                     'old_values' => json_encode(['request_status' => $oldRequestStatus]),
                     'new_values' => json_encode([
                         'request_status' => $sample->request_status,
                         'note' => $action === 'return' ? $note : null,
                     ]),
+
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];

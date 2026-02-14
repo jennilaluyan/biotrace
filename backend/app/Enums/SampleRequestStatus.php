@@ -17,10 +17,12 @@ enum SampleRequestStatus: string
     case REJECTED = 'rejected';
     case INTAKE_CHECKLIST_PASSED = 'intake_checklist_passed';
     case AWAITING_VERIFICATION = 'awaiting_verification';
+    case WAITING_SAMPLE_ID_ASSIGNMENT = 'waiting_sample_id_assignment';
+    case SAMPLE_ID_PENDING_VERIFICATION = 'sample_id_pending_verification';
+    case SAMPLE_ID_APPROVED_FOR_ASSIGNMENT = 'sample_id_approved_for_assignment';
     case INTAKE_VALIDATED = 'intake_validated';
     case INSPECTION_FAILED = 'inspection_failed';
     case RETURNED_TO_ADMIN = 'returned_to_admin';
-
 
     /** @return string[] */
     public static function values(): array

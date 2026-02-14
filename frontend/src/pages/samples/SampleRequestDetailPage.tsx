@@ -1,13 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ButtonHTMLAttributes } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { Link, useParams } from "react-router-dom";
+
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import { formatDateTimeLocal } from "../../utils/date";
 import { sampleService, type Sample } from "../../services/samples";
-import { apiPost, apiPatch } from "../../services/api";
+import { apiGet, apiPost, apiPatch } from "../../services/api";
+
+import {
+    approveSampleIdChange,
+    rejectSampleIdChange,
+    type SampleIdChangeRow,
+    getLatestSampleIdChangeBySampleId,
+} from "../../services/sampleIdChanges";
+import SampleIdChangeDecisionModal from "../../components/samples/SampleIdChangeDecisionModal";
+
 import { UpdateRequestStatusModal } from "../../components/samples/UpdateRequestStatusModal";
 import { IntakeChecklistModal } from "../../components/intake/IntakeChecklistModal";
+import AssignSampleIdModal from "../../components/samples/AssignSampleIdModal";
+import FinalizeApprovedSampleIdModal from "../../components/samples/FinalizeApprovedSampleIdModal";
+
+import { SampleRequestInfoTab } from "../../components/samples/requests/SampleRequestInfoTab";
+import { SampleRequestWorkflowTab } from "../../components/samples/requests/SampleRequestWorkflowTab";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -29,7 +44,11 @@ function StatusPill({ value }: { value?: string | null }) {
         intake_checklist_passed: "bg-emerald-50 text-emerald-700 border-emerald-200",
         awaiting_verification: "bg-violet-50 text-violet-700 border-violet-200",
         intake_validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
+        waiting_sample_id_assignment: "bg-slate-50 text-slate-700 border-slate-200",
+        sample_id_pending_verification: "bg-amber-50 text-amber-800 border-amber-200",
+        sample_id_approved_for_assignment: "bg-emerald-50 text-emerald-700 border-emerald-200",
     };
+
     const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
     const label =
         value
@@ -39,6 +58,10 @@ function StatusPill({ value }: { value?: string | null }) {
                 if (vv === "inspection_failed") return "Inspection failed";
                 if (vv === "returned_to_admin") return "Returned to Admin";
                 if (vv === "awaiting_verification") return "Awaiting verification";
+                if (vv === "waiting_sample_id_assignment") return "Waiting sample ID assignment";
+                if (vv === "approved_for_assignment") return "Approved for assignment";
+                if (vv === "sample_id_pending_verification") return "Sample ID pending verification";
+                if (vv === "sample_id_approved_for_assignment") return "Sample ID approved for assignment";
                 return value;
             })()
             : "-";
@@ -70,21 +93,6 @@ function IconRefresh({ className }: { className?: string }) {
     );
 }
 
-function SmallPrimaryButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
-    const { className, ...rest } = props;
-    return (
-        <button
-            {...rest}
-            className={cx(
-                "lims-btn-primary",
-                "px-3 py-1.5 text-xs rounded-xl whitespace-nowrap",
-                rest.disabled ? "opacity-60 cursor-not-allowed" : "",
-                className
-            )}
-        />
-    );
-}
-
 function SmallButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
     const { className, ...rest } = props;
     return (
@@ -100,48 +108,79 @@ function SmallButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
     );
 }
 
-function WorkflowActionButton(props: {
-    title: string;
-    subtitle: string;
-    onClick: () => void;
-    disabled?: boolean;
-    variant?: "primary" | "neutral";
-    busy?: boolean;
-}) {
-    const { title, subtitle, onClick, disabled, variant = "neutral", busy } = props;
-
-    const base =
-        "w-full text-left rounded-2xl border px-4 py-3 transition " +
-        "focus:outline-none focus:ring-2 focus:ring-offset-2 " +
-        (disabled ? "opacity-60 cursor-not-allowed" : "hover:shadow-sm");
-
-    const tone =
-        variant === "primary"
-            ? "bg-amber-50 border-amber-200 focus:ring-amber-300"
-            : "bg-white border-slate-200 focus:ring-slate-300";
-
+function TabButton(props: { active: boolean; children: ReactNode; onClick: () => void }) {
     return (
-        <button type="button" onClick={onClick} disabled={disabled} className={`${base} ${tone}`}>
-            <div className="flex items-center justify-between gap-3">
-                <div>
-                    <div className="font-semibold text-sm text-slate-900">{busy ? "Saving..." : title}</div>
-                    <div className="text-xs text-slate-600 mt-0.5">{subtitle}</div>
-                </div>
-                <div className="text-slate-400 text-sm">{disabled ? "Locked" : "→"}</div>
-            </div>
+        <button
+            type="button"
+            onClick={props.onClick}
+            className={cx(
+                "px-4 py-2 rounded-xl text-sm font-semibold transition",
+                props.active ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
+            )}
+        >
+            {props.children}
         </button>
     );
 }
 
+function toSidRow(root: any, sidRaw: any): SampleIdChangeRow | null {
+    if (!sidRaw) return null;
+
+    const changeId = Number(
+        sidRaw?.change_request_id ??
+        sidRaw?.change_requestId ??
+        sidRaw?.sample_id_change_request_id ??
+        sidRaw?.sampleIdChangeRequestId ??
+        sidRaw?.sample_id_change_id ??
+        sidRaw?.change_id ??
+        sidRaw?.changeId ??
+        sidRaw?.id ??
+        sidRaw?.change_request?.id ??
+        root?.sample_id_change_request_id ??
+        root?.sample_id_change_id ??
+        root?.change_request_id ??
+        root?.change_request?.id ??
+        0
+    );
+
+    if (!Number.isFinite(changeId) || changeId <= 0) return null;
+
+    const suggested = sidRaw?.suggested_lab_sample_code ?? sidRaw?.suggested_sample_id ?? sidRaw?.suggested ?? null;
+    const proposed = sidRaw?.proposed_lab_sample_code ?? sidRaw?.proposed_sample_id ?? sidRaw?.proposed ?? null;
+
+    const clientName =
+        root?.client?.name ?? root?.client_name ?? (root?.client_id ? `Client #${root?.client_id}` : null);
+    const clientEmail = root?.client?.email ?? root?.client_email ?? null;
+
+    return {
+        change_request_id: changeId,
+        id: changeId,
+        sample_id_change_id: changeId,
+
+        sample_id: Number(root?.sample_id ?? root?.id ?? 0) || undefined,
+        request_id: Number(root?.sample_id ?? root?.id ?? 0) || undefined,
+
+        status: sidRaw?.status ?? "PENDING",
+
+        suggested_sample_id: suggested ? String(suggested) : null,
+        suggested_lab_sample_code: suggested ? String(suggested) : null,
+
+        proposed_sample_id: proposed ? String(proposed) : null,
+        proposed_lab_sample_code: proposed ? String(proposed) : null,
+
+        client_name: clientName ? String(clientName) : null,
+        client_email: clientEmail ? String(clientEmail) : null,
+        workflow_group: root?.workflow_group ?? null,
+    };
+}
+
 export default function SampleRequestDetailPage() {
     const { id } = useParams<{ id: string }>();
-    const navigate = useNavigate();
     const { user } = useAuth();
 
     const roleId = useMemo(() => {
         const pickRoleId = (obj: any): number | null => {
             if (!obj) return null;
-
             const candidates = [
                 obj.role_id,
                 obj.roleId,
@@ -155,7 +194,6 @@ export default function SampleRequestDetailPage() {
                 obj.staff?.role_id,
                 obj.staff?.roleId,
             ];
-
             for (const c of candidates) {
                 const n = Number(c);
                 if (Number.isFinite(n) && n > 0) return n;
@@ -184,7 +222,6 @@ export default function SampleRequestDetailPage() {
     }, [user]);
 
     const roleLabel = useMemo(() => getUserRoleLabel(roleId), [roleId]);
-
     const requestId = Number(id);
 
     const canView = useMemo(
@@ -196,105 +233,78 @@ export default function SampleRequestDetailPage() {
         [roleId]
     );
 
+    const [workflowLogs, setWorkflowLogs] = useState<any[] | null>(null);
+
+    const [tab, setTab] = useState<"info" | "workflow">("info");
+
     const [sample, setSample] = useState<Sample | null>(null);
     const [loading, setLoading] = useState(true);
     const [pageRefreshing, setPageRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const [modalOpen, setModalOpen] = useState(false);
-    const [modalAction, setModalAction] = useState<"return" | "received">("return");
-
+    const [returnModalOpen, setReturnModalOpen] = useState(false);
     const [intakeOpen, setIntakeOpen] = useState(false);
 
-    const requestStatus = (sample as any)?.request_status ?? null;
-    const labSampleCode = (sample as any)?.lab_sample_code ?? null;
-
-    const isDraft = requestStatus === "draft" && !labSampleCode;
-    const isSubmitted = requestStatus === "submitted";
-    const isReturned = requestStatus === "returned" || requestStatus === "needs_revision";
-
-    const [verifyBusy, setVerifyBusy] = useState(false);
-
-    const isApprovedOrLater =
-        requestStatus === "ready_for_delivery" ||
-        requestStatus === "physically_received" ||
-        requestStatus === "in_transit_to_collector" ||
-        requestStatus === "under_inspection" ||
-        requestStatus === "inspection_failed" ||
-        requestStatus === "returned_to_admin" ||
-        requestStatus === "intake_checklist_passed" ||
-        requestStatus === "awaiting_verification" ||
-        requestStatus === "intake_validated";
-
-    const showPostApproveSections = isApprovedOrLater;
-
-    const adminReceivedFromClientAt = (sample as any)?.admin_received_from_client_at ?? null;
-    const adminBroughtToCollectorAt = (sample as any)?.admin_brought_to_collector_at ?? null;
-    const collectorReceivedAt = (sample as any)?.collector_received_at ?? null;
-    const collectorIntakeCompletedAt = (sample as any)?.collector_intake_completed_at ?? null;
-    const collectorReturnedToAdminAt = (sample as any)?.collector_returned_to_admin_at ?? null;
-    const adminReceivedFromCollectorAt = (sample as any)?.admin_received_from_collector_at ?? null;
-    const clientPickedUpAt = (sample as any)?.client_picked_up_at ?? null;
-
-    const isAdmin = roleId === ROLE_ID.ADMIN;
-    const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
-
-    const isOperationalManager = roleId === ROLE_ID.OPERATIONAL_MANAGER;
-    const isLabHead = roleId === ROLE_ID.LAB_HEAD;
-
-    const verifiedAt = (sample as any)?.verified_at ?? null;
-
-    const canVerify =
-        (isOperationalManager || isLabHead) &&
-        requestStatus === "awaiting_verification" &&
-        !labSampleCode;
-
-    const canWfAdminReceive =
-        isAdmin &&
-        (requestStatus === "ready_for_delivery" || requestStatus === "physically_received") &&
-        !adminReceivedFromClientAt;
-
-    const canWfAdminBring = isAdmin && !!adminReceivedFromClientAt && !adminBroughtToCollectorAt;
-
-    const canWfCollectorReceive =
-        isCollector &&
-        requestStatus === "in_transit_to_collector" &&
-        !!adminBroughtToCollectorAt &&
-        !collectorReceivedAt;
-
-    const canWfCollectorReturnToAdmin =
-        isCollector &&
-        requestStatus === "inspection_failed" &&
-        !!collectorIntakeCompletedAt &&
-        !collectorReturnedToAdminAt;
-
-    const canOpenIntakeChecklist =
-        isCollector &&
-        requestStatus === "under_inspection" &&
-        !!collectorReceivedAt &&
-        !collectorIntakeCompletedAt;
-
-    const canWfAdminReceiveBack =
-        isAdmin && !!collectorReturnedToAdminAt && !adminReceivedFromCollectorAt;
-
-    /**
-     * ✅ FIX (tetap):
-     * Backend rule: client pickup can only be recorded after returned/needs_revision.
-     * Jangan enable sebelum status memang sudah returned/needs_revision.
-     */
-    const canWfClientPickup =
-        isAdmin &&
-        !!adminReceivedFromCollectorAt &&
-        (requestStatus === "returned" || requestStatus === "needs_revision") &&
-        !clientPickedUpAt;
+    const [assignOpen, setAssignOpen] = useState(false);
+    const [finalizeApprovedOpen, setFinalizeApprovedOpen] = useState(false);
+    const [assignFlash, setAssignFlash] = useState<{ type: "success" | "warning" | "error"; message: string } | null>(
+        null
+    );
 
     const [wfBusy, setWfBusy] = useState(false);
     const [wfError, setWfError] = useState<string | null>(null);
+    const [verifyBusy, setVerifyBusy] = useState(false);
 
-    const returnNote = useMemo(() => {
-        const note = String((sample as any)?.request_return_note ?? "").trim();
-        return note || null;
-    }, [sample]);
+    const [sidFetchedRaw, setSidFetchedRaw] = useState<any | null>(null);
+    const [sidActiveRow, setSidActiveRow] = useState<SampleIdChangeRow | null>(null);
+    const [sidPickOpen, setSidPickOpen] = useState(false);
+
+    const [sidModalOpen, setSidModalOpen] = useState(false);
+    const [sidModalMode, setSidModalMode] = useState<"approve" | "reject">("approve");
+    const [sidBusy, setSidBusy] = useState(false);
+
+    const labSampleCode = (sample as any)?.lab_sample_code ?? null;
+    const verifiedAt = (sample as any)?.verified_at ?? null;
+
+    const sidRaw =
+        sidFetchedRaw ??
+        (sample as any)?.sample_id_change ??
+        (sample as any)?.sample_id_change_request ??
+        (sample as any)?.sampleIdChange ??
+        null;
+
+    const sidRow: SampleIdChangeRow | null = useMemo(() => {
+        if (!sample) return null;
+        return toSidRow(sample as any, sidRaw);
+    }, [sample, sidRaw]);
+
+    const handleVerifySampleIdChange = async () => {
+        setWfError(null);
+
+        let row = sidRow;
+
+        if (!row && Number.isFinite(requestId) && requestId > 0) {
+            try {
+                const fetched = await getLatestSampleIdChangeBySampleId(requestId);
+                if (fetched) {
+                    setSidFetchedRaw(fetched);
+                    row = sample ? toSidRow(sample as any, fetched) : null;
+                }
+            } catch {
+                // ignore
+            }
+        }
+
+        if (!row) {
+            setWfError(
+                "Sample ID change detail belum ada di response. Backend harus mengirim sample_id_change.id / change_request_id pada endpoint detail request (atau gunakan endpoint by-sample)."
+            );
+            return;
+        }
+
+        setSidActiveRow(row);
+        setSidPickOpen(true);
+    };
 
     const load = async (opts?: { silent?: boolean }) => {
         if (!canView) {
@@ -311,14 +321,40 @@ export default function SampleRequestDetailPage() {
         try {
             if (!silent) setLoading(true);
             setError(null);
+
             const data = await sampleService.getById(requestId);
             setSample(data);
+
+            try {
+                const res = await apiGet<any>(`/v1/samples/${requestId}/workflow-logs`);
+
+                const unwrapLogs = (x: any): any[] | null => {
+                    if (Array.isArray(x)) return x;
+
+                    if (x && typeof x === "object") {
+                        // common shapes:
+                        // 1) { data: [...] }
+                        if (Array.isArray((x as any).data)) return (x as any).data;
+
+                        // 2) { data: { data: [...] } } (pagination)
+                        if ((x as any).data && typeof (x as any).data === "object" && Array.isArray((x as any).data.data)) {
+                            return (x as any).data.data;
+                        }
+
+                        // 3) { items: [...] }
+                        if (Array.isArray((x as any).items)) return (x as any).items;
+                    }
+
+                    return null;
+                };
+
+                const arr = unwrapLogs(res);
+                setWorkflowLogs(arr ?? []);
+            } catch {
+                setWorkflowLogs(null);
+            }
         } catch (err: any) {
-            const msg =
-                err?.data?.message ??
-                err?.data?.error ??
-                err?.message ??
-                "Failed to load sample request detail.";
+            const msg = err?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to load sample request detail.";
             setError(msg);
         } finally {
             if (!silent) setLoading(false);
@@ -339,24 +375,14 @@ export default function SampleRequestDetailPage() {
         }
     };
 
-    const openReturn = () => {
-        setModalAction("return");
-        setModalOpen(true);
-    };
-
-    const openReceived = () => {
-        setModalAction("received");
-        setModalOpen(true);
-    };
-
-    const closeModal = () => setModalOpen(false);
-
     const approve = async () => {
         if (!requestId || Number.isNaN(requestId)) return;
         try {
-            setError(null);
+            setWfBusy(true);
+            setWfError(null);
             await apiPost<any>(`/v1/samples/${requestId}/request-status`, { action: "accept" });
             await load({ silent: true });
+            setTab("workflow");
         } catch (err: any) {
             const msg =
                 err?.response?.data?.message ??
@@ -364,24 +390,6 @@ export default function SampleRequestDetailPage() {
                 err?.data?.error ??
                 err?.message ??
                 "Failed to approve request.";
-            setError(msg);
-        }
-    };
-
-    const doPhysicalWorkflow = async (action: string) => {
-        if (!requestId || Number.isNaN(requestId)) return;
-        try {
-            setWfBusy(true);
-            setWfError(null);
-            await apiPatch<any>(`/v1/samples/${requestId}/physical-workflow`, { action, note: null });
-            await load({ silent: true });
-        } catch (err: any) {
-            const msg =
-                err?.response?.data?.message ??
-                err?.data?.message ??
-                err?.data?.error ??
-                err?.message ??
-                "Failed to update physical workflow.";
             setWfError(msg);
         } finally {
             setWfBusy(false);
@@ -393,15 +401,42 @@ export default function SampleRequestDetailPage() {
         try {
             setWfBusy(true);
             setWfError(null);
-            await apiPost(`/v1/samples/${requestId}/request-status`, { action: "received", note: null });
+
+            await apiPatch(`/v1/samples/${requestId}/physical-workflow`, {
+                action: "admin_received_from_client",
+                note: null,
+            });
+
             await load({ silent: true });
+            setTab("workflow");
         } catch (err: any) {
             const msg =
                 err?.response?.data?.message ??
                 err?.data?.message ??
                 err?.data?.error ??
                 err?.message ??
-                "Failed to update physical workflow.";
+                "Failed to update status.";
+            setWfError(msg);
+        } finally {
+            setWfBusy(false);
+        }
+    };
+
+    const doPhysicalWorkflow = async (action: string) => {
+        if (!requestId || Number.isNaN(requestId)) return;
+        try {
+            setWfBusy(true);
+            setWfError(null);
+            await apiPatch<any>(`/v1/samples/${requestId}/physical-workflow`, { action, note: null });
+            await load({ silent: true });
+            setTab("workflow");
+        } catch (err: any) {
+            const msg =
+                err?.response?.data?.message ??
+                err?.data?.message ??
+                err?.data?.error ??
+                err?.message ??
+                "Failed to update workflow.";
             setWfError(msg);
         } finally {
             setWfBusy(false);
@@ -409,7 +444,8 @@ export default function SampleRequestDetailPage() {
     };
 
     const doVerify = async () => {
-        if (!canVerify || verifyBusy) return;
+        if (!requestId || Number.isNaN(requestId)) return;
+        if (verifyBusy) return;
 
         try {
             setVerifyBusy(true);
@@ -417,18 +453,9 @@ export default function SampleRequestDetailPage() {
 
             await apiPost(`/v1/samples/${requestId}/verify`, {});
             await load({ silent: true });
-
-            const nextCode = (sample as any)?.lab_sample_code ?? null;
-            const nextStatus = (sample as any)?.request_status ?? null;
-            if (nextCode || nextStatus === "intake_validated") {
-                navigate(`/samples/${requestId}`);
-            }
+            setTab("workflow");
         } catch (err: any) {
-            const msg =
-                err?.response?.data?.message ??
-                err?.data?.message ??
-                err?.message ??
-                "Gagal verify sample request.";
+            const msg = err?.response?.data?.message ?? err?.data?.message ?? err?.message ?? "Failed to verify.";
             setWfError(msg);
         } finally {
             setVerifyBusy(false);
@@ -462,6 +489,7 @@ export default function SampleRequestDetailPage() {
                             strokeWidth="1.6"
                             strokeLinecap="round"
                             strokeLinejoin="round"
+                            aria-hidden="true"
                         >
                             <path d="M4 12h9" />
                             <path d="M11 9l3 3-3 3" />
@@ -472,25 +500,24 @@ export default function SampleRequestDetailPage() {
                         Sample Requests
                     </Link>
                     <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">Sample Request Detail</span>
+                    <span className="lims-breadcrumb-current">Detail</span>
                 </nav>
             </div>
 
             <div className="lims-detail-shell">
                 {loading && <div className="text-sm text-gray-600">Loading request detail...</div>}
 
-                {error && !loading && (
-                    <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
-                )}
+                {error && !loading && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
 
                 {!loading && !error && sample && (
                     <div className="space-y-6">
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                             <div>
                                 <h1 className="text-lg md:text-xl font-bold text-gray-900">Sample Request Detail</h1>
+
                                 <div className="text-sm text-gray-600 mt-1 flex items-center gap-2 flex-wrap">
                                     <span>
-                                        Request ID <span className="font-semibold">#{sample.sample_id}</span>
+                                        Request ID <span className="font-semibold">#{(sample as any)?.sample_id ?? requestId}</span>
                                     </span>
                                     <span className="text-gray-400">·</span>
                                     <span className="text-xs text-gray-500">status</span>
@@ -500,9 +527,7 @@ export default function SampleRequestDetailPage() {
                                         <>
                                             <span className="text-gray-400">·</span>
                                             <span className="text-xs text-gray-500">verified</span>
-                                            <span className="text-xs font-semibold text-emerald-700">
-                                                {formatDateTimeLocal(verifiedAt)}
-                                            </span>
+                                            <span className="text-xs font-semibold text-emerald-700">{formatDateTimeLocal(verifiedAt)}</span>
                                         </>
                                     ) : null}
 
@@ -531,286 +556,229 @@ export default function SampleRequestDetailPage() {
                             </div>
                         </div>
 
-                        {isDraft ? (
-                            <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-4 text-sm text-red-800">
-                                This request is still <span className="font-semibold">draft</span> and is only visible to the client.
+                        <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
+                            <div className="px-5 pt-5">
+                                <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-2xl p-1 flex-wrap">
+                                    <TabButton active={tab === "info"} onClick={() => setTab("info")}>
+                                        Info
+                                    </TabButton>
+                                    <TabButton active={tab === "workflow"} onClick={() => setTab("workflow")}>
+                                        Workflow
+                                    </TabButton>
+                                </div>
                             </div>
-                        ) : (
-                            <>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                    {(isSubmitted || isReturned) && isAdmin && (
-                                        <>
-                                            <SmallPrimaryButton type="button" onClick={approve}>
-                                                Approve
-                                            </SmallPrimaryButton>
-                                            <SmallButton
-                                                type="button"
-                                                className="border-red-200 text-red-700 hover:bg-red-50"
-                                                onClick={openReturn}
-                                            >
-                                                Return
-                                            </SmallButton>
-                                        </>
-                                    )}
 
-                                    {isAdmin && requestStatus === "ready_for_delivery" && (
-                                        <SmallButton type="button" onClick={openReceived}>
-                                            Mark Physically Received
-                                        </SmallButton>
-                                    )}
-                                </div>
+                            <div className="px-5 py-5">
+                                {tab === "info" && <SampleRequestInfoTab sample={sample} />}
 
-                                {returnNote && isReturned && (
-                                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                                        <div className="font-semibold">Return note sent to client</div>
-                                        <div className="mt-1 whitespace-pre-wrap">{returnNote}</div>
-                                    </div>
-                                )}
+                                {tab === "workflow" && (
+                                    <>
+                                        <SampleRequestWorkflowTab
+                                            sample={sample}
+                                            roleId={roleId}
+                                            roleLabel={roleLabel}
+                                            wfBusy={wfBusy}
+                                            wfError={wfError}
+                                            verifyBusy={verifyBusy}
+                                            assignFlash={assignFlash}
+                                            workflowLogs={workflowLogs}
+                                            onApprove={approve}
+                                            onOpenReturn={() => setReturnModalOpen(true)}
+                                            onMarkPhysicallyReceived={doMarkPhysicallyReceived}
+                                            onDoPhysicalWorkflow={doPhysicalWorkflow}
+                                            onOpenIntakeChecklist={() => setIntakeOpen(true)}
+                                            onVerify={doVerify}
+                                            onVerifySampleIdChange={handleVerifySampleIdChange}
+                                            onOpenAssignSampleId={() => {
+                                                const key = String((sample as any)?.request_status ?? "").trim().toLowerCase();
+                                                const approvedKeys = ["sample_id_approved_for_assignment", "approved_for_assignment"];
 
-                                <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
-                                    <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
-                                        <div className="text-sm font-bold text-gray-900">Sample Info</div>
-                                        <div className="text-xs text-gray-500 mt-1">
-                                            Review request details before approving. Operational workflow becomes available after approval.
-                                        </div>
-                                    </div>
+                                                if (approvedKeys.includes(key)) {
+                                                    setAssignOpen(false);
+                                                    setFinalizeApprovedOpen(true);
+                                                    return;
+                                                }
 
-                                    <div className="px-5 py-4 grid grid-cols-1 lg:grid-cols-2 gap-4 text-sm">
-                                        <div>
-                                            <div className="lims-detail-label">Sample Type</div>
-                                            <div className="lims-detail-value">{sample.sample_type ?? "-"}</div>
-                                        </div>
-                                        <div>
-                                            <div className="lims-detail-label">Scheduled Delivery</div>
-                                            <div className="lims-detail-value">
-                                                {(sample as any)?.scheduled_delivery_at
-                                                    ? formatDateTimeLocal((sample as any).scheduled_delivery_at)
-                                                    : "-"}
-                                            </div>
-                                        </div>
+                                                setFinalizeApprovedOpen(false);
+                                                setAssignOpen(true);
+                                            }}
+                                        />
 
-                                        <div className="lg:col-span-2">
-                                            <div className="lims-detail-label">Requested Parameters</div>
-                                            <div className="mt-2 flex flex-wrap gap-2">
-                                                {(sample as any)?.requested_parameters?.length ? (
-                                                    (sample as any).requested_parameters.map((p: any) => {
-                                                        const code = String(p?.code ?? "").trim();
-                                                        const name = String(p?.name ?? "").trim();
-                                                        const label =
-                                                            (code ? `${code} — ` : "") +
-                                                            (name || `Parameter #${p?.parameter_id ?? ""}`);
-                                                        return (
-                                                            <span
-                                                                key={String(p?.parameter_id)}
-                                                                className="inline-flex items-center rounded-full px-3 py-1 text-xs border bg-gray-50 text-gray-800 border-gray-200"
-                                                                title={label}
-                                                            >
-                                                                {label}
-                                                            </span>
-                                                        );
-                                                    })
-                                                ) : (
-                                                    <span className="text-gray-600">-</span>
-                                                )}
-                                            </div>
-                                        </div>
+                                        {sidPickOpen ? (
+                                            <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+                                                <div
+                                                    className="absolute inset-0 bg-black/40"
+                                                    onClick={() => (sidBusy ? null : setSidPickOpen(false))}
+                                                />
 
-                                        <div className="lg:col-span-2">
-                                            <div className="lims-detail-label">Examination Purpose</div>
-                                            <div className="lims-detail-value">{sample.examination_purpose ?? "-"}</div>
-                                        </div>
+                                                <div className="relative w-full max-w-sm rounded-2xl bg-white shadow-xl border">
+                                                    <div className="px-5 py-4 border-b">
+                                                        <div className="text-sm font-bold text-gray-900">Verify Sample ID change</div>
+                                                        <div className="text-xs text-gray-500 mt-1">Choose an action.</div>
+                                                    </div>
 
-                                        <div className="lg:col-span-2">
-                                            <div className="lims-detail-label">Additional Notes</div>
-                                            <div className="lims-detail-value">{sample.additional_notes ?? "-"}</div>
-                                        </div>
-
-                                        <div className="lg:col-span-2">
-                                            <div className="lims-detail-label">Client</div>
-                                            <div className="lims-detail-value">
-                                                {sample.client?.name ?? (sample.client_id ? `Client #${sample.client_id}` : "-")}
-                                                {sample.client?.email ? (
-                                                    <span className="text-xs text-gray-500"> · {sample.client.email}</span>
-                                                ) : null}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {showPostApproveSections && (
-                                    <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
-                                        <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
-                                            <div>
-                                                <div className="text-sm font-bold text-gray-900">Physical Workflow</div>
-                                                <div className="text-xs text-gray-500 mt-1">
-                                                    Admin ↔ Sample Collector handoff timestamps (backend enforces order).
-                                                </div>
-                                            </div>
-                                            <div className="text-[11px] text-gray-500">
-                                                You are: <span className="font-semibold">{roleLabel}</span>
-                                            </div>
-                                        </div>
-
-                                        <div className="px-5 py-4">
-                                            {wfError && (
-                                                <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-3">
-                                                    {wfError}
-                                                </div>
-                                            )}
-
-                                            <div className="mt-2 space-y-2">
-                                                {[
-                                                    { label: "Admin: received from client", at: adminReceivedFromClientAt },
-                                                    { label: "Admin: brought to collector", at: adminBroughtToCollectorAt },
-                                                    { label: "Collector: received", at: collectorReceivedAt },
-                                                    { label: "Collector: intake completed", at: collectorIntakeCompletedAt },
-                                                    { label: "Collector: returned to admin", at: collectorReturnedToAdminAt },
-                                                    { label: "Admin: received from collector", at: adminReceivedFromCollectorAt },
-                                                    { label: "Client: picked up", at: clientPickedUpAt },
-                                                ].map((r, idx) => (
-                                                    <div key={`${r.label}-${idx}`} className="flex items-start gap-3">
-                                                        <div
-                                                            className={cx(
-                                                                "mt-1 h-2.5 w-2.5 rounded-full border",
-                                                                r.at ? "bg-emerald-500 border-emerald-600" : "bg-gray-200 border-gray-300"
+                                                    <div className="px-5 py-4 flex items-center justify-between gap-3">
+                                                        <div className="text-xs text-gray-500">
+                                                            {sidActiveRow?.suggested_lab_sample_code || sidActiveRow?.suggested_sample_id ? (
+                                                                <>
+                                                                    Suggested:{" "}
+                                                                    <span className="font-mono text-gray-800">
+                                                                        {sidActiveRow?.suggested_lab_sample_code ?? sidActiveRow?.suggested_sample_id}
+                                                                    </span>
+                                                                </>
+                                                            ) : (
+                                                                " "
                                                             )}
-                                                        />
-                                                        <div className="flex-1">
-                                                            <div className="text-xs font-semibold text-gray-800">{r.label}</div>
-                                                            <div className="text-[11px] text-gray-600">
-                                                                {r.at ? formatDateTimeLocal(r.at) : "-"}
-                                                            </div>
+                                                        </div>
+
+                                                        <div className="text-xs text-gray-500">
+                                                            {sidActiveRow?.proposed_lab_sample_code || sidActiveRow?.proposed_sample_id ? (
+                                                                <>
+                                                                    Proposed:{" "}
+                                                                    <span className="font-mono text-gray-800">
+                                                                        {sidActiveRow?.proposed_lab_sample_code ?? sidActiveRow?.proposed_sample_id}
+                                                                    </span>
+                                                                </>
+                                                            ) : (
+                                                                " "
+                                                            )}
                                                         </div>
                                                     </div>
-                                                ))}
+
+                                                    <div className="px-5 pb-5 flex items-center justify-end gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSidPickOpen(false)}
+                                                            disabled={sidBusy}
+                                                            className={cx("btn-outline", sidBusy && "opacity-60 cursor-not-allowed")}
+                                                        >
+                                                            Cancel
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setSidPickOpen(false);
+                                                                setSidModalMode("reject");
+                                                                setSidModalOpen(true);
+                                                            }}
+                                                            disabled={sidBusy || !sidActiveRow}
+                                                            className={cx("btn-outline", (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed")}
+                                                        >
+                                                            Reject
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setSidPickOpen(false);
+                                                                setSidModalMode("approve");
+                                                                setSidModalOpen(true);
+                                                            }}
+                                                            disabled={sidBusy || !sidActiveRow}
+                                                            className={cx(
+                                                                "lims-btn-primary",
+                                                                (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed"
+                                                            )}
+                                                        >
+                                                            Approve
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             </div>
+                                        ) : null}
 
-                                            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                {isAdmin ? (
-                                                    <>
-                                                        <WorkflowActionButton
-                                                            title="Admin: Received from client"
-                                                            subtitle="Record the time the sample arrived at the admin desk."
-                                                            onClick={doMarkPhysicallyReceived}
-                                                            disabled={!canWfAdminReceive || wfBusy}
-                                                            busy={wfBusy}
-                                                            variant="neutral"
-                                                        />
+                                        <SampleIdChangeDecisionModal
+                                            open={sidModalOpen}
+                                            mode={sidModalMode}
+                                            busy={sidBusy}
+                                            row={sidActiveRow}
+                                            onClose={() => (sidBusy ? null : setSidModalOpen(false))}
+                                            onConfirm={async (rejectReason?: string) => {
+                                                if (!sidActiveRow) return;
 
-                                                        <WorkflowActionButton
-                                                            title="Admin: Hand off to Sample Collector"
-                                                            subtitle="Marks this request as In transit to Sample Collector."
-                                                            onClick={() => doPhysicalWorkflow("admin_brought_to_collector")}
-                                                            disabled={!canWfAdminBring || wfBusy}
-                                                            busy={wfBusy}
-                                                            variant="primary"
-                                                        />
+                                                const changeId = Number(
+                                                    sidActiveRow.change_request_id ?? sidActiveRow.id ?? sidActiveRow.sample_id_change_id ?? 0
+                                                );
+                                                if (!Number.isFinite(changeId) || changeId <= 0) return;
 
-                                                        <WorkflowActionButton
-                                                            title="Admin: Received back from collector"
-                                                            subtitle="Record the time the collector returned the sample to admin."
-                                                            onClick={() => doPhysicalWorkflow("admin_received_from_collector")}
-                                                            disabled={!canWfAdminReceiveBack || wfBusy}
-                                                            busy={wfBusy}
-                                                            variant="neutral"
-                                                        />
+                                                setSidBusy(true);
+                                                setWfError(null);
 
-                                                        <WorkflowActionButton
-                                                            title="Admin: Client picked up"
-                                                            subtitle="Final step for returned samples — record pickup time."
-                                                            onClick={() => doPhysicalWorkflow("client_picked_up")}
-                                                            disabled={!canWfClientPickup || wfBusy}
-                                                            busy={wfBusy}
-                                                            variant="neutral"
-                                                        />
-                                                    </>
-                                                ) : null}
+                                                try {
+                                                    if (sidModalMode === "approve") {
+                                                        await approveSampleIdChange(changeId);
+                                                    } else {
+                                                        const r = String(rejectReason ?? "").trim();
+                                                        await rejectSampleIdChange(changeId, r);
+                                                    }
 
-                                                {isCollector ? (
-                                                    <>
-                                                        <WorkflowActionButton
-                                                            title="Collector: Received"
-                                                            subtitle="Confirm you received the sample from admin. Status becomes Under inspection."
-                                                            onClick={() => doPhysicalWorkflow("collector_received")}
-                                                            disabled={!canWfCollectorReceive || wfBusy}
-                                                            busy={wfBusy}
-                                                            variant="primary"
-                                                        />
+                                                    setSidModalOpen(false);
+                                                    setSidPickOpen(false);
+                                                    setSidActiveRow(null);
+                                                    setSidFetchedRaw(null);
 
-                                                        <WorkflowActionButton
-                                                            title="Collector: Intake checklist"
-                                                            subtitle="Complete the intake checks. All categories must pass."
-                                                            onClick={() => setIntakeOpen(true)}
-                                                            disabled={!canOpenIntakeChecklist || wfBusy}
-                                                            busy={wfBusy}
-                                                            variant="neutral"
-                                                        />
-
-                                                        <WorkflowActionButton
-                                                            title="Collector: Returned to Admin"
-                                                            subtitle="Return the sample to admin after inspection failed."
-                                                            onClick={() => doPhysicalWorkflow("collector_returned_to_admin")}
-                                                            disabled={!canWfCollectorReturnToAdmin || wfBusy}
-                                                            busy={wfBusy}
-                                                            variant="primary"
-                                                        />
-                                                    </>
-                                                ) : null}
-
-                                                {(isOperationalManager || isLabHead) ? (
-                                                    <>
-                                                        {canVerify ? (
-                                                            <>
-                                                                <div className="sm:col-span-2">
-                                                                    <WorkflowActionButton
-                                                                        title="Verify (OM/LH)"
-                                                                        subtitle="Verify + auto-assign Sample ID (BML)"
-                                                                        onClick={doVerify}
-                                                                        disabled={!canVerify || verifyBusy}
-                                                                        busy={verifyBusy}
-                                                                        variant="primary"
-                                                                    />
-                                                                </div>
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                {verifiedAt ? (
-                                                                    <div className="sm:col-span-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-xl">
-                                                                        Sudah verified pada{" "}
-                                                                        <span className="font-semibold">{formatDateTimeLocal(verifiedAt)}</span>.
-                                                                        {labSampleCode ? (
-                                                                            <>
-                                                                                {" "}Sample ID:{" "}
-                                                                                <span className="font-mono font-semibold">{labSampleCode}</span>.
-                                                                            </>
-                                                                        ) : null}
-                                                                    </div>
-                                                                ) : null}
-
-                                                                {!verifiedAt && requestStatus !== "awaiting_verification" ? (
-                                                                    <div className="sm:col-span-2 text-xs text-gray-700 bg-gray-50 border border-gray-100 px-3 py-2 rounded-xl">
-                                                                        Verification action is not available for the current status.
-                                                                    </div>
-                                                                ) : null}
-                                                            </>
-                                                        )}
-                                                    </>
-                                                ) : null}
-                                            </div>
-                                        </div>
-                                    </div>
+                                                    await load({ silent: true });
+                                                    setTab("workflow");
+                                                } catch (e: any) {
+                                                    const msg =
+                                                        e?.response?.data?.message ??
+                                                        e?.data?.message ??
+                                                        e?.data?.error ??
+                                                        e?.message ??
+                                                        "Failed to process decision.";
+                                                    setSidModalOpen(false);
+                                                    setSidPickOpen(false);
+                                                    setWfError(msg);
+                                                } finally {
+                                                    setSidBusy(false);
+                                                }
+                                            }}
+                                        />
+                                    </>
                                 )}
-                            </>
-                        )}
+                            </div>
+                        </div>
+
+                        <AssignSampleIdModal
+                            open={assignOpen}
+                            sample={sample}
+                            onClose={() => setAssignOpen(false)}
+                            onDone={async (payload) => {
+                                setAssignOpen(false);
+                                setAssignFlash(payload.type ? { type: payload.type, message: payload.message } : null);
+                                await load({ silent: true });
+
+                                if (payload.type) {
+                                    window.setTimeout(() => setAssignFlash(null), 9000);
+                                }
+                            }}
+                        />
+
+                        <FinalizeApprovedSampleIdModal
+                            open={finalizeApprovedOpen}
+                            sample={sample}
+                            onClose={() => setFinalizeApprovedOpen(false)}
+                            onDone={async (payload) => {
+                                setFinalizeApprovedOpen(false);
+                                setAssignFlash(payload.type ? { type: payload.type, message: payload.message } : null);
+                                await load({ silent: true });
+
+                                if (payload.type) {
+                                    window.setTimeout(() => setAssignFlash(null), 9000);
+                                }
+                            }}
+                        />
 
                         <UpdateRequestStatusModal
-                            open={modalOpen}
+                            open={returnModalOpen}
                             sampleId={requestId}
-                            action={modalAction}
+                            action="return"
                             currentStatus={(sample as any)?.request_status ?? null}
-                            onClose={closeModal}
+                            onClose={() => setReturnModalOpen(false)}
                             onUpdated={async () => {
                                 await load({ silent: true });
+                                setTab("workflow");
                             }}
                         />
 
@@ -822,6 +790,7 @@ export default function SampleRequestDetailPage() {
                                 requestLabel={`Request #${requestId}`}
                                 onSubmitted={async () => {
                                     await load({ silent: true });
+                                    setTab("workflow");
                                 }}
                             />
                         ) : null}
