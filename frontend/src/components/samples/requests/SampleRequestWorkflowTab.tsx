@@ -1,15 +1,7 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\requests\SampleRequestWorkflowTab.tsx
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import {
-    CheckCircle2,
-    ArrowRight,
-    Truck,
-    Hand,
-    ClipboardCheck,
-    Hash,
-    ShieldCheck,
-    RotateCcw,
-} from "lucide-react";
+import { CheckCircle2, ArrowRight, Truck, Hand, ClipboardCheck, Hash, ShieldCheck, RotateCcw } from "lucide-react";
 
 import type { Sample } from "../../../services/samples";
 import { ROLE_ID } from "../../../utils/roles";
@@ -103,7 +95,8 @@ export function SampleRequestWorkflowTab(props: {
     const labSampleCode = String(s?.lab_sample_code ?? "").trim();
     const returnNote = String(s?.request_return_note ?? "").trim() || null;
 
-    const sampleIdChangeObj = s?.sample_id_change ?? null;
+    const sampleIdChangeObj = s?.sample_id_change ?? s?.sample_id_change_request ?? s?.sampleIdChange ?? null;
+
     const sampleIdChangeStatusKey = String(
         sampleIdChangeObj?.status ?? s?.sample_id_change_status ?? s?.sample_id_change_state ?? ""
     )
@@ -170,11 +163,7 @@ export function SampleRequestWorkflowTab(props: {
 
     type VerifyMode = "intake" | "sample_id_change";
     const verifyMode: VerifyMode | null =
-        isSampleIdChangePending || isSampleIdPendingVerification
-            ? "sample_id_change"
-            : awaitingVerify
-                ? "intake"
-                : null;
+        isSampleIdChangePending || isSampleIdPendingVerification ? "sample_id_change" : awaitingVerify ? "intake" : null;
 
     const canVerify = isOmLh && !labSampleCode && !!verifyMode;
 
@@ -366,14 +355,7 @@ export function SampleRequestWorkflowTab(props: {
         }
 
         return null;
-    }, [
-        props.assignFlash,
-        labSampleCode,
-        isSampleIdChangePending,
-        isSampleIdPendingVerification,
-        isSampleIdChangeApproved,
-        isSampleIdChangeRejected,
-    ]);
+    }, [props.assignFlash, labSampleCode, isSampleIdChangePending, isSampleIdPendingVerification, isSampleIdChangeApproved, isSampleIdChangeRejected]);
 
     return (
         <div className="space-y-6">
@@ -394,9 +376,7 @@ export function SampleRequestWorkflowTab(props: {
             </div>
 
             {props.wfError ? (
-                <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
-                    {props.wfError}
-                </div>
+                <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">{props.wfError}</div>
             ) : null}
 
             {topBanner ? (
@@ -534,15 +514,10 @@ export function SampleRequestWorkflowTab(props: {
                                     if (verifyMode === "sample_id_change") return props.onVerifySampleIdChange?.();
                                     return props.onVerify();
                                 }}
-                                disabled={props.verifyBusy || (verifyMode === "sample_id_change" && !props.onVerifySampleIdChange)}
+                                // ✅ jangan lock hanya karena FE belum dapat detail; biarkan klik → parent akan tampilkan warning
+                                disabled={props.verifyBusy}
                                 tone="primary"
-                                rightText={
-                                    verifyMode === "sample_id_change" && !props.onVerifySampleIdChange
-                                        ? "Missing handler"
-                                        : props.verifyBusy
-                                            ? "Saving..."
-                                            : "Verify"
-                                }
+                                rightText={props.verifyBusy ? "Saving..." : "Verify"}
                             />
                         ) : null}
 
@@ -601,9 +576,7 @@ export function SampleRequestWorkflowTab(props: {
 
                                     <div className="mt-1 text-xs text-gray-600">By: {e.actor}</div>
 
-                                    {e.note ? (
-                                        <div className="mt-2 text-sm text-gray-700 whitespace-pre-wrap">{e.note}</div>
-                                    ) : null}
+                                    {e.note ? <div className="mt-2 text-sm text-gray-700 whitespace-pre-wrap">{e.note}</div> : null}
                                 </li>
                             ))}
                         </ol>

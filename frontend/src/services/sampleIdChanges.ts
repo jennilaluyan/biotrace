@@ -76,9 +76,9 @@ export async function listSampleIdChanges(params: {
     return { data, meta };
 }
 
-export async function getSampleIdChangeById(changeId: number) {
-    const res = await apiGet<any>(`${CHANGE_BASE}/${changeId}`);
-    return unwrapApi(res) as any;
+export async function getLatestSampleIdChangeBySampleId(sampleId: number) {
+    const res = await apiGet<any>(`${CHANGE_BASE}/by-sample/${sampleId}`);
+    return unwrapApi(res) as any; // bisa null kalau tidak ada
 }
 
 export async function approveSampleIdChange(changeId: number) {

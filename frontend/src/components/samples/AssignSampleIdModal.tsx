@@ -1,5 +1,7 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\AssignSampleIdModal.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, Wand2, X } from "lucide-react";
+
 import type { Sample } from "../../services/samples";
 import { assignSampleId, getSuggestedSampleId, proposeSampleIdChange } from "../../services/sampleIdChanges";
 import { getErrorMessage } from "../../utils/errors";
@@ -12,14 +14,20 @@ function pad3(n: number) {
     return String(n).padStart(3, "0");
 }
 
+type NormalizeResult =
+    | { ok: true; normalized: string; prefix: string; number: number; error: null }
+    | { ok: false; normalized: string; prefix: string; number: 0; error: string };
+
 /**
  * Accept loose input like:
  * - "LBMA002" / "lbma 2" / "LBMA-002" => "LBMA 002"
  * Output canonical: "PREFIX 001" (single space)
  */
-function normalizeSampleId(raw: string) {
+function normalizeSampleId(raw: string): NormalizeResult {
     const s0 = String(raw ?? "").trim().toUpperCase();
-    if (!s0) return { ok: false, normalized: "", prefix: "", number: 0, error: "Sample ID is required." };
+    if (!s0) {
+        return { ok: false, normalized: "", prefix: "", number: 0, error: "Sample ID is required." };
+    }
 
     const m = s0.match(/^([A-Z]{1,5})\s*[- ]?\s*(\d{1,6})$/);
     if (!m) {
@@ -34,12 +42,13 @@ function normalizeSampleId(raw: string) {
 
     const prefix = m[1];
     const num = Number(m[2]);
+
     if (!Number.isFinite(num) || num <= 0) {
         return { ok: false, normalized: s0, prefix, number: 0, error: "Nomor harus > 0." };
     }
 
     const normalized = `${prefix} ${pad3(num)}`;
-    return { ok: true, normalized, prefix, number: num, error: null as any };
+    return { ok: true, normalized, prefix, number: num, error: null };
 }
 
 function prettySampleId(raw?: string | null) {
@@ -48,7 +57,7 @@ function prettySampleId(raw?: string | null) {
     return v.ok ? v.normalized : String(raw);
 }
 
-type DonePayload = { type: "success" | "warning" | "error"; message: string };
+export type DonePayload = { type: "success" | "warning" | "error"; message: string };
 
 type Props = {
     open: boolean;
@@ -62,10 +71,7 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
 
     const changeObj = (sample as any)?.sample_id_change ?? null;
     const changeStatus = String(
-        changeObj?.status ??
-        (sample as any)?.sample_id_change_status ??
-        (sample as any)?.sample_id_change_state ??
-        ""
+        changeObj?.status ?? (sample as any)?.sample_id_change_status ?? (sample as any)?.sample_id_change_state ?? ""
     )
         .trim()
         .toLowerCase();
@@ -166,27 +172,30 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
 
     const canSubmit = open && !busy && Number.isFinite(sampleId) && sampleId > 0 && validation.ok;
 
-    async function submit() {
+    async function submit(): Promise<void> {
         if (!canSubmit) return;
 
         setBusy(true);
         setErr(null);
 
-        const code = validation.normalized;
+        const code = validation.ok ? validation.normalized : "";
 
         try {
+            // ✅ If OM/LH already approved a proposed code, Admin just finalizes it.
             if (lockedToApproved) {
                 await assignSampleId(sampleId, code);
                 onDone({ type: "success", message: "Sample ID assigned." });
                 return;
             }
 
+            // ✅ If Admin uses suggestion exactly, backend can auto-assign from suggestion.
             if (suggestedNorm && isSameAsSuggested) {
                 await assignSampleId(sampleId);
                 onDone({ type: "success", message: "Sample ID assigned." });
                 return;
             }
 
+            // ✅ Otherwise propose a change request to OM/LH
             await proposeSampleIdChange(sampleId, code);
             onDone({ type: "warning", message: "Sent to OM/LH for verification." });
         } catch (e: any) {
@@ -249,9 +258,7 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
                         <div className="flex items-center justify-between gap-2">
                             <div>
                                 <div className="text-xs text-gray-500">Suggested Sample ID</div>
-                                <div className="mt-1 font-mono text-sm text-gray-900">
-                                    {prettySampleId(suggested)}
-                                </div>
+                                <div className="mt-1 font-mono text-sm text-gray-900">{prettySampleId(suggested)}</div>
                             </div>
 
                             <div className="flex items-center gap-2">
@@ -310,7 +317,9 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
 
                         <div className="mt-1 text-xs">
                             {!value.trim() ? (
-                                <span className="text-gray-500">Format: PREFIX 001 (prefix max 5 huruf, spasi, angka). Nomor akan dipad 3 digit.</span>
+                                <span className="text-gray-500">
+                                    Format: PREFIX 001 (prefix max 5 huruf, spasi, angka). Nomor akan dipad 3 digit.
+                                </span>
                             ) : validation.ok ? (
                                 <span className="text-emerald-700">
                                     Normalized: <span className="font-mono font-semibold">{validation.normalized}</span>
@@ -320,9 +329,7 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
                                             • {isSameAsSuggested ? "matches suggestion" : "differs from suggestion"}
                                         </span>
                                     ) : null}
-                                    {lockedToApproved ? (
-                                        <span className="text-gray-500"> • approved by OM/LH</span>
-                                    ) : null}
+                                    {lockedToApproved ? <span className="text-gray-500"> • approved by OM/LH</span> : null}
                                 </span>
                             ) : (
                                 <span className="text-rose-700">{validation.error}</span>
@@ -345,10 +352,7 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
                         type="button"
                         disabled={!canSubmit}
                         onClick={submit}
-                        className={cx(
-                            "lims-btn-primary inline-flex items-center gap-2",
-                            !canSubmit && "opacity-60 cursor-not-allowed"
-                        )}
+                        className={cx("lims-btn-primary inline-flex items-center gap-2", !canSubmit && "opacity-60 cursor-not-allowed")}
                     >
                         <Check size={16} />
                         {busy ? "Processing..." : lockedToApproved ? "Finalize" : isSameAsSuggested ? "Assign" : "Propose"}

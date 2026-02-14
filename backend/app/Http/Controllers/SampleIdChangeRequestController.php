@@ -213,4 +213,52 @@ class SampleIdChangeRequestController extends Controller
             ],
         ], 200);
     }
+
+    public function latestBySample(Request $request, int $sampleId): JsonResponse
+    {
+        /** @var mixed $actor */
+        $actor = Auth::user();
+        if (!$actor instanceof Staff) {
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
+
+        $this->assertOmOrLhOr403($actor);
+
+        $status = strtoupper(trim((string) $request->get('status', 'PENDING')));
+        if (!in_array($status, ['PENDING', 'APPROVED', 'REJECTED'], true)) {
+            $status = 'PENDING';
+        }
+
+        $r = SampleIdChangeRequest::query()
+            ->with(['sample.client', 'requestedBy', 'reviewedBy'])
+            ->where('sample_id', $sampleId)
+            ->where('status', $status)
+            ->orderByDesc('change_request_id')
+            ->first();
+
+        if (!$r) {
+            return response()->json(['data' => null], 200);
+        }
+
+        return response()->json([
+            'data' => [
+                'change_request_id' => (int) $r->change_request_id,
+                'status' => $r->status,
+                'sample_id' => (int) $r->sample_id,
+
+                // ✅ alias biar FE gampang
+                'suggested_sample_id' => $r->suggested_sample_id,
+                'suggested_lab_sample_code' => $r->suggested_sample_id,
+                'proposed_sample_id' => $r->proposed_sample_id,
+                'proposed_lab_sample_code' => $r->proposed_sample_id,
+
+                'client_name' => $r->sample?->client?->name,
+                'client_email' => $r->sample?->client?->email,
+                'workflow_group' => $r->sample?->workflow_group,
+
+                'created_at' => $r->created_at,
+                'updated_at' => $r->updated_at,
+            ],
+        ], 200);
+    }
 }

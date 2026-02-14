@@ -1,3 +1,4 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleRequestDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -8,7 +9,12 @@ import { formatDateTimeLocal } from "../../utils/date";
 import { sampleService, type Sample } from "../../services/samples";
 import { apiPost, apiPatch } from "../../services/api";
 
-import { approveSampleIdChange, rejectSampleIdChange, type SampleIdChangeRow } from "../../services/sampleIdChanges";
+import {
+    approveSampleIdChange,
+    rejectSampleIdChange,
+    type SampleIdChangeRow,
+    getLatestSampleIdChangeBySampleId,
+} from "../../services/sampleIdChanges";
 import SampleIdChangeDecisionModal from "../../components/samples/SampleIdChangeDecisionModal";
 
 import { UpdateRequestStatusModal } from "../../components/samples/UpdateRequestStatusModal";
@@ -102,11 +108,7 @@ function SmallButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
     );
 }
 
-function TabButton(props: {
-    active: boolean;
-    children: React.ReactNode;
-    onClick: () => void;
-}) {
+function TabButton(props: { active: boolean; children: React.ReactNode; onClick: () => void }) {
     return (
         <button
             type="button"
@@ -119,6 +121,57 @@ function TabButton(props: {
             {props.children}
         </button>
     );
+}
+
+function toSidRow(root: any, sidRaw: any): SampleIdChangeRow | null {
+    if (!sidRaw) return null;
+
+    const changeId = Number(
+        sidRaw?.change_request_id ??
+        sidRaw?.change_requestId ??
+        sidRaw?.sample_id_change_request_id ??
+        sidRaw?.sampleIdChangeRequestId ??
+        sidRaw?.sample_id_change_id ??
+        sidRaw?.change_id ??
+        sidRaw?.changeId ??
+        sidRaw?.id ??
+        sidRaw?.change_request?.id ??
+        root?.sample_id_change_request_id ??
+        root?.sample_id_change_id ??
+        root?.change_request_id ??
+        root?.change_request?.id ??
+        0
+    );
+
+    if (!Number.isFinite(changeId) || changeId <= 0) return null;
+
+    const suggested = sidRaw?.suggested_lab_sample_code ?? sidRaw?.suggested_sample_id ?? sidRaw?.suggested ?? null;
+    const proposed = sidRaw?.proposed_lab_sample_code ?? sidRaw?.proposed_sample_id ?? sidRaw?.proposed ?? null;
+
+    const clientName =
+        root?.client?.name ?? root?.client_name ?? (root?.client_id ? `Client #${root?.client_id}` : null);
+    const clientEmail = root?.client?.email ?? root?.client_email ?? null;
+
+    return {
+        change_request_id: changeId,
+        id: changeId,
+        sample_id_change_id: changeId,
+
+        sample_id: Number(root?.sample_id ?? root?.id ?? 0) || undefined,
+        request_id: Number(root?.sample_id ?? root?.id ?? 0) || undefined,
+
+        status: sidRaw?.status ?? "PENDING",
+
+        suggested_sample_id: suggested ? String(suggested) : null,
+        suggested_lab_sample_code: suggested ? String(suggested) : null,
+
+        proposed_sample_id: proposed ? String(proposed) : null,
+        proposed_lab_sample_code: proposed ? String(proposed) : null,
+
+        client_name: clientName ? String(clientName) : null,
+        client_email: clientEmail ? String(clientEmail) : null,
+        workflow_group: root?.workflow_group ?? null,
+    };
 }
 
 export default function SampleRequestDetailPage() {
@@ -169,7 +222,6 @@ export default function SampleRequestDetailPage() {
     }, [user]);
 
     const roleLabel = useMemo(() => getUserRoleLabel(roleId), [roleId]);
-
     const requestId = Number(id);
 
     const canView = useMemo(
@@ -189,114 +241,69 @@ export default function SampleRequestDetailPage() {
     const [error, setError] = useState<string | null>(null);
 
     const [returnModalOpen, setReturnModalOpen] = useState(false);
-
     const [intakeOpen, setIntakeOpen] = useState(false);
 
     const [assignOpen, setAssignOpen] = useState(false);
-    const [assignFlash, setAssignFlash] = useState<{ type: "success" | "warning" | "error"; message: string } | null>(null);
+    const [assignFlash, setAssignFlash] = useState<{ type: "success" | "warning" | "error"; message: string } | null>(
+        null
+    );
 
     const [wfBusy, setWfBusy] = useState(false);
     const [wfError, setWfError] = useState<string | null>(null);
     const [verifyBusy, setVerifyBusy] = useState(false);
 
-    // =========================
-    // Sample ID change approval (OM/LH) — now inside Workflow tab
-    // =========================
-    const isOmOrLh = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
-
-    const sidChangeObj = (sample as any)?.sample_id_change ?? null;
-    const sidStatus = String(sidChangeObj?.status ?? "").trim().toLowerCase();
-    const sidCanAct = isOmOrLh && (sidStatus === "pending" || sidStatus === "submitted" || sidStatus === "waiting");
-
-    const sidRow: SampleIdChangeRow | null = useMemo(() => {
-        if (!sidChangeObj) return null;
-
-        const changeId = Number(
-            sidChangeObj?.change_request_id ??
-            sidChangeObj?.change_requestId ??
-            sidChangeObj?.id ??
-            sidChangeObj?.sample_id_change_id ??
-            sidChangeObj?.change_request_id ??
-            0
-        );
-
-        if (!Number.isFinite(changeId) || changeId <= 0) return null;
-
-        const suggested =
-            sidChangeObj?.suggested_lab_sample_code ??
-            sidChangeObj?.suggested_sample_id ??
-            sidChangeObj?.suggested ??
-            null;
-
-        const proposed =
-            sidChangeObj?.proposed_lab_sample_code ??
-            sidChangeObj?.proposed_sample_id ??
-            sidChangeObj?.proposed ??
-            null;
-
-        const clientName =
-            (sample as any)?.client?.name ??
-            (sample as any)?.client_name ??
-            ((sample as any)?.client_id ? `Client #${(sample as any)?.client_id}` : null);
-
-        const clientEmail =
-            (sample as any)?.client?.email ??
-            (sample as any)?.client_email ??
-            null;
-
-        return {
-            change_request_id: changeId,
-            id: changeId,
-            sample_id_change_id: changeId,
-
-            sample_id: Number((sample as any)?.sample_id ?? (sample as any)?.id ?? 0) || undefined,
-            request_id: Number((sample as any)?.sample_id ?? (sample as any)?.id ?? 0) || undefined,
-
-            status: sidChangeObj?.status ?? "PENDING",
-
-            suggested_sample_id: suggested ? String(suggested) : null,
-            suggested_lab_sample_code: suggested ? String(suggested) : null,
-
-            proposed_sample_id: proposed ? String(proposed) : null,
-            proposed_lab_sample_code: proposed ? String(proposed) : null,
-
-            client_name: clientName ? String(clientName) : null,
-            client_email: clientEmail ? String(clientEmail) : null,
-            workflow_group: (sample as any)?.workflow_group ?? null,
-        };
-    }, [sample, sidChangeObj, sidStatus, isOmOrLh]);
+    // ---- Sample ID Change decision flow (no big card, only via workflow button) ----
+    const [sidFetchedRaw, setSidFetchedRaw] = useState<any | null>(null);
+    const [sidActiveRow, setSidActiveRow] = useState<SampleIdChangeRow | null>(null);
+    const [sidPickOpen, setSidPickOpen] = useState(false);
 
     const [sidModalOpen, setSidModalOpen] = useState(false);
     const [sidModalMode, setSidModalMode] = useState<"approve" | "reject">("approve");
     const [sidBusy, setSidBusy] = useState(false);
-    const [sidErr, setSidErr] = useState<string | null>(null);
 
-    // nudge/highlight SID approval section when user clicks "Verify Sample ID change"
-    const [sidNudge, setSidNudge] = useState(false);
+    const labSampleCode = (sample as any)?.lab_sample_code ?? null;
+    const verifiedAt = (sample as any)?.verified_at ?? null;
 
-    const nudgeSampleIdChangeApproval = () => {
+    const sidRaw =
+        sidFetchedRaw ??
+        (sample as any)?.sample_id_change ??
+        (sample as any)?.sample_id_change_request ??
+        (sample as any)?.sampleIdChange ??
+        null;
+
+    const sidRow: SampleIdChangeRow | null = useMemo(() => {
+        if (!sample) return null;
+        return toSidRow(sample as any, sidRaw);
+    }, [sample, sidRaw]);
+
+    const handleVerifySampleIdChange = async () => {
         setWfError(null);
-        setSidErr(null);
 
-        // kalau backend belum kirim detail change request id, kita ga bisa approve/reject
-        if (!sidRow) {
+        let row = sidRow;
+
+        // If detail object isn't present on sample response, fetch latest by sample id.
+        if (!row && Number.isFinite(requestId) && requestId > 0) {
+            try {
+                const fetched = await getLatestSampleIdChangeBySampleId(requestId);
+                if (fetched) {
+                    setSidFetchedRaw(fetched);
+                    row = sample ? toSidRow(sample as any, fetched) : null;
+                }
+            } catch {
+                // ignore
+            }
+        }
+
+        if (!row) {
             setWfError(
-                "Sample ID change details not found. Backend harus mengirim sample_id_change.change_request_id (atau id) agar OM/LH bisa approve/reject."
+                "Sample ID change detail belum ada di response. Backend harus mengirim sample_id_change.id / change_request_id pada endpoint detail request (atau gunakan endpoint by-sample)."
             );
             return;
         }
 
-        setSidNudge(true);
-        window.setTimeout(() => setSidNudge(false), 1500);
-
-        window.requestAnimationFrame(() => {
-            document.getElementById("sid-change-approval")?.scrollIntoView({ behavior: "smooth", block: "start" });
-        });
+        setSidActiveRow(row);
+        setSidPickOpen(true);
     };
-
-    const requestStatus = (sample as any)?.request_status ?? null;
-    const labSampleCode = (sample as any)?.lab_sample_code ?? null;
-    const verifiedAt = (sample as any)?.verified_at ?? null;
 
     const load = async (opts?: { silent?: boolean }) => {
         if (!canView) {
@@ -364,7 +371,6 @@ export default function SampleRequestDetailPage() {
             setWfBusy(true);
             setWfError(null);
 
-            // ✅ record admin_received_from_client_at (physical workflow evidence)
             await apiPatch(`/v1/samples/${requestId}/physical-workflow`, {
                 action: "admin_received_from_client",
                 note: null,
@@ -418,11 +424,7 @@ export default function SampleRequestDetailPage() {
             await load({ silent: true });
             setTab("workflow");
         } catch (err: any) {
-            const msg =
-                err?.response?.data?.message ??
-                err?.data?.message ??
-                err?.message ??
-                "Failed to verify.";
+            const msg = err?.response?.data?.message ?? err?.data?.message ?? err?.message ?? "Failed to verify.";
             setWfError(msg);
         } finally {
             setVerifyBusy(false);
@@ -473,9 +475,7 @@ export default function SampleRequestDetailPage() {
             <div className="lims-detail-shell">
                 {loading && <div className="text-sm text-gray-600">Loading request detail...</div>}
 
-                {error && !loading && (
-                    <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
-                )}
+                {error && !loading && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
 
                 {!loading && !error && sample && (
                     <div className="space-y-6">
@@ -495,9 +495,7 @@ export default function SampleRequestDetailPage() {
                                         <>
                                             <span className="text-gray-400">·</span>
                                             <span className="text-xs text-gray-500">verified</span>
-                                            <span className="text-xs font-semibold text-emerald-700">
-                                                {formatDateTimeLocal(verifiedAt)}
-                                            </span>
+                                            <span className="text-xs font-semibold text-emerald-700">{formatDateTimeLocal(verifiedAt)}</span>
                                         </>
                                     ) : null}
 
@@ -543,85 +541,6 @@ export default function SampleRequestDetailPage() {
 
                                 {tab === "workflow" && (
                                     <>
-                                        {sidCanAct && sidRow ? (
-                                            <div
-                                                id="sid-change-approval"
-                                                className={cx(
-                                                    "mb-5 rounded-2xl border border-amber-200 bg-amber-50 overflow-hidden scroll-mt-24",
-                                                    sidNudge && "ring-2 ring-amber-400"
-                                                )}
-                                            >
-                                                <div className="px-5 py-4 border-b border-amber-200 flex items-start justify-between gap-3 flex-wrap">
-                                                    <div>
-                                                        <div className="text-sm font-bold text-amber-900">Sample ID Change Approval</div>
-                                                        <div className="text-xs text-amber-800 mt-1">
-                                                            This request has a proposed Sample ID. Approve/reject here (no separate page).
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="flex items-center gap-2">
-                                                        <button
-                                                            type="button"
-                                                            className={cx(
-                                                                "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                                                                "bg-primary text-white hover:opacity-95",
-                                                                (sidBusy || !sidCanAct) && "opacity-60 cursor-not-allowed"
-                                                            )}
-                                                            disabled={sidBusy || !sidCanAct}
-                                                            onClick={() => {
-                                                                setSidErr(null);
-                                                                setSidModalMode("approve");
-                                                                setSidModalOpen(true);
-                                                            }}
-                                                        >
-                                                            Approve
-                                                        </button>
-
-                                                        <button
-                                                            type="button"
-                                                            className={cx(
-                                                                "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                                                                "bg-red-600 text-white hover:opacity-95",
-                                                                (sidBusy || sidStatus !== "pending") && "opacity-60 cursor-not-allowed"
-                                                            )}
-                                                            disabled={sidBusy || sidStatus !== "pending"}
-                                                            onClick={() => {
-                                                                setSidErr(null);
-                                                                setSidModalMode("reject");
-                                                                setSidModalOpen(true);
-                                                            }}
-                                                        >
-                                                            Reject
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                <div className="px-5 py-4">
-                                                    {sidErr ? (
-                                                        <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
-                                                            {sidErr}
-                                                        </div>
-                                                    ) : null}
-
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                                                        <div className="rounded-xl border border-amber-200 bg-white px-3 py-2">
-                                                            <div className="text-xs text-amber-700">Suggested</div>
-                                                            <div className="mt-1 font-mono text-xs font-semibold text-gray-900">
-                                                                {sidRow.suggested_lab_sample_code ?? sidRow.suggested_sample_id ?? "—"}
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="rounded-xl border border-amber-200 bg-white px-3 py-2">
-                                                            <div className="text-xs text-amber-700">Proposed</div>
-                                                            <div className="mt-1 font-mono text-xs font-semibold text-gray-900">
-                                                                {sidRow.proposed_lab_sample_code ?? sidRow.proposed_sample_id ?? "—"}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ) : null}
-
                                         <SampleRequestWorkflowTab
                                             sample={sample}
                                             roleId={roleId}
@@ -636,50 +555,125 @@ export default function SampleRequestDetailPage() {
                                             onDoPhysicalWorkflow={doPhysicalWorkflow}
                                             onOpenIntakeChecklist={() => setIntakeOpen(true)}
                                             onVerify={doVerify}
-                                            onVerifySampleIdChange={nudgeSampleIdChangeApproval}
+                                            // ✅ workflow button only (no big approval card)
+                                            onVerifySampleIdChange={handleVerifySampleIdChange}
                                             onOpenAssignSampleId={() => setAssignOpen(true)}
                                         />
+
+                                        {sidPickOpen ? (
+                                            <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+                                                <div
+                                                    className="absolute inset-0 bg-black/40"
+                                                    onClick={() => (sidBusy ? null : setSidPickOpen(false))}
+                                                />
+
+                                                <div className="relative w-full max-w-sm rounded-2xl bg-white shadow-xl border">
+                                                    <div className="px-5 py-4 border-b">
+                                                        <div className="text-sm font-bold text-gray-900">Verify Sample ID change</div>
+                                                        <div className="text-xs text-gray-500 mt-1">Choose an action.</div>
+                                                    </div>
+
+                                                    <div className="px-5 py-4 flex items-center justify-between gap-3">
+                                                        <div className="text-xs text-gray-500">
+                                                            {sidActiveRow?.suggested_lab_sample_code || sidActiveRow?.suggested_sample_id ? (
+                                                                <>
+                                                                    Suggested:{" "}
+                                                                    <span className="font-mono text-gray-800">
+                                                                        {sidActiveRow?.suggested_lab_sample_code ?? sidActiveRow?.suggested_sample_id}
+                                                                    </span>
+                                                                </>
+                                                            ) : (
+                                                                " "
+                                                            )}
+                                                        </div>
+
+                                                        <div className="text-xs text-gray-500">
+                                                            {sidActiveRow?.proposed_lab_sample_code || sidActiveRow?.proposed_sample_id ? (
+                                                                <>
+                                                                    Proposed:{" "}
+                                                                    <span className="font-mono text-gray-800">
+                                                                        {sidActiveRow?.proposed_lab_sample_code ?? sidActiveRow?.proposed_sample_id}
+                                                                    </span>
+                                                                </>
+                                                            ) : (
+                                                                " "
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="px-5 pb-5 flex items-center justify-end gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSidPickOpen(false)}
+                                                            disabled={sidBusy}
+                                                            className={cx("btn-outline", sidBusy && "opacity-60 cursor-not-allowed")}
+                                                        >
+                                                            Cancel
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setSidPickOpen(false);
+                                                                setSidModalMode("reject");
+                                                                setSidModalOpen(true);
+                                                            }}
+                                                            disabled={sidBusy || !sidActiveRow}
+                                                            className={cx("btn-outline", (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed")}
+                                                        >
+                                                            Reject
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setSidPickOpen(false);
+                                                                setSidModalMode("approve");
+                                                                setSidModalOpen(true);
+                                                            }}
+                                                            disabled={sidBusy || !sidActiveRow}
+                                                            className={cx(
+                                                                "lims-btn-primary",
+                                                                (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed"
+                                                            )}
+                                                        >
+                                                            Approve
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : null}
 
                                         <SampleIdChangeDecisionModal
                                             open={sidModalOpen}
                                             mode={sidModalMode}
                                             busy={sidBusy}
-                                            row={sidRow}
+                                            row={sidActiveRow}
                                             onClose={() => (sidBusy ? null : setSidModalOpen(false))}
                                             onConfirm={async (rejectReason?: string) => {
-                                                if (!sidRow) return;
+                                                if (!sidActiveRow) return;
 
                                                 const changeId = Number(
-                                                    sidChangeObj?.change_request_id ??
-                                                    sidChangeObj?.change_requestId ??
-                                                    sidChangeObj?.sample_id_change_request_id ??
-                                                    sidChangeObj?.sampleIdChangeRequestId ??
-                                                    sidChangeObj?.sample_id_change_id ??
-                                                    sidChangeObj?.change_id ??
-                                                    sidChangeObj?.changeId ??
-                                                    sidChangeObj?.id ??
-                                                    sidChangeObj?.change_request?.id ??
-                                                    0
+                                                    sidActiveRow.change_request_id ?? sidActiveRow.id ?? sidActiveRow.sample_id_change_id ?? 0
                                                 );
                                                 if (!Number.isFinite(changeId) || changeId <= 0) return;
 
                                                 setSidBusy(true);
-                                                setSidErr(null);
+                                                setWfError(null);
 
                                                 try {
                                                     if (sidModalMode === "approve") {
                                                         await approveSampleIdChange(changeId);
                                                     } else {
                                                         const r = String(rejectReason ?? "").trim();
-                                                        if (r.length < 3) {
-                                                            setSidErr("Reject reason wajib diisi (min 3 karakter).");
-                                                            setSidBusy(false);
-                                                            return;
-                                                        }
                                                         await rejectSampleIdChange(changeId, r);
                                                     }
 
                                                     setSidModalOpen(false);
+                                                    setSidPickOpen(false);
+                                                    setSidActiveRow(null);
+                                                    setSidFetchedRaw(null);
+
                                                     await load({ silent: true });
                                                     setTab("workflow");
                                                 } catch (e: any) {
@@ -689,7 +683,10 @@ export default function SampleRequestDetailPage() {
                                                         e?.data?.error ??
                                                         e?.message ??
                                                         "Failed to process decision.";
-                                                    setSidErr(msg);
+                                                    // close modal so user can see the error banner in workflow tab
+                                                    setSidModalOpen(false);
+                                                    setSidPickOpen(false);
+                                                    setWfError(msg);
                                                 } finally {
                                                     setSidBusy(false);
                                                 }
@@ -697,7 +694,6 @@ export default function SampleRequestDetailPage() {
                                         />
                                     </>
                                 )}
-
                             </div>
                         </div>
 

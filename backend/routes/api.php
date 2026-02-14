@@ -334,11 +334,24 @@ Route::prefix('v1')->group(function () {
         |----------------------------------------------------------------------
         */
         Route::get('sample-id-change-requests', [SampleIdChangeRequestController::class, 'index']);
+        Route::get('sample-id-change-requests/by-sample/{sample}', [SampleIdChangeRequestController::class, 'latestBySample'])
+            ->whereNumber('sample'); // ✅ NEW
         Route::get('sample-id-change-requests/{changeRequestId}', [SampleIdChangeRequestController::class, 'show'])
             ->whereNumber('changeRequestId');
         Route::post('sample-id-change-requests/{changeRequestId}/approve', [SampleIdChangeRequestController::class, 'approve'])
             ->whereNumber('changeRequestId');
         Route::post('sample-id-change-requests/{changeRequestId}/reject', [SampleIdChangeRequestController::class, 'reject'])
+            ->whereNumber('changeRequestId');
+
+        // Legacy aliases
+        Route::get('sample-id-changes', [SampleIdChangeRequestController::class, 'index']);
+        Route::get('sample-id-changes/by-sample/{sample}', [SampleIdChangeRequestController::class, 'latestBySample'])
+            ->whereNumber('sample'); // ✅ NEW
+        Route::get('sample-id-changes/{changeRequestId}', [SampleIdChangeRequestController::class, 'show'])
+            ->whereNumber('changeRequestId');
+        Route::post('sample-id-changes/{changeRequestId}/approve', [SampleIdChangeRequestController::class, 'approve'])
+            ->whereNumber('changeRequestId');
+        Route::post('sample-id-changes/{changeRequestId}/reject', [SampleIdChangeRequestController::class, 'reject'])
             ->whereNumber('changeRequestId');
 
         // Legacy aliases (kept for backward compatibility)
