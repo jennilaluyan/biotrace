@@ -26,11 +26,28 @@ export default function SampleIdChangeDecisionModal({ open, mode, busy, row, onC
 
     const title = mode === "approve" ? "Approve Sample ID Change" : "Reject Sample ID Change";
 
+    function prettySampleId(raw?: any) {
+        const s = String(raw ?? "").trim().toUpperCase();
+        if (!s) return "—";
+        const m = s.match(/^([A-Z]{1,5})\s*[- ]?\s*(\d{1,6})$/);
+        if (!m) return s;
+        const prefix = m[1];
+        const num = Number(m[2]);
+        if (!Number.isFinite(num) || num <= 0) return s;
+        return `${prefix} ${String(num).padStart(3, "0")}`;
+    }
+
     const suggested =
-        row?.suggested_lab_sample_code ?? row?.suggested_sample_id ?? (row as any)?.suggested ?? null;
+        row?.suggested_lab_sample_code ??
+        row?.suggested_sample_id ??
+        (row as any)?.suggested ??
+        null;
 
     const proposed =
-        row?.proposed_lab_sample_code ?? row?.proposed_sample_id ?? (row as any)?.proposed ?? null;
+        row?.proposed_lab_sample_code ??
+        row?.proposed_sample_id ??
+        (row as any)?.proposed ??
+        null;
 
     const canConfirm = useMemo(() => {
         if (!open) return false;
@@ -52,7 +69,7 @@ export default function SampleIdChangeDecisionModal({ open, mode, busy, row, onC
                         <div>
                             <div className="text-lg font-semibold text-gray-900">{title}</div>
                             <div className="text-xs text-gray-500 mt-1">
-                                request #{row?.sample_id ?? row?.request_id ?? "-"} • change #{row?.id ?? row?.sample_id_change_id ?? "-"}
+                                request #{row?.sample_id ?? row?.request_id ?? "-"} • change #{row?.change_request_id ?? row?.id ?? row?.sample_id_change_id ?? "-"}
                             </div>
                         </div>
 
@@ -75,11 +92,11 @@ export default function SampleIdChangeDecisionModal({ open, mode, busy, row, onC
                         <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                             <div className="rounded-xl border bg-white px-3 py-2">
                                 <div className="text-xs text-gray-500">Suggested</div>
-                                <div className="mt-1 font-mono font-semibold text-gray-900">{suggested ?? "—"}</div>
+                                <div className="mt-1 font-mono font-semibold text-gray-900">{prettySampleId(suggested)}</div>
                             </div>
                             <div className="rounded-xl border bg-white px-3 py-2">
                                 <div className="text-xs text-gray-500">Proposed</div>
-                                <div className="mt-1 font-mono font-semibold text-gray-900">{proposed ?? "—"}</div>
+                                <div className="mt-1 font-mono font-semibold text-gray-900">{prettySampleId(proposed)}</div>
                             </div>
                         </div>
                     </div>

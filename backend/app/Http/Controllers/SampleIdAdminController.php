@@ -55,7 +55,8 @@ class SampleIdAdminController extends Controller
         $last = (int) ($row->last_number ?? 0);
         $next = $last + 1;
         $tail = str_pad((string) $next, 3, '0', STR_PAD_LEFT);
-        return "{$prefix}-{$tail}";
+
+        return "{$prefix} {$tail}";
     }
 
     public function suggestion(Sample $sample): JsonResponse

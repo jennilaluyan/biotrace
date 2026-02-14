@@ -66,7 +66,7 @@ class LabSampleCodeGenerator
 
         $raw = strtoupper($raw);
 
-        if (!preg_match('/^([A-Z]{2,6})\s*[- ]?\s*(\d+)$/', $raw, $m)) {
+        if (!preg_match('/^([A-Z]{1,5})\s*[- ]?\s*(\d+)$/', $raw, $m)) {
             throw new \InvalidArgumentException('Invalid sample id format.');
         }
 
@@ -80,12 +80,11 @@ class LabSampleCodeGenerator
         return $prefix . ' ' . $numStr;
     }
 
-    /** Parse normalized "PREFIX 001" */
     public function parseNormalized(string $normalized): array
     {
         $normalized = trim($normalized);
 
-        if (!preg_match('/^([A-Z]{2,6})\s+(\d{3,})$/', $normalized, $m)) {
+        if (!preg_match('/^([A-Z]{1,5})\s+(\d{3,})$/', $normalized, $m)) {
             throw new \InvalidArgumentException('Invalid normalized sample id.');
         }
 
@@ -94,6 +93,49 @@ class LabSampleCodeGenerator
             'number_str' => $m[2],
             'number' => (int) $m[2],
         ];
+    }
+
+    /**
+     * ✅ Reserve/advance counter ONLY if the provided number is exactly the next number for prefix.
+     * Enforces: first code for a new prefix must be 001; no jumping (e.g., AMA 005 rejected if next is AMA 001).
+     */
+    public function reserveIfNext(string $prefix, int $number): void
+    {
+        $prefix = strtoupper(trim($prefix));
+        if ($prefix === '' || $number <= 0) {
+            throw new \InvalidArgumentException('Invalid sample id.');
+        }
+
+        DB::transaction(function () use ($prefix, $number) {
+            $row = SampleIdCounter::query()
+                ->where('prefix', $prefix)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$row) {
+                $row = new SampleIdCounter([
+                    'prefix' => $prefix,
+                    'last_number' => 0,
+                ]);
+                $row->save();
+
+                $row = SampleIdCounter::query()
+                    ->where('prefix', $prefix)
+                    ->lockForUpdate()
+                    ->first();
+            }
+
+            $expected = ((int) $row->last_number) + 1;
+
+            if ($number !== $expected) {
+                $expectedCode = $this->format($prefix, $expected, 3);
+                throw new \RuntimeException("Invalid sample id sequence. Expected next: {$expectedCode}");
+            }
+
+            $row->last_number = $number;
+            $row->updated_at = Carbon::now('UTC');
+            $row->save();
+        }, 3);
     }
 
     /** Ensure counter is at least a number (used for override assignments) */

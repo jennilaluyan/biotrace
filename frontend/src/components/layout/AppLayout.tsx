@@ -15,7 +15,6 @@ import {
     ShieldCheck,
     BarChart3,
     Shield,
-    Hash,
 } from "lucide-react";
 
 type NavIcon =
@@ -27,8 +26,7 @@ type NavIcon =
     | "reagents"
     | "qc"
     | "reports"
-    | "audit"
-    | "sampleIdChanges";
+    | "audit";
 
 type NavItem = {
     label: string;
@@ -97,7 +95,6 @@ export const AppLayout = () => {
     const omLhItems: NavItem[] = isOmOrLh
         ? [
             { label: "Request Queue", path: "/samples/requests", icon: "inbox" as const },
-            { label: "Sample ID Change Approvals", path: "/samples/sample-id-changes", icon: "sampleIdChanges" as const },
             { label: "LOO Workspace", path: "/loo", icon: "loo" as const },
             { label: "Reagent Approvals", path: "/reagents/approvals", icon: "reagents" as const },
 
@@ -162,8 +159,6 @@ export const AppLayout = () => {
                 return <BarChart3 className={iconClass} />;
             case "audit":
                 return <Shield className={iconClass} />;
-            case "sampleIdChanges":
-                return <Hash className={iconClass} />;
             default:
                 return <Shield className={iconClass} />;
         }
@@ -181,7 +176,6 @@ export const AppLayout = () => {
             item.path === "/audit-logs" ||
             item.path === "/clients/approvals" ||
             item.path === "/samples/requests" ||
-            item.path === "/samples/sample-id-changes" ||
             item.path === "/staff/approvals" ||
             item.path === "/portal/requests" ||
             item.path === "/loo" ||

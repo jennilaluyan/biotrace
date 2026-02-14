@@ -8,47 +8,44 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
-function pad3(n: string) {
-    return n.padStart(3, "0");
+function pad3(n: number) {
+    return String(n).padStart(3, "0");
 }
 
-function normalize(value: string) {
-    return value.trim().toUpperCase().replace(/\s+/g, "");
+/**
+ * Accept loose input like:
+ * - "LBMA002" / "lbma 2" / "LBMA-002" => "LBMA 002"
+ * Output canonical: "PREFIX 001" (single space)
+ */
+function normalizeSampleId(raw: string) {
+    const s0 = String(raw ?? "").trim().toUpperCase();
+    if (!s0) return { ok: false, normalized: "", prefix: "", number: 0, error: "Sample ID is required." };
+
+    const m = s0.match(/^([A-Z]{1,5})\s*[- ]?\s*(\d{1,6})$/);
+    if (!m) {
+        return {
+            ok: false,
+            normalized: s0,
+            prefix: "",
+            number: 0,
+            error: "Format harus: PREFIX 001 (huruf kapital, prefix max 5, spasi, angka).",
+        };
+    }
+
+    const prefix = m[1];
+    const num = Number(m[2]);
+    if (!Number.isFinite(num) || num <= 0) {
+        return { ok: false, normalized: s0, prefix, number: 0, error: "Nomor harus > 0." };
+    }
+
+    const normalized = `${prefix} ${pad3(num)}`;
+    return { ok: true, normalized, prefix, number: num, error: null as any };
 }
 
-function applyPad3Tail(raw: string) {
-    const s = normalize(raw);
-    const m = s.match(/^(.*?)(\d{1,3})$/);
-    if (!m) return s;
-    const head = m[1];
-    const tail = m[2];
-    if (!head) return s;
-    return `${head}${pad3(tail)}`;
-}
-
-function validateSampleId(raw: string) {
-    const s = normalize(raw);
-    if (!s) return { ok: false, normalized: "", error: "Sample ID is required." };
-
-    if (!/^[A-Z0-9-]+$/.test(s)) {
-        return { ok: false, normalized: s, error: "Only A–Z, 0–9, and '-' are allowed." };
-    }
-
-    if (!/[A-Z]/.test(s)) {
-        return { ok: false, normalized: s, error: "Must contain at least one letter." };
-    }
-
-    if (!/\d+$/.test(s)) {
-        return { ok: false, normalized: s, error: "Must end with a number (will be padded to 3 digits)." };
-    }
-
-    const tail = s.match(/(\d+)$/)?.[1] ?? "";
-    if (tail.length > 3) {
-        return { ok: false, normalized: s, error: "Numeric suffix must be 1–3 digits (pad3)." };
-    }
-
-    const padded = applyPad3Tail(s);
-    return { ok: true, normalized: padded, error: null as any };
+function prettySampleId(raw?: string | null) {
+    if (!raw) return "—";
+    const v = normalizeSampleId(String(raw));
+    return v.ok ? v.normalized : String(raw);
 }
 
 type DonePayload = { type: "success" | "warning" | "error"; message: string };
@@ -129,7 +126,8 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
                 const s = await getSuggestedSampleId(sampleId);
                 if (!s) return;
 
-                const norm = applyPad3Tail(s);
+                const v = normalizeSampleId(s);
+                const norm = v.ok ? v.normalized : s;
 
                 setSuggested(norm);
 
@@ -142,12 +140,12 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
         })();
     }, [open, suggested, sampleId, lockedToApproved]);
 
-    const validation = useMemo(() => validateSampleId(value), [value]);
+    const validation = useMemo(() => normalizeSampleId(value), [value]);
 
     const suggestedNorm = useMemo(() => {
         if (!suggested) return null;
-        const v = validateSampleId(suggested);
-        return v.ok ? v.normalized : normalize(suggested);
+        const v = normalizeSampleId(suggested);
+        return v.ok ? v.normalized : String(suggested).trim().toUpperCase();
     }, [suggested]);
 
     const isSameAsSuggested = useMemo(() => {
@@ -252,7 +250,7 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
                             <div>
                                 <div className="text-xs text-gray-500">Suggested Sample ID</div>
                                 <div className="mt-1 font-mono text-sm text-gray-900">
-                                    {suggested ? applyPad3Tail(suggested) : "—"}
+                                    {prettySampleId(suggested)}
                                 </div>
                             </div>
 
@@ -263,7 +261,7 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
                                     disabled={!suggested || busy || lockedToApproved}
                                     onClick={() => {
                                         if (!suggested) return;
-                                        setValue(applyPad3Tail(suggested));
+                                        setValue(prettySampleId(suggested));
                                     }}
                                     aria-label="Use suggested"
                                     title="Use suggested"
@@ -278,7 +276,7 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
                                     onClick={async () => {
                                         if (!suggested) return;
                                         try {
-                                            await navigator.clipboard.writeText(applyPad3Tail(suggested));
+                                            await navigator.clipboard.writeText(prettySampleId(suggested));
                                         } catch {
                                             // ignore
                                         }
@@ -298,11 +296,11 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
                             value={value}
                             onChange={(e) => setValue(e.target.value)}
                             onBlur={() => {
-                                const v = validateSampleId(value);
+                                const v = normalizeSampleId(value);
                                 if (v.ok) setValue(v.normalized);
                             }}
                             disabled={busy || lockedToApproved}
-                            placeholder="e.g. BML-202602-001"
+                            placeholder="e.g. LBMA 001"
                             className={cx(
                                 "mt-2 w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft",
                                 !validation.ok && value.trim() ? "border-rose-300" : "border-gray-300",
@@ -312,7 +310,7 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
 
                         <div className="mt-1 text-xs">
                             {!value.trim() ? (
-                                <span className="text-gray-500">Must end with 1–3 digits (auto pad3).</span>
+                                <span className="text-gray-500">Format: PREFIX 001 (prefix max 5 huruf, spasi, angka). Nomor akan dipad 3 digit.</span>
                             ) : validation.ok ? (
                                 <span className="text-emerald-700">
                                     Normalized: <span className="font-mono font-semibold">{validation.normalized}</span>

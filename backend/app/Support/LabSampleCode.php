@@ -53,7 +53,7 @@ class LabSampleCode
         $raw = trim($raw);
         if ($raw === '') return null;
 
-        if (preg_match('/^([A-Za-z]{2,10})\s+(\d{1,6})$/', $raw, $m)) {
+        if (preg_match('/^([A-Za-z]{1,5})\s+(\d{1,6})$/', $raw, $m)) {
             $prefix = self::normalizePrefix($m[1]);
             $num = (int) $m[2];
             if ($num <= 0) return null;
@@ -65,7 +65,7 @@ class LabSampleCode
             ];
         }
 
-        if (preg_match('/^([A-Za-z]{2,10})-(\d{1,6})$/', $raw, $m)) {
+        if (preg_match('/^([A-Za-z]{1,5})-(\d{1,6})$/', $raw, $m)) {
             $prefix = self::normalizePrefix($m[1]);
             $num = (int) $m[2];
             if ($num <= 0) return null;

@@ -73,6 +73,9 @@ class SampleIdService
             throw new \RuntimeException('Proposed sample id must be different from suggested sample id.');
         }
 
+        $parsedProposed = $this->gen->parseNormalized($proposed);
+        $this->gen->reserveIfNext($parsedProposed['prefix'], (int) $parsedProposed['number']);
+
         $exists = Sample::query()
             ->where('lab_sample_code', $proposed)
             ->where('sample_id', '!=', $sample->sample_id)
