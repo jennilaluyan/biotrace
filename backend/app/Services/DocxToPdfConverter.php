@@ -66,25 +66,61 @@ class DocxToPdfConverter
         }
     }
 
+    private ?string $resolvedBin = null;
+
+    private function sofficeBin(): string
+    {
+        if ($this->resolvedBin) return $this->resolvedBin;
+
+        $candidates = [];
+
+        $envBin = (string) (env('SOFFICE_BIN') ?: '');
+        $envBin = trim($envBin, "\"' "); // strip quotes
+        if ($envBin !== '') $candidates[] = $envBin;
+
+        // common names
+        $candidates[] = 'soffice';
+        $candidates[] = 'soffice.exe';
+
+        // common Windows install paths
+        $candidates[] = 'C:\\Program Files\\LibreOffice\\program\\soffice.exe';
+        $candidates[] = 'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe';
+
+        foreach ($candidates as $bin) {
+            if ($this->canRun($bin)) {
+                return $this->resolvedBin = $bin;
+            }
+        }
+
+        // keep default last (for error message)
+        return $this->resolvedBin = ($envBin !== '' ? $envBin : 'soffice');
+    }
+
+    private function canRun(string $bin): bool
+    {
+        try {
+            $p = new Process([$bin, '--version']);
+            $p->setTimeout(5);
+            $p->run();
+            return $p->isSuccessful();
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
     public function assertLibreOfficeAvailable(): void
     {
         $bin = $this->sofficeBin();
 
-        $p = new Process([$bin, '--version']);
-        $p->setTimeout(5);
-        $p->run();
-
-        if (!$p->isSuccessful()) {
+        if (!$this->canRun($bin)) {
             throw new RuntimeException(
-                "LibreOffice (soffice) not available. Install LibreOffice and ensure `soffice` is on PATH, " .
-                    "or set env SOFFICE_BIN to the executable path."
+                "LibreOffice (soffice) not available.\n" .
+                    "Fix: install LibreOffice and either:\n" .
+                    "- add soffice to PATH, or\n" .
+                    "- set SOFFICE_BIN in .env, e.g.\n" .
+                    "  SOFFICE_BIN=\"C:\\\\Program Files\\\\LibreOffice\\\\program\\\\soffice.exe\""
             );
         }
-    }
-
-    private function sofficeBin(): string
-    {
-        return (string) (env('SOFFICE_BIN') ?: 'soffice');
     }
 
     private function makeTmpDir(): string
