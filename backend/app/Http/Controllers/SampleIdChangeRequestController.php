@@ -7,6 +7,7 @@ use App\Http\Requests\SampleIdChangeRejectRequest;
 use App\Models\SampleIdChangeRequest;
 use App\Models\Staff;
 use App\Services\SampleIdService;
+use App\Support\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -34,6 +35,18 @@ class SampleIdChangeRequestController extends Controller
         if (!$isOm && !$isLh) {
             abort(403, 'Forbidden.');
         }
+    }
+
+    private function reviewedByRoleLabel(Staff $actor): string
+    {
+        $role = strtolower(trim((string) ($actor->role?->name ?? '')));
+        if (
+            str_contains($role, 'operational manager') ||
+            $role === 'om' ||
+            str_contains($role, 'operational_manager')
+        ) return 'OM';
+
+        return 'LH';
     }
 
     public function index(Request $request): JsonResponse
@@ -166,11 +179,27 @@ class SampleIdChangeRequestController extends Controller
 
         $cr = SampleIdChangeRequest::query()->findOrFail($changeRequestId);
 
+        // capture pre values (for audit)
+        $sampleId = (int) $cr->sample_id;
+        $suggested = is_string($cr->suggested_sample_id) ? $cr->suggested_sample_id : null;
+        $proposed = is_string($cr->proposed_sample_id) ? $cr->proposed_sample_id : null;
+
         try {
             $updated = $this->svc->approveChange($actor, $cr, is_string($note) ? $note : null);
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        AuditLogger::logSampleIdProposalReviewed(
+            staffId: (int) $actor->staff_id,
+            sampleId: $sampleId,
+            changeRequestId: (int) $updated->change_request_id,
+            decision: 'approved',
+            suggestedSampleId: $suggested,
+            proposedSampleId: $proposed,
+            reviewNote: is_string($note) ? $note : null,
+            reviewedByRole: $this->reviewedByRoleLabel($actor)
+        );
 
         return response()->json([
             'data' => [
@@ -197,11 +226,26 @@ class SampleIdChangeRequestController extends Controller
 
         $cr = SampleIdChangeRequest::query()->findOrFail($changeRequestId);
 
+        $sampleId = (int) $cr->sample_id;
+        $suggested = is_string($cr->suggested_sample_id) ? $cr->suggested_sample_id : null;
+        $proposed = is_string($cr->proposed_sample_id) ? $cr->proposed_sample_id : null;
+
         try {
             $updated = $this->svc->rejectChange($actor, $cr, $note);
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        AuditLogger::logSampleIdProposalReviewed(
+            staffId: (int) $actor->staff_id,
+            sampleId: $sampleId,
+            changeRequestId: (int) $updated->change_request_id,
+            decision: 'rejected',
+            suggestedSampleId: $suggested,
+            proposedSampleId: $proposed,
+            reviewNote: $note,
+            reviewedByRole: $this->reviewedByRoleLabel($actor)
+        );
 
         return response()->json([
             'data' => [

@@ -6,7 +6,9 @@ use App\Http\Requests\SampleIdAssignRequest;
 use App\Http\Requests\SampleIdProposeChangeRequest;
 use App\Models\Sample;
 use App\Models\Staff;
+use App\Models\SampleIdChangeRequest;
 use App\Services\SampleIdService;
+use App\Support\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -106,11 +108,48 @@ class SampleIdAdminController extends Controller
 
         $input = $request->validated()['sample_id'] ?? null;
 
+        // ✅ capture old BEFORE service mutates
+        $oldLab = $sample->lab_sample_code ?? null;
+
         try {
             $updated = $this->svc->assignFinal($actor, $sample, $input);
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        // ✅ determine whether this assignment is based on an approved proposal
+        $changeRequestId = null;
+        $source = 'direct_assign';
+
+        $norm = function ($v) {
+            $s = strtoupper(trim((string) $v));
+            $s = preg_replace('/[^A-Z0-9]/', '', $s); // remove spaces/dashes
+            return $s ?: '';
+        };
+
+        $approved = SampleIdChangeRequest::query()
+            ->where('sample_id', (int) $updated->sample_id)
+            ->where('status', 'APPROVED')
+            ->orderByDesc('change_request_id')
+            ->first();
+
+        if ($approved && $norm($approved->proposed_sample_id) !== '' && $norm($updated->lab_sample_code) !== '') {
+            if ($norm($approved->proposed_sample_id) === $norm($updated->lab_sample_code)) {
+                $changeRequestId = (int) $approved->change_request_id;
+                $source = 'approved_proposal';
+            }
+        }
+
+        // ✅ audit: SAMPLE_ID_ASSIGNED (actor = real admin staff)
+        AuditLogger::logSampleIdAssigned(
+            staffId: (int) $actor->staff_id,
+            sampleId: (int) $updated->sample_id,
+            oldLabSampleCode: is_string($oldLab) ? $oldLab : null,
+            newLabSampleCode: is_string($updated->lab_sample_code) ? $updated->lab_sample_code : null,
+            changeRequestId: $changeRequestId,
+            source: $source,
+            inputSampleId: is_string($input) ? $input : null
+        );
 
         return response()->json([
             'data' => [
@@ -141,6 +180,16 @@ class SampleIdAdminController extends Controller
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        // ✅ audit: SAMPLE_ID_PROPOSED
+        AuditLogger::logSampleIdProposed(
+            staffId: (int) $actor->staff_id,
+            sampleId: (int) $cr->sample_id,
+            changeRequestId: (int) $cr->change_request_id,
+            suggestedSampleId: is_string($cr->suggested_sample_id) ? $cr->suggested_sample_id : null,
+            proposedSampleId: (string) $cr->proposed_sample_id,
+            note: is_string($note) ? $note : null
+        );
 
         return response()->json([
             'data' => [

@@ -335,7 +335,7 @@ class AuditLogger
     }
 
     /**
-     * ✅ Step 3: Audit log untuk verifikasi request oleh OM/LH.
+     * Audit log untuk verifikasi request oleh OM/LH.
      */
     public static function logSampleRequestVerified(
         int $staffId,
@@ -365,11 +365,106 @@ class AuditLogger
     }
 
     /**
-     * ✅ Step 2.6 — Audit log untuk Analyst Crosscheck (ISO trail).
-     * Event minimal:
-     * - SAMPLE_CROSSCHECK_PASSED
-     * - SAMPLE_CROSSCHECK_FAILED
-     * data: sample_id, expected_code, entered_code, actor_id, note
+     * Audit — Admin proposed Sample ID change.
+     * Entity: samples (entity_id = sample_id)
+     */
+    public static function logSampleIdProposed(
+        int $staffId,
+        int $sampleId,
+        int $changeRequestId,
+        ?string $suggestedSampleId,
+        string $proposedSampleId,
+        ?string $note = null
+    ): void {
+        self::write(
+            action: 'SAMPLE_ID_PROPOSED',
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: [
+                'suggested_sample_id' => $suggestedSampleId,
+            ],
+            newValues: [
+                'change_request_id' => $changeRequestId,
+                'suggested_sample_id' => $suggestedSampleId,
+                'proposed_sample_id' => $proposedSampleId,
+                'note' => $note,
+            ]
+        );
+    }
+
+    /**
+     * Audit — OM/LH reviewed Sample ID proposal (approved/rejected).
+     * Entity: samples (entity_id = sample_id)
+     */
+    public static function logSampleIdProposalReviewed(
+        int $staffId,
+        int $sampleId,
+        int $changeRequestId,
+        string $decision, // 'approved' | 'rejected'
+        ?string $suggestedSampleId,
+        ?string $proposedSampleId,
+        ?string $reviewNote = null,
+        ?string $reviewedByRole = null
+    ): void {
+        $d = strtolower(trim($decision));
+        $action = $d === 'approved'
+            ? 'SAMPLE_ID_PROPOSAL_APPROVED'
+            : 'SAMPLE_ID_PROPOSAL_REJECTED';
+
+        self::write(
+            action: $action,
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: [
+                'change_request_id' => $changeRequestId,
+                'suggested_sample_id' => $suggestedSampleId,
+                'proposed_sample_id' => $proposedSampleId,
+            ],
+            newValues: [
+                'change_request_id' => $changeRequestId,
+                'decision' => $d,
+                'reviewed_by_role' => $reviewedByRole,
+                'review_note' => $reviewNote,
+                'suggested_sample_id' => $suggestedSampleId,
+                'proposed_sample_id' => $proposedSampleId,
+            ]
+        );
+    }
+
+    /**
+     * Audit — Admin assigned final Sample ID (lab_sample_code).
+     * Entity: samples (entity_id = sample_id)
+     */
+    public static function logSampleIdAssigned(
+        int $staffId,
+        int $sampleId,
+        ?string $oldLabSampleCode,
+        ?string $newLabSampleCode,
+        ?int $changeRequestId = null,
+        ?string $source = null,
+        ?string $inputSampleId = null
+    ): void {
+        self::write(
+            action: 'SAMPLE_ID_ASSIGNED',
+            staffId: $staffId,
+            entityName: 'samples',
+            entityId: $sampleId,
+            oldValues: [
+                'lab_sample_code' => $oldLabSampleCode,
+            ],
+            newValues: [
+                'lab_sample_code' => $newLabSampleCode,
+                'change_request_id' => $changeRequestId,
+                'source' => $source, // direct_assign | approved_proposal
+                'input_sample_id' => $inputSampleId,
+            ]
+        );
+    }
+
+    /**
+     * Audit log untuk Analyst Crosscheck (ISO trail).
      */
     public static function logSampleCrosscheck(
         int $staffId,

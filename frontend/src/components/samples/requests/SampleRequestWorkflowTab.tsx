@@ -858,13 +858,22 @@ export function SampleRequestWorkflowTab(props: {
             pickStr(sampleIdChangeObj, ["reviewed_by_role_name", "reviewedByRoleName"]) ??
             null;
 
+        const sidDecidedAt = pickAt(sampleIdChangeObj, ["decided_at", "approved_at", "rejected_at", "updated_at"]);
         if (sampleIdChangeObj) {
             const fromLogs =
                 (!sidRequesterName && logs)
                     ? findActorFromLogs(
                         logs,
-                        ["sample id change", "propose sample id", "requested sample id change", "sample_id_change", "PROPOSE_SAMPLE_ID"],
-                        sidReqAt ?? null
+                        [
+                            isSampleIdChangeApproved ? "approved sample id proposal" : "rejected sample id proposal",
+                            isSampleIdChangeApproved ? "SAMPLE_ID_PROPOSAL_APPROVED" : "SAMPLE_ID_PROPOSAL_REJECTED",
+                            "sample_id_proposal",
+                            "sample id proposal",
+                            "sample id change",
+                            "sample_id_change",
+                            "REVIEW_SAMPLE_ID",
+                        ],
+                        sidDecidedAt ?? null
                     )
                     : null;
 
@@ -876,11 +885,12 @@ export function SampleRequestWorkflowTab(props: {
                 actorName: sidRequesterName ?? fromLogs?.name ?? null,
                 actorRole: sidRequesterRole ?? fromLogs?.role ?? null,
                 at: sidReqAt ?? null,
-                note: sampleIdChangeObj?.proposed_sample_id ? `Proposed: ${String(sampleIdChangeObj.proposed_sample_id)}` : null,
+                note: sampleIdChangeObj?.proposed_sample_id
+                    ? `Suggested: ${String(sampleIdChangeObj.suggested_sample_id ?? "-")} → Proposed: ${String(sampleIdChangeObj.proposed_sample_id)}`
+                    : null,
             });
         }
 
-        const sidDecidedAt = pickAt(sampleIdChangeObj, ["decided_at", "approved_at", "rejected_at", "updated_at"]);
         if (sampleIdChangeObj && (isSampleIdChangeApproved || isSampleIdChangeRejected)) {
             const fromLogs =
                 (!sidReviewerName && logs)
@@ -893,7 +903,7 @@ export function SampleRequestWorkflowTab(props: {
 
             out.push({
                 key: "sid_decided",
-                title: isSampleIdChangeApproved ? "OM/LH approved Sample ID" : "OM/LH rejected Sample ID",
+                title: isSampleIdChangeApproved ? "OM/LH approved sample ID proposal" : "OM/LH rejected sample ID proposal",
                 actor: "OM/LH",
                 actorObj: sidReviewedBy ?? fromLogs?.obj ?? null,
                 actorName: sidReviewerName ?? fromLogs?.name ?? null,
@@ -919,7 +929,15 @@ export function SampleRequestWorkflowTab(props: {
                     nameKeys: ["lab_sample_code_assigned_by_name", "sample_id_assigned_by_name", "assigned_by_name", "admin_name", "administrator_name"],
                     roleKeys: ["lab_sample_code_assigned_by_role_name", "sample_id_assigned_by_role_name", "assigned_by_role_name", "admin_role_name", "administrator_role_name"],
                 },
-                ["assigned sample id", "lab sample code assigned", "assign sample id", "ASSIGN_SAMPLE_ID"],
+                [
+                    "assigned sample id",
+                    "lab sample code assigned",
+                    "assign sample id",
+                    "ASSIGN_SAMPLE_ID",
+                    "SAMPLE_ID_ASSIGNED",
+                    "sample_id_assigned",
+                    "sample id assigned",
+                ],
                 assignedAt ?? null
             );
 
