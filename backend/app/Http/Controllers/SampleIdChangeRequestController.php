@@ -214,6 +214,12 @@ class SampleIdChangeRequestController extends Controller
         ], 200);
     }
 
+    private function isAdmin(Staff $actor): bool
+    {
+        $role = strtolower(trim((string) ($actor->role?->name ?? '')));
+        return $role === 'admin' || $role === 'administrator' || str_contains($role, 'admin');
+    }
+
     public function latestBySample(Request $request, int $sampleId): JsonResponse
     {
         /** @var mixed $actor */
@@ -222,11 +228,15 @@ class SampleIdChangeRequestController extends Controller
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
-        $this->assertOmOrLhOr403($actor);
-
         $status = strtoupper(trim((string) $request->get('status', 'PENDING')));
         if (!in_array($status, ['PENDING', 'APPROVED', 'REJECTED'], true)) {
             $status = 'PENDING';
+        }
+
+        // ✅ Admin hanya boleh akses APPROVED (untuk finalize assignment)
+        // Selain itu tetap OM/LH only
+        if (!($status === 'APPROVED' && $this->isAdmin($actor))) {
+            $this->assertOmOrLhOr403($actor);
         }
 
         $r = SampleIdChangeRequest::query()
