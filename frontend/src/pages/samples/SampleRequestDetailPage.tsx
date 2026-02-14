@@ -39,8 +39,10 @@ function StatusPill({ value }: { value?: string | null }) {
         awaiting_verification: "bg-violet-50 text-violet-700 border-violet-200",
         intake_validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
         waiting_sample_id_assignment: "bg-slate-50 text-slate-700 border-slate-200",
-        approved_for_assignment: "bg-slate-50 text-slate-700 border-slate-200",
+        sample_id_pending_verification: "bg-amber-50 text-amber-800 border-amber-200",
+        sample_id_approved_for_assignment: "bg-emerald-50 text-emerald-700 border-emerald-200",
     };
+
     const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
     const label =
         value
@@ -52,6 +54,8 @@ function StatusPill({ value }: { value?: string | null }) {
                 if (vv === "awaiting_verification") return "Awaiting verification";
                 if (vv === "waiting_sample_id_assignment") return "Waiting sample ID assignment";
                 if (vv === "approved_for_assignment") return "Approved for assignment";
+                if (vv === "sample_id_pending_verification") return "Sample ID pending verification";
+                if (vv === "sample_id_approved_for_assignment") return "Sample ID approved for assignment";
                 return value;
             })()
             : "-";
@@ -266,6 +270,29 @@ export default function SampleRequestDetailPage() {
     const [sidModalMode, setSidModalMode] = useState<"approve" | "reject">("approve");
     const [sidBusy, setSidBusy] = useState(false);
     const [sidErr, setSidErr] = useState<string | null>(null);
+
+    // nudge/highlight SID approval section when user clicks "Verify Sample ID change"
+    const [sidNudge, setSidNudge] = useState(false);
+
+    const nudgeSampleIdChangeApproval = () => {
+        setWfError(null);
+        setSidErr(null);
+
+        // kalau backend belum kirim detail change request id, kita ga bisa approve/reject
+        if (!sidRow) {
+            setWfError(
+                "Sample ID change details not found. Backend harus mengirim sample_id_change.change_request_id (atau id) agar OM/LH bisa approve/reject."
+            );
+            return;
+        }
+
+        setSidNudge(true);
+        window.setTimeout(() => setSidNudge(false), 1500);
+
+        window.requestAnimationFrame(() => {
+            document.getElementById("sid-change-approval")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+    };
 
     const requestStatus = (sample as any)?.request_status ?? null;
     const labSampleCode = (sample as any)?.lab_sample_code ?? null;
@@ -517,7 +544,13 @@ export default function SampleRequestDetailPage() {
                                 {tab === "workflow" && (
                                     <>
                                         {sidCanAct && sidRow ? (
-                                            <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 overflow-hidden">
+                                            <div
+                                                id="sid-change-approval"
+                                                className={cx(
+                                                    "mb-5 rounded-2xl border border-amber-200 bg-amber-50 overflow-hidden scroll-mt-24",
+                                                    sidNudge && "ring-2 ring-amber-400"
+                                                )}
+                                            >
                                                 <div className="px-5 py-4 border-b border-amber-200 flex items-start justify-between gap-3 flex-wrap">
                                                     <div>
                                                         <div className="text-sm font-bold text-amber-900">Sample ID Change Approval</div>
@@ -532,9 +565,9 @@ export default function SampleRequestDetailPage() {
                                                             className={cx(
                                                                 "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
                                                                 "bg-primary text-white hover:opacity-95",
-                                                                (sidBusy || sidStatus !== "pending") && "opacity-60 cursor-not-allowed"
+                                                                (sidBusy || !sidCanAct) && "opacity-60 cursor-not-allowed"
                                                             )}
-                                                            disabled={sidBusy || sidStatus !== "pending"}
+                                                            disabled={sidBusy || !sidCanAct}
                                                             onClick={() => {
                                                                 setSidErr(null);
                                                                 setSidModalMode("approve");
@@ -603,6 +636,7 @@ export default function SampleRequestDetailPage() {
                                             onDoPhysicalWorkflow={doPhysicalWorkflow}
                                             onOpenIntakeChecklist={() => setIntakeOpen(true)}
                                             onVerify={doVerify}
+                                            onVerifySampleIdChange={nudgeSampleIdChangeApproval}
                                             onOpenAssignSampleId={() => setAssignOpen(true)}
                                         />
 
@@ -616,9 +650,15 @@ export default function SampleRequestDetailPage() {
                                                 if (!sidRow) return;
 
                                                 const changeId = Number(
-                                                    sidRow.change_request_id ??
-                                                    sidRow.id ??
-                                                    sidRow.sample_id_change_id ??
+                                                    sidChangeObj?.change_request_id ??
+                                                    sidChangeObj?.change_requestId ??
+                                                    sidChangeObj?.sample_id_change_request_id ??
+                                                    sidChangeObj?.sampleIdChangeRequestId ??
+                                                    sidChangeObj?.sample_id_change_id ??
+                                                    sidChangeObj?.change_id ??
+                                                    sidChangeObj?.changeId ??
+                                                    sidChangeObj?.id ??
+                                                    sidChangeObj?.change_request?.id ??
                                                     0
                                                 );
                                                 if (!Number.isFinite(changeId) || changeId <= 0) return;

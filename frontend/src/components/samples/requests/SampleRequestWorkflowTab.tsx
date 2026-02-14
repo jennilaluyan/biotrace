@@ -88,6 +88,7 @@ export function SampleRequestWorkflowTab(props: {
     onDoPhysicalWorkflow: (action: string) => void;
     onOpenIntakeChecklist: () => void;
     onVerify: () => void;
+    onVerifySampleIdChange?: () => void;
     onOpenAssignSampleId: () => void;
 }) {
     const { sample, roleId, roleLabel } = props;
@@ -163,9 +164,19 @@ export function SampleRequestWorkflowTab(props: {
         !s?.client_picked_up_at;
 
     const verifiedAt = s?.verified_at ?? null;
+
+    const isSampleIdPendingVerification = requestStatusKey === "sample_id_pending_verification";
     const awaitingVerify = requestStatusKey === "awaiting_verification" && !labSampleCode;
 
-    const canVerify = isOmLh && !labSampleCode && (awaitingVerify || isSampleIdChangePending);
+    type VerifyMode = "intake" | "sample_id_change";
+    const verifyMode: VerifyMode | null =
+        isSampleIdChangePending || isSampleIdPendingVerification
+            ? "sample_id_change"
+            : awaitingVerify
+                ? "intake"
+                : null;
+
+    const canVerify = isOmLh && !labSampleCode && !!verifyMode;
 
     const canAssignSampleId =
         isAdmin &&
@@ -342,7 +353,7 @@ export function SampleRequestWorkflowTab(props: {
             };
         }
 
-        if (isSampleIdChangePending) {
+        if (isSampleIdChangePending || isSampleIdPendingVerification) {
             return { type: "warning" as const, message: "Sample ID change is pending OM/LH verification." };
         }
 
@@ -355,7 +366,14 @@ export function SampleRequestWorkflowTab(props: {
         }
 
         return null;
-    }, [props.assignFlash, labSampleCode, isSampleIdChangePending, isSampleIdChangeApproved, isSampleIdChangeRejected]);
+    }, [
+        props.assignFlash,
+        labSampleCode,
+        isSampleIdChangePending,
+        isSampleIdPendingVerification,
+        isSampleIdChangeApproved,
+        isSampleIdChangeRejected,
+    ]);
 
     return (
         <div className="space-y-6">
@@ -505,17 +523,26 @@ export function SampleRequestWorkflowTab(props: {
 
                         {canVerify ? (
                             <ActionCard
-                                title={isSampleIdChangePending ? "OM/LH: Verify Sample ID change" : "OM/LH: Verify intake"}
+                                title={verifyMode === "sample_id_change" ? "OM/LH: Verify Sample ID change" : "OM/LH: Verify intake"}
                                 subtitle={
-                                    isSampleIdChangePending
+                                    verifyMode === "sample_id_change"
                                         ? "Approve/reject the requested Sample ID change."
                                         : "Verify intake result from Sample Collector."
                                 }
                                 icon={<ShieldCheck size={18} />}
-                                onClick={props.onVerify}
-                                disabled={props.verifyBusy}
+                                onClick={() => {
+                                    if (verifyMode === "sample_id_change") return props.onVerifySampleIdChange?.();
+                                    return props.onVerify();
+                                }}
+                                disabled={props.verifyBusy || (verifyMode === "sample_id_change" && !props.onVerifySampleIdChange)}
                                 tone="primary"
-                                rightText={props.verifyBusy ? "Saving..." : "Verify"}
+                                rightText={
+                                    verifyMode === "sample_id_change" && !props.onVerifySampleIdChange
+                                        ? "Missing handler"
+                                        : props.verifyBusy
+                                            ? "Saving..."
+                                            : "Verify"
+                                }
                             />
                         ) : null}
 
