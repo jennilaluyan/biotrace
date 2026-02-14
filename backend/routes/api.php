@@ -30,6 +30,7 @@ use App\Http\Controllers\SampleController;
 use App\Http\Controllers\SampleCrosscheckController;
 use App\Http\Controllers\SamplePhysicalWorkflowController;
 use App\Http\Controllers\SampleStatusHistoryController;
+use App\Http\Controllers\SampleWorkflowLogsController;
 
 // Intake
 use App\Http\Controllers\SampleIntakeChecklistController;
@@ -294,6 +295,10 @@ Route::prefix('v1')->group(function () {
         // Sample status & history
         Route::post('samples/{sample}/status', [SampleController::class, 'updateStatus'])->whereNumber('sample');
         Route::get('samples/{sample}/status-history', [SampleStatusHistoryController::class, 'index'])->whereNumber('sample');
+
+        // Workflow logs for request workflow timeline (actor_name + actor_role_name)
+        Route::get('samples/{sample}/workflow-logs', [SampleWorkflowLogsController::class, 'index'])
+            ->whereNumber('sample');
 
         // Sample comments
         Route::get('samples/{sample}/comments', [SampleCommentController::class, 'index'])->whereNumber('sample');

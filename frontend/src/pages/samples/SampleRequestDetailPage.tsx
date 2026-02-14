@@ -1,13 +1,12 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleRequestDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
-import type { ButtonHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import { formatDateTimeLocal } from "../../utils/date";
 import { sampleService, type Sample } from "../../services/samples";
-import { apiPost, apiPatch } from "../../services/api";
+import { apiGet, apiPost, apiPatch } from "../../services/api";
 
 import {
     approveSampleIdChange,
@@ -109,7 +108,7 @@ function SmallButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
     );
 }
 
-function TabButton(props: { active: boolean; children: React.ReactNode; onClick: () => void }) {
+function TabButton(props: { active: boolean; children: ReactNode; onClick: () => void }) {
     return (
         <button
             type="button"
@@ -234,6 +233,8 @@ export default function SampleRequestDetailPage() {
         [roleId]
     );
 
+    const [workflowLogs, setWorkflowLogs] = useState<any[] | null>(null);
+
     const [tab, setTab] = useState<"info" | "workflow">("info");
 
     const [sample, setSample] = useState<Sample | null>(null);
@@ -254,7 +255,6 @@ export default function SampleRequestDetailPage() {
     const [wfError, setWfError] = useState<string | null>(null);
     const [verifyBusy, setVerifyBusy] = useState(false);
 
-    // ---- Sample ID Change decision flow (no big card, only via workflow button) ----
     const [sidFetchedRaw, setSidFetchedRaw] = useState<any | null>(null);
     const [sidActiveRow, setSidActiveRow] = useState<SampleIdChangeRow | null>(null);
     const [sidPickOpen, setSidPickOpen] = useState(false);
@@ -283,7 +283,6 @@ export default function SampleRequestDetailPage() {
 
         let row = sidRow;
 
-        // If detail object isn't present on sample response, fetch latest by sample id.
         if (!row && Number.isFinite(requestId) && requestId > 0) {
             try {
                 const fetched = await getLatestSampleIdChangeBySampleId(requestId);
@@ -322,8 +321,38 @@ export default function SampleRequestDetailPage() {
         try {
             if (!silent) setLoading(true);
             setError(null);
+
             const data = await sampleService.getById(requestId);
             setSample(data);
+
+            try {
+                const res = await apiGet<any>(`/v1/samples/${requestId}/workflow-logs`);
+
+                const unwrapLogs = (x: any): any[] | null => {
+                    if (Array.isArray(x)) return x;
+
+                    if (x && typeof x === "object") {
+                        // common shapes:
+                        // 1) { data: [...] }
+                        if (Array.isArray((x as any).data)) return (x as any).data;
+
+                        // 2) { data: { data: [...] } } (pagination)
+                        if ((x as any).data && typeof (x as any).data === "object" && Array.isArray((x as any).data.data)) {
+                            return (x as any).data.data;
+                        }
+
+                        // 3) { items: [...] }
+                        if (Array.isArray((x as any).items)) return (x as any).items;
+                    }
+
+                    return null;
+                };
+
+                const arr = unwrapLogs(res);
+                setWorkflowLogs(arr ?? []);
+            } catch {
+                setWorkflowLogs(null);
+            }
         } catch (err: any) {
             const msg = err?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to load sample request detail.";
             setError(msg);
@@ -460,6 +489,7 @@ export default function SampleRequestDetailPage() {
                             strokeWidth="1.6"
                             strokeLinecap="round"
                             strokeLinejoin="round"
+                            aria-hidden="true"
                         >
                             <path d="M4 12h9" />
                             <path d="M11 9l3 3-3 3" />
@@ -551,6 +581,7 @@ export default function SampleRequestDetailPage() {
                                             wfError={wfError}
                                             verifyBusy={verifyBusy}
                                             assignFlash={assignFlash}
+                                            workflowLogs={workflowLogs}
                                             onApprove={approve}
                                             onOpenReturn={() => setReturnModalOpen(true)}
                                             onMarkPhysicallyReceived={doMarkPhysicallyReceived}
@@ -696,7 +727,6 @@ export default function SampleRequestDetailPage() {
                                                         e?.data?.error ??
                                                         e?.message ??
                                                         "Failed to process decision.";
-                                                    // close modal so user can see the error banner in workflow tab
                                                     setSidModalOpen(false);
                                                     setSidPickOpen(false);
                                                     setWfError(msg);
@@ -731,21 +761,6 @@ export default function SampleRequestDetailPage() {
                             onClose={() => setFinalizeApprovedOpen(false)}
                             onDone={async (payload) => {
                                 setFinalizeApprovedOpen(false);
-                                setAssignFlash(payload.type ? { type: payload.type, message: payload.message } : null);
-                                await load({ silent: true });
-
-                                if (payload.type) {
-                                    window.setTimeout(() => setAssignFlash(null), 9000);
-                                }
-                            }}
-                        />
-
-                        <AssignSampleIdModal
-                            open={assignOpen}
-                            sample={sample}
-                            onClose={() => setAssignOpen(false)}
-                            onDone={async (payload) => {
-                                setAssignOpen(false);
                                 setAssignFlash(payload.type ? { type: payload.type, message: payload.message } : null);
                                 await load({ silent: true });
 
