@@ -258,6 +258,24 @@ class ReportDocumentsController extends Controller
             ]);
         }
 
+        $loo = LetterOfOrder::where('lo_id', $id)->firstOrFail();
+        $payload = (array) ($loo->payload ?? []);
+
+        $pdfFileId = (int) ($payload['pdf_file_id'] ?? 0);
+        if ($pdfFileId > 0) {
+            // DB-backed LOO: stream via FileController endpoint
+            return redirect()->to(url("/api/v1/files/{$pdfFileId}"));
+        }
+
+        // Legacy fallback (disk-based)
+        $path = $this->absPath($loo->file_url);
+        if (!is_file($path)) {
+            abort(404, 'PDF not found.');
+        }
+        return response()->file($path, [
+            'Content-Type' => 'application/pdf',
+        ]);
+
         if (in_array($type, ['reagent-request', 'reagent_request', 'rr'], true)) {
             if (!Schema::hasTable('reagent_requests')) {
                 return response()->json(['message' => 'Reagent requests table not found.'], 500);

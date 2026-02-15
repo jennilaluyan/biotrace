@@ -38,6 +38,59 @@ class LetterOfOrder extends Model
         'payload' => 'array',
     ];
 
+    protected $appends = [
+        'pdf_file_id',
+        'docx_file_id',
+        'record_no',
+        'form_code',
+        'download_url',
+    ];
+
+    public function getPdfFileIdAttribute(): ?int
+    {
+        $p = (array) ($this->payload ?? []);
+        $id = (int) ($p['pdf_file_id'] ?? 0);
+        return $id > 0 ? $id : null;
+    }
+
+    public function getDocxFileIdAttribute(): ?int
+    {
+        $p = (array) ($this->payload ?? []);
+        $id = (int) ($p['docx_file_id'] ?? 0);
+        return $id > 0 ? $id : null;
+    }
+
+    public function getRecordNoAttribute(): ?string
+    {
+        $p = (array) ($this->payload ?? []);
+        $v = (string) ($p['record_no'] ?? '');
+        return $v !== '' ? $v : null;
+    }
+
+    public function getFormCodeAttribute(): ?string
+    {
+        $p = (array) ($this->payload ?? []);
+        $v = (string) ($p['form_code'] ?? '');
+        return $v !== '' ? $v : null;
+    }
+
+    public function getDownloadUrlAttribute(): ?string
+    {
+        $p = (array) ($this->payload ?? []);
+
+        $pdfFileId = (int) ($p['pdf_file_id'] ?? 0);
+        if ($pdfFileId > 0) {
+            return url("/api/v1/files/{$pdfFileId}");
+        }
+
+        // Backward compatibility: legacy disk-based download still exists in codebase
+        if (!empty($this->file_url)) {
+            return url("/api/v1/reports/documents/loo/{$this->lo_id}/pdf");
+        }
+
+        return null;
+    }
+
     public function signatures(): HasMany
     {
         return $this->hasMany(LooSignature::class, 'lo_id', 'lo_id');

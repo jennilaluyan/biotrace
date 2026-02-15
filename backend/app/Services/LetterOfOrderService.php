@@ -2,21 +2,27 @@
 
 namespace App\Services;
 
+use App\Models\FileBlob;
 use App\Models\LetterOfOrder;
 use App\Models\LetterOfOrderItem;
 use App\Models\LooSignature;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
 
 class LetterOfOrderService
 {
+    private const DOC_CODE_LOO = 'LOO_SURAT_PENGUJIAN';
+
     public function __construct(
         private readonly LooNumberGenerator $numberGen,
-        private readonly LooPdfService $pdf,
+        private readonly LooPdfService $pdf, // legacy-only (path builder), keep for backward compat
+        private readonly FileStoreService $files,
+        private readonly DocNumberService $docNumber,
+        private readonly DocxTemplateRenderService $docx,
+        private readonly DocxToPdfConverter $docxToPdf,
     ) {}
 
     /**
@@ -72,14 +78,14 @@ class LetterOfOrderService
     }
 
     /**
-     * Force all LoO PDFs to live under storage/app/private/reports/loo/...
-     * DB must store a RELATIVE path usable by Storage::disk('local') (root storage/app/private).
+     * Legacy helper: keep file_url under storage/app/private/reports/loo/...
+     * We keep this only for backward compatibility with older disk-based flows.
+     * New Step 12: actual PDF bytes are stored in DB (files) and referenced by payload.pdf_file_id.
      */
     private function forceReportsLooPath(string $pathOrAnything, string $looNumber): string
     {
         $p = str_replace('\\', '/', trim((string) $pathOrAnything));
 
-        // If somehow a full URL got stored, strip it
         if (preg_match('/^https?:\/\//i', $p)) {
             $u = parse_url($p, PHP_URL_PATH);
             if (is_string($u) && $u !== '') $p = $u;
@@ -87,17 +93,14 @@ class LetterOfOrderService
 
         $p = ltrim($p, '/');
 
-        // Migrate legacy prefix
         if (str_starts_with($p, 'letters/loo/')) {
             $p = preg_replace('#^letters/loo/#', 'reports/loo/', $p);
         }
 
-        // If already correct, keep
         if (str_starts_with($p, 'reports/loo/')) {
             return $p;
         }
 
-        // Fall back to a guaranteed correct path
         $year = now()->format('Y');
         $safe = str_replace(['/', '\\'], '_', trim($looNumber));
         $safe = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $safe) ?: 'loo';
@@ -105,55 +108,94 @@ class LetterOfOrderService
     }
 
     /**
-     * Ensure PDF exists on disk for a given LoO, using payload snapshot (safe).
+     * Step 12:
+     * Ensure PDF exists in DB (files table) for a given LoO, using payload snapshot (safe).
      * Generates even for DRAFT so preview works right after generate.
+     *
+     * Writes:
+     * - payload.pdf_file_id
+     * - payload.docx_file_id (optional but we store it)
+     * - payload.record_no
+     * - payload.form_code
+     * - payload.revision_no (from documents registry)
+     * - payload.template_version (from document_versions.version)
      */
-    private function ensurePdfOnDisk(LetterOfOrder $loa, array $payload, array $itemsSnapshot, bool $forceRegenerate = false): void
-    {
+    private function ensurePdfInDb(
+        LetterOfOrder $loa,
+        array $payload,
+        array $itemsSnapshot,
+        int $actorStaffId,
+        bool $forceRegenerate = false
+    ): void {
         $number = (string) ($loa->number ?? data_get($payload, 'loo_number', data_get($payload, 'loa_number', '')));
 
         if ($number === '') {
-            // must have a number
             $number = $this->numberGen->nextNumber();
             $loa->number = $number;
         }
 
-        // Always enforce correct path location
-        $candidate = (string) ($loa->file_url ?? $this->pdf->buildPath($number));
-        $path = $this->forceReportsLooPath($candidate, $number);
+        // Load template registry + current version
+        $doc = DB::table('documents')
+            ->where('doc_code', self::DOC_CODE_LOO)
+            ->where('kind', 'template')
+            ->where('is_active', true)
+            ->first();
 
-        /**
-         * ✅ Template versioning:
-         * kalau template / logic PDF berubah, PDF lama jangan dipakai terus.
-         * Ini menghindari kasus "sudah ubah blade tapi preview masih PDF lama".
-         */
-        $tplVersion = 'loo_surat_pengujian_v2_qr';
-        $prevTpl = (string) ($payload['pdf_tpl_version'] ?? '');
-        if ($prevTpl !== $tplVersion) {
-            $forceRegenerate = true;
+        if (!$doc) {
+            throw new RuntimeException('LOO template registry not found or inactive (documents row missing).');
         }
 
-        // Decide whether to generate
-        $alreadyGenerated = !empty($payload['pdf_generated_at']);
-        $shouldGenerate = $forceRegenerate || !$alreadyGenerated || !Storage::disk($this->pdf->disk())->exists($path);
+        $currentVersionId = (int) ($doc->current_version_id ?? 0);
+        if ($currentVersionId <= 0) {
+            throw new RuntimeException('LOO template has no uploaded DOCX yet (current_version_id is null).');
+        }
+
+        $ver = DB::table('document_versions')
+            ->where('doc_version_id', $currentVersionId)
+            ->first();
+
+        if (!$ver) {
+            throw new RuntimeException('LOO template current version row not found (document_versions).');
+        }
+
+        $templateFileId = (int) ($ver->file_id ?? 0);
+        if ($templateFileId <= 0) {
+            throw new RuntimeException('LOO template current version missing file_id.');
+        }
+
+        $templateVersion = (int) ($ver->version ?? 1);
+
+        // Decide whether to generate / regenerate
+        $pdfFileId = (int) ($payload['pdf_file_id'] ?? 0);
+        $prevTplVer = (int) ($payload['template_version'] ?? 0);
+        $prevTplFileId = (int) ($payload['template_file_id'] ?? 0);
+
+        $numbers = $this->docNumber->generate(self::DOC_CODE_LOO, now());
+        $recordNo = (string) ($numbers['record_no'] ?? '');
+        $formCode = (string) ($numbers['form_code'] ?? '');
+        $revisionNo = (int) ($numbers['revision_no'] ?? 0);
+
+        $prevRevision = (int) ($payload['revision_no'] ?? -1);
+
+        $alreadyGenerated = $pdfFileId > 0;
+        $templateChanged = ($prevTplVer !== $templateVersion) || ($prevTplFileId !== $templateFileId);
+        $revisionChanged = ($prevRevision !== $revisionNo);
+
+        $shouldGenerate = $forceRegenerate || !$alreadyGenerated || $templateChanged || $revisionChanged;
 
         if (!$shouldGenerate) {
-            // still normalize file_url in DB if needed
-            if ((string) $loa->file_url !== $path) {
-                $loa->file_url = $path;
-            }
+            // still normalize numbering snapshot if missing (without regenerating)
+            if (empty($payload['record_no'])) $payload['record_no'] = $recordNo;
+            if (empty($payload['form_code'])) $payload['form_code'] = $formCode;
+
+            $loa->payload = $payload;
+            if (empty($loa->generated_at)) $loa->generated_at = now();
             return;
         }
 
-        // Make sure we have signatures loaded for checkbox display
+        // Make sure signatures loaded for QR/checkbox placeholders, and backfill missing signature_hash
         $loa->loadMissing(['signatures']);
 
-        /**
-         * ✅ FIX barcode/QR not visible:
-         * Template expects signature_hash to exist.
-         * If it's empty (old drafts / older data), QR will never render and you only see placeholders.
-         * So we backfill missing hashes BEFORE render.
-         */
         $hashBackfilled = false;
         try {
             foreach ($loa->signatures as $sig) {
@@ -167,28 +209,177 @@ class LetterOfOrderService
             }
 
             if ($hashBackfilled) {
-                $forceRegenerate = true;
-                $loa->load('signatures'); // refresh relation after mutation
+                $loa->load('signatures');
             }
         } catch (\Throwable $e) {
-            // do not block PDF generation
+            // do not block generation
         }
 
-        $binary = $this->pdf->render('documents.surat_pengujian', [
-            'loo' => $loa,
-            'payload' => $payload,
-            'client' => null,
-            'items' => $itemsSnapshot,
-        ]);
+        // Fetch template bytes from DB
+        /** @var FileBlob $tpl */
+        $tpl = FileBlob::query()->where('file_id', $templateFileId)->firstOrFail();
+        $templateBytes = (string) ($tpl->bytes ?? '');
 
-        $this->pdf->store($path, $binary);
+        if ($templateBytes === '') {
+            throw new RuntimeException('LOO template file bytes are empty.');
+        }
 
+        // Build placeholder vars (best-effort; template can pick what it needs)
+        $client = (array) ($payload['client'] ?? []);
+
+        $vars = [
+            // numbering
+            'record_no' => $recordNo,
+            'form_code' => $formCode,
+
+            // identifiers
+            'loo_number' => $number,
+            'loa_number' => $number, // backward compat placeholders
+            'generated_date' => now()->format('d/m/Y'),
+
+            // client
+            'client_name' => (string) ($client['name'] ?? ''),
+            'client_organization' => (string) ($client['organization'] ?? ''),
+            'client_email' => (string) ($client['email'] ?? ''),
+            'client_phone' => (string) ($client['phone'] ?? ''),
+        ];
+
+        // Signature placeholders (optional)
+        try {
+            foreach ($loa->signatures as $sig) {
+                $role = strtoupper((string) ($sig->role_code ?? ''));
+                if ($role === '') continue;
+
+                $vars["sig_{$role}_hash"] = (string) ($sig->signature_hash ?? '');
+                $vars["sig_{$role}_signed_at"] = $sig->signed_at ? $sig->signed_at->format('d/m/Y H:i') : '';
+                $vars["sig_{$role}_signed"] = $sig->signed_at ? '1' : '0';
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        // Build table rows for DOCX cloneRow
+        // Convention: template uses ${item_no} as clone key.
+        $rows = [
+            'item_no' => [],
+        ];
+
+        foreach ($itemsSnapshot as $it) {
+            $rows['item_no'][] = [
+                'item_no' => (string) ($it['no'] ?? ''),
+                'sample_id' => (string) ($it['sample_id'] ?? ''),
+                'lab_sample_code' => (string) ($it['lab_sample_code'] ?? ''),
+                'sample_type' => (string) ($it['sample_type'] ?? ''),
+                'parameters' => $this->formatParametersForDocx($it['parameters'] ?? []),
+            ];
+        }
+
+        // Render merged DOCX bytes
+        $mergedDocxBytes = $this->docx->renderBytes($templateBytes, $vars, $rows);
+
+        // Convert DOCX->PDF bytes
+        $pdfBytes = $this->docxToPdf->convertBytes($mergedDocxBytes);
+
+        // Store to DB (files)
+        $safe = preg_replace('/[^A-Za-z0-9_\-]+/', '_', str_replace(['/', '\\'], '_', trim($number))) ?: 'loo';
+        $stamp = now()->format('YmdHis');
+
+        $docxName = "LOO-{$safe}-{$stamp}.docx";
+        $pdfName = "LOO-{$safe}-{$stamp}.pdf";
+
+        $docxFileId = $this->files->storeBytes(
+            $mergedDocxBytes,
+            $docxName,
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'docx',
+            $actorStaffId
+        );
+
+        $newPdfFileId = $this->files->storeBytes(
+            $pdfBytes,
+            $pdfName,
+            'application/pdf',
+            'pdf',
+            $actorStaffId
+        );
+
+        // Snapshot in payload
         $payload['pdf_generated_at'] = now()->toISOString();
-        $payload['pdf_tpl_version'] = $tplVersion;
+        $payload['pdf_file_id'] = $newPdfFileId;
+        $payload['docx_file_id'] = $docxFileId;
 
-        // keep in-memory updated; caller will save()
+        $payload['record_no'] = $recordNo;
+        $payload['form_code'] = $formCode;
+        $payload['revision_no'] = $revisionNo;
+
+        $payload['template_version'] = $templateVersion;
+        $payload['template_file_id'] = $templateFileId;
+        $payload['doc_code'] = self::DOC_CODE_LOO;
+
+        // Helpful for FE (optional)
+        $payload['download_url'] = url("/api/v1/files/{$newPdfFileId}");
+
+        // generated_documents snapshot (if table exists) — mirror COA finalize style
+        if (Schema::hasTable('generated_documents')) {
+            try {
+                DB::table('generated_documents')
+                    ->where('entity_type', 'loo')
+                    ->where('entity_id', (int) $loa->lo_id)
+                    ->where('is_active', true)
+                    ->update([
+                        'is_active' => false,
+                        'updated_at' => now(),
+                    ]);
+
+                DB::table('generated_documents')->insert([
+                    'doc_code' => self::DOC_CODE_LOO,
+                    'entity_type' => 'loo',
+                    'entity_id' => (int) $loa->lo_id,
+                    'record_no' => $recordNo,
+                    'form_code' => $formCode,
+                    'revision_no' => $revisionNo,
+                    'template_version' => $templateVersion,
+                    'file_pdf_id' => $newPdfFileId,
+                    'file_docx_id' => $docxFileId,
+                    'generated_by' => $actorStaffId,
+                    'generated_at' => now(),
+                    'is_active' => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            } catch (\Throwable $e) {
+                // do not block
+            }
+        }
+
+        // Keep in-memory updated; caller will save()
         $loa->payload = $payload;
-        $loa->file_url = $path;
+
+        if (empty($loa->generated_at)) {
+            $loa->generated_at = now();
+        }
+    }
+
+    private function formatParametersForDocx($params): string
+    {
+        if (!is_array($params)) return '';
+
+        $lines = [];
+        foreach ($params as $p) {
+            if (is_string($p)) {
+                $lines[] = $p;
+                continue;
+            }
+            if (is_array($p)) {
+                $code = (string) ($p['code'] ?? '');
+                $name = (string) ($p['name'] ?? '');
+                $label = trim($code . ($name !== '' ? " - {$name}" : ''));
+                if ($label !== '') $lines[] = $label;
+            }
+        }
+
+        // Newlines usually render as line breaks in PhpWord TemplateProcessor
+        return implode("\n", $lines);
     }
 
     public function ensureDraftForSamples(array $sampleIds, int $actorStaffId): LetterOfOrder
@@ -307,7 +498,7 @@ class LetterOfOrderService
                 // - signed_internal/sent_to_client: do NOT regenerate automatically (preserve signed doc intent)
                 $forceRegenerate = ((string) $existing->loa_status === 'draft');
 
-                $this->ensurePdfOnDisk($existing, $payload, $items, $forceRegenerate);
+                $this->ensurePdfInDb($existing, $payload, $items, $actorStaffId, $forceRegenerate);
 
                 $existing->payload = $payload;
                 $existing->updated_at = now();
@@ -338,8 +529,16 @@ class LetterOfOrderService
                 'sample_ids' => $sampleIds,
                 'items' => $items,
 
+                // Step 12 DB-backed outputs
                 'pdf_generated_at' => null,
-                'pdf_tpl_version' => null,
+                'pdf_file_id' => null,
+                'docx_file_id' => null,
+                'record_no' => null,
+                'form_code' => null,
+                'revision_no' => null,
+                'template_version' => null,
+                'template_file_id' => null,
+                'download_url' => null,
             ];
 
             try {
@@ -349,7 +548,7 @@ class LetterOfOrderService
                     'generated_at' => now(),
                     'generated_by' => $actorStaffId,
 
-                    // placeholder (will be normalized after PDF store)
+                    // legacy placeholder (some old code expects file_url present)
                     'file_url' => $this->forceReportsLooPath($this->pdf->buildPath($number), $number),
 
                     'loa_status' => 'draft',
@@ -440,9 +639,9 @@ class LetterOfOrderService
                 ]);
             }
 
-            // ✅ generate PDF immediately so preview works right away
+            // ✅ generate PDF immediately (DB-backed) so preview works right away
             $loa->loadMissing(['signatures']);
-            $this->ensurePdfOnDisk($loa, $payload, $items, true);
+            $this->ensurePdfInDb($loa, $payload, $items, $actorStaffId, true);
             $loa->updated_at = now();
             $loa->save();
 
@@ -515,7 +714,7 @@ class LetterOfOrderService
 
                 // regen once after both signed, so checkbox markers are correct
                 $items = (array) ($payload['items'] ?? []);
-                $this->ensurePdfOnDisk($loa, $payload, $items, true);
+                $this->ensurePdfInDb($loa, $payload, $items, $actorStaffId, true);
 
                 $loa->updated_at = now();
                 $loa->save();
@@ -539,7 +738,9 @@ class LetterOfOrderService
             }
 
             $payload = is_array($loa->payload) ? $loa->payload : (array) $loa->payload;
-            if (empty($payload['pdf_generated_at'])) {
+
+            $pdfFileId = (int) ($payload['pdf_file_id'] ?? 0);
+            if ($pdfFileId <= 0) {
                 throw new RuntimeException('PDF is not generated yet. Ensure OM & LH have signed.');
             }
 
