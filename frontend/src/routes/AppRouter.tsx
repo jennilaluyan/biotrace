@@ -36,6 +36,7 @@ import { QualityCoverLhDetailPage } from "../pages/quality-covers/QualityCoverLh
 import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
 import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
 import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
+import { DocumentTemplatesPage } from "../pages/docs/DocumentTemplatesPage";
 
 /**
  * Smart default landing (restore last route per actor):
@@ -367,6 +368,15 @@ export const AppRouter = () => {
                             }
                         />
                     </Route>
+
+                    <Route
+                        path="/settings/docs/templates"
+                        element={
+                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN, ROLE_ID.LAB_HEAD]}>
+                                <DocumentTemplatesPage />
+                            </RoleGuard>
+                        }
+                    />
                 </Route>
             </Route>
 
