@@ -73,6 +73,7 @@ use App\Http\Controllers\ReportSignatureController;
 
 // Documents
 use App\Http\Controllers\DocumentTemplateController;
+use App\Http\Controllers\FileController;
 
 // LOO
 use App\Http\Controllers\LetterOfOrderController;
@@ -506,6 +507,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/document-templates', [DocumentTemplateController::class, 'index']);
         Route::patch('/document-templates/{doc_code}', [DocumentTemplateController::class, 'update']);
         Route::post('/document-templates/{doc_code}/versions', [DocumentTemplateController::class, 'uploadVersion']);
+        Route::get('/files/{fileId}', [FileController::class, 'show'])
+            ->whereNumber('fileId');
 
         // COA PDF
         Route::get('samples/{sample}/coa', [CoaDownloadController::class, 'bySample'])->whereNumber('sample');
