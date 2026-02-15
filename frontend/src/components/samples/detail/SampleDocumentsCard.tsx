@@ -1,4 +1,4 @@
-import { Eye, Download, FileText } from "lucide-react";
+import { Download, FileText } from "lucide-react";
 
 type Props = {
     docs: any[];
@@ -11,11 +11,7 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
-function isBlank(v: any) {
-    return v === null || v === undefined || String(v).trim() === "";
-}
-
-function normalizeLabel(input?: string | null) {
+function titleize(input?: string | null) {
     const s = String(input ?? "").trim();
     if (!s) return "-";
     if (s.includes("-") && /[A-Za-z]/.test(s) && /\d/.test(s)) return s; // keep codes like BML-034
@@ -27,18 +23,55 @@ function normalizeLabel(input?: string | null) {
         .replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
-function buildPreviewUrl(d: any): string | null {
-    const fid = Number(d?.pdf_file_id ?? 0);
-    if (fid > 0) return `/api/v1/files/${fid}`;
-    const url = d?.download_url ?? null;
-    return url ? String(url) : null;
+/**
+ * ✅ Step 19: Rename COA labels + keep backward aliases.
+ * We prefer backend `document_name`, but we also map legacy naming just in case.
+ */
+function normalizeDocName(d: any): string {
+    const type = String(d?.type ?? "").toUpperCase();
+    const rawName = String(d?.document_name ?? d?.name ?? "").trim();
+    const number = String(d?.number ?? d?.document_code ?? "").toLowerCase();
+
+    if (type !== "COA") return rawName ? titleize(rawName) : "Document";
+
+    const s = rawName.toLowerCase();
+
+    // WGS strongest signal
+    if (s.includes("wgs") || number.includes("/adm/16/") || number.includes("wgs")) return "COA WGS";
+
+    // Legacy: institution / kerja sama
+    if (
+        s.includes("institution") ||
+        s.includes("institusi") ||
+        s.includes("kerja sama") ||
+        s.includes("kerjasama") ||
+        s.includes("cooperation")
+    ) {
+        return "COA PCR Kerja Sama";
+    }
+
+    // Legacy: individual / mandiri
+    if (s.includes("individual") || s.includes("mandiri")) return "COA PCR Mandiri";
+
+    // Generic backend label "Certificate of Analysis (CoA)" => default PCR Mandiri (safe)
+    return "COA PCR Mandiri";
 }
 
-function buildDownloadUrl(d: any): string | null {
-    const fid = Number(d?.pdf_file_id ?? 0);
-    if (fid > 0) return `/api/v1/files/${fid}?download=1`;
-    const url = d?.download_url ?? null;
-    return url ? String(url) : null;
+function normalizeStatus(input?: string | null) {
+    const s = String(input ?? "").trim();
+    if (!s) return "-";
+    return s.toLowerCase().replace(/_/g, " ");
+}
+
+function openUrl(url: string, download: boolean) {
+    const raw = String(url || "").trim();
+    if (!raw) return;
+
+    // best-effort: ask backend to send attachment disposition
+    const u = raw.includes("?") ? `${raw}&download=1` : `${raw}?download=1`;
+    const target = download ? u : raw;
+
+    window.open(target, "_blank", "noopener,noreferrer");
 }
 
 export function SampleDocumentsCard({ docs, loading, error }: Props) {
@@ -47,7 +80,6 @@ export function SampleDocumentsCard({ docs, loading, error }: Props) {
             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
                 <div>
                     <div className="text-sm font-bold text-gray-900">Documents</div>
-                    <div className="text-xs text-gray-500 mt-0.5">Preview & download dokumen terkait sampel</div>
                 </div>
                 <div className="text-xs text-gray-500">{loading ? "Loading…" : `${docs.length} item(s)`}</div>
             </div>
@@ -66,79 +98,60 @@ export function SampleDocumentsCard({ docs, loading, error }: Props) {
                 ) : (
                     <div className="space-y-2">
                         {docs.map((d, idx) => {
-                            const name = normalizeLabel(d?.document_name ?? d?.type ?? "Document");
+                            const name = normalizeDocName(d);
 
-                            const recordNo = !isBlank(d?.record_no)
-                                ? String(d.record_no)
-                                : !isBlank(d?.number)
-                                    ? String(d.number)
-                                    : !isBlank(d?.document_code)
-                                        ? String(d.document_code)
-                                        : "-";
+                            // ✅ Prefer new metadata when available
+                            const recordNo = String(d?.record_no ?? "").trim();
+                            const formCode = String(d?.form_code ?? "").trim();
 
-                            const formCode = !isBlank(d?.form_code) ? String(d.form_code) : null;
+                            // Fallbacks
+                            const number = String(d?.number ?? d?.document_code ?? "-").trim();
+                            const status = normalizeStatus(d?.status ?? null);
+                            const url = d?.download_url ?? null;
 
-                            const status = normalizeLabel(String(d?.status ?? "-"));
-                            const previewUrl = buildPreviewUrl(d);
-                            const downloadUrl = buildDownloadUrl(d);
+                            const metaLine =
+                                recordNo || formCode
+                                    ? `${recordNo || "-"} • ${formCode || "-"}`
+                                    : `${number} • ${status}`;
 
                             return (
                                 <div
                                     key={`${d?.type ?? "doc"}-${d?.id ?? idx}`}
-                                    className="rounded-xl border border-gray-100 px-3 py-2 flex items-center justify-between gap-3"
+                                    className="rounded-xl border px-3 py-2 flex items-center justify-between gap-3"
                                 >
                                     <div className="min-w-0">
                                         <div className="text-sm font-semibold text-gray-900 truncate">{name}</div>
-
-                                        <div className="text-xs text-gray-600 mt-0.5 truncate">
-                                            <span className="font-medium">{recordNo}</span>
-                                            {formCode ? <span className="text-gray-400"> • </span> : null}
-                                            {formCode ? <span>{formCode}</span> : null}
-                                            <span className="text-gray-400"> • </span>
-                                            <span>{status}</span>
-                                        </div>
+                                        <div className="text-xs text-gray-600 mt-0.5 truncate">{metaLine}</div>
+                                        {!recordNo && !formCode ? (
+                                            <div className="text-[11px] text-gray-500 mt-0.5 truncate">{status}</div>
+                                        ) : null}
                                     </div>
 
-                                    <div className="flex items-center gap-2 shrink-0">
-                                        {previewUrl ? (
+                                    {url ? (
+                                        <div className="flex items-center gap-2">
                                             <button
                                                 type="button"
                                                 className={cx("lims-icon-button")}
-                                                onClick={() => window.open(previewUrl, "_blank", "noopener,noreferrer")}
+                                                onClick={() => openUrl(String(url), false)}
                                                 aria-label="Preview document"
                                                 title="Preview"
                                             >
-                                                <Eye size={16} />
+                                                <FileText size={16} />
                                             </button>
-                                        ) : (
-                                            <span className="text-xs text-gray-400 whitespace-nowrap">—</span>
-                                        )}
 
-                                        {downloadUrl ? (
                                             <button
                                                 type="button"
                                                 className={cx("lims-icon-button")}
-                                                onClick={() => window.open(downloadUrl, "_blank", "noopener,noreferrer")}
+                                                onClick={() => openUrl(String(url), true)}
                                                 aria-label="Download document"
                                                 title="Download"
                                             >
                                                 <Download size={16} />
                                             </button>
-                                        ) : previewUrl ? (
-                                            // fallback: kalau cuma ada preview (legacy), tetap kasih tombol "open"
-                                            <button
-                                                type="button"
-                                                className={cx("lims-icon-button")}
-                                                onClick={() => window.open(previewUrl, "_blank", "noopener,noreferrer")}
-                                                aria-label="Open document"
-                                                title="Open"
-                                            >
-                                                <FileText size={16} />
-                                            </button>
-                                        ) : (
-                                            <span className="text-xs text-gray-400 whitespace-nowrap">—</span>
-                                        )}
-                                    </div>
+                                        </div>
+                                    ) : (
+                                        <span className="text-xs text-gray-400 whitespace-nowrap">—</span>
+                                    )}
                                 </div>
                             );
                         })}

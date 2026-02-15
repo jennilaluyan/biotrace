@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\LetterOfOrder;
+use App\Services\CoaDocCodeAliasService;
 use App\Services\FileStoreService;
 use App\Services\ReagentRequestDocumentService;
 use Illuminate\Http\JsonResponse;
@@ -19,6 +20,7 @@ class ReportDocumentsController extends Controller
         private readonly FileStoreService $files,
         // nullable so controller won't crash if service not registered yet in some env
         private readonly ?ReagentRequestDocumentService $rrDocs = null,
+        private readonly ?CoaDocCodeAliasService $coaAlias = null,
     ) {}
 
     public function index(): JsonResponse
@@ -80,9 +82,6 @@ class ReportDocumentsController extends Controller
                 ? url("/api/v1/files/{$pdfFileId}")
                 : url("/api/v1/reports/documents/loo/{$loId}/pdf");
 
-            $recordNo = isset($payload['record_no']) ? trim((string) $payload['record_no']) : '';
-            $formCode = isset($payload['form_code']) ? trim((string) $payload['form_code']) : '';
-
             $docs[] = [
                 'type' => 'LOO',
                 'id' => $loId,
@@ -98,10 +97,10 @@ class ReportDocumentsController extends Controller
                 // legacy compatibility fields
                 'file_url' => $pdfFileId > 0 ? null : $lo->file_url,
 
-                // Step 17 optional metadata
-                'record_no' => $recordNo !== '' ? $recordNo : null,
-                'form_code' => $formCode !== '' ? $formCode : null,
-                'pdf_file_id' => $pdfFileId > 0 ? $pdfFileId : null,
+                // new fields (optional; FE may ignore safely)
+                'record_no' => (string) ($payload['record_no'] ?? ''),
+                'form_code' => (string) ($payload['form_code'] ?? ''),
+                'pdf_file_id' => $pdfFileId,
 
                 'download_url' => $downloadUrl,
             ];
@@ -127,7 +126,7 @@ class ReportDocumentsController extends Controller
                 }
 
                 $rrQuery
-                    ->select(array_values(array_filter([
+                    ->select(array_filter([
                         'rr.reagent_request_id',
                         'rr.lo_id',
                         'rr.status',
@@ -139,12 +138,11 @@ class ReportDocumentsController extends Controller
                         $hasGenDocs ? 'gd.file_pdf_id as pdf_file_id' : null,
                         $hasGenDocs ? 'gd.record_no as record_no' : null,
                         $hasGenDocs ? 'gd.form_code as form_code' : null,
-                    ])))
+                    ]))
                     ->where('rr.status', '=', 'approved')
                     ->where(function ($q) use ($hasGenDocs) {
-                        // prefer DB-backed generated docs, but keep legacy file_url visible
                         if ($hasGenDocs) $q->whereNotNull('gd.file_pdf_id');
-                        $q->orWhereNotNull('rr.file_url');
+                        $q->orWhereNotNull('rr.file_url'); // legacy
                     })
                     ->orderByDesc('rr.reagent_request_id')
                     ->limit(300);
@@ -169,9 +167,6 @@ class ReportDocumentsController extends Controller
                         ? url("/api/v1/files/{$pdfFileId}")
                         : url("/api/v1/reports/documents/reagent-request/{$rrId}/pdf");
 
-                    $recordNo = isset($rr->record_no) ? trim((string) $rr->record_no) : '';
-                    $formCode = isset($rr->form_code) ? trim((string) $rr->form_code) : '';
-
                     $docs[] = [
                         'type' => 'REAGENT_REQUEST',
                         'id' => $rrId,
@@ -188,10 +183,10 @@ class ReportDocumentsController extends Controller
                         // legacy compatibility
                         'file_url' => $pdfFileId > 0 ? null : (string) ($rr->file_url ?? null),
 
-                        // Step 17 optional metadata
-                        'record_no' => $recordNo !== '' ? $recordNo : null,
-                        'form_code' => $formCode !== '' ? $formCode : null,
-                        'pdf_file_id' => $pdfFileId > 0 ? $pdfFileId : null,
+                        // new optional metadata
+                        'record_no' => (string) ($rr->record_no ?? ''),
+                        'form_code' => (string) ($rr->form_code ?? ''),
+                        'pdf_file_id' => $pdfFileId,
 
                         'download_url' => $downloadUrl,
                     ];
@@ -220,46 +215,56 @@ class ReportDocumentsController extends Controller
                     ? 'pdf_url'
                     : (Schema::hasColumn('reports', 'file_url') ? 'file_url' : null);
 
-                $hasGenDocs = Schema::hasTable('generated_documents');
-
                 if ($numberCol && ($pdfCol || $hasPdfFileId)) {
-                    $q = DB::table('reports');
-
-                    // optional join to get record_no/form_code for COA too (if exists)
-                    if ($hasGenDocs) {
-                        $q->leftJoin('generated_documents as gd', function ($j) use ($idCol) {
-                            $j->on('gd.entity_id', '=', 'reports.' . $idCol)
-                                ->where('gd.entity_type', '=', 'report')
-                                ->where('gd.is_active', '=', 1);
-                        });
-                    }
-
-                    // show both DB-backed and legacy (during transition)
-                    $q->where(function ($qq) use ($hasPdfFileId, $pdfCol) {
-                        if ($hasPdfFileId) $qq->orWhereNotNull('reports.pdf_file_id');
-                        if ($pdfCol) $qq->orWhereNotNull('reports.' . $pdfCol);
-                    });
-
-                    $q->when(Schema::hasColumn('reports', 'is_locked'), fn($qq) => $qq->where('reports.is_locked', '=', 1))
-                        ->when(Schema::hasColumn('reports', 'report_type'), fn($qq) => $qq->where('reports.report_type', '=', 'coa'))
-                        ->when($sampleId, fn($qq) => $qq->where('reports.sample_id', '=', $sampleId))
-                        ->orderByDesc('reports.' . $idCol)
+                    $q = DB::table('reports as r')
+                        ->when($hasPdfFileId, fn($qq) => $qq->whereNotNull('r.pdf_file_id'))
+                        ->when(!$hasPdfFileId && $pdfCol, fn($qq) => $qq->whereNotNull('r.' . $pdfCol))
+                        ->when(Schema::hasColumn('reports', 'is_locked'), fn($qq) => $qq->where('r.is_locked', '=', 1))
+                        ->when(Schema::hasColumn('reports', 'report_type'), fn($qq) => $qq->where('r.report_type', '=', 'coa'))
+                        ->when($sampleId, fn($qq) => $qq->where('r.sample_id', '=', $sampleId))
+                        ->orderByDesc('r.' . $idCol)
                         ->limit(300);
 
+                    // Optional: infer client type by joining sample->client (for PCR Mandiri vs Kerja Sama)
+                    $clientTypeAliasCol = null;
+                    $workflowGroupCol = Schema::hasColumn('reports', 'workflow_group') ? 'workflow_group' : null;
+
+                    $canJoinSamples = Schema::hasTable('samples') && Schema::hasColumn('samples', 'sample_id');
+                    $canJoinClients = Schema::hasTable('clients');
+
+                    if ($canJoinSamples) {
+                        $q->leftJoin('samples as s', 's.sample_id', '=', 'r.sample_id');
+
+                        if ($canJoinClients && Schema::hasColumn('samples', 'client_id')) {
+                            // pick client PK + type col defensively
+                            $clientPk = Schema::hasColumn('clients', 'client_id') ? 'client_id' : (Schema::hasColumn('clients', 'id') ? 'id' : null);
+
+                            $typeCol = null;
+                            foreach (['client_type', 'type', 'kind', 'category'] as $cand) {
+                                if (Schema::hasColumn('clients', $cand)) {
+                                    $typeCol = $cand;
+                                    break;
+                                }
+                            }
+
+                            if ($clientPk && $typeCol) {
+                                $q->leftJoin('clients as c', 'c.' . $clientPk, '=', 's.client_id');
+                                $clientTypeAliasCol = $typeCol;
+                            }
+                        }
+                    }
+
                     $select = [
-                        'reports.' . $idCol . ' as report_id',
-                        'reports.sample_id',
-                        'reports.' . $numberCol . ' as report_no',
-                        'reports.created_at',
+                        'r.' . $idCol . ' as report_id',
+                        'r.sample_id',
+                        'r.' . $numberCol . ' as report_no',
+                        'r.created_at',
                     ];
 
-                    if ($hasPdfFileId) $select[] = 'reports.pdf_file_id';
-                    if ($pdfCol) $select[] = 'reports.' . $pdfCol . ' as pdf_url';
-
-                    if ($hasGenDocs) {
-                        $select[] = 'gd.record_no as record_no';
-                        $select[] = 'gd.form_code as form_code';
-                    }
+                    if ($hasPdfFileId) $select[] = 'r.pdf_file_id';
+                    if ($pdfCol) $select[] = 'r.' . $pdfCol . ' as pdf_url';
+                    if ($workflowGroupCol) $select[] = 'r.' . $workflowGroupCol . ' as workflow_group';
+                    if ($clientTypeAliasCol) $select[] = 'c.' . $clientTypeAliasCol . ' as client_type';
 
                     $rows = $q->get($select);
 
@@ -275,14 +280,18 @@ class ReportDocumentsController extends Controller
                             ? url("/api/v1/files/{$pdfFileId}")
                             : url("/api/v1/reports/{$rid}/pdf");
 
-                        $recordNo = isset($r->record_no) ? trim((string) $r->record_no) : '';
-                        $formCode = isset($r->form_code) ? trim((string) $r->form_code) : '';
+                        // ✅ Step 19: rename display + keep alias mapping (best-effort inference)
+                        $coaDocCode = $this->inferCoaDocCode($r, $no);
+                        $coaName = $this->coaLabel($coaDocCode);
 
                         $docs[] = [
                             'type' => 'COA',
                             'id' => $rid,
                             'report_id' => $rid,
-                            'document_name' => 'Certificate of Analysis (CoA)',
+
+                            // renamed label here:
+                            'document_name' => $coaName,
+
                             'document_code' => $no,
                             'number' => $no,
                             'status' => 'locked',
@@ -290,13 +299,12 @@ class ReportDocumentsController extends Controller
                             'created_at' => $r->created_at ? (string) $r->created_at : null,
                             'sample_ids' => [$sid],
 
-                            // legacy compat (only used if pdf_file_id empty)
+                            // legacy compat
                             'file_url' => isset($r->pdf_url) && $r->pdf_url ? (string) $r->pdf_url : null,
 
-                            // Step 17 optional
-                            'record_no' => $recordNo !== '' ? $recordNo : null,
-                            'form_code' => $formCode !== '' ? $formCode : null,
-                            'pdf_file_id' => $pdfFileId > 0 ? $pdfFileId : null,
+                            // new
+                            'pdf_file_id' => $pdfFileId,
+                            'doc_code' => $coaDocCode,
 
                             'download_url' => $downloadUrl,
                         ];
@@ -312,6 +320,46 @@ class ReportDocumentsController extends Controller
         });
 
         return response()->json(['data' => $docs]);
+    }
+
+    /**
+     * Infer COA doc_code using available row fields (best effort).
+     * - WGS: workflow_group contains "wgs" OR report_no contains "/ADM/16/"
+     * - PCR Kerja Sama: client_type looks like institution/org/company
+     * - PCR Mandiri: default
+     */
+    private function inferCoaDocCode(object $row, string $reportNo): string
+    {
+        $wf = strtolower((string) ($row->workflow_group ?? ''));
+        $no = strtolower((string) $reportNo);
+        $ct = strtolower((string) ($row->client_type ?? ''));
+
+        if ($wf !== '' && str_contains($wf, 'wgs')) return 'COA_WGS';
+        if ($no !== '' && (str_contains($no, '/adm/16/') || str_contains($no, 'wgs'))) return 'COA_WGS';
+
+        // institution-ish => kerja sama
+        if (
+            $ct !== '' &&
+            (str_contains($ct, 'instit') || str_contains($ct, 'org') || str_contains($ct, 'company') || str_contains($ct, 'inst'))
+        ) {
+            return 'COA_PCR_KERJASAMA';
+        }
+
+        return 'COA_PCR_MANDIRI';
+    }
+
+    private function coaLabel(string $docCode): string
+    {
+        // prefer service label if available
+        if ($this->coaAlias) return $this->coaAlias->label($docCode);
+
+        $dc = strtoupper(trim($docCode));
+        return match ($dc) {
+            'COA_WGS' => 'COA WGS',
+            'COA_PCR_KERJASAMA' => 'COA PCR Kerja Sama',
+            'COA_PCR_MANDIRI' => 'COA PCR Mandiri',
+            default => 'COA',
+        };
     }
 
     public function pdf(string $type, int $id)
@@ -377,7 +425,7 @@ class ReportDocumentsController extends Controller
                 return response()->json(['message' => 'LOO cannot be viewed: no Ready sample (OM+LH approved).'], 422);
             }
 
-            // ✅ DB-backed (Step 12)
+            // ✅ Step 12 DB-backed
             $pdfFileId = (int) ($payload['pdf_file_id'] ?? 0);
             if ($pdfFileId > 0) {
                 return redirect()->to(url("/api/v1/files/{$pdfFileId}"));
@@ -414,7 +462,7 @@ class ReportDocumentsController extends Controller
                 return response()->json(['message' => 'Reagent Request is not approved.'], 422);
             }
 
-            // ✅ prefer generated_documents -> files
+            // ✅ Step 13 prefer generated_documents -> files
             if (Schema::hasTable('generated_documents')) {
                 $gd = DB::table('generated_documents')
                     ->where('doc_code', 'REAGENT_REQUEST')
@@ -464,6 +512,7 @@ class ReportDocumentsController extends Controller
         return response()->json(['message' => 'Unsupported document type.'], 400);
     }
 
+    // ... (resolvePdfAbsolutePath + findFileByName tetap sama seperti punyamu)
     private function resolvePdfAbsolutePath(string $raw): ?string
     {
         $raw = trim($raw);
