@@ -15,6 +15,11 @@ export type ReportDocumentRow = {
     file_url?: string | null;
     download_url?: string | null;
 
+    // Step 17 (optional)
+    record_no?: string | null;
+    form_code?: string | null;
+    pdf_file_id?: number | null;
+
     sample_ids?: number[];
     lo_id?: number | null;
     reagent_request_id?: number | null;

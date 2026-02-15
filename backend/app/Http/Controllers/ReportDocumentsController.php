@@ -80,6 +80,9 @@ class ReportDocumentsController extends Controller
                 ? url("/api/v1/files/{$pdfFileId}")
                 : url("/api/v1/reports/documents/loo/{$loId}/pdf");
 
+            $recordNo = isset($payload['record_no']) ? trim((string) $payload['record_no']) : '';
+            $formCode = isset($payload['form_code']) ? trim((string) $payload['form_code']) : '';
+
             $docs[] = [
                 'type' => 'LOO',
                 'id' => $loId,
@@ -95,10 +98,10 @@ class ReportDocumentsController extends Controller
                 // legacy compatibility fields
                 'file_url' => $pdfFileId > 0 ? null : $lo->file_url,
 
-                // new fields (optional; FE may ignore safely)
-                'record_no' => (string) ($payload['record_no'] ?? ''),
-                'form_code' => (string) ($payload['form_code'] ?? ''),
-                'pdf_file_id' => $pdfFileId,
+                // Step 17 optional metadata
+                'record_no' => $recordNo !== '' ? $recordNo : null,
+                'form_code' => $formCode !== '' ? $formCode : null,
+                'pdf_file_id' => $pdfFileId > 0 ? $pdfFileId : null,
 
                 'download_url' => $downloadUrl,
             ];
@@ -124,7 +127,7 @@ class ReportDocumentsController extends Controller
                 }
 
                 $rrQuery
-                    ->select(array_filter([
+                    ->select(array_values(array_filter([
                         'rr.reagent_request_id',
                         'rr.lo_id',
                         'rr.status',
@@ -136,11 +139,12 @@ class ReportDocumentsController extends Controller
                         $hasGenDocs ? 'gd.file_pdf_id as pdf_file_id' : null,
                         $hasGenDocs ? 'gd.record_no as record_no' : null,
                         $hasGenDocs ? 'gd.form_code as form_code' : null,
-                    ]))
+                    ])))
                     ->where('rr.status', '=', 'approved')
                     ->where(function ($q) use ($hasGenDocs) {
+                        // prefer DB-backed generated docs, but keep legacy file_url visible
                         if ($hasGenDocs) $q->whereNotNull('gd.file_pdf_id');
-                        $q->orWhereNotNull('rr.file_url'); // legacy
+                        $q->orWhereNotNull('rr.file_url');
                     })
                     ->orderByDesc('rr.reagent_request_id')
                     ->limit(300);
@@ -165,6 +169,9 @@ class ReportDocumentsController extends Controller
                         ? url("/api/v1/files/{$pdfFileId}")
                         : url("/api/v1/reports/documents/reagent-request/{$rrId}/pdf");
 
+                    $recordNo = isset($rr->record_no) ? trim((string) $rr->record_no) : '';
+                    $formCode = isset($rr->form_code) ? trim((string) $rr->form_code) : '';
+
                     $docs[] = [
                         'type' => 'REAGENT_REQUEST',
                         'id' => $rrId,
@@ -181,10 +188,10 @@ class ReportDocumentsController extends Controller
                         // legacy compatibility
                         'file_url' => $pdfFileId > 0 ? null : (string) ($rr->file_url ?? null),
 
-                        // new optional metadata
-                        'record_no' => (string) ($rr->record_no ?? ''),
-                        'form_code' => (string) ($rr->form_code ?? ''),
-                        'pdf_file_id' => $pdfFileId,
+                        // Step 17 optional metadata
+                        'record_no' => $recordNo !== '' ? $recordNo : null,
+                        'form_code' => $formCode !== '' ? $formCode : null,
+                        'pdf_file_id' => $pdfFileId > 0 ? $pdfFileId : null,
 
                         'download_url' => $downloadUrl,
                     ];
@@ -213,25 +220,46 @@ class ReportDocumentsController extends Controller
                     ? 'pdf_url'
                     : (Schema::hasColumn('reports', 'file_url') ? 'file_url' : null);
 
+                $hasGenDocs = Schema::hasTable('generated_documents');
+
                 if ($numberCol && ($pdfCol || $hasPdfFileId)) {
-                    $q = DB::table('reports')
-                        ->when($hasPdfFileId, fn($qq) => $qq->whereNotNull('pdf_file_id'))
-                        ->when(!$hasPdfFileId && $pdfCol, fn($qq) => $qq->whereNotNull($pdfCol))
-                        ->when(Schema::hasColumn('reports', 'is_locked'), fn($qq) => $qq->where('is_locked', '=', 1))
-                        ->when(Schema::hasColumn('reports', 'report_type'), fn($qq) => $qq->where('report_type', '=', 'coa'))
-                        ->when($sampleId, fn($qq) => $qq->where('sample_id', '=', $sampleId))
-                        ->orderByDesc($idCol)
+                    $q = DB::table('reports');
+
+                    // optional join to get record_no/form_code for COA too (if exists)
+                    if ($hasGenDocs) {
+                        $q->leftJoin('generated_documents as gd', function ($j) use ($idCol) {
+                            $j->on('gd.entity_id', '=', 'reports.' . $idCol)
+                                ->where('gd.entity_type', '=', 'report')
+                                ->where('gd.is_active', '=', 1);
+                        });
+                    }
+
+                    // show both DB-backed and legacy (during transition)
+                    $q->where(function ($qq) use ($hasPdfFileId, $pdfCol) {
+                        if ($hasPdfFileId) $qq->orWhereNotNull('reports.pdf_file_id');
+                        if ($pdfCol) $qq->orWhereNotNull('reports.' . $pdfCol);
+                    });
+
+                    $q->when(Schema::hasColumn('reports', 'is_locked'), fn($qq) => $qq->where('reports.is_locked', '=', 1))
+                        ->when(Schema::hasColumn('reports', 'report_type'), fn($qq) => $qq->where('reports.report_type', '=', 'coa'))
+                        ->when($sampleId, fn($qq) => $qq->where('reports.sample_id', '=', $sampleId))
+                        ->orderByDesc('reports.' . $idCol)
                         ->limit(300);
 
                     $select = [
-                        $idCol . ' as report_id',
-                        'sample_id',
-                        $numberCol . ' as report_no',
-                        'created_at',
+                        'reports.' . $idCol . ' as report_id',
+                        'reports.sample_id',
+                        'reports.' . $numberCol . ' as report_no',
+                        'reports.created_at',
                     ];
 
-                    if ($hasPdfFileId) $select[] = 'pdf_file_id';
-                    if ($pdfCol) $select[] = $pdfCol . ' as pdf_url';
+                    if ($hasPdfFileId) $select[] = 'reports.pdf_file_id';
+                    if ($pdfCol) $select[] = 'reports.' . $pdfCol . ' as pdf_url';
+
+                    if ($hasGenDocs) {
+                        $select[] = 'gd.record_no as record_no';
+                        $select[] = 'gd.form_code as form_code';
+                    }
 
                     $rows = $q->get($select);
 
@@ -247,6 +275,9 @@ class ReportDocumentsController extends Controller
                             ? url("/api/v1/files/{$pdfFileId}")
                             : url("/api/v1/reports/{$rid}/pdf");
 
+                        $recordNo = isset($r->record_no) ? trim((string) $r->record_no) : '';
+                        $formCode = isset($r->form_code) ? trim((string) $r->form_code) : '';
+
                         $docs[] = [
                             'type' => 'COA',
                             'id' => $rid,
@@ -259,11 +290,13 @@ class ReportDocumentsController extends Controller
                             'created_at' => $r->created_at ? (string) $r->created_at : null,
                             'sample_ids' => [$sid],
 
-                            // legacy compat
+                            // legacy compat (only used if pdf_file_id empty)
                             'file_url' => isset($r->pdf_url) && $r->pdf_url ? (string) $r->pdf_url : null,
 
-                            // new
-                            'pdf_file_id' => $pdfFileId,
+                            // Step 17 optional
+                            'record_no' => $recordNo !== '' ? $recordNo : null,
+                            'form_code' => $formCode !== '' ? $formCode : null,
+                            'pdf_file_id' => $pdfFileId > 0 ? $pdfFileId : null,
 
                             'download_url' => $downloadUrl,
                         ];
@@ -344,7 +377,7 @@ class ReportDocumentsController extends Controller
                 return response()->json(['message' => 'LOO cannot be viewed: no Ready sample (OM+LH approved).'], 422);
             }
 
-            // ✅ Step 12 DB-backed
+            // ✅ DB-backed (Step 12)
             $pdfFileId = (int) ($payload['pdf_file_id'] ?? 0);
             if ($pdfFileId > 0) {
                 return redirect()->to(url("/api/v1/files/{$pdfFileId}"));
@@ -381,7 +414,7 @@ class ReportDocumentsController extends Controller
                 return response()->json(['message' => 'Reagent Request is not approved.'], 422);
             }
 
-            // ✅ Step 13 prefer generated_documents -> files
+            // ✅ prefer generated_documents -> files
             if (Schema::hasTable('generated_documents')) {
                 $gd = DB::table('generated_documents')
                     ->where('doc_code', 'REAGENT_REQUEST')
