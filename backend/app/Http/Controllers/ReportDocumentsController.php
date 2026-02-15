@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\LetterOfOrder;
+use App\Services\FileStoreService;
+use App\Services\ReagentRequestDocumentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -12,6 +14,12 @@ use Illuminate\Support\Facades\Storage;
 class ReportDocumentsController extends Controller
 {
     private const COA_VIEWER_ROLE_IDS = [1, 5, 6];
+
+    public function __construct(
+        private readonly FileStoreService $files,
+        // nullable so controller won't crash if service not registered yet in some env
+        private readonly ?ReagentRequestDocumentService $rrDocs = null,
+    ) {}
 
     public function index(): JsonResponse
     {
@@ -39,6 +47,9 @@ class ReportDocumentsController extends Controller
             }
         };
 
+        // =========================
+        // LOO (Letter of Order)
+        // =========================
         $loos = LetterOfOrder::query()
             ->with(['items', 'sample.client'])
             ->orderByDesc('generated_at')
@@ -59,8 +70,15 @@ class ReportDocumentsController extends Controller
 
             if ($sampleId && !in_array($sampleId, $sampleIds, true)) continue;
 
+            $payload = is_array($lo->payload) ? $lo->payload : (array) $lo->payload;
+            $pdfFileId = (int) ($payload['pdf_file_id'] ?? 0);
+
             $docName = 'Letter of Order (LOO)';
             $docCode = (string) $lo->number;
+
+            $downloadUrl = $pdfFileId > 0
+                ? url("/api/v1/files/{$pdfFileId}")
+                : url("/api/v1/reports/documents/loo/{$loId}/pdf");
 
             $docs[] = [
                 'type' => 'LOO',
@@ -73,16 +91,40 @@ class ReportDocumentsController extends Controller
                 'created_at' => $lo->created_at?->toIso8601String(),
                 'sample_ids' => $sampleIds,
                 'lo_id' => $loId,
-                'file_url' => $lo->file_url,
-                'download_url' => url("/api/v1/reports/documents/loo/{$loId}/pdf"),
+
+                // legacy compatibility fields
+                'file_url' => $pdfFileId > 0 ? null : $lo->file_url,
+
+                // new fields (optional; FE may ignore safely)
+                'record_no' => (string) ($payload['record_no'] ?? ''),
+                'form_code' => (string) ($payload['form_code'] ?? ''),
+                'pdf_file_id' => $pdfFileId,
+
+                'download_url' => $downloadUrl,
             ];
         }
 
+        // =========================
+        // Reagent Request (approved)
+        // =========================
         try {
             if (Schema::hasTable('reagent_requests')) {
-                $rrs = DB::table('reagent_requests as rr')
-                    ->leftJoin('letters_of_order as lo', 'lo.lo_id', '=', 'rr.lo_id')
-                    ->select([
+                $hasGenDocs = Schema::hasTable('generated_documents');
+
+                $rrQuery = DB::table('reagent_requests as rr')
+                    ->leftJoin('letters_of_order as lo', 'lo.lo_id', '=', 'rr.lo_id');
+
+                if ($hasGenDocs) {
+                    $rrQuery->leftJoin('generated_documents as gd', function ($j) {
+                        $j->on('gd.entity_id', '=', 'rr.reagent_request_id')
+                            ->where('gd.entity_type', '=', 'reagent_request')
+                            ->where('gd.doc_code', '=', 'REAGENT_REQUEST')
+                            ->where('gd.is_active', '=', 1);
+                    });
+                }
+
+                $rrQuery
+                    ->select(array_filter([
                         'rr.reagent_request_id',
                         'rr.lo_id',
                         'rr.status',
@@ -90,12 +132,20 @@ class ReportDocumentsController extends Controller
                         'rr.created_at',
                         'rr.updated_at',
                         'lo.number as loo_number',
-                    ])
-                    ->whereNotNull('rr.file_url')
+
+                        $hasGenDocs ? 'gd.file_pdf_id as pdf_file_id' : null,
+                        $hasGenDocs ? 'gd.record_no as record_no' : null,
+                        $hasGenDocs ? 'gd.form_code as form_code' : null,
+                    ]))
                     ->where('rr.status', '=', 'approved')
+                    ->where(function ($q) use ($hasGenDocs) {
+                        if ($hasGenDocs) $q->whereNotNull('gd.file_pdf_id');
+                        $q->orWhereNotNull('rr.file_url'); // legacy
+                    })
                     ->orderByDesc('rr.reagent_request_id')
-                    ->limit(300)
-                    ->get();
+                    ->limit(300);
+
+                $rrs = $rrQuery->get();
 
                 foreach ($rrs as $rr) {
                     $rrId = (int) ($rr->reagent_request_id ?? 0);
@@ -110,6 +160,11 @@ class ReportDocumentsController extends Controller
 
                     $looNumber = $rr->loo_number ? (string) $rr->loo_number : null;
 
+                    $pdfFileId = (int) ($rr->pdf_file_id ?? 0);
+                    $downloadUrl = $pdfFileId > 0
+                        ? url("/api/v1/files/{$pdfFileId}")
+                        : url("/api/v1/reports/documents/reagent-request/{$rrId}/pdf");
+
                     $docs[] = [
                         'type' => 'REAGENT_REQUEST',
                         'id' => $rrId,
@@ -122,8 +177,16 @@ class ReportDocumentsController extends Controller
                         'sample_ids' => $sampleIds,
                         'lo_id' => $loId,
                         'reagent_request_id' => $rrId,
-                        'file_url' => $rr->file_url,
-                        'download_url' => url("/api/v1/reports/documents/reagent-request/{$rrId}/pdf"),
+
+                        // legacy compatibility
+                        'file_url' => $pdfFileId > 0 ? null : (string) ($rr->file_url ?? null),
+
+                        // new optional metadata
+                        'record_no' => (string) ($rr->record_no ?? ''),
+                        'form_code' => (string) ($rr->form_code ?? ''),
+                        'pdf_file_id' => $pdfFileId,
+
+                        'download_url' => $downloadUrl,
                     ];
                 }
             }
@@ -131,24 +194,46 @@ class ReportDocumentsController extends Controller
             // keep endpoint alive even if schema differs
         }
 
+        // =========================
+        // COA (locked reports)
+        // =========================
         if ($canSeeCoa && Schema::hasTable('reports') && Schema::hasColumn('reports', 'sample_id')) {
-            $idCol = Schema::hasColumn('reports', 'report_id') ? 'report_id' : (Schema::hasColumn('reports', 'id') ? 'id' : null);
+            $idCol = Schema::hasColumn('reports', 'report_id')
+                ? 'report_id'
+                : (Schema::hasColumn('reports', 'id') ? 'id' : null);
+
             if ($idCol) {
-                $numberCol = Schema::hasColumn('reports', 'report_no') ? 'report_no' : (Schema::hasColumn('reports', 'number') ? 'number' : null);
+                $numberCol = Schema::hasColumn('reports', 'report_no')
+                    ? 'report_no'
+                    : (Schema::hasColumn('reports', 'number') ? 'number' : null);
+
+                $hasPdfFileId = Schema::hasColumn('reports', 'pdf_file_id');
+
                 $pdfCol = Schema::hasColumn('reports', 'pdf_url')
                     ? 'pdf_url'
                     : (Schema::hasColumn('reports', 'file_url') ? 'file_url' : null);
 
-                if ($numberCol && $pdfCol) {
+                if ($numberCol && ($pdfCol || $hasPdfFileId)) {
                     $q = DB::table('reports')
-                        ->whereNotNull($pdfCol)
+                        ->when($hasPdfFileId, fn($qq) => $qq->whereNotNull('pdf_file_id'))
+                        ->when(!$hasPdfFileId && $pdfCol, fn($qq) => $qq->whereNotNull($pdfCol))
                         ->when(Schema::hasColumn('reports', 'is_locked'), fn($qq) => $qq->where('is_locked', '=', 1))
                         ->when(Schema::hasColumn('reports', 'report_type'), fn($qq) => $qq->where('report_type', '=', 'coa'))
                         ->when($sampleId, fn($qq) => $qq->where('sample_id', '=', $sampleId))
                         ->orderByDesc($idCol)
                         ->limit(300);
 
-                    $rows = $q->get([$idCol . ' as report_id', 'sample_id', $numberCol . ' as report_no', $pdfCol . ' as pdf_url', 'created_at']);
+                    $select = [
+                        $idCol . ' as report_id',
+                        'sample_id',
+                        $numberCol . ' as report_no',
+                        'created_at',
+                    ];
+
+                    if ($hasPdfFileId) $select[] = 'pdf_file_id';
+                    if ($pdfCol) $select[] = $pdfCol . ' as pdf_url';
+
+                    $rows = $q->get($select);
 
                     foreach ($rows as $r) {
                         $rid = (int) ($r->report_id ?? 0);
@@ -156,6 +241,11 @@ class ReportDocumentsController extends Controller
                         if ($rid <= 0 || $sid <= 0) continue;
 
                         $no = (string) ($r->report_no ?? ('COA #' . $rid));
+                        $pdfFileId = (int) ($r->pdf_file_id ?? 0);
+
+                        $downloadUrl = $pdfFileId > 0
+                            ? url("/api/v1/files/{$pdfFileId}")
+                            : url("/api/v1/reports/{$rid}/pdf");
 
                         $docs[] = [
                             'type' => 'COA',
@@ -168,8 +258,14 @@ class ReportDocumentsController extends Controller
                             'generated_at' => null,
                             'created_at' => $r->created_at ? (string) $r->created_at : null,
                             'sample_ids' => [$sid],
-                            'file_url' => $r->pdf_url ? (string) $r->pdf_url : null,
-                            'download_url' => url("/api/v1/reports/{$rid}/pdf"),
+
+                            // legacy compat
+                            'file_url' => isset($r->pdf_url) && $r->pdf_url ? (string) $r->pdf_url : null,
+
+                            // new
+                            'pdf_file_id' => $pdfFileId,
+
+                            'download_url' => $downloadUrl,
                         ];
                     }
                 }
@@ -177,8 +273,8 @@ class ReportDocumentsController extends Controller
         }
 
         usort($docs, function ($a, $b) {
-            $ta = strtotime((string)($a['generated_at'] ?? $a['created_at'] ?? '')) ?: 0;
-            $tb = strtotime((string)($b['generated_at'] ?? $b['created_at'] ?? '')) ?: 0;
+            $ta = strtotime((string) ($a['generated_at'] ?? $a['created_at'] ?? '')) ?: 0;
+            $tb = strtotime((string) ($b['generated_at'] ?? $b['created_at'] ?? '')) ?: 0;
             return $tb <=> $ta;
         });
 
@@ -192,6 +288,9 @@ class ReportDocumentsController extends Controller
 
         $type = strtolower(trim($type));
 
+        // =========================
+        // LOO
+        // =========================
         if ($type === 'loo') {
             $lo = LetterOfOrder::query()->where('lo_id', $id)->first();
             if (!$lo) return response()->json(['message' => 'Document not found.'], 404);
@@ -218,6 +317,7 @@ class ReportDocumentsController extends Controller
                 return response()->json(['message' => 'LOO payload missing sample ids.'], 422);
             }
 
+            // Gate: at least ONE sample is Ready (OM+LH approved)
             $rows = DB::table('loo_sample_approvals')
                 ->whereIn('sample_id', $sampleIds)
                 ->whereIn('role_code', ['OM', 'LH'])
@@ -244,6 +344,13 @@ class ReportDocumentsController extends Controller
                 return response()->json(['message' => 'LOO cannot be viewed: no Ready sample (OM+LH approved).'], 422);
             }
 
+            // ✅ Step 12 DB-backed
+            $pdfFileId = (int) ($payload['pdf_file_id'] ?? 0);
+            if ($pdfFileId > 0) {
+                return redirect()->to(url("/api/v1/files/{$pdfFileId}"));
+            }
+
+            // Legacy fallback (disk-based)
             $raw = $lo->file_url ? trim((string) $lo->file_url) : '';
             if ($raw === '') return response()->json(['message' => 'PDF file path is missing.'], 404);
 
@@ -258,24 +365,9 @@ class ReportDocumentsController extends Controller
             ]);
         }
 
-        $loo = LetterOfOrder::where('lo_id', $id)->firstOrFail();
-        $payload = (array) ($loo->payload ?? []);
-
-        $pdfFileId = (int) ($payload['pdf_file_id'] ?? 0);
-        if ($pdfFileId > 0) {
-            // DB-backed LOO: stream via FileController endpoint
-            return redirect()->to(url("/api/v1/files/{$pdfFileId}"));
-        }
-
-        // Legacy fallback (disk-based)
-        $path = $this->absPath($loo->file_url);
-        if (!is_file($path)) {
-            abort(404, 'PDF not found.');
-        }
-        return response()->file($path, [
-            'Content-Type' => 'application/pdf',
-        ]);
-
+        // =========================
+        // REAGENT REQUEST
+        // =========================
         if (in_array($type, ['reagent-request', 'reagent_request', 'rr'], true)) {
             if (!Schema::hasTable('reagent_requests')) {
                 return response()->json(['message' => 'Reagent requests table not found.'], 500);
@@ -284,12 +376,45 @@ class ReportDocumentsController extends Controller
             $rr = DB::table('reagent_requests')->where('reagent_request_id', $id)->first();
             if (!$rr) return response()->json(['message' => 'Document not found.'], 404);
 
-            $st = strtolower(trim((string)($rr->status ?? '')));
+            $st = strtolower(trim((string) ($rr->status ?? '')));
             if ($st !== 'approved') {
                 return response()->json(['message' => 'Reagent Request is not approved.'], 422);
             }
 
-            $raw = isset($rr->file_url) ? trim((string)$rr->file_url) : '';
+            // ✅ Step 13 prefer generated_documents -> files
+            if (Schema::hasTable('generated_documents')) {
+                $gd = DB::table('generated_documents')
+                    ->where('doc_code', 'REAGENT_REQUEST')
+                    ->where('entity_type', 'reagent_request')
+                    ->where('entity_id', $id)
+                    ->where('is_active', 1)
+                    ->orderByDesc('gen_doc_id')
+                    ->first(['file_pdf_id']);
+
+                $pdfFileId = (int) ($gd->file_pdf_id ?? 0);
+                if ($pdfFileId > 0) {
+                    return redirect()->to(url("/api/v1/files/{$pdfFileId}"));
+                }
+            }
+
+            // Optional: try on-demand generate (if service exists + bound)
+            try {
+                if ($this->rrDocs) {
+                    $actorStaffId = (int) ($user->staff_id ?? $user->id ?? 0);
+                    if ($actorStaffId > 0) {
+                        $gd2 = $this->rrDocs->generateApprovedPdf($id, $actorStaffId, false);
+                        $pdfFileId2 = (int) ($gd2->file_pdf_id ?? 0);
+                        if ($pdfFileId2 > 0) {
+                            return redirect()->to(url("/api/v1/files/{$pdfFileId2}"));
+                        }
+                    }
+                }
+            } catch (\Throwable) {
+                // ignore and fallback to legacy disk below
+            }
+
+            // Legacy fallback (disk-based)
+            $raw = isset($rr->file_url) ? trim((string) $rr->file_url) : '';
             if ($raw === '') return response()->json(['message' => 'PDF file path is missing.'], 404);
 
             $abs = $this->resolvePdfAbsolutePath($raw);

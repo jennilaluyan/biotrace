@@ -45,6 +45,7 @@ use App\Http\Controllers\MethodController;
 use App\Http\Controllers\ParameterController;
 use App\Http\Controllers\ReagentController;
 use App\Http\Controllers\ReagentRequestController;
+use App\Http\Controllers\ReagentRequestDocumentController;
 use App\Http\Controllers\UnitController;
 
 // Sample Tests & Results
@@ -228,6 +229,7 @@ Route::prefix('v1')->group(function () {
         Route::post('reagent-requests/{id}/submit', [ReagentRequestController::class, 'submit']);
         Route::post('reagent-requests/{id}/approve', [ReagentRequestController::class, 'approve']);
         Route::post('reagent-requests/{id}/reject', [ReagentRequestController::class, 'reject']);
+        Route::post('reagent-requests/{id}/generate-pdf', [ReagentRequestDocumentController::class, 'generatePdf']);
 
         /*
         |----------------------------------------------------------------------
