@@ -21,6 +21,7 @@ class Report extends Model
         'is_locked',
         'created_at',
         'updated_at',
+        'pdf_file_id',
     ];
 
     protected $casts = [
@@ -28,6 +29,7 @@ class Report extends Model
         'is_locked' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        'pdf_file_id' => 'integer',
     ];
 
     public function sample(): BelongsTo

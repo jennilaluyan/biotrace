@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\Report;
 use App\Services\CoaFinalizeService;
 use App\Services\CoaPdfService;
+use App\Services\FileStoreService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -18,6 +19,7 @@ class CoaPdfController extends Controller
     public function __construct(
         private readonly CoaPdfService $coaPdf,
         private readonly CoaFinalizeService $finalizer,
+        private readonly FileStoreService $files,
     ) {}
 
     private function assertCoaViewer(Request $request): void
@@ -41,7 +43,7 @@ class CoaPdfController extends Controller
         )));
 
         foreach (self::ALLOWED_ROLE_NAME_HINTS as $hint) {
-            if ($hint !== '' && str_contains($roleName, $hint)) {
+            if ($hint !== '' && str_contains($roleName, strtolower($hint))) {
                 return;
             }
         }
@@ -52,6 +54,7 @@ class CoaPdfController extends Controller
 
         abort(403, 'Forbidden.');
     }
+
     private function latestCoaReportForSample(int $sampleId): Report
     {
         $q = Report::query()->where('sample_id', $sampleId);
@@ -70,10 +73,27 @@ class CoaPdfController extends Controller
         $staff = $request->user();
         $report = $this->latestCoaReportForSample($sampleId);
 
-        $disk = config('coa.storage_disk', 'local');
+        // ===============================
+        // ✅ STEP 11: Prefer DB file if available
+        // ===============================
+        if ($report->is_locked) {
+            // 1) New path: pdf_file_id
+            if (Schema::hasColumn('reports', 'pdf_file_id') && (int) ($report->pdf_file_id ?? 0) > 0) {
+                AuditLog::create([
+                    'staff_id' => $staff->staff_id,
+                    'entity_name' => 'report',
+                    'entity_id' => $report->report_id,
+                    'action' => 'VIEW_COA',
+                    'ip_address' => $request->ip(),
+                    'new_values' => ['pdf_file_id' => (int) $report->pdf_file_id],
+                ]);
 
-        if ($report->is_locked && $report->pdf_url) {
-            if (Storage::disk($disk)->exists($report->pdf_url)) {
+                return $this->files->streamResponse((int) $report->pdf_file_id);
+            }
+
+            // 2) Legacy fallback: pdf_url in storage (transitional)
+            $disk = config('coa.storage_disk', 'local');
+            if ($report->pdf_url && Storage::disk($disk)->exists($report->pdf_url)) {
                 $binary = Storage::disk($disk)->get($report->pdf_url);
 
                 $hashOk = empty($report->document_hash) || hash('sha256', $binary) === $report->document_hash;
@@ -85,7 +105,7 @@ class CoaPdfController extends Controller
                         'entity_id' => $report->report_id,
                         'action' => 'VIEW_COA',
                         'ip_address' => $request->ip(),
-                        'new_values' => ['hash' => $report->document_hash],
+                        'new_values' => ['hash' => $report->document_hash, 'pdf_url' => $report->pdf_url],
                     ]);
 
                     return response($binary, 200, [
@@ -93,14 +113,21 @@ class CoaPdfController extends Controller
                         'Content-Disposition' => 'inline; filename="coa.pdf"',
                     ]);
                 }
-            }
 
-            $report->update([
-                'document_hash' => null,
-                'is_locked' => false,
-            ]);
+                // hash mismatch -> unlock to regenerate
+                $report->update([
+                    'document_hash' => null,
+                    'is_locked' => false,
+                ]);
+            } else {
+                // locked but missing both db file + legacy file: unlock to regenerate
+                $report->update([
+                    'is_locked' => false,
+                ]);
+            }
         }
 
+        // If not locked (or was unlocked), finalize on demand
         $templateCode = $request->query('template_code');
         $templateCode = is_string($templateCode) && trim($templateCode) !== '' ? $templateCode : null;
 
@@ -110,15 +137,13 @@ class CoaPdfController extends Controller
             $templateCode
         );
 
-        $path = (string) $res['pdf_url'];
-
-        if (!Storage::disk($disk)->exists($path)) {
-            return response()->json(['message' => 'COA generated but PDF file not found in storage.'], 500);
-        }
-
-        $binaryFinal = Storage::disk($disk)->get($path);
-
         $report->refresh();
+
+        // Must have pdf_file_id now
+        $pdfFileId = (int) ($res['pdf_file_id'] ?? ($report->pdf_file_id ?? 0));
+        if ($pdfFileId <= 0) {
+            return response()->json(['message' => 'COA generated but pdf_file_id is missing.'], 500);
+        }
 
         AuditLog::create([
             'staff_id' => $staff->staff_id,
@@ -126,13 +151,15 @@ class CoaPdfController extends Controller
             'entity_id' => $report->report_id,
             'action' => 'GENERATE_COA',
             'ip_address' => $request->ip(),
-            'new_values' => ['pdf_url' => $path],
+            'new_values' => [
+                'pdf_file_id' => $pdfFileId,
+                'download_url' => "/api/v1/files/{$pdfFileId}",
+                'template_code' => $res['template_code'] ?? null,
+                'doc_code' => $res['doc_code'] ?? null,
+            ],
         ]);
 
-        return response($binaryFinal, 200, [
-            'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="coa.pdf"',
-        ]);
+        return $this->files->streamResponse($pdfFileId);
     }
 
     public function downloadByReport(int $reportId, Request $request)
