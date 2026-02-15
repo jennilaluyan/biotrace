@@ -61,9 +61,14 @@ export type LetterOfOrder = {
     client_signed_at?: string | null;
     locked_at?: string | null;
 
-    // file fields
-    pdf_url?: string | null;
+    // ✅ Step 18: DB-backed file metadata
+    pdf_file_id?: number | null;
     download_url?: string | null;
+    record_no?: string | null;
+    form_code?: string | null;
+
+    // legacy file fields
+    pdf_url?: string | null;
 
     signatures?: LooSignature[] | null;
     items?: LooItem[] | null;
@@ -84,6 +89,17 @@ function unwrapData<T>(res: any): T {
     return res as T;
 }
 
+function toIntOrNull(v: any): number | null {
+    const n = Number(v ?? 0);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return n;
+}
+
+function toStrOrNull(v: any): string | null {
+    const s = String(v ?? "").trim();
+    return s ? s : null;
+}
+
 /**
  * Coerce various backend keys into LetterOfOrder.
  * Backend sometimes returns: lo_id / loo_id / id, number / loa_number / loo_number, etc.
@@ -93,6 +109,22 @@ function coerceLoo(maybe: any): LetterOfOrder | null {
 
     const directId = Number(maybe?.loo_id ?? maybe?.lo_id ?? maybe?.id ?? maybe?.loa_id ?? 0);
     if (!Number.isNaN(directId) && directId > 0) {
+        const payload = maybe?.payload && typeof maybe.payload === "object" ? maybe.payload : null;
+
+        // ✅ Step 18: prefer DB-backed file id + meta (support nested payload too)
+        const pdfFileId =
+            toIntOrNull(maybe?.pdf_file_id ?? maybe?.pdfFileId) ??
+            toIntOrNull(payload?.pdf_file_id ?? payload?.pdfFileId);
+
+        const recordNo =
+            toStrOrNull(maybe?.record_no ?? maybe?.recordNo) ?? toStrOrNull(payload?.record_no ?? payload?.recordNo);
+
+        const formCode =
+            toStrOrNull(maybe?.form_code ?? maybe?.formCode) ?? toStrOrNull(payload?.form_code ?? payload?.formCode);
+
+        const downloadUrl =
+            toStrOrNull(maybe?.download_url ?? maybe?.downloadUrl) ?? toStrOrNull(payload?.download_url ?? payload?.downloadUrl);
+
         const loo: LetterOfOrder = {
             loo_id: directId,
             lo_id: directId, // mirror backend key so UI fallback works
@@ -113,19 +145,24 @@ function coerceLoo(maybe: any): LetterOfOrder | null {
             client_signed_at: maybe?.client_signed_at ?? null,
             locked_at: maybe?.locked_at ?? null,
 
-            // backend now returns download_url + pdf_url (prefer those)
-            download_url: maybe?.download_url ?? null,
+            // ✅ Step 18 fields
+            pdf_file_id: pdfFileId,
+            download_url: downloadUrl,
+            record_no: recordNo,
+            form_code: formCode,
+
+            // legacy fallback
             pdf_url:
                 maybe?.pdf_url ??
-                maybe?.download_url ?? // if backend sets pdf_url=download_url
                 maybe?.file_url ??
                 maybe?.fileUrl ??
                 maybe?.pdfUrl ??
-                null,
+                (downloadUrl ?? null),
 
             signatures: Array.isArray(maybe?.signatures) ? maybe.signatures : null,
             items: Array.isArray(maybe?.items) ? maybe.items : null,
         };
+
         return loo;
     }
 

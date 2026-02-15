@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\loo\LooGeneratorPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "../../hooks/useAuth";
@@ -85,6 +84,17 @@ function getActorRoleCode(roleLabel: string): "OM" | "LH" | null {
     return null;
 }
 
+function toIntOrZero(v: any): number {
+    const n = Number(v ?? 0);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return n;
+}
+
+function toStrOrNull(v: any): string | null {
+    const s = String(v ?? "").trim();
+    return s ? s : null;
+}
+
 export function LooGeneratorPage() {
     const { user } = useAuth();
     const roleLabel = getUserRoleLabel(user);
@@ -107,6 +117,10 @@ export function LooGeneratorPage() {
     const [busy, setBusy] = useState(false);
     const [resultUrl, setResultUrl] = useState<string | null>(null);
     const [resultNumber, setResultNumber] = useState<string | null>(null);
+
+    // ✅ Step 18: show record + form code
+    const [resultRecordNo, setResultRecordNo] = useState<string | null>(null);
+    const [resultFormCode, setResultFormCode] = useState<string | null>(null);
 
     // preview modal
     const [previewOpen, setPreviewOpen] = useState(false);
@@ -132,11 +146,15 @@ export function LooGeneratorPage() {
         return raw;
     };
 
+    // ✅ Step 18: prefer download_url -> pdf_file_id -> pdf_url -> fallback
     const resolveResultUrl = (res: any): string | null => {
         const obj = res?.data ?? res;
 
         const dl = obj?.download_url ?? res?.download_url;
         if (typeof dl === "string" && dl.trim() !== "") return normalizeUrlToSameOriginPath(dl);
+
+        const pdfFileId = toIntOrZero(obj?.pdf_file_id ?? obj?.pdfFileId ?? res?.pdf_file_id ?? res?.pdfFileId);
+        if (pdfFileId > 0) return `/api/v1/files/${pdfFileId}`;
 
         const pdf = obj?.pdf_url ?? res?.pdf_url;
         if (typeof pdf === "string" && pdf.trim() !== "") return normalizeUrlToSameOriginPath(pdf);
@@ -179,6 +197,8 @@ export function LooGeneratorPage() {
             if (resetResult) {
                 setResultUrl(null);
                 setResultNumber(null);
+                setResultRecordNo(null);
+                setResultFormCode(null);
                 setPreviewOpen(false);
             }
 
@@ -190,7 +210,7 @@ export function LooGeneratorPage() {
             const list: CandidateSample[] = Array.isArray(data) ? data : [];
             setItems(list);
 
-            // init selection maps (keep it predictable: default unchecked, default params checked)
+            // init selection maps (default unchecked, default params checked)
             const nextSelected: Record<number, boolean> = {};
             const nextParamSel: Record<number, Record<number, boolean>> = {};
             for (const s of list) {
@@ -204,11 +224,10 @@ export function LooGeneratorPage() {
             setSelected(nextSelected);
             setParamSel(nextParamSel);
 
-            // approvals (IMPORTANT: must show both OM & LH status to anyone)
+            // approvals
             try {
                 const ids = list.map((x) => x.sample_id);
                 if (ids.length) {
-                    // Expectation: backend returns { [sampleId]: { OM: bool, LH: bool, ready: bool } }
                     const st = await looService.getApprovals(ids);
 
                     const next: Record<number, ApprovalState> = {};
@@ -246,7 +265,7 @@ export function LooGeneratorPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Debounced search reload (so it feels like SamplesPage filters)
+    // Debounced search reload
     useEffect(() => {
         if (debounceRef.current) window.clearTimeout(debounceRef.current);
         debounceRef.current = window.setTimeout(() => {
@@ -290,7 +309,7 @@ export function LooGeneratorPage() {
             setBusy(true);
             setError(null);
 
-            // Optimistic UI: update immediately
+            // Optimistic UI
             setApprovals((prev) => {
                 const cur = prev[sampleId] ?? { OM: false, LH: false, ready: false };
                 const next = { ...cur };
@@ -302,7 +321,7 @@ export function LooGeneratorPage() {
 
             const res = await looService.setApproval(sampleId, nextApproved);
 
-            // Server truth wins (and should include OM+LH state)
+            // Server truth
             const st = (res as any)?.state ?? (res as any)?.data?.state ?? (res as any);
             if (st && typeof st === "object") {
                 setApprovals((p) => ({
@@ -310,7 +329,7 @@ export function LooGeneratorPage() {
                     [sampleId]: { OM: !!st.OM, LH: !!st.LH, ready: !!st.ready },
                 }));
             } else {
-                // fallback: refetch approvals for this list
+                // fallback refetch
                 const ids = items.map((x) => x.sample_id);
                 if (ids.length) {
                     const all = await looService.getApprovals(ids);
@@ -330,7 +349,7 @@ export function LooGeneratorPage() {
                 "Gagal update approval.";
             setError(msg);
 
-            // rollback by refetch (safe)
+            // rollback by refetch
             try {
                 const ids = items.map((x) => x.sample_id);
                 if (ids.length) {
@@ -376,11 +395,13 @@ export function LooGeneratorPage() {
             setError(null);
             setResultUrl(null);
             setResultNumber(null);
+            setResultRecordNo(null);
+            setResultFormCode(null);
             setPreviewOpen(false);
 
             const res = await looService.generateForSamples(readySelectedIds, map);
-
             const obj = (res as any)?.data ?? (res as any);
+
             const looNumber =
                 typeof obj?.number === "string"
                     ? (obj.number as string)
@@ -390,9 +411,15 @@ export function LooGeneratorPage() {
 
             setResultNumber(looNumber);
 
+            // ✅ Step 18: record_no + form_code
+            setResultRecordNo(toStrOrNull(obj?.record_no ?? obj?.payload?.record_no) ?? null);
+            setResultFormCode(toStrOrNull(obj?.form_code ?? obj?.payload?.form_code) ?? null);
+
             const url = resolveResultUrl(res);
             if (!url) {
-                setError("LOO berhasil dibuat, tapi URL preview/download tidak tersedia (butuh download_url / pdf_url / lo_id).");
+                setError(
+                    "LOO berhasil dibuat, tapi URL preview/download tidak tersedia (butuh download_url / pdf_file_id / pdf_url / lo_id)."
+                );
                 return;
             }
 
@@ -428,7 +455,7 @@ export function LooGeneratorPage() {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Header (match SamplesPage) */}
+            {/* Header */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <h1 className="text-lg md:text-xl font-bold text-gray-900">LOO Generator</h1>
 
@@ -441,7 +468,7 @@ export function LooGeneratorPage() {
             </div>
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Filter bar (match SamplesPage style) */}
+                {/* Filter bar */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="loo-search">
@@ -504,7 +531,7 @@ export function LooGeneratorPage() {
                         </div>
                     )}
 
-                    {/* Minimal guidance */}
+                    {/* Guidance */}
                     <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
                         <div className="flex items-start gap-2">
                             <span className="mt-0.5 text-gray-500">
@@ -516,7 +543,7 @@ export function LooGeneratorPage() {
                         </div>
                     </div>
 
-                    {/* Summary strip */}
+                    {/* Summary */}
                     <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 mb-4">
                         <span className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1">
                             Selected: <span className="font-semibold text-gray-900">{selectedIds.length}</span>
@@ -573,7 +600,6 @@ export function LooGeneratorPage() {
                                 return (
                                     <div key={sid} className={cx("rounded-2xl border p-4", rowBorder, rowBg)}>
                                         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-                                            {/* Left: selection + identity */}
                                             <label className="flex items-start gap-3 cursor-pointer">
                                                 <input
                                                     type="checkbox"
@@ -603,7 +629,6 @@ export function LooGeneratorPage() {
                                                         Received: {rx ? formatDateTimeLocal(rx) : "-"}
                                                     </div>
 
-                                                    {/* Approval buttons */}
                                                     <div className="mt-2 flex flex-wrap items-center gap-2">
                                                         <button
                                                             type="button"
@@ -644,7 +669,6 @@ export function LooGeneratorPage() {
                                             </label>
                                         </div>
 
-                                        {/* Parameters (only when selected) */}
                                         {checked ? (
                                             <div className="mt-3">
                                                 <div className="text-xs font-semibold text-gray-800 mb-2">
@@ -718,6 +742,8 @@ export function LooGeneratorPage() {
                                 onClick={() => {
                                     setResultUrl(null);
                                     setResultNumber(null);
+                                    setResultRecordNo(null);
+                                    setResultFormCode(null);
                                     setPreviewOpen(false);
                                 }}
                                 disabled={busy}
@@ -742,8 +768,16 @@ export function LooGeneratorPage() {
                     {resultUrl ? (
                         <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
                             <div className="font-semibold">LOO berhasil dibuat</div>
+
                             <div className="mt-1">
                                 Number: <span className="font-mono">{resultNumber ?? "-"}</span>
+                            </div>
+
+                            {/* ✅ Step 18 */}
+                            <div className="mt-1 text-xs text-emerald-900">
+                                Nomor Rekaman: <span className="font-mono">{resultRecordNo ?? "-"}</span>
+                                {"  "}•{"  "}
+                                Kode Form: <span className="font-mono">{resultFormCode ?? "-"}</span>
                             </div>
 
                             <div className="mt-3 flex items-center gap-2 flex-wrap">
