@@ -3,8 +3,10 @@
 namespace App\Services;
 
 use App\Models\FileBlob;
-use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FileStoreService
 {
@@ -36,6 +38,25 @@ class FileStoreService
 
         $ext = $ext ?: $this->guessExt($originalName, $mimeType);
 
+        // ✅ IMPORTANT:
+        // Postgres bytea insert can't safely receive raw binary as a normal bound string,
+        // because it may be treated as UTF-8 text and blow up on 0xFE etc.
+        // So for pgsql we store using decode(base64, 'base64').
+        $driver = DB::connection()->getDriverName();
+
+        if ($driver === 'pgsql') {
+            return $this->insertPgsqlBytea(
+                originalName: $originalName,
+                ext: $ext,
+                mimeType: $mimeType,
+                size: $size,
+                sha: $sha,
+                bytes: $bytes,
+                actorId: $actorId
+            );
+        }
+
+        // MySQL/MariaDB/SQLite: raw bytes insert is OK.
         $row = FileBlob::create([
             'original_name' => $originalName,
             'ext' => $ext,
@@ -59,6 +80,9 @@ class FileStoreService
     /**
      * Stream/download response for stored blob.
      * $download=false => inline preview (PDF in browser)
+     *
+     * NOTE: On Postgres, bytea is sometimes returned as a stream resource,
+     * so we support StreamedResponse to avoid memory spikes.:contentReference[oaicite:1]{index=1}
      */
     public function streamResponse(int $fileId, bool $download = false): Response
     {
@@ -67,14 +91,77 @@ class FileStoreService
         $filename = $this->safeFilename((string) $file->original_name, (string) $file->ext);
         $disposition = $download ? 'attachment' : 'inline';
 
-        $bytes = $file->bytes ?? '';
-        $size = (int) ($file->size_bytes ?? strlen($bytes));
+        $bytes = $file->bytes ?? null;
+        $size = (int) ($file->size_bytes ?? 0);
 
-        return response($bytes, 200)
-            ->header('Content-Type', $file->mime_type ?: 'application/octet-stream')
-            ->header('Content-Length', (string) $size)
-            ->header('Content-Disposition', $disposition . '; filename="' . $filename . '"')
-            ->header('X-Content-Type-Options', 'nosniff');
+        $headers = [
+            'Content-Type' => $file->mime_type ?: 'application/octet-stream',
+            'Content-Disposition' => $disposition . '; filename="' . $filename . '"',
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, max-age=0, no-cache, no-store, must-revalidate',
+            'Pragma' => 'no-cache',
+        ];
+
+        if ($size > 0) {
+            $headers['Content-Length'] = (string) $size;
+        }
+
+        // Postgres can return bytea as stream resource
+        if (is_resource($bytes)) {
+            return new StreamedResponse(function () use ($bytes) {
+                while (!feof($bytes)) {
+                    echo fread($bytes, 8192);
+                }
+            }, 200, $headers);
+        }
+
+        if (!is_string($bytes)) {
+            return response()->json(['message' => 'File bytes are missing'], 500);
+        }
+
+        return response($bytes, 200, $headers);
+    }
+
+    private function insertPgsqlBytea(
+        string $originalName,
+        string $ext,
+        ?string $mimeType,
+        int $size,
+        string $sha,
+        string $bytes,
+        ?int $actorId
+    ): int {
+        $now = now()->toDateTimeString();
+
+        // Base64 keeps payload smaller than hex (4/3 vs 2x)
+        $b64 = base64_encode($bytes);
+
+        // Use decode(?, 'base64') so parameter is safe UTF-8 text,
+        // and Postgres converts to bytea server-side.
+        $row = DB::selectOne(
+            'INSERT INTO files (original_name, ext, mime_type, size_bytes, sha256, bytes, created_by, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, decode(?, \'base64\'), ?, ?, ?)
+             RETURNING file_id',
+            [
+                $originalName,
+                $ext,
+                $mimeType,
+                $size,
+                $sha,
+                $b64,
+                $actorId,
+                $now,
+                $now,
+            ]
+        );
+
+        $id = (int) ($row->file_id ?? 0);
+
+        if ($id <= 0) {
+            throw new \RuntimeException('Failed to insert file blob (pgsql).');
+        }
+
+        return $id;
     }
 
     private function guessExt(string $originalName, ?string $mimeType): string
