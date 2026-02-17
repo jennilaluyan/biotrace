@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class ReportDocumentsController extends Controller
 {
@@ -395,10 +396,14 @@ class ReportDocumentsController extends Controller
                 return response()->json(['message' => 'LOO cannot be viewed: no Ready sample (OM+LH approved).'], 422);
             }
 
-            // ✅ Step 21 DB-only: wajib punya pdf_file_id
             $pdfFileId = (int) ($payload['pdf_file_id'] ?? 0);
             if ($pdfFileId > 0) {
-                return redirect()->to(url("/api/v1/files/{$pdfFileId}"));
+                // ✅ PERBAIKAN: Gunakan service untuk streaming BLOB, bukan file path
+                try {
+                    return $this->files->streamResponse($pdfFileId, false);
+                } catch (ModelNotFoundException $e) {
+                    return response()->json(['message' => 'File not found.'], 404);
+                }
             }
 
             return response()->json([
@@ -424,7 +429,7 @@ class ReportDocumentsController extends Controller
                 return response()->json(['message' => 'Reagent Request is not approved.'], 422);
             }
 
-            // ✅ Step 21: harus ada generated_documents.file_pdf_id (tidak generate on-demand di endpoint viewer)
+            // ✅ Step 21: harus ada generated_documents.file_pdf_id
             if (Schema::hasTable('generated_documents')) {
                 $gd = DB::table('generated_documents')
                     ->where('doc_code', 'REAGENT_REQUEST')
@@ -436,7 +441,12 @@ class ReportDocumentsController extends Controller
 
                 $pdfFileId = (int) ($gd->file_pdf_id ?? 0);
                 if ($pdfFileId > 0) {
-                    return redirect()->to(url("/api/v1/files/{$pdfFileId}"));
+                    // ✅ PERBAIKAN: Gunakan service untuk streaming BLOB
+                    try {
+                        return $this->files->streamResponse($pdfFileId, false);
+                    } catch (ModelNotFoundException $e) {
+                        return response()->json(['message' => 'File not found.'], 404);
+                    }
                 }
             }
 
@@ -448,5 +458,15 @@ class ReportDocumentsController extends Controller
         }
 
         return response()->json(['message' => 'Unsupported document type.'], 400);
+    }
+
+    private function streamPdfByFileId(int $fileId, string $fallbackName)
+    {
+        // ✅ PERBAIKAN: Gunakan service untuk streaming BLOB
+        try {
+            return $this->files->streamResponse($fileId, false);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'File not found.'], 404);
+        }
     }
 }

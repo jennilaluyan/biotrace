@@ -54,7 +54,7 @@ class CoaDownloadController extends Controller
         if (Schema::hasColumn('reports', 'template_code')) $q->whereNotNull('template_code');
         if (Schema::hasColumn('reports', 'is_locked')) $q->where('is_locked', 1);
 
-        $q->whereNotNull('pdf_file_id'); // ✅ Step 21
+        $q->whereNotNull('pdf_file_id');
 
         $orderCol = Schema::hasColumn('reports', 'report_id') ? 'report_id' : 'id';
         $report = $q->orderByDesc($orderCol)->first();
@@ -68,50 +68,67 @@ class CoaDownloadController extends Controller
         $pdfFileId = (int) ($report->pdf_file_id ?? 0);
         if ($pdfFileId <= 0) {
             return response()->json([
-                'message' => 'CoA exists but PDF is not available (missing pdf_file_id).',
-                'report_id' => (int) ($report->report_id ?? 0),
-                'code' => 'COA_PDF_NOT_AVAILABLE',
+                'message' => 'CoA exists but PDF is not available.',
             ], 409);
         }
 
-        return redirect()->to(url("/api/v1/files/{$pdfFileId}"));
+        $file = \App\Models\File::find($pdfFileId);
+
+        if (!$file) {
+            return response()->json([
+                'message' => 'File not found.',
+            ], 404);
+        }
+
+        return response()->streamDownload(
+            function () use ($file) {
+                echo file_get_contents(storage_path('app/' . $file->path));
+            },
+            $file->original_name ?? 'coa.pdf',
+            [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'inline; filename="coa.pdf"',
+            ]
+        );
     }
 
     public function byReport(Request $request, Report $report)
     {
         $this->assertCoaViewer($request);
 
-        if (Schema::hasColumn('reports', 'report_type')) {
-            if ((string) ($report->report_type ?? '') !== 'coa') {
-                return response()->json(['message' => 'This report is not a CoA.'], 409);
-            }
+        if ((string) ($report->report_type ?? '') !== 'coa') {
+            return response()->json(['message' => 'This report is not a CoA.'], 409);
         }
 
-        if (!Schema::hasColumn('reports', 'pdf_file_id')) {
+        if ((bool) ($report->is_locked ?? false) !== true) {
             return response()->json([
-                'message' => 'CoA DB-backed PDF is not available (missing reports.pdf_file_id column).',
-                'code' => 'COA_SCHEMA_MISSING',
-            ], 500);
-        }
-
-        if (Schema::hasColumn('reports', 'is_locked')) {
-            if ((bool) ($report->is_locked ?? false) !== true) {
-                return response()->json([
-                    'message' => 'CoA exists but is not finalized yet.',
-                    'report_id' => (int) ($report->report_id ?? 0),
-                ], 409);
-            }
+                'message' => 'CoA exists but is not finalized yet.',
+            ], 409);
         }
 
         $pdfFileId = (int) ($report->pdf_file_id ?? 0);
         if ($pdfFileId <= 0) {
             return response()->json([
-                'message' => 'CoA PDF not available yet for this report (missing pdf_file_id).',
-                'report_id' => (int) ($report->report_id ?? 0),
-                'code' => 'COA_PDF_NOT_AVAILABLE',
+                'message' => 'CoA PDF not available yet.',
             ], 409);
         }
 
-        return redirect()->to(url("/api/v1/files/{$pdfFileId}"));
+        // ⬇ INI BAGIAN PENTING
+        $file = app(\App\Services\FileStoreService::class)->find($pdfFileId);
+
+        if (!$file) {
+            return response()->json(['message' => 'File not found.'], 404);
+        }
+
+        return response()->streamDownload(
+            function () use ($file) {
+                echo file_get_contents(storage_path('app/' . $file->path));
+            },
+            $file->original_name ?? 'coa.pdf',
+            [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'inline; filename="coa.pdf"',
+            ]
+        );
     }
 }
