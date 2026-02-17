@@ -4,6 +4,7 @@ namespace App\Services;
 
 use PhpOffice\PhpWord\TemplateProcessor;
 use RuntimeException;
+use ZipArchive;
 
 class DocxTemplateRenderService
 {
@@ -36,6 +37,7 @@ class DocxTemplateRenderService
             // scalar placeholders: setValue('record_no', '...') expects ${record_no} in docx
             foreach ($vars as $k => $v) {
                 $key = $this->sanitizeKey((string) $k);
+                if ($key === '') continue;
                 $tp->setValue($key, $v === null ? '' : (string) $v);
             }
 
@@ -43,28 +45,71 @@ class DocxTemplateRenderService
             foreach ($rows as $rowKey => $rowList) {
                 $rk = $this->sanitizeKey((string) $rowKey);
 
-                if (!is_array($rowList)) continue;
+                if ($rk === '' || !is_array($rowList)) continue;
 
-                // PhpWord supports cloneRowAndSetValues (best) in newer versions
                 if (method_exists($tp, 'cloneRowAndSetValues')) {
                     $values = [];
                     foreach ($rowList as $row) {
+                        if (!is_array($row)) continue;
+
                         $flat = [];
                         foreach ($row as $colKey => $colVal) {
-                            $flat[$this->sanitizeKey((string) $colKey)] = $colVal === null ? '' : (string) $colVal;
+                            $ck = $this->sanitizeKey((string) $colKey);
+                            if ($ck === '') continue;
+                            $flat[$ck] = $colVal === null ? '' : (string) $colVal;
                         }
-                        $values[] = $flat;
+
+                        if (!empty($flat)) $values[] = $flat;
                     }
-                    $tp->cloneRowAndSetValues($rk, $values);
+
+                    if (count($values) === 0) continue;
+
+                    // ✅ pilih anchor yang benar-benar ada di template
+                    $anchor = $this->pickCloneAnchor($inPath, $rk, $values);
+
+                    try {
+                        $tp->cloneRowAndSetValues($anchor, $values);
+                    } catch (\Throwable $e) {
+                        // last resort: coba kandidat lain (kalau template beda)
+                        $cands = array_unique(array_merge([$rk], array_keys($values[0] ?? [])));
+                        $ok = false;
+
+                        foreach ($cands as $cand) {
+                            $cand = $this->sanitizeKey((string) $cand);
+                            if ($cand === '' || $cand === $anchor) continue;
+
+                            try {
+                                $tp->cloneRowAndSetValues($cand, $values);
+                                $ok = true;
+                                break;
+                            } catch (\Throwable) {
+                                // keep trying
+                            }
+                        }
+
+                        if (!$ok) {
+                            throw new RuntimeException(
+                                "Cannot clone DOCX table row. No usable placeholder found. " .
+                                    "Put one of these placeholders as PLAIN TEXT (no bold/markup split) inside the table row: " .
+                                    '${' . $rk . '} or ${no} or ${lab_sample_code}.',
+                                0,
+                                $e
+                            );
+                        }
+                    }
                 } else {
                     // fallback: cloneRow + setValue with index suffix #1, #2 ...
                     $n = count($rowList);
                     $tp->cloneRow($rk, $n);
+
                     for ($i = 0; $i < $n; $i++) {
                         $idx = $i + 1;
                         $row = $rowList[$i];
+                        if (!is_array($row)) continue;
+
                         foreach ($row as $colKey => $colVal) {
                             $ck = $this->sanitizeKey((string) $colKey);
+                            if ($ck === '') continue;
                             $tp->setValue($ck . '#' . $idx, $colVal === null ? '' : (string) $colVal);
                         }
                     }
@@ -81,6 +126,59 @@ class DocxTemplateRenderService
             return $merged;
         } finally {
             $this->cleanupDir($tmpDir);
+        }
+    }
+
+    private function pickCloneAnchor(string $docxPath, string $preferred, array $values): string
+    {
+        $preferred = $this->sanitizeKey($preferred);
+
+        // kandidat anchor: preferred + semua kolom di row
+        $cands = array_unique(array_merge([$preferred], array_keys($values[0] ?? [])));
+
+        foreach ($cands as $c) {
+            $c = $this->sanitizeKey((string) $c);
+            if ($c === '') continue;
+
+            if ($this->docxContainsPlaceholder($docxPath, $c)) {
+                return $c;
+            }
+        }
+
+        // fallback tetap pakai preferred (biar error message dari try/catch)
+        return $preferred !== '' ? $preferred : 'item_no';
+    }
+
+    private function docxContainsPlaceholder(string $docxPath, string $key): bool
+    {
+        $key = $this->sanitizeKey($key);
+        if ($key === '') return false;
+
+        $needle1 = '${' . $key . '}';
+        $needle2 = '${' . $key . '#'; // indexed placeholders
+
+        $zip = new ZipArchive();
+        if ($zip->open($docxPath) !== true) return false;
+
+        try {
+            // cek document + header/footer (cukup untuk case normal)
+            $parts = ['word/document.xml'];
+            for ($i = 1; $i <= 3; $i++) {
+                $parts[] = "word/header{$i}.xml";
+                $parts[] = "word/footer{$i}.xml";
+            }
+
+            foreach ($parts as $p) {
+                $xml = $zip->getFromName($p);
+                if (!is_string($xml) || $xml === '') continue;
+
+                if (strpos($xml, $needle1) !== false) return true;
+                if (strpos($xml, $needle2) !== false) return true;
+            }
+
+            return false;
+        } finally {
+            $zip->close();
         }
     }
 
@@ -106,6 +204,7 @@ class DocxTemplateRenderService
     private function cleanupDir(string $dir): void
     {
         if (!is_dir($dir)) return;
+
         $files = scandir($dir);
         if ($files) {
             foreach ($files as $f) {
@@ -113,6 +212,7 @@ class DocxTemplateRenderService
                 @unlink($dir . DIRECTORY_SEPARATOR . $f);
             }
         }
+
         @rmdir($dir);
     }
 }

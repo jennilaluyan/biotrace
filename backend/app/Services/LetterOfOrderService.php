@@ -135,24 +135,35 @@ class LetterOfOrderService
         }
 
         // Load template registry + current version
-        $doc = DB::table('documents')
+        $docQ = DB::table('documents')
             ->where('doc_code', self::DOC_CODE_LOO)
             ->where('kind', 'template')
-            ->where('is_active', true)
-            ->first();
+            ->where('is_active', true);
+
+        $cols = ['doc_id', 'doc_code', 'version_current_id'];
+
+        if (Schema::hasColumn('documents', 'current_version_id')) {
+            $cols[] = 'current_version_id';
+        }
+
+        $doc = $docQ->first($cols);
 
         if (!$doc) {
             throw new RuntimeException('LOO template registry not found or inactive (documents row missing).');
         }
 
-        $currentVersionId = (int) ($doc->current_version_id ?? 0);
-        if ($currentVersionId <= 0) {
-            throw new RuntimeException('LOO template has no uploaded DOCX yet (current_version_id is null).');
+        $docVerId = (int) ($doc->version_current_id ?? 0);
+        if ($docVerId <= 0 && isset($doc->current_version_id)) {
+            $docVerId = (int) ($doc->current_version_id ?? 0);
+        }
+
+        if ($docVerId <= 0) {
+            throw new RuntimeException('LOO template has no uploaded DOCX yet (version_current_id is null).');
         }
 
         $ver = DB::table('document_versions')
-            ->where('doc_version_id', $currentVersionId)
-            ->first();
+            ->where('doc_ver_id', $docVerId)
+            ->first(['doc_ver_id', 'version_no', 'file_id']);
 
         if (!$ver) {
             throw new RuntimeException('LOO template current version row not found (document_versions).');
@@ -163,7 +174,7 @@ class LetterOfOrderService
             throw new RuntimeException('LOO template current version missing file_id.');
         }
 
-        $templateVersion = (int) ($ver->version ?? 1);
+        $templateVersion = (int) ($ver->version_no ?? 1);
 
         // Decide whether to generate / regenerate
         $pdfFileId = (int) ($payload['pdf_file_id'] ?? 0);
@@ -218,10 +229,24 @@ class LetterOfOrderService
         // Fetch template bytes from DB
         /** @var FileBlob $tpl */
         $tpl = FileBlob::query()->where('file_id', $templateFileId)->firstOrFail();
-        $templateBytes = (string) ($tpl->bytes ?? '');
+
+        $raw = $tpl->bytes ?? null;
+
+        // ✅ Postgres bytea can come back as a stream resource
+        if (is_resource($raw)) {
+            // try read from current pointer, then rewind as fallback
+            $templateBytes = stream_get_contents($raw);
+            if ($templateBytes === false || $templateBytes === '') {
+                @rewind($raw);
+                $templateBytes = stream_get_contents($raw);
+            }
+            $templateBytes = is_string($templateBytes) ? $templateBytes : '';
+        } else {
+            $templateBytes = is_string($raw) ? $raw : '';
+        }
 
         if ($templateBytes === '') {
-            throw new RuntimeException('LOO template file bytes are empty.');
+            throw new RuntimeException('LOO template file bytes are empty or unreadable.');
         }
 
         // Build placeholder vars (best-effort; template can pick what it needs)
@@ -265,8 +290,15 @@ class LetterOfOrderService
         ];
 
         foreach ($itemsSnapshot as $it) {
+            $no = (string) ($it['no'] ?? '');
+
             $rows['item_no'][] = [
-                'item_no' => (string) ($it['no'] ?? ''),
+                // ✅ template sering pakai ${no}
+                'no' => $no,
+
+                // ✅ tetap support ${item_no} (punya kamu sekarang)
+                'item_no' => $no,
+
                 'sample_id' => (string) ($it['sample_id'] ?? ''),
                 'lab_sample_code' => (string) ($it['lab_sample_code'] ?? ''),
                 'sample_type' => (string) ($it['sample_type'] ?? ''),

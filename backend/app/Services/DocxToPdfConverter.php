@@ -4,13 +4,10 @@ namespace App\Services;
 
 use RuntimeException;
 use Symfony\Component\Process\Process;
+use ZipArchive;
 
 class DocxToPdfConverter
 {
-    /**
-     * Convert DOCX bytes to PDF bytes using LibreOffice headless.
-     * Requires `soffice` available on PATH or via env SOFFICE_BIN.
-     */
     public function convertBytes(string $docxBytes): string
     {
         $tmpDir = $this->makeTmpDir();
@@ -19,40 +16,77 @@ class DocxToPdfConverter
         file_put_contents($inPath, $docxBytes);
 
         try {
-            $this->assertLibreOfficeAvailable();
+            $this->assertValidDocx($inPath);
 
-            $bin = $this->sofficeBin();
+            $bin = $this->sofficeBinForConversion();
+            if (!$bin) {
+                throw new RuntimeException(
+                    "LibreOffice not found.\n" .
+                        "Set SOFFICE_BIN in .env, e.g:\n" .
+                        "SOFFICE_BIN=\"C:\\\\Program Files\\\\LibreOffice\\\\program\\\\soffice.com\""
+                );
+            }
+
+            $loDir = dirname($bin);
+
+            // isolate LibreOffice profile (avoid lock + permission problems)
+            $profileDir = $tmpDir . DIRECTORY_SEPARATOR . 'lo-profile';
+            if (!is_dir($profileDir)) @mkdir($profileDir, 0775, true);
+
+            $profileUrl = $this->toFileUrl($profileDir, true);
+
             $cmd = [
                 $bin,
                 '--headless',
                 '--nologo',
                 '--nofirststartwizard',
+                '--norestore',
+                '--invisible',
+                '-env:UserInstallation=' . $profileUrl,
                 '--convert-to',
-                'pdf',
+                'pdf:writer_pdf_Export',
                 '--outdir',
                 $tmpDir,
                 $inPath,
             ];
 
-            $p = new Process($cmd);
-            $p->setTimeout(60); // 60s should be enough for typical docs
+            $cwd = is_dir($loDir) ? $loDir : $tmpDir;
+
+            // ✅ critical: force TEMP/TMP to a writable folder + disable OpenCL
+            $env = $this->buildLibreOfficeEnv($loDir, $tmpDir);
+
+            $p = new Process($cmd, $cwd, $env);
+            $p->setTimeout(180);
             $p->run();
+
+            $out = trim((string) $p->getOutput());
+            $err = trim((string) $p->getErrorOutput());
 
             if (!$p->isSuccessful()) {
                 throw new RuntimeException(
-                    "LibreOffice conversion failed: " . $p->getErrorOutput() . " " . $p->getOutput()
+                    "LibreOffice conversion failed (exit {$p->getExitCode()}).\n" .
+                        "Command: " . $this->prettyCmd($cmd) . "\n" .
+                        "CWD: {$cwd}\n" .
+                        "TmpDir: {$tmpDir}\n" .
+                        "TmpDir files: " . implode(', ', $this->listFiles($tmpDir)) . "\n" .
+                        ($out !== '' ? "STDOUT: {$out}\n" : '') .
+                        ($err !== '' ? "STDERR: {$err}\n" : '')
                 );
             }
 
-            $pdfPath = $tmpDir . DIRECTORY_SEPARATOR . 'input.pdf';
-            if (!file_exists($pdfPath)) {
-                // Sometimes LO uses same basename; still should be input.pdf
-                $pdfs = glob($tmpDir . DIRECTORY_SEPARATOR . '*.pdf') ?: [];
-                if (count($pdfs) > 0) $pdfPath = $pdfs[0];
-            }
+            // wait up to 30s for pdf
+            $pdfPath = $this->findPdfOutputPath($tmpDir, 30);
 
-            if (!file_exists($pdfPath)) {
-                throw new RuntimeException("PDF output not found after conversion.");
+            if (!$pdfPath) {
+                throw new RuntimeException(
+                    "PDF output not found after conversion.\n" .
+                        "Command: " . $this->prettyCmd($cmd) . "\n" .
+                        "CWD: {$cwd}\n" .
+                        "TmpDir: {$tmpDir}\n" .
+                        "TmpDir files: " . implode(', ', $this->listFiles($tmpDir)) . "\n" .
+                        ($out !== '' ? "STDOUT: {$out}\n" : '') .
+                        ($err !== '' ? "STDERR: {$err}\n" : '')
+                );
             }
 
             $pdf = file_get_contents($pdfPath);
@@ -66,66 +100,143 @@ class DocxToPdfConverter
         }
     }
 
-    private ?string $resolvedBin = null;
-
-    private function sofficeBin(): string
+    private function sofficeBinForConversion(): ?string
     {
-        if ($this->resolvedBin) return $this->resolvedBin;
+        $envBin = trim((string) (env('SOFFICE_BIN') ?: ''), "\"' ");
+        if ($envBin !== '' && is_file($envBin)) return $envBin;
 
-        $candidates = [];
+        $cand = [
+            'C:\\Program Files\\LibreOffice\\program\\soffice.com',
+            'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
+            'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.com',
+            'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe',
+        ];
 
-        $envBin = (string) (env('SOFFICE_BIN') ?: '');
-        $envBin = trim($envBin, "\"' "); // strip quotes
-        if ($envBin !== '') $candidates[] = $envBin;
+        foreach ($cand as $p) {
+            if (is_file($p)) return $p;
+        }
 
-        // common names
-        $candidates[] = 'soffice';
-        $candidates[] = 'soffice.exe';
+        return null;
+    }
 
-        // common Windows install paths
-        $candidates[] = 'C:\\Program Files\\LibreOffice\\program\\soffice.exe';
-        $candidates[] = 'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe';
+    private function buildLibreOfficeEnv(?string $loProgramDir, string $tmpDir): array
+    {
+        $env = $_ENV;
 
-        foreach ($candidates as $bin) {
-            if ($this->canRun($bin)) {
-                return $this->resolvedBin = $bin;
+        // ✅ FORCE temp dirs (fix: "Failed to open temporary file" + IO write 16)
+        $env['TMP'] = $tmpDir;
+        $env['TEMP'] = $tmpDir;
+        $env['TMPDIR'] = $tmpDir;
+
+        // ✅ disable OpenCL to avoid HSAIL/GPU compiler noise & failures
+        $env['SAL_DISABLE_OPENCL'] = '1';
+
+        // (optional) sometimes helps headless stability
+        $env['SAL_USE_VCLPLUGIN'] = 'gen';
+
+        if ($loProgramDir && is_dir($loProgramDir)) {
+            $env['UNO_PATH'] = $loProgramDir;
+
+            $fundamental = $loProgramDir . DIRECTORY_SEPARATOR . 'fundamental.ini';
+            if (is_file($fundamental)) {
+                $env['URE_BOOTSTRAP'] = 'vnd.sun.star.pathname:' . str_replace('\\', '/', $fundamental);
+            }
+
+            $path = (string)($env['PATH'] ?? getenv('PATH') ?? '');
+            if (stripos($path, $loProgramDir) === false) {
+                $env['PATH'] = $loProgramDir . PATH_SEPARATOR . $path;
             }
         }
 
-        // keep default last (for error message)
-        return $this->resolvedBin = ($envBin !== '' ? $envBin : 'soffice');
+        return $env;
     }
 
-    private function canRun(string $bin): bool
+    private function findPdfOutputPath(string $tmpDir, int $waitSeconds = 20): ?string
     {
+        $candidates = [
+            $tmpDir . DIRECTORY_SEPARATOR . 'input.pdf',
+            $tmpDir . DIRECTORY_SEPARATOR . 'input.PDF',
+            $tmpDir . DIRECTORY_SEPARATOR . 'input.docx.pdf',
+            $tmpDir . DIRECTORY_SEPARATOR . 'input.docx.PDF',
+        ];
+
+        $tries = max(1, (int)($waitSeconds / 0.25));
+        for ($i = 0; $i < $tries; $i++) {
+            foreach ($candidates as $p) {
+                if (is_file($p)) return $p;
+            }
+
+            $pdfs = glob($tmpDir . DIRECTORY_SEPARATOR . '*.{pdf,PDF}', GLOB_BRACE) ?: [];
+            if (count($pdfs) > 0) return $pdfs[0];
+
+            usleep(250000);
+        }
+
+        return null;
+    }
+
+    private function assertValidDocx(string $path): void
+    {
+        $zip = new ZipArchive();
+        $ok = $zip->open($path);
+
+        if ($ok !== true) {
+            throw new RuntimeException("Input DOCX is not a valid zip archive (ZipArchive open code: {$ok}).");
+        }
+
         try {
-            $p = new Process([$bin, '--version']);
-            $p->setTimeout(5);
-            $p->run();
-            return $p->isSuccessful();
-        } catch (\Throwable $e) {
-            return false;
+            foreach (['[Content_Types].xml', 'word/document.xml'] as $entry) {
+                if ($zip->locateName($entry) === false) {
+                    throw new RuntimeException("Input DOCX is missing required part: {$entry}");
+                }
+            }
+        } finally {
+            $zip->close();
         }
     }
 
-    public function assertLibreOfficeAvailable(): void
+    private function toFileUrl(string $path, bool $trailingSlash = false): string
     {
-        $bin = $this->sofficeBin();
+        $path = str_replace('\\', '/', $path);
+        if ($trailingSlash && !str_ends_with($path, '/')) $path .= '/';
 
-        if (!$this->canRun($bin)) {
-            throw new RuntimeException(
-                "LibreOffice (soffice) not available.\n" .
-                    "Fix: install LibreOffice and either:\n" .
-                    "- add soffice to PATH, or\n" .
-                    "- set SOFFICE_BIN in .env, e.g.\n" .
-                    "  SOFFICE_BIN=\"C:\\\\Program Files\\\\LibreOffice\\\\program\\\\soffice.exe\""
-            );
+        if (preg_match('/^[A-Za-z]:\//', $path)) {
+            $parts = explode('/', $path);
+            $drive = array_shift($parts);
+            $parts = array_map('rawurlencode', $parts);
+            return 'file:///' . $drive . '/' . implode('/', $parts);
         }
+
+        return 'file:///' . rawurlencode($path);
+    }
+
+    private function prettyCmd(array $cmd): string
+    {
+        return implode(' ', array_map([$this, 'shellQuote'], $cmd));
+    }
+
+    private function shellQuote(string $s): string
+    {
+        if ($s === '') return '""';
+        if (preg_match('/\s|"|\'/u', $s)) {
+            return '"' . str_replace('"', '\"', $s) . '"';
+        }
+        return $s;
+    }
+
+    private function listFiles(string $dir): array
+    {
+        $out = [];
+        $all = glob($dir . DIRECTORY_SEPARATOR . '*') ?: [];
+        foreach ($all as $p) $out[] = basename($p);
+        sort($out);
+        return $out;
     }
 
     private function makeTmpDir(): string
     {
-        $base = storage_path('app/tmp-docs');
+        // ✅ use system temp to avoid long path + spaces + permissions
+        $base = rtrim(sys_get_temp_dir(), "\\/") . DIRECTORY_SEPARATOR . 'biotrace-tmp-docs';
         if (!is_dir($base)) @mkdir($base, 0775, true);
 
         $dir = $base . DIRECTORY_SEPARATOR . 'pdf_' . bin2hex(random_bytes(8));
@@ -138,11 +249,18 @@ class DocxToPdfConverter
     private function cleanupDir(string $dir): void
     {
         if (!is_dir($dir)) return;
+
         $files = scandir($dir);
         if ($files) {
             foreach ($files as $f) {
                 if ($f === '.' || $f === '..') continue;
-                @unlink($dir . DIRECTORY_SEPARATOR . $f);
+
+                $p = $dir . DIRECTORY_SEPARATOR . $f;
+                if (is_dir($p)) {
+                    $this->cleanupDir($p);
+                    continue;
+                }
+                @unlink($p);
             }
         }
         @rmdir($dir);
