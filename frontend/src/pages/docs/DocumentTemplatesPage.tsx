@@ -78,6 +78,24 @@ function pickUpdatedAt(r: DocTemplateRow): string | null {
     return r.updated_at ?? r.version_uploaded_at ?? r.current_version?.created_at ?? r.created_at ?? null;
 }
 
+function isDocxFile(file: File): boolean {
+    const nameOk = /\.docx$/i.test(file.name);
+    // Some browsers may not provide correct mime; name is the most reliable.
+    return nameOk;
+}
+
+function formatBytes(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+    const units = ["B", "KB", "MB", "GB"];
+    let v = bytes;
+    let idx = 0;
+    while (v >= 1024 && idx < units.length - 1) {
+        v /= 1024;
+        idx += 1;
+    }
+    return `${v.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
+
 export function DocumentTemplatesPage() {
     // =============================
     // State
@@ -108,6 +126,7 @@ export function DocumentTemplatesPage() {
     // upload fields
     const uploadInputRef = useRef<HTMLInputElement | null>(null);
     const [uploadFile, setUploadFile] = useState<File | null>(null);
+    const [dragActive, setDragActive] = useState(false);
 
     // =============================
     // Data loading
@@ -171,6 +190,7 @@ export function DocumentTemplatesPage() {
     // Modal helpers
     // =============================
     function openEdit(doc: DocTemplateRow) {
+        setErr(null);
         setEditModal({ open: true, doc });
 
         setEditTitle(String(doc.title ?? ""));
@@ -185,15 +205,63 @@ export function DocumentTemplatesPage() {
     }
 
     function openUpload(doc: DocTemplateRow) {
+        setErr(null);
         setUploadModal({ open: true, doc });
         setUploadFile(null);
+        setDragActive(false);
         if (uploadInputRef.current) uploadInputRef.current.value = "";
     }
 
     function closeUpload() {
         setUploadModal({ open: false, doc: null });
         setUploadFile(null);
+        setDragActive(false);
         if (uploadInputRef.current) uploadInputRef.current.value = "";
+    }
+
+    // =============================
+    // Upload helpers (dropzone)
+    // =============================
+    function pickFile(file: File | null) {
+        if (!file) {
+            setUploadFile(null);
+            return;
+        }
+
+        if (!isDocxFile(file)) {
+            setUploadFile(null);
+            setErr("File harus berformat .docx");
+            return;
+        }
+
+        setErr(null);
+        setUploadFile(file);
+    }
+
+    function onBrowseClick() {
+        if (saving) return;
+        uploadInputRef.current?.click();
+    }
+
+    function onDropFiles(e: React.DragEvent) {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragActive(false);
+
+        const file = e.dataTransfer?.files?.[0] ?? null;
+        pickFile(file);
+    }
+
+    function onDragOver(e: React.DragEvent) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!saving) setDragActive(true);
+    }
+
+    function onDragLeave(e: React.DragEvent) {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragActive(false);
     }
 
     // =============================
@@ -268,12 +336,16 @@ export function DocumentTemplatesPage() {
             return;
         }
 
+        if (!isDocxFile(uploadFile)) {
+            setErr("File harus berformat .docx");
+            return;
+        }
+
         setSaving(true);
         setErr(null);
 
         try {
             const fd = new FormData();
-            // Backend expects field name: "file"
             fd.append("file", uploadFile, uploadFile.name);
 
             // IMPORTANT: do NOT manually set Content-Type for multipart;
@@ -547,19 +619,100 @@ export function DocumentTemplatesPage() {
                         </div>
 
                         <div className="lims-modal-body">
+                            {/* Modal-specific error */}
+                            {err && (
+                                <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-lg">
+                                    {err}
+                                </div>
+                            )}
+
                             <div className="text-sm text-gray-600">
                                 Upload file <span className="font-medium">.docx</span>. Setelah upload, sistem akan bikin version baru
                                 (vN).
                             </div>
 
-                            <input
-                                ref={uploadInputRef}
-                                type="file"
-                                accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                                onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
-                                disabled={saving}
-                                className="block w-full text-sm"
-                            />
+                            {/* Dropzone */}
+                            <div
+                                role="button"
+                                tabIndex={0}
+                                onClick={onBrowseClick}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") onBrowseClick();
+                                }}
+                                onDrop={onDropFiles}
+                                onDragOver={onDragOver}
+                                onDragLeave={onDragLeave}
+                                className={cx(
+                                    "mt-2 rounded-2xl border-2 border-dashed p-5 transition",
+                                    "cursor-pointer select-none",
+                                    saving && "opacity-70 cursor-not-allowed pointer-events-none",
+                                    dragActive
+                                        ? "border-primary-soft bg-primary-soft/10"
+                                        : "border-gray-300 bg-gray-50 hover:bg-gray-100/70"
+                                )}
+                                aria-label="Upload area"
+                                title="Drag & drop file .docx atau klik untuk browse"
+                            >
+                                <div className="flex flex-col items-center text-center gap-2">
+                                    <div
+                                        className={cx(
+                                            "h-10 w-10 rounded-2xl flex items-center justify-center",
+                                            dragActive ? "bg-primary-soft/15 text-primary" : "bg-black/5 text-gray-700"
+                                        )}
+                                    >
+                                        <Upload size={18} />
+                                    </div>
+
+                                    <div className="text-sm text-gray-800 font-medium">
+                                        Drag & drop file di sini
+                                    </div>
+
+                                    <div className="text-xs text-gray-600">
+                                        atau{" "}
+                                        <span className="underline text-primary">
+                                            klik untuk browse
+                                        </span>
+                                    </div>
+
+                                    <div className="text-[11px] text-gray-500 mt-1">
+                                        Supported: <span className="font-mono">.docx</span>
+                                    </div>
+                                </div>
+
+                                {/* Hidden input */}
+                                <input
+                                    ref={uploadInputRef}
+                                    type="file"
+                                    accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                    onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+                                    disabled={saving}
+                                    className="hidden"
+                                />
+                            </div>
+
+                            {/* Selected file */}
+                            {uploadFile && (
+                                <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2">
+                                    <div className="min-w-0">
+                                        <div className="text-sm font-medium text-gray-900 truncate">{uploadFile.name}</div>
+                                        <div className="text-xs text-gray-500">{formatBytes(uploadFile.size)}</div>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        className="lims-icon-button"
+                                        aria-label="Remove file"
+                                        title="Remove file"
+                                        onClick={() => {
+                                            pickFile(null);
+                                            if (uploadInputRef.current) uploadInputRef.current.value = "";
+                                        }}
+                                        disabled={saving}
+                                    >
+                                        <X size={16} />
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
                         <div className="lims-modal-footer">
@@ -570,7 +723,8 @@ export function DocumentTemplatesPage() {
                                 type="button"
                                 className={cx("lims-btn-primary", saving && "opacity-70 cursor-not-allowed")}
                                 onClick={doUpload}
-                                disabled={saving}
+                                disabled={saving || !uploadFile}
+                                title={!uploadFile ? "Pilih file .docx dulu" : "Upload"}
                             >
                                 {saving ? "Uploading…" : "Upload"}
                             </button>
