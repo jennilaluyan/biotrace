@@ -1,42 +1,55 @@
-import { Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
-import { getLastRoute, setLastRoute } from "../utils/lastRoute";
-import { LoginPage } from "../pages/auth/LoginPage";
-import { RegisterPage } from "../pages/auth/RegisterPage";
-import { NotFoundPage } from "../pages/NotFoundPage";
-import { ProtectedRoute } from "../guards/ProtectedRoute";
-import { ClientProtectedRoute } from "../guards/ClientProtectedRoute";
-import { RoleGuard } from "../guards/RoleGuard";
+import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
+
 import { AppLayout } from "../components/layout/AppLayout";
 import { PortalLayout } from "../components/layout/PortalLayout";
-import { ROLE_ID } from "../utils/roles";
-import { getTenant } from "../utils/tenant";
+
+import { ClientProtectedRoute } from "../guards/ClientProtectedRoute";
+import { ProtectedRoute } from "../guards/ProtectedRoute";
+import { RoleGuard } from "../guards/RoleGuard";
+
 import { useAuth } from "../hooks/useAuth";
 import { useClientAuth } from "../hooks/useClientAuth";
 
-import { ClientsPage } from "../pages/clients/ClientsPage";
-import { ClientDetailPage } from "../pages/clients/ClientDetailPage";
+import { LoginPage } from "../pages/auth/LoginPage";
+import { RegisterPage } from "../pages/auth/RegisterPage";
+import { NotFoundPage } from "../pages/NotFoundPage";
+
 import { ClientApprovalsPage } from "../pages/clients/ClientApprovalsPage";
-import { SamplesPage } from "../pages/samples/SamplesPage";
-import { SampleDetailPage } from "../pages/samples/SampleDetailPage";
-import { SampleArchivePage } from "../pages/samples/SampleArchivePage";
-import { SampleArchiveDetailPage } from "../pages/samples/SampleArchiveDetailPage";
-import SampleRequestsQueuePage from "../pages/samples/SampleRequestsQueuePage";
-import SampleRequestDetailPage from "../pages/samples/SampleRequestDetailPage";
+import { ClientDetailPage } from "../pages/clients/ClientDetailPage";
+import { ClientsPage } from "../pages/clients/ClientsPage";
+
+import { DocumentTemplatesPage } from "../pages/docs/DocumentTemplatesPage";
+
 import { LooGeneratorPage } from "../pages/loo/LooGeneratorPage";
-import { StaffApprovalsPage } from "../pages/staff/StaffApprovalsPage";
+
+import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
+import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
+import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
+
+import ReagentApprovalDetailPage from "../pages/reagents/ReagentApprovalDetailPage";
+import ReagentApprovalInboxPage from "../pages/reagents/ReagentApprovalInboxPage";
+import ReagentRequestBuilderPage from "../pages/reagents/ReagentRequestBuilderPage";
+
 import { AuditLogsPage } from "../pages/audit/AuditLogsPage";
 import { ReportsPage } from "../pages/reports/ReportsPage";
-import { QualityCoverOmInboxPage } from "../pages/quality-covers/QualityCoverOmInboxPage";
-import { QualityCoverLhInboxPage } from "../pages/quality-covers/QualityCoverLhInboxPage";
-import ReagentRequestBuilderPage from "../pages/reagents/ReagentRequestBuilderPage";
-import ReagentApprovalInboxPage from "../pages/reagents/ReagentApprovalInboxPage";
-import ReagentApprovalDetailPage from "../pages/reagents/ReagentApprovalDetailPage";
-import { QualityCoverOmDetailPage } from "../pages/quality-covers/QualityCoverOmDetailPage";
+
+import { SampleArchiveDetailPage } from "../pages/samples/SampleArchiveDetailPage";
+import { SampleArchivePage } from "../pages/samples/SampleArchivePage";
+import { SampleDetailPage } from "../pages/samples/SampleDetailPage";
+import { SamplesPage } from "../pages/samples/SamplesPage";
+import SampleRequestDetailPage from "../pages/samples/SampleRequestDetailPage";
+import SampleRequestsQueuePage from "../pages/samples/SampleRequestsQueuePage";
+
+import { StaffApprovalsPage } from "../pages/staff/StaffApprovalsPage";
+
 import { QualityCoverLhDetailPage } from "../pages/quality-covers/QualityCoverLhDetailPage";
-import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
-import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
-import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
-import { DocumentTemplatesPage } from "../pages/docs/DocumentTemplatesPage";
+import { QualityCoverLhInboxPage } from "../pages/quality-covers/QualityCoverLhInboxPage";
+import { QualityCoverOmDetailPage } from "../pages/quality-covers/QualityCoverOmDetailPage";
+import { QualityCoverOmInboxPage } from "../pages/quality-covers/QualityCoverOmInboxPage";
+
+import { ROLE_ID } from "../utils/roles";
+import { getTenant } from "../utils/tenant";
+import { getLastRoute, setLastRoute } from "../utils/lastRoute";
 
 /**
  * Smart default landing (restore last route per actor):
@@ -44,25 +57,24 @@ import { DocumentTemplatesPage } from "../pages/docs/DocumentTemplatesPage";
  * - portal + client authenticated => last client route (fallback /portal)
  * - otherwise => /login
  */
-const StaffLastRouteTracker = () => {
+
+function StaffLastRouteTracker() {
     const loc = useLocation();
     const staff = useAuth();
 
-    // simpan hanya kalau sudah login & punya user id
+    // Store only if logged in and has stable user id
     const staffId = (staff as any)?.user?.id;
-
-    // store path + query
     const path = `${loc.pathname}${loc.search ?? ""}`;
 
-    // jangan simpan "/" (root) dan jangan simpan kalau belum authenticated
+    // Don't store root path; don't store if not authenticated
     if (staff?.isAuthenticated && staffId && path !== "/") {
         setLastRoute("staff", path, staffId);
     }
 
     return <Outlet />;
-};
+}
 
-const ClientLastRouteTracker = () => {
+function ClientLastRouteTracker() {
     const loc = useLocation();
     const client = useClientAuth() as any;
 
@@ -74,13 +86,14 @@ const ClientLastRouteTracker = () => {
     }
 
     return <Outlet />;
-};
+}
 
-const HomeRedirect = () => {
+function HomeRedirect() {
     const tenant = getTenant();
     const staff = useAuth();
     const client = useClientAuth() as any;
 
+    // Portal tenant
     if (tenant === "portal") {
         if (client?.loading) return null;
 
@@ -93,7 +106,7 @@ const HomeRedirect = () => {
         return <Navigate to="/login" replace />;
     }
 
-    // backoffice
+    // Backoffice tenant
     if (staff.loading) return null;
 
     if (staff.isAuthenticated) {
@@ -103,11 +116,12 @@ const HomeRedirect = () => {
     }
 
     return <Navigate to="/login" replace />;
-};
+}
 
 export const AppRouter = () => {
     return (
         <Routes>
+            {/* Public */}
             <Route path="/" element={<HomeRedirect />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
@@ -116,6 +130,7 @@ export const AppRouter = () => {
             <Route element={<ProtectedRoute />}>
                 <Route element={<StaffLastRouteTracker />}>
                     <Route element={<AppLayout />}>
+                        {/* Clients */}
                         <Route
                             path="/clients/approvals"
                             element={
@@ -153,6 +168,7 @@ export const AppRouter = () => {
                             }
                         />
 
+                        {/* Quality Covers */}
                         <Route
                             path="/quality-covers/inbox/om"
                             element={
@@ -161,7 +177,6 @@ export const AppRouter = () => {
                                 </RoleGuard>
                             }
                         />
-
                         <Route
                             path="/quality-covers/inbox/lh"
                             element={
@@ -170,7 +185,6 @@ export const AppRouter = () => {
                                 </RoleGuard>
                             }
                         />
-
                         <Route
                             path="/quality-covers/om/:qualityCoverId"
                             element={
@@ -179,7 +193,6 @@ export const AppRouter = () => {
                                 </RoleGuard>
                             }
                         />
-
                         <Route
                             path="/quality-covers/lh/:qualityCoverId"
                             element={
@@ -189,6 +202,7 @@ export const AppRouter = () => {
                             }
                         />
 
+                        {/* Samples */}
                         <Route
                             path="/samples"
                             element={
@@ -222,10 +236,17 @@ export const AppRouter = () => {
                             }
                         />
 
+                        {/* Archives */}
                         <Route
                             path="/samples/archive"
                             element={
-                                <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN, ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
+                                <RoleGuard
+                                    allowedRoleIds={[
+                                        ROLE_ID.ADMIN,
+                                        ROLE_ID.OPERATIONAL_MANAGER,
+                                        ROLE_ID.LAB_HEAD,
+                                    ]}
+                                >
                                     <SampleArchivePage />
                                 </RoleGuard>
                             }
@@ -233,12 +254,19 @@ export const AppRouter = () => {
                         <Route
                             path="/samples/archive/:sampleId"
                             element={
-                                <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN, ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
+                                <RoleGuard
+                                    allowedRoleIds={[
+                                        ROLE_ID.ADMIN,
+                                        ROLE_ID.OPERATIONAL_MANAGER,
+                                        ROLE_ID.LAB_HEAD,
+                                    ]}
+                                >
                                     <SampleArchiveDetailPage />
                                 </RoleGuard>
                             }
                         />
 
+                        {/* Staff approvals */}
                         <Route
                             path="/staff/approvals"
                             element={
@@ -247,6 +275,8 @@ export const AppRouter = () => {
                                 </RoleGuard>
                             }
                         />
+
+                        {/* Reagents */}
                         <Route
                             path="/reagents/requests/loo/:loId"
                             element={
@@ -258,9 +288,7 @@ export const AppRouter = () => {
                         <Route
                             path="/reagents/approvals"
                             element={
-                                <RoleGuard
-                                    allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}
-                                >
+                                <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
                                     <ReagentApprovalInboxPage />
                                 </RoleGuard>
                             }
@@ -268,14 +296,13 @@ export const AppRouter = () => {
                         <Route
                             path="/reagents/approvals/loo/:loId"
                             element={
-                                <RoleGuard
-                                    allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}
-                                >
+                                <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
                                     <ReagentApprovalDetailPage />
                                 </RoleGuard>
                             }
                         />
 
+                        {/* Audit & Reports */}
                         <Route
                             path="/audit/logs"
                             element={
@@ -308,7 +335,6 @@ export const AppRouter = () => {
                                 </RoleGuard>
                             }
                         />
-
                         <Route
                             path="/reports"
                             element={
@@ -326,17 +352,17 @@ export const AppRouter = () => {
                             }
                         />
 
+                        {/* LOO */}
                         <Route
                             path="/loo"
                             element={
-                                <RoleGuard
-                                    allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}
-                                >
+                                <RoleGuard allowedRoleIds={[ROLE_ID.OPERATIONAL_MANAGER, ROLE_ID.LAB_HEAD]}>
                                     <LooGeneratorPage />
                                 </RoleGuard>
                             }
                         />
 
+                        {/* Request Queue */}
                         <Route
                             path="/samples/requests"
                             element={
@@ -367,16 +393,17 @@ export const AppRouter = () => {
                                 </RoleGuard>
                             }
                         />
-                    </Route>
 
-                    <Route
-                        path="/settings/docs/templates"
-                        element={
-                            <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN, ROLE_ID.LAB_HEAD]}>
-                                <DocumentTemplatesPage />
-                            </RoleGuard>
-                        }
-                    />
+                        {/* Settings */}
+                        <Route
+                            path="/settings/docs/templates"
+                            element={
+                                <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN, ROLE_ID.LAB_HEAD]}>
+                                    <DocumentTemplatesPage />
+                                </RoleGuard>
+                            }
+                        />
+                    </Route>
                 </Route>
             </Route>
 

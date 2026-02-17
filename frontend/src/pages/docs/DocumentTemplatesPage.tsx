@@ -1,15 +1,24 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\docs\DocumentTemplatesPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Pencil, RefreshCw, Upload, X } from "lucide-react";
 
-import { http, apiGet, apiPatch } from "../../services/api";
-import { getErrorMessage } from "../../utils/errors";
+import { apiGet, apiPatch, apiPostRaw } from "../../services/api";
 import { formatDateTimeLocal } from "../../utils/date";
+import { getErrorMessage } from "../../utils/errors";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
+/**
+ * FE supports 2 shapes:
+ * 1) Old-ish: { current_version: { version, created_at }, updated_at }
+ * 2) Current backend you shared (DocumentTemplateController@index):
+ *    - current_version_no
+ *    - version_uploaded_at
+ *    - version_current_id
+ */
 type DocTemplateRow = {
     doc_code: string;
     title?: string | null;
@@ -21,9 +30,15 @@ type DocTemplateRow = {
     form_code_prefix?: string | null;
     revision_no?: number | null;
 
-    // backend bisa beda shape, jadi dibuat optional
+    // shape A
     current_version_id?: number | null;
     current_version?: { version?: number | null; created_at?: string | null } | null;
+
+    // shape B (current backend)
+    doc_id?: number | null;
+    version_current_id?: number | null;
+    current_version_no?: number | null;
+    version_uploaded_at?: string | null;
 
     updated_at?: string | null;
     created_at?: string | null;
@@ -39,9 +54,39 @@ type EditModalState = {
     doc?: DocTemplateRow | null;
 };
 
+function toBool(v: unknown, fallback = false) {
+    if (v === null || v === undefined) return fallback;
+    return Boolean(v);
+}
+
+function formatRevisionNo(n: unknown) {
+    const rev = Number(n ?? 0) || 0;
+    return `Rev${String(rev).padStart(2, "0")}`;
+}
+
+function pickCurrentVersionNo(r: DocTemplateRow): number | null {
+    const v = (r.current_version?.version ?? r.current_version_no) as any;
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : null;
+}
+
+function pickUpdatedAt(r: DocTemplateRow): string | null {
+    return (
+        r.updated_at ??
+        r.version_uploaded_at ??
+        r.current_version?.created_at ??
+        r.created_at ??
+        null
+    );
+}
+
 export function DocumentTemplatesPage() {
+    // -----------------------------
+    // State
+    // -----------------------------
     const [rows, setRows] = useState<DocTemplateRow[]>([]);
     const [loading, setLoading] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [err, setErr] = useState<string | null>(null);
 
     const [q, setQ] = useState("");
@@ -49,23 +94,26 @@ export function DocumentTemplatesPage() {
     const [uploadModal, setUploadModal] = useState<UploadModalState>({ open: false, doc: null });
     const [editModal, setEditModal] = useState<EditModalState>({ open: false, doc: null });
 
-    const [saving, setSaving] = useState(false);
-
+    // Edit fields
     const [editTitle, setEditTitle] = useState("");
     const [editRecordPrefix, setEditRecordPrefix] = useState("");
     const [editFormPrefix, setEditFormPrefix] = useState("");
     const [editRevisionNo, setEditRevisionNo] = useState<number>(0);
     const [editIsActive, setEditIsActive] = useState<boolean>(true);
 
+    // Upload fields
     const uploadInputRef = useRef<HTMLInputElement | null>(null);
     const [uploadFile, setUploadFile] = useState<File | null>(null);
 
+    // -----------------------------
+    // Data loading
+    // -----------------------------
     async function load() {
         setLoading(true);
         setErr(null);
         try {
-            // expected: { data: [...] }
-            const res = await apiGet<{ data?: DocTemplateRow[] }>("/api/v1/document-templates");
+            // Convention: api.ts expects "/v1/*" (baseURL already points to API root)
+            const res = await apiGet<{ data?: DocTemplateRow[] }>("/v1/document-templates");
             setRows(Array.isArray(res?.data) ? (res.data as DocTemplateRow[]) : []);
         } catch (e) {
             setErr(getErrorMessage(e));
@@ -76,8 +124,12 @@ export function DocumentTemplatesPage() {
 
     useEffect(() => {
         load();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // -----------------------------
+    // Derived
+    // -----------------------------
     const filtered = useMemo(() => {
         const needle = q.trim().toLowerCase();
         if (!needle) return rows;
@@ -89,16 +141,18 @@ export function DocumentTemplatesPage() {
         });
     }, [rows, q]);
 
+    // -----------------------------
+    // Modal helpers
+    // -----------------------------
     function openEdit(doc: DocTemplateRow) {
         setEditModal({ open: true, doc });
 
-        setEditTitle((doc.title ?? "").toString());
-        setEditRecordPrefix((doc.record_no_prefix ?? "").toString());
-        setEditFormPrefix((doc.form_code_prefix ?? "").toString());
+        setEditTitle(String(doc.title ?? ""));
+        setEditRecordPrefix(String(doc.record_no_prefix ?? ""));
+        setEditFormPrefix(String(doc.form_code_prefix ?? ""));
         setEditRevisionNo(Number(doc.revision_no ?? 0) || 0);
 
-        const active = doc.is_active;
-        setEditIsActive(active === null || active === undefined ? true : Boolean(active));
+        setEditIsActive(toBool(doc.is_active, true));
     }
 
     function closeEdit() {
@@ -117,6 +171,9 @@ export function DocumentTemplatesPage() {
         if (uploadInputRef.current) uploadInputRef.current.value = "";
     }
 
+    // -----------------------------
+    // Actions
+    // -----------------------------
     async function saveEdit() {
         const doc = editModal.doc;
         if (!doc) return;
@@ -124,7 +181,7 @@ export function DocumentTemplatesPage() {
         setSaving(true);
         setErr(null);
         try {
-            await apiPatch(`/api/v1/document-templates/${encodeURIComponent(doc.doc_code)}`, {
+            await apiPatch(`/v1/document-templates/${encodeURIComponent(doc.doc_code)}`, {
                 title: editTitle || null,
                 record_no_prefix: editRecordPrefix || null,
                 form_code_prefix: editFormPrefix || null,
@@ -144,7 +201,7 @@ export function DocumentTemplatesPage() {
     async function toggleActive(doc: DocTemplateRow, next: boolean) {
         setErr(null);
         try {
-            await apiPatch(`/api/v1/document-templates/${encodeURIComponent(doc.doc_code)}`, {
+            await apiPatch(`/v1/document-templates/${encodeURIComponent(doc.doc_code)}`, {
                 is_active: next ? 1 : 0,
             });
 
@@ -167,6 +224,7 @@ export function DocumentTemplatesPage() {
     async function doUpload() {
         const doc = uploadModal.doc;
         if (!doc) return;
+
         if (!uploadFile) {
             setErr("Pilih file .docx dulu.");
             return;
@@ -177,12 +235,13 @@ export function DocumentTemplatesPage() {
 
         try {
             const fd = new FormData();
-            // backend request biasanya expect "file"
-            fd.append("file", uploadFile);
+            // Backend expects field name: "file"
+            fd.append("file", uploadFile, uploadFile.name);
 
-            await http.post(`/api/v1/document-templates/${encodeURIComponent(doc.doc_code)}/versions`, fd, {
-                // axios akan set boundary; cukup kasih hint content-type
-                headers: { "Content-Type": "multipart/form-data" },
+            // IMPORTANT: do NOT manually set Content-Type for multipart;
+            // axios must generate the boundary.
+            await apiPostRaw(`/v1/document-templates/${encodeURIComponent(doc.doc_code)}/versions`, fd, {
+                headers: { Accept: "application/json" },
             });
 
             closeUpload();
@@ -194,6 +253,9 @@ export function DocumentTemplatesPage() {
         }
     }
 
+    // -----------------------------
+    // Render
+    // -----------------------------
     return (
         <div className="p-4 space-y-4">
             <div className="flex items-center justify-between gap-3">
@@ -229,15 +291,11 @@ export function DocumentTemplatesPage() {
                     onChange={(e) => setQ(e.target.value)}
                 />
 
-                <div className="text-sm text-gray-500">
-                    {loading ? "Loading…" : `${filtered.length} templates`}
-                </div>
+                <div className="text-sm text-gray-500">{loading ? "Loading…" : `${filtered.length} templates`}</div>
             </div>
 
             {err && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                    {err}
-                </div>
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>
             )}
 
             <div className="overflow-x-auto rounded-xl border bg-white">
@@ -256,19 +314,11 @@ export function DocumentTemplatesPage() {
 
                     <tbody className="divide-y">
                         {filtered.map((r) => {
-                            const verRaw = r.current_version?.version;
-                            const ver = typeof verRaw === "number" && Number.isFinite(verRaw) ? verRaw : null;
+                            const ver = pickCurrentVersionNo(r);
+                            const revLabel = formatRevisionNo(r.revision_no);
 
-                            const rev = Number(r.revision_no ?? 0) || 0;
-                            const revLabel = `Rev${String(rev).padStart(2, "0")}`;
-
-                            const updated =
-                                r.updated_at ??
-                                r.current_version?.created_at ??
-                                r.created_at ??
-                                null;
-
-                            const active = r.is_active === null || r.is_active === undefined ? true : Boolean(r.is_active);
+                            const updated = pickUpdatedAt(r);
+                            const active = toBool(r.is_active, true);
 
                             return (
                                 <tr key={r.doc_code} className="hover:bg-gray-50/60">
@@ -281,13 +331,9 @@ export function DocumentTemplatesPage() {
 
                                     <td className="px-4 py-3">{revLabel}</td>
 
-                                    <td className="px-4 py-3">
-                                        {ver === null || ver === undefined ? "-" : `v${ver}`}
-                                    </td>
+                                    <td className="px-4 py-3">{ver === null ? "-" : `v${ver}`}</td>
 
-                                    <td className="px-4 py-3 text-gray-600">
-                                        {updated ? formatDateTimeLocal(updated) : "-"}
-                                    </td>
+                                    <td className="px-4 py-3 text-gray-600">{updated ? formatDateTimeLocal(updated) : "-"}</td>
 
                                     <td className="px-4 py-3">
                                         <label className="inline-flex items-center gap-2">
@@ -512,7 +558,7 @@ export function DocumentTemplatesPage() {
                     Reports
                 </Link>
                 <span className="mx-2">·</span>
-                <span className="font-mono">/api/v1/document-templates</span>
+                <span className="font-mono">/v1/document-templates</span>
             </div>
         </div>
     );
