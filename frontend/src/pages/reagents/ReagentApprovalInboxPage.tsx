@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, ChevronLeft, ChevronRight, Eye, RefreshCw, Search, X } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, Eye, RefreshCw, Search, XCircle } from "lucide-react";
 
 import ReagentApprovalDecisionModal from "../../components/reagents/ReagentApprovalDecisionModal";
 import {
@@ -10,6 +10,7 @@ import {
     type ApproverInboxRow,
 } from "../../services/reagentRequests";
 import { getErrorMessage } from "../../utils/errors";
+import { formatDateTimeLocal } from "../../utils/date";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -25,6 +26,15 @@ function unwrapApi(res: any) {
         break;
     }
     return x;
+}
+
+function statusTone(status?: string | null) {
+    const s = String(status ?? "").toLowerCase();
+    if (s === "submitted") return "bg-amber-100 text-amber-800";
+    if (s === "approved") return "bg-emerald-100 text-emerald-800";
+    if (s === "rejected") return "bg-rose-100 text-rose-800";
+    if (s === "draft") return "bg-slate-100 text-slate-800";
+    return "bg-gray-100 text-gray-700";
 }
 
 export default function ReagentApprovalInboxPage() {
@@ -78,9 +88,10 @@ export default function ReagentApprovalInboxPage() {
 
             setRows(data);
             setMeta(payload?.meta ?? null);
+
             if (opts?.resetPage) setPage(1);
         } catch (e: any) {
-            setErr(getErrorMessage(e, "Failed to load reagent approvals inbox"));
+            setErr(getErrorMessage(e, "Failed to load reagent approvals inbox."));
             setRows([]);
             setMeta(null);
         } finally {
@@ -137,10 +148,15 @@ export default function ReagentApprovalInboxPage() {
             setModalOpen(false);
             await load();
         } catch (e: any) {
-            setErr(getErrorMessage(e, `Failed to ${modalMode}`));
+            setErr(getErrorMessage(e, `Failed to ${modalMode}.`));
         } finally {
             setBusyId(null);
         }
+    }
+
+    function clearSearch() {
+        setSearch("");
+        load({ resetPage: true });
     }
 
     return (
@@ -149,7 +165,9 @@ export default function ReagentApprovalInboxPage() {
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
                     <h1 className="text-lg md:text-xl font-bold text-gray-900">Reagent Approvals</h1>
-                    <p className="text-xs text-gray-500 mt-1">Approve/Reject reagent requests (OM/LH).</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                        Review submitted reagent requests. Approve to proceed, reject with a clear note for revision.
+                    </p>
                 </div>
 
                 <button
@@ -166,24 +184,27 @@ export default function ReagentApprovalInboxPage() {
 
             {/* Feedback */}
             {success && (
-                <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 inline-flex items-center gap-2">
+                    <CheckCircle2 size={18} />
                     {success}
                 </div>
             )}
             {err && (
-                <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>
+                <div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                    {err}
+                </div>
             )}
 
-            <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="mt-3 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 {/* Filter bar */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
-                    <div className="w-full md:w-56">
-                        <label className="sr-only" htmlFor="rr-status">
+                    <div className="w-full md:w-60">
+                        <label className="text-xs font-semibold text-gray-700" htmlFor="rr-status">
                             Status
                         </label>
                         <select
                             id="rr-status"
-                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                            className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             value={status}
                             onChange={(e) => setStatus(e.target.value as any)}
                         >
@@ -196,18 +217,18 @@ export default function ReagentApprovalInboxPage() {
                     </div>
 
                     <div className="flex-1">
-                        <label className="sr-only" htmlFor="rr-search">
+                        <label className="text-xs font-semibold text-gray-700" htmlFor="rr-search">
                             Search
                         </label>
 
-                        <div className="relative">
+                        <div className="mt-1 relative">
                             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
                                 <Search size={16} />
                             </span>
 
                             <input
                                 id="rr-search"
-                                className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                className="w-full rounded-xl border border-gray-300 pl-9 pr-10 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                                 placeholder="Search by LOO number / client name…"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
@@ -215,6 +236,22 @@ export default function ReagentApprovalInboxPage() {
                                     if (e.key === "Enter") load({ resetPage: true });
                                 }}
                             />
+
+                            {search.trim() ? (
+                                <button
+                                    type="button"
+                                    className="absolute inset-y-0 right-2 inline-flex items-center justify-center rounded-lg px-2 text-gray-500 hover:text-gray-700"
+                                    onClick={clearSearch}
+                                    aria-label="Clear search"
+                                    title="Clear search"
+                                >
+                                    <XCircle size={16} />
+                                </button>
+                            ) : null}
+                        </div>
+
+                        <div className="mt-2 text-xs text-gray-500">
+                            Tip: tekan <span className="font-semibold">Enter</span> untuk apply search.
                         </div>
                     </div>
 
@@ -225,13 +262,14 @@ export default function ReagentApprovalInboxPage() {
 
                         <button
                             type="button"
-                            className="lims-icon-button"
+                            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
                             onClick={() => load({ resetPage: true })}
+                            disabled={loading}
                             aria-label="Apply search"
                             title="Apply search"
-                            disabled={loading}
                         >
                             <Search size={16} />
+                            Apply
                         </button>
                     </div>
                 </div>
@@ -240,7 +278,9 @@ export default function ReagentApprovalInboxPage() {
                     {loading ? (
                         <div className="text-sm text-gray-600">Loading approvals…</div>
                     ) : rows.length === 0 ? (
-                        <div className="text-sm text-gray-600">Tidak ada data.</div>
+                        <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                            No approvals found for the current filters.
+                        </div>
                     ) : (
                         <div className="overflow-x-auto">
                             <table className="min-w-full text-sm">
@@ -266,9 +306,12 @@ export default function ReagentApprovalInboxPage() {
                                         return (
                                             <tr key={r.reagent_request_id} className="hover:bg-gray-50">
                                                 <td className="px-4 py-3">
-                                                    <div className="font-medium text-gray-900">{r.loo_number ?? `LOO #${r.lo_id}`}</div>
+                                                    <div className="font-medium text-gray-900">
+                                                        {r.loo_number ?? (loId > 0 ? `LOO #${loId}` : "LOO")}
+                                                    </div>
                                                     <div className="text-[11px] text-gray-500">
                                                         req_id: {r.reagent_request_id} • cycle {r.cycle_no}
+                                                        {(r as any)?.client_name ? ` • ${(r as any).client_name}` : ""}
                                                     </div>
                                                 </td>
 
@@ -276,16 +319,10 @@ export default function ReagentApprovalInboxPage() {
                                                     <span
                                                         className={cx(
                                                             "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold",
-                                                            st === "submitted"
-                                                                ? "bg-amber-100 text-amber-800"
-                                                                : st === "approved"
-                                                                    ? "bg-emerald-100 text-emerald-800"
-                                                                    : st === "rejected"
-                                                                        ? "bg-red-100 text-red-800"
-                                                                        : "bg-gray-100 text-gray-700"
+                                                            statusTone(st)
                                                         )}
                                                     >
-                                                        {st}
+                                                        {st || "—"}
                                                     </span>
                                                 </td>
 
@@ -293,7 +330,7 @@ export default function ReagentApprovalInboxPage() {
                                                 <td className="px-4 py-3 text-gray-700">{r.bookings_count ?? 0}</td>
 
                                                 <td className="px-4 py-3 text-gray-700">
-                                                    {r.submitted_at ? new Date(r.submitted_at).toLocaleString() : "-"}
+                                                    {r.submitted_at ? formatDateTimeLocal(r.submitted_at) : "—"}
                                                 </td>
 
                                                 <td className="px-4 py-3">
@@ -315,12 +352,15 @@ export default function ReagentApprovalInboxPage() {
                                                                 <button
                                                                     type="button"
                                                                     disabled={busy}
-                                                                    className={cx("lims-icon-button", busy && "opacity-40 cursor-not-allowed")}
+                                                                    className={cx(
+                                                                        "lims-icon-button",
+                                                                        busy && "opacity-40 cursor-not-allowed"
+                                                                    )}
                                                                     onClick={() => openDecision(r, "approve")}
                                                                     aria-label="Approve"
                                                                     title="Approve"
                                                                 >
-                                                                    <Check size={16} />
+                                                                    <CheckCircle2 size={16} />
                                                                 </button>
 
                                                                 <button
@@ -334,7 +374,7 @@ export default function ReagentApprovalInboxPage() {
                                                                     aria-label="Reject"
                                                                     title="Reject"
                                                                 >
-                                                                    <X size={16} />
+                                                                    <XCircle size={16} />
                                                                 </button>
                                                             </>
                                                         ) : (

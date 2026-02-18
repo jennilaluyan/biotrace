@@ -491,6 +491,102 @@
                 "start": "Mulai",
                 "end": "Selesai"
             }
+        },
+        "pages": {
+            "approvalsInbox": {
+                "title": "Persetujuan reagen",
+                "subtitle": "Tinjau permintaan reagen yang diajukan. Setujui untuk lanjut, atau tolak dengan catatan yang jelas.",
+                "loading": "Memuat daftar persetujuan…",
+                "empty": "Tidak ada permintaan yang cocok.",
+                "filters": {
+                    "statusLabel": "Status",
+                    "searchPlaceholder": "Cari nomor LOO / nama klien…",
+                    "searchHint": "Tekan Enter untuk menerapkan pencarian."
+                },
+                "table": {
+                    "loo": "LOO",
+                    "status": "Status",
+                    "items": "Item",
+                    "bookings": "Booking",
+                    "submittedAt": "Diajukan",
+                    "actions": "Aksi",
+                    "reqId": "req_id",
+                    "cycle": "cycle"
+                },
+                "pagination": {
+                    "page": "Halaman",
+                    "noAction": "—"
+                },
+                "statusOptions": {
+                    "submitted": "Diajukan",
+                    "approved": "Disetujui",
+                    "rejected": "Ditolak",
+                    "draft": "Draf",
+                    "all": "Semua"
+                }
+            },
+            "approvalDetail": {
+                "title": "Detail persetujuan reagen",
+                "loading": "Memuat detail persetujuan…",
+                "invalidId": "ID LOO tidak valid.",
+                "meta": {
+                    "loId": "lo_id",
+                    "requestId": "request_id",
+                    "cycle": "cycle"
+                },
+                "sections": {
+                    "looSamples": "Sampel pada LOO",
+                    "requestContent": "Isi permintaan",
+                    "items": "Item",
+                    "equipmentBookings": "Booking alat"
+                },
+                "loo": {
+                    "detailNotAvailable": "Detail LOO tidak tersedia.",
+                    "warnNoEndpoint": "Detail LOO tidak tersedia (endpoint tidak cocok). Daftar sampel mungkin tidak tampil.",
+                    "warnLoadFailed": "Gagal memuat detail LOO. Daftar sampel mungkin tidak tampil.",
+                    "noSamples": "Daftar sampel tidak ditemukan untuk LOO ini."
+                }
+            },
+            "requestBuilder": {
+                "title": "Permintaan reagen",
+                "subtitle": "Susun permintaan untuk LOO ini • LOO ID: {{loId}}",
+                "badges": {
+                    "cycle": "Siklus {{cycle}}",
+                    "locked": "edit dikunci",
+                    "editable": "draf bisa diedit"
+                },
+                "catalog": {
+                    "title": "Item katalog (BHP/Reagen)",
+                    "tabs": {
+                        "all": "Semua",
+                        "bhp": "BHP",
+                        "reagen": "REAGEN"
+                    },
+                    "searchPlaceholder": "Cari item katalog…",
+                    "hint": "Semua item ditampilkan; pencarian hanya untuk mempercepat. Klik item untuk menambah ke permintaan.",
+                    "loading": "Memuat katalog…",
+                    "empty": "Item katalog tidak ditemukan.",
+                    "loadMore": "Muat lebih banyak",
+                    "add": "Tambah"
+                },
+                "equipment": {
+                    "title": "Peralatan",
+                    "searchPlaceholder": "Cari peralatan…",
+                    "hint": "Klik peralatan untuk menambah booking ke permintaan.",
+                    "loading": "Memuat peralatan…",
+                    "empty": "Peralatan tidak ditemukan.",
+                    "loadMore": "Muat lebih banyak",
+                    "addBooking": "Tambah booking"
+                },
+                "tips": {
+                    "title": "Tips",
+                    "body": "Pilih item/peralatan dari daftar → atur qty/unit/waktu di Permintaan (cart) → simpan draf → kirim."
+                }
+            },
+            "gate": {
+                "crosscheckNotPassedTitle": "Crosscheck gate belum lolos",
+                "crosscheckNotPassedDesc": "Pengajuan diblok karena setidaknya ada 1 sampel pada LOO ini yang belum berstatus passed."
+            }
         }
     },
     "reports": {

@@ -1,15 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
-    getReagentRequestByLoo,
+    AlertTriangle,
+    ArrowLeft,
+    CheckCircle2,
+    ClipboardList,
+    Hash,
+    RefreshCw,
+    ShieldCheck,
+    User,
+    Wrench,
+    XCircle,
+} from "lucide-react";
+
+import {
     approveReagentRequest,
+    getReagentRequestByLoo,
     rejectReagentRequest,
-    type ReagentRequestRow,
-    type ReagentRequestItemRow,
     type EquipmentBookingRow,
+    type ReagentRequestItemRow,
+    type ReagentRequestRow,
 } from "../../services/reagentRequests";
 import { apiGet } from "../../services/api";
 import { getErrorMessage } from "../../utils/errors";
+import { formatDateTimeLocal } from "../../utils/date";
 import ReagentApprovalDecisionModal from "../../components/reagents/ReagentApprovalDecisionModal";
 
 function cx(...arr: Array<string | false | null | undefined>) {
@@ -34,31 +48,37 @@ function getHttpStatus(err: any): number | null {
     return typeof s === "number" ? s : null;
 }
 
+function statusBadgeTone(status?: string | null) {
+    const s = String(status ?? "").toLowerCase();
+    if (s === "submitted") return "bg-amber-50 text-amber-800 border-amber-200";
+    if (s === "approved") return "bg-emerald-50 text-emerald-800 border-emerald-200";
+    if (s === "rejected") return "bg-rose-50 text-rose-800 border-rose-200";
+    if (s === "draft") return "bg-slate-50 text-slate-700 border-slate-200";
+    return "bg-gray-50 text-gray-700 border-gray-200";
+}
+
 type LooDetail = {
     lo_id: number;
     number?: string | null;
     generated_at?: string | null;
+    client?: any;
     items?: Array<{
         sample_id?: number;
         lab_sample_code?: string | null;
-        parameters?: any;
         sample?: any;
     }>;
-    sample?: any;
-    client?: any;
 };
 
 async function fetchLooDetailBestEffort(loId: number): Promise<LooDetail | null> {
     if (!Number.isFinite(loId) || loId <= 0) return null;
 
-    // Backend tiap project suka beda-beda naming endpoint.
-    // Kita coba beberapa yang umum.
+    // Backend tiap project suka beda endpoint.
+    // Coba beberapa kandidat umum.
     const candidates = [
         `/v1/letters-of-order/${loId}`,
+        `/v1/letters-of-order/${loId}/detail`,
         `/v1/loo/${loId}`,
     ];
-
-    let sawNon404 = false;
 
     for (const url of candidates) {
         try {
@@ -67,15 +87,13 @@ async function fetchLooDetailBestEffort(loId: number): Promise<LooDetail | null>
             if (payload) return payload as LooDetail;
         } catch (e: any) {
             const status = getHttpStatus(e);
-            if (status !== 404) sawNon404 = true;
-            // lanjut coba kandidat berikutnya
+            if (status === 404) continue;
+            // selain 404: anggap endpoint tidak cocok / server error, coba kandidat lain
             continue;
         }
     }
 
-    // kalau semua 404 => kemungkinan LOO id memang tidak ada
-    // kalau ada non-404 => kemungkinan endpoint/format tidak match / error server
-    return sawNon404 ? null : null;
+    return null;
 }
 
 export default function ReagentApprovalDetailPage() {
@@ -124,18 +142,18 @@ export default function ReagentApprovalDetailPage() {
             const bk = payload?.bookings ?? [];
 
             setRequest(rr);
-            setItems(it);
-            setBookings(bk);
+            setItems(Array.isArray(it) ? it : []);
+            setBookings(Array.isArray(bk) ? bk : []);
         } catch (e: any) {
             setRequest(null);
             setItems([]);
             setBookings([]);
-            setErr(getErrorMessage(e, "Failed to load approval detail"));
+            setErr(getErrorMessage(e, "Failed to load reagent approval detail."));
             setLoading(false);
             return;
         }
 
-        // 2) OPTIONAL: LOO detail (GAGAL => jangan bikin page error)
+        // 2) OPTIONAL: LOO detail (fail => jangan bikin page error)
         try {
             const looPayload = await fetchLooDetailBestEffort(loId);
             if (looPayload) {
@@ -143,11 +161,11 @@ export default function ReagentApprovalDetailPage() {
                 setLooWarn(null);
             } else {
                 setLoo(null);
-                setLooWarn("LOO detail tidak tersedia / endpoint tidak cocok. List sample tidak bisa ditampilkan.");
+                setLooWarn("LOO detail tidak tersedia (endpoint tidak cocok). Daftar sampel mungkin tidak tampil.");
             }
         } catch {
             setLoo(null);
-            setLooWarn("LOO detail gagal dimuat. List sample tidak bisa ditampilkan.");
+            setLooWarn("LOO detail gagal dimuat. Daftar sampel mungkin tidak tampil.");
         } finally {
             setLoading(false);
         }
@@ -158,12 +176,20 @@ export default function ReagentApprovalDetailPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loId]);
 
-    const title = useMemo(() => {
-        const looNum = (loo as any)?.number ?? (request as any)?.loo_number ?? null;
-        return looNum ? `Reagent Approval • ${looNum}` : `Reagent Approval • LOO #${loId}`;
+    const looNumber = useMemo(() => {
+        return (loo as any)?.number ?? (request as any)?.loo_number ?? (loId > 0 ? `LOO #${loId}` : "LOO");
     }, [loo, request, loId]);
 
-    const canAct = String(request?.status ?? "") === "submitted";
+    const pageTitle = useMemo(() => {
+        return `Reagent Approval • ${looNumber}`;
+    }, [looNumber]);
+
+    const requestStatus = String(request?.status ?? "");
+    const canAct = requestStatus === "submitted";
+
+    const clientName = useMemo(() => {
+        return (loo as any)?.client?.name ?? (request as any)?.client_name ?? null;
+    }, [loo, request]);
 
     function openApprove() {
         setDecisionMode("approve");
@@ -185,7 +211,7 @@ export default function ReagentApprovalDetailPage() {
         try {
             if (decisionMode === "approve") {
                 await approveReagentRequest(request.reagent_request_id);
-                flash("Approved.");
+                flash("Approved. Reagent Request document can be generated next.");
             } else {
                 const note = String(rejectNote ?? "").trim();
                 if (note.length < 3) {
@@ -194,214 +220,311 @@ export default function ReagentApprovalDetailPage() {
                     return;
                 }
                 await rejectReagentRequest(request.reagent_request_id, note);
-                flash("Rejected.");
+                flash("Rejected. The analyst needs to revise and resubmit.");
             }
 
             setModalOpen(false);
             await load();
         } catch (e: any) {
-            setErr(getErrorMessage(e, `Failed to ${decisionMode}`));
+            setErr(getErrorMessage(e, `Failed to ${decisionMode}.`));
         } finally {
             setBusy(false);
         }
     }
 
     if (!Number.isFinite(loId) || loId <= 0) {
-        return <div className="p-4 text-red-600">Invalid id</div>;
+        return (
+            <div className="min-h-[60vh] px-0 py-4">
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 inline-flex items-center gap-2">
+                    <AlertTriangle size={18} />
+                    Invalid LOO id.
+                </div>
+            </div>
+        );
     }
 
     if (loading) {
-        return <div className="p-4">Loading approval detail…</div>;
+        return <div className="min-h-[60vh] px-0 py-4 text-sm text-gray-600">Loading approval detail…</div>;
     }
 
     return (
-        <div className="p-4">
-            <div className="mb-4 flex items-start justify-between gap-3">
-                <div>
-                    <h1 className="text-2xl font-semibold text-gray-900">{title}</h1>
-                    <div className="mt-1 text-sm text-gray-600">
-                        lo_id: <span className="font-semibold">{loId}</span>
-                        {request?.reagent_request_id ? (
-                            <span className="text-gray-500"> • request_id {request.reagent_request_id}</span>
-                        ) : null}
-                        {request?.cycle_no ? <span className="text-gray-500"> • cycle {request.cycle_no}</span> : null}
+        <div className="min-h-[60vh]">
+            {/* Breadcrumb */}
+            <div className="px-0 py-2">
+                <nav className="lims-breadcrumb">
+                    <Link to="/reagents/approvals" className="lims-breadcrumb-link inline-flex items-center gap-2">
+                        <ArrowLeft size={16} />
+                        Reagent Approvals
+                    </Link>
+                    <span className="lims-breadcrumb-separator">›</span>
+                    <span className="lims-breadcrumb-current">{looNumber}</span>
+                </nav>
+            </div>
+
+            <div className="lims-detail-shell">
+                {/* Header */}
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0">
+                        <h1 className="text-lg md:text-xl font-bold text-gray-900 truncate">{pageTitle}</h1>
+                        <div className="mt-1 text-xs text-gray-600 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="inline-flex items-center gap-1">
+                                <Hash size={14} />
+                                lo_id <span className="font-semibold">{loId}</span>
+                            </span>
+                            {request?.reagent_request_id ? (
+                                <span className="text-gray-500">• request_id {request.reagent_request_id}</span>
+                            ) : null}
+                            {request?.cycle_no ? <span className="text-gray-500">• cycle {request.cycle_no}</span> : null}
+                            {clientName ? (
+                                <span className="text-gray-500 inline-flex items-center gap-1">
+                                    • <User size={14} /> {clientName}
+                                </span>
+                            ) : null}
+                        </div>
+
+                        <div className="mt-2 flex items-center gap-2 flex-wrap">
+                            <span
+                                className={cx(
+                                    "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold border",
+                                    statusBadgeTone(request?.status)
+                                )}
+                            >
+                                <ClipboardList size={16} />
+                                {request?.status ?? "—"}
+                            </span>
+
+                            {!canAct && requestStatus ? (
+                                <span className="text-xs text-gray-500">
+                                    • Actions only available when status is <span className="font-semibold">submitted</span>
+                                </span>
+                            ) : null}
+                        </div>
                     </div>
-                    <div className="mt-2">
-                        <span
-                            className={cx(
-                                "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold",
-                                request?.status === "submitted"
-                                    ? "bg-amber-100 text-amber-800"
-                                    : request?.status === "approved"
-                                        ? "bg-emerald-100 text-emerald-800"
-                                        : request?.status === "rejected"
-                                            ? "bg-red-100 text-red-800"
-                                            : "bg-gray-100 text-gray-700"
-                            )}
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                            type="button"
+                            onClick={() => nav(-1)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-gray-50"
+                            title="Back"
                         >
-                            {request?.status ?? "-"}
-                        </span>
+                            <ArrowLeft size={16} />
+                            Back
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={load}
+                            className={cx("lims-icon-button", busy ? "opacity-60 cursor-not-allowed" : "")}
+                            aria-label="Refresh"
+                            title="Refresh"
+                            disabled={busy}
+                        >
+                            <RefreshCw size={16} />
+                        </button>
+
+                        <button
+                            type="button"
+                            className={cx(
+                                "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                                !canAct || busy
+                                    ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                                    : "bg-emerald-600 text-white hover:opacity-95"
+                            )}
+                            disabled={!canAct || busy}
+                            onClick={openApprove}
+                            title={!canAct ? "Only submitted requests can be approved" : "Approve"}
+                        >
+                            <ShieldCheck size={16} />
+                            Approve
+                        </button>
+
+                        <button
+                            type="button"
+                            className={cx(
+                                "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                                !canAct || busy
+                                    ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                                    : "bg-rose-600 text-white hover:opacity-95"
+                            )}
+                            disabled={!canAct || busy}
+                            onClick={openReject}
+                            title={!canAct ? "Only submitted requests can be rejected" : "Reject"}
+                        >
+                            <XCircle size={16} />
+                            Reject
+                        </button>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                    <button type="button" className="btn-outline" onClick={() => nav(-1)}>
-                        Back
-                    </button>
+                {/* Feedback */}
+                {success && (
+                    <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 inline-flex items-center gap-2">
+                        <CheckCircle2 size={18} />
+                        {success}
+                    </div>
+                )}
 
-                    <button
-                        type="button"
-                        className={cx("lims-btn-primary", !canAct || busy ? "opacity-60 cursor-not-allowed" : "")}
-                        disabled={!canAct || busy}
-                        onClick={openApprove}
-                        title={!canAct ? "Only submitted requests can be approved" : ""}
-                    >
-                        Approve
-                    </button>
+                {err && (
+                    <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 inline-flex items-center gap-2">
+                        <AlertTriangle size={18} />
+                        {err}
+                    </div>
+                )}
 
-                    <button
-                        type="button"
-                        className={cx("lims-btn-danger", !canAct || busy ? "opacity-60 cursor-not-allowed" : "")}
-                        disabled={!canAct || busy}
-                        onClick={openReject}
-                        title={!canAct ? "Only submitted requests can be rejected" : ""}
-                    >
-                        Reject
-                    </button>
-                </div>
-            </div>
+                {/* Content */}
+                <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* LOO summary + samples */}
+                    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                        <div className="border-b border-gray-100 px-5 py-4 bg-gray-50">
+                            <div className="font-bold text-gray-900">LOO overview</div>
+                            <div className="mt-1 text-xs text-gray-600">
+                                {loo?.number ? (
+                                    <>
+                                        LOO number: <span className="font-semibold">{loo.number}</span>
+                                    </>
+                                ) : (
+                                    "LOO detail not available"
+                                )}
+                                {loo?.generated_at ? (
+                                    <span className="text-gray-500"> • generated {formatDateTimeLocal(loo.generated_at)}</span>
+                                ) : null}
+                            </div>
+                        </div>
 
-            {success && (
-                <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                    {success}
-                </div>
-            )}
+                        <div className="p-5">
+                            {looWarn ? (
+                                <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 inline-flex items-center gap-2">
+                                    <AlertTriangle size={16} />
+                                    {looWarn}
+                                </div>
+                            ) : null}
 
-            {err && (
-                <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {err}
-                </div>
-            )}
+                            <div className="text-sm font-semibold text-gray-900 mb-2">Samples in this LOO</div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {/* LOO samples */}
-                <div className="rounded-2xl border bg-white shadow-sm">
-                    <div className="border-b px-4 py-3">
-                        <div className="font-semibold text-gray-900">LOO Samples</div>
-                        <div className="text-xs text-gray-500 mt-1">
-                            {loo?.number ? (
-                                <>
-                                    LOO: <span className="font-semibold">{loo.number}</span>
-                                </>
+                            {loo?.items?.length ? (
+                                <div className="space-y-2">
+                                    {loo.items.map((it: any, idx: number) => (
+                                        <div key={`${it.sample_id ?? idx}`} className="rounded-xl border border-gray-200 px-3 py-2">
+                                            <div className="text-sm font-semibold text-gray-900">
+                                                {it.lab_sample_code ?? it.sample?.lab_sample_code ?? "—"}
+                                            </div>
+                                            <div className="text-xs text-gray-600">
+                                                sample_id: <span className="font-semibold">{it.sample_id ?? it.sample?.sample_id ?? "—"}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             ) : (
-                                "LOO detail not available"
+                                <div className="text-sm text-gray-600">No sample list found for this LOO.</div>
                             )}
                         </div>
                     </div>
 
-                    <div className="p-4">
-                        {looWarn ? (
-                            <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                                {looWarn}
+                    {/* Request content */}
+                    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                        <div className="border-b border-gray-100 px-5 py-4 bg-gray-50">
+                            <div className="font-bold text-gray-900">Request content</div>
+                            <div className="mt-1 text-xs text-gray-600">
+                                Items: <span className="font-semibold">{items.length}</span> • Bookings:{" "}
+                                <span className="font-semibold">{bookings.length}</span>
                             </div>
-                        ) : null}
+                        </div>
 
-                        {loo?.items?.length ? (
-                            <div className="space-y-2">
-                                {loo.items.map((it: any, idx: number) => (
-                                    <div key={`${it.sample_id ?? idx}`} className="rounded-xl border px-3 py-2">
-                                        <div className="text-sm font-semibold text-gray-900">
-                                            {it.lab_sample_code ?? it.sample?.lab_sample_code ?? "-"}
-                                        </div>
-                                        <div className="text-xs text-gray-500">
-                                            sample_id: {it.sample_id ?? it.sample?.sample_id ?? "-"}
-                                        </div>
+                        <div className="p-5 space-y-6">
+                            {/* Items */}
+                            <div>
+                                <div className="text-sm font-semibold text-gray-900 mb-2">Items</div>
+
+                                {items.length ? (
+                                    <div className="overflow-x-auto rounded-xl border border-gray-200">
+                                        <table className="min-w-full text-sm">
+                                            <thead className="bg-white text-gray-700 border-b border-gray-100">
+                                                <tr>
+                                                    <th className="text-left font-semibold px-4 py-3">Name</th>
+                                                    <th className="text-left font-semibold px-4 py-3">Type</th>
+                                                    <th className="text-left font-semibold px-4 py-3">Qty</th>
+                                                    <th className="text-left font-semibold px-4 py-3">Unit</th>
+                                                    <th className="text-left font-semibold px-4 py-3">Note</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {items.map((it: any, idx: number) => (
+                                                    <tr key={it.reagent_request_item_id ?? `${it.catalog_item_id}-${idx}`} className="hover:bg-gray-50">
+                                                        <td className="px-4 py-3 font-medium text-gray-900">{it.item_name ?? "—"}</td>
+                                                        <td className="px-4 py-3 text-gray-700">{it.item_type ?? "—"}</td>
+                                                        <td className="px-4 py-3 text-gray-700">{Number(it.qty ?? 0)}</td>
+                                                        <td className="px-4 py-3 text-gray-700">{it.unit_text ?? "—"}</td>
+                                                        <td className="px-4 py-3 text-gray-700">{it.note ? String(it.note) : "—"}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
                                     </div>
-                                ))}
+                                ) : (
+                                    <div className="text-sm text-gray-600">No items.</div>
+                                )}
                             </div>
-                        ) : (
-                            <div className="text-sm text-gray-600">No sample list found for this LOO.</div>
-                        )}
-                    </div>
-                </div>
 
-                {/* Request content */}
-                <div className="rounded-2xl border bg-white shadow-sm">
-                    <div className="border-b px-4 py-3">
-                        <div className="font-semibold text-gray-900">Request Content</div>
-                        <div className="text-xs text-gray-500 mt-1">
-                            Items: <span className="font-semibold">{items.length}</span> • Bookings:{" "}
-                            <span className="font-semibold">{bookings.length}</span>
+                            {/* Bookings */}
+                            <div>
+                                <div className="text-sm font-semibold text-gray-900 mb-2 inline-flex items-center gap-2">
+                                    <Wrench size={16} />
+                                    Equipment bookings
+                                </div>
+
+                                {bookings.length ? (
+                                    <div className="overflow-x-auto rounded-xl border border-gray-200">
+                                        <table className="min-w-full text-sm">
+                                            <thead className="bg-white text-gray-700 border-b border-gray-100">
+                                                <tr>
+                                                    <th className="text-left font-semibold px-4 py-3">Equipment</th>
+                                                    <th className="text-left font-semibold px-4 py-3">Planned start</th>
+                                                    <th className="text-left font-semibold px-4 py-3">Planned end</th>
+                                                    <th className="text-left font-semibold px-4 py-3">Note</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {bookings.map((b: any, idx: number) => (
+                                                    <tr key={b.booking_id ?? `${b.equipment_id}-${idx}`} className="hover:bg-gray-50">
+                                                        <td className="px-4 py-3 font-medium text-gray-900">
+                                                            {(b.equipment_code ? `${b.equipment_code} • ` : "") + (b.equipment_name ?? "Equipment")}
+                                                            <span className="text-gray-500"> (#{b.equipment_id})</span>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-gray-700">
+                                                            {b.planned_start_at ? formatDateTimeLocal(b.planned_start_at) : "—"}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-gray-700">
+                                                            {b.planned_end_at ? formatDateTimeLocal(b.planned_end_at) : "—"}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-gray-700">{b.note ? String(b.note) : "—"}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : (
+                                    <div className="text-sm text-gray-600">No bookings.</div>
+                                )}
+                            </div>
                         </div>
                     </div>
-
-                    <div className="p-4">
-                        <div className="font-semibold text-sm text-gray-900 mb-2">Items</div>
-                        {items.length ? (
-                            <div className="space-y-2">
-                                {items.map((it: any) => (
-                                    <div
-                                        key={it.reagent_request_item_id ?? `${it.catalog_item_id}-${it.item_name}`}
-                                        className="rounded-xl border px-3 py-2"
-                                    >
-                                        <div className="text-sm font-semibold text-gray-900">{it.item_name ?? "-"}</div>
-                                        <div className="text-xs text-gray-600">
-                                            qty: <span className="font-semibold">{it.qty ?? 0}</span> {it.unit_text ?? ""} • type:{" "}
-                                            <span className="font-semibold">{it.item_type ?? "-"}</span>
-                                        </div>
-                                        {it.note ? <div className="text-xs text-gray-500 mt-1">note: {it.note}</div> : null}
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="text-sm text-gray-600">No items.</div>
-                        )}
-
-                        <div className="font-semibold text-sm text-gray-900 mt-5 mb-2">Equipment Bookings</div>
-                        {bookings.length ? (
-                            <div className="space-y-2">
-                                {bookings.map((b: any) => (
-                                    <div
-                                        key={b.booking_id ?? `${b.equipment_id}-${b.planned_start_at}`}
-                                        className="rounded-xl border px-3 py-2"
-                                    >
-                                        <div className="text-sm font-semibold text-gray-900">
-                                            {b.equipment_code ? `${b.equipment_code} • ` : ""}
-                                            {b.equipment_name ?? "Equipment"} (#{b.equipment_id})
-                                        </div>
-                                        <div className="text-xs text-gray-600">
-                                            planned:{" "}
-                                            <span className="font-semibold">
-                                                {b.planned_start_at ? new Date(b.planned_start_at).toLocaleString() : "-"}
-                                            </span>{" "}
-                                            →{" "}
-                                            <span className="font-semibold">
-                                                {b.planned_end_at ? new Date(b.planned_end_at).toLocaleString() : "-"}
-                                            </span>
-                                        </div>
-                                        {b.note ? <div className="text-xs text-gray-500 mt-1">note: {b.note}</div> : null}
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="text-sm text-gray-600">No bookings.</div>
-                        )}
-                    </div>
                 </div>
-            </div>
 
-            <ReagentApprovalDecisionModal
-                open={modalOpen}
-                mode={decisionMode}
-                busy={busy}
-                request={request}
-                looNumber={(loo as any)?.number ?? (request as any)?.loo_number ?? null}
-                clientName={(loo as any)?.client?.name ?? (request as any)?.client_name ?? null}
-                itemsCount={items.length}
-                bookingsCount={bookings.length}
-                onClose={() => (busy ? null : setModalOpen(false))}
-                onConfirm={confirmDecision}
-            />
+                {/* Modal */}
+                <ReagentApprovalDecisionModal
+                    open={modalOpen}
+                    mode={decisionMode}
+                    busy={busy}
+                    request={request}
+                    looNumber={(loo as any)?.number ?? (request as any)?.loo_number ?? null}
+                    clientName={(loo as any)?.client?.name ?? (request as any)?.client_name ?? null}
+                    itemsCount={items.length}
+                    bookingsCount={bookings.length}
+                    onClose={() => (busy ? null : setModalOpen(false))}
+                    onConfirm={confirmDecision}
+                />
+            </div>
         </div>
     );
 }

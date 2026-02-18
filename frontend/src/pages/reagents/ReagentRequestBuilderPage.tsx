@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\reagents\ReagentRequestBuilderPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -21,12 +20,12 @@ import {
     getReagentRequestByLoo,
     saveReagentRequestDraft,
     submitReagentRequest,
-    ReagentRequestRow,
-    ReagentRequestItemRow,
-    EquipmentBookingRow,
+    type EquipmentBookingRow,
+    type ReagentRequestItemRow,
+    type ReagentRequestRow,
 } from "../../services/reagentRequests";
 import { apiGet } from "../../services/api";
-import { searchEquipmentCatalog, EquipmentCatalogItem } from "../../services/equipmentCatalog";
+import { searchEquipmentCatalog, type EquipmentCatalogItem } from "../../services/equipmentCatalog";
 import { useDebouncedValue } from "../../utils/useDebouncedValue";
 import ReagentRequestCartModal from "../../components/reagents/ReagentRequestCartModal";
 
@@ -43,7 +42,7 @@ function cx(...arr: Array<string | false | null | undefined>) {
 }
 
 /**
- * Normalize berbagai bentuk wrapper response:
+ * Normalize wrapper response:
  * - axios: { data: ... }
  * - ApiResponse: { data: { ... } }
  * - nested: { data: { data: { ... } } }
@@ -65,7 +64,7 @@ function statusTone(status: string) {
     if (s === "approved") return "bg-emerald-50 text-emerald-700 border-emerald-200";
     if (s === "submitted") return "bg-amber-50 text-amber-800 border-amber-200";
     if (s === "draft") return "bg-slate-50 text-slate-700 border-slate-200";
-    if (s === "rejected" || s === "denied") return "bg-red-50 text-red-700 border-red-200";
+    if (s === "rejected" || s === "denied") return "bg-rose-50 text-rose-700 border-rose-200";
     return "bg-gray-50 text-gray-700 border-gray-200";
 }
 
@@ -132,10 +131,10 @@ export default function ReagentRequestBuilderPage() {
             const bk = payload?.bookings ?? [];
 
             setRequest(rr);
-            setItems(it);
-            setBookings(bk);
+            setItems(Array.isArray(it) ? it : []);
+            setBookings(Array.isArray(bk) ? bk : []);
         } catch (e: any) {
-            setErrorText(e?.message ?? "Failed to load reagent request");
+            setErrorText(e?.message ?? "Failed to load reagent request.");
         } finally {
             setLoading(false);
         }
@@ -210,7 +209,7 @@ export default function ReagentRequestBuilderPage() {
         setEquipPage(1);
     }, [debouncedEquipSearch]);
 
-    // Reset equipment browser when switching LOO (avoid stale paging like page=7)
+    // Reset equipment browser when switching LOO (avoid stale paging)
     useEffect(() => {
         setEquipPage(1);
         setEquipResults([]);
@@ -240,7 +239,7 @@ export default function ReagentRequestBuilderPage() {
 
                 const last = Number(meta?.last_page ?? 0);
 
-                // ✅ If FE requested page beyond last_page, clamp and refetch
+                // If FE requested page beyond last_page, clamp and refetch
                 if (last > 0 && equipPage > last) {
                     setEquipPage(last);
                     return;
@@ -279,9 +278,6 @@ export default function ReagentRequestBuilderPage() {
     }, [equipLoading, equipMeta, equipPage]);
 
     function addCatalogToItems(cat: CatalogRow) {
-        const name = cat.name ?? "(unnamed)";
-        const unit = cat.default_unit_text ?? "";
-
         setItems((prev) => {
             const idx = prev.findIndex((x) => Number(x.catalog_item_id) === Number(cat.catalog_id));
             if (idx >= 0) {
@@ -292,10 +288,10 @@ export default function ReagentRequestBuilderPage() {
                 {
                     catalog_item_id: cat.catalog_id,
                     item_type: cat.type ?? null,
-                    item_name: name,
+                    item_name: cat.name ?? "(unnamed)",
                     specification: cat.specification ?? null,
                     qty: 1,
-                    unit_text: unit,
+                    unit_text: cat.default_unit_text ?? "",
                     note: null,
                 },
             ];
@@ -378,7 +374,7 @@ export default function ReagentRequestBuilderPage() {
 
             flashSuccess("Draft berhasil disimpan.");
         } catch (e: any) {
-            setErrorText(e?.message ?? "Failed to save draft");
+            setErrorText(e?.message ?? "Failed to save draft.");
         } finally {
             setSaving(false);
         }
@@ -386,12 +382,12 @@ export default function ReagentRequestBuilderPage() {
 
     async function onSubmit() {
         if (!request?.reagent_request_id) {
-            setErrorText("No request found. Save draft first.");
+            setErrorText("Belum ada request. Save draft dulu.");
             setCartOpen(true);
             return;
         }
 
-        // ✅ prevent resubmitting locked/non-draft requests
+        // prevent resubmitting locked/non-draft requests
         if (requestStatus !== "draft") {
             setErrorText(`Tidak bisa submit. Status sekarang: ${requestStatus}.`);
             setCartOpen(true);
@@ -399,7 +395,7 @@ export default function ReagentRequestBuilderPage() {
         }
 
         if (!hasContent) {
-            setErrorText("Add at least 1 item or 1 booking before submit.");
+            setErrorText("Tambahkan minimal 1 item atau 1 booking sebelum submit.");
             setCartOpen(true);
             return;
         }
@@ -420,7 +416,7 @@ export default function ReagentRequestBuilderPage() {
             flashSuccess("Berhasil submit reagent request.");
         } catch (e: any) {
             const resp = e?.response?.data ?? null;
-            const msg = resp?.message ?? e?.message ?? "Submit failed";
+            const msg = resp?.message ?? e?.message ?? "Submit failed.";
             setErrorText(msg);
 
             const detail = resp?.data ?? resp?.context ?? null;
@@ -442,7 +438,7 @@ export default function ReagentRequestBuilderPage() {
     }
 
     if (!Number.isFinite(loId) || loId <= 0) {
-        return <div className="min-h-[60vh] px-0 py-4 text-sm text-red-600">Invalid loId</div>;
+        return <div className="min-h-[60vh] px-0 py-4 text-sm text-rose-700">Invalid loId</div>;
     }
 
     return (
@@ -508,7 +504,7 @@ export default function ReagentRequestBuilderPage() {
                                 "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
                                 "border-gray-200 bg-white hover:bg-gray-50"
                             )}
-                            title="Lihat & edit request items"
+                            title="View & edit request items"
                         >
                             <ShoppingCart size={16} />
                             Request
@@ -549,7 +545,7 @@ export default function ReagentRequestBuilderPage() {
                                 requestStatus !== "draft"
                                     ? "Hanya status draft yang bisa submit."
                                     : !hasContent
-                                        ? "Add at least 1 item or 1 booking"
+                                        ? "Tambahkan minimal 1 item atau 1 booking"
                                         : "Submit request"
                             }
                             type="button"
@@ -560,6 +556,13 @@ export default function ReagentRequestBuilderPage() {
                     </div>
                 </div>
 
+                {isLocked ? (
+                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 inline-flex items-center gap-2">
+                        <AlertTriangle size={18} />
+                        Request is <b className="ml-1">{requestStatus}</b>. Editing is locked.
+                    </div>
+                ) : null}
+
                 {successText && (
                     <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 inline-flex items-center gap-2">
                         <CheckCircle2 size={18} />
@@ -568,7 +571,7 @@ export default function ReagentRequestBuilderPage() {
                 )}
 
                 {errorText && (
-                    <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 inline-flex items-center gap-2">
+                    <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 inline-flex items-center gap-2">
                         <AlertTriangle size={18} />
                         {errorText}
                     </div>
@@ -595,7 +598,7 @@ export default function ReagentRequestBuilderPage() {
                 )}
 
                 {/* Content */}
-                <div className="mt-6 grid grid-cols-1 gap-4">
+                <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {/* Catalog */}
                     <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                         <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
@@ -656,7 +659,7 @@ export default function ReagentRequestBuilderPage() {
                                     {catalogResults.map((c) => (
                                         <button
                                             key={c.catalog_id}
-                                            className="w-full text-left px-5 py-4 hover:bg-gray-50 flex items-start justify-between gap-3"
+                                            className="w-full text-left px-5 py-4 hover:bg-gray-50 flex items-start justify-between gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
                                             onClick={() => addCatalogToItems(c)}
                                             type="button"
                                             disabled={isLocked}
@@ -671,9 +674,7 @@ export default function ReagentRequestBuilderPage() {
                                                     {c.default_unit_text ?? "-"}
                                                 </div>
                                                 {c.specification ? (
-                                                    <div className="mt-1 text-xs text-gray-600 truncate">
-                                                        {c.specification}
-                                                    </div>
+                                                    <div className="mt-1 text-xs text-gray-600 truncate">{c.specification}</div>
                                                 ) : null}
                                             </div>
 
@@ -731,13 +732,11 @@ export default function ReagentRequestBuilderPage() {
                                         onChange={(e) => setEquipSearch(e.target.value)}
                                     />
                                 </div>
-                                <div className="mt-2 text-xs text-gray-500">
-                                    Klik equipment untuk masuk ke booking di Request.
-                                </div>
+                                <div className="mt-2 text-xs text-gray-500">Klik equipment untuk masuk ke booking di Request.</div>
                             </div>
                         </div>
 
-                        <div className="max-h-[420px] overflow-auto">
+                        <div className="max-h-[560px] overflow-auto">
                             {equipLoading && equipResults.length === 0 ? (
                                 <div className="px-5 py-4 text-sm text-gray-600 inline-flex items-center gap-2">
                                     <Loader2 size={16} className="animate-spin" />
@@ -750,7 +749,7 @@ export default function ReagentRequestBuilderPage() {
                                     {equipResults.map((eq) => (
                                         <button
                                             key={eq.equipment_id}
-                                            className="w-full text-left px-5 py-4 hover:bg-gray-50 flex items-start justify-between gap-3"
+                                            className="w-full text-left px-5 py-4 hover:bg-gray-50 flex items-start justify-between gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
                                             onClick={() => addBooking(eq)}
                                             type="button"
                                             disabled={isLocked}
@@ -760,9 +759,7 @@ export default function ReagentRequestBuilderPage() {
                                                 <div className="font-semibold text-sm text-gray-900 truncate">
                                                     {(eq.code ? `${eq.code} • ` : "") + (eq.name ?? "Equipment")}
                                                 </div>
-                                                <div className="text-xs text-gray-500 truncate">
-                                                    equipment_id: {eq.equipment_id}
-                                                </div>
+                                                <div className="text-xs text-gray-500 truncate">equipment_id: {eq.equipment_id}</div>
                                             </div>
 
                                             <span
@@ -800,7 +797,7 @@ export default function ReagentRequestBuilderPage() {
                     </div>
 
                     {/* Help */}
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                    <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                         <div className="font-semibold inline-flex items-center gap-2">
                             <ClipboardList size={16} />
                             Tips
