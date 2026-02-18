@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 import { useAuth } from "../../hooks/useAuth";
 import { useClientAuth } from "../../hooks/useClientAuth";
 import { clientLogoutRequest, logoutRequest } from "../../services/auth";
 import { getTenant } from "../../utils/tenant";
 import { getUserRoleLabel } from "../../utils/roles";
+import { STORAGE_KEY } from "../../i18n";
 
 type TopbarProps = {
     onOpenNav?: () => void;
@@ -13,8 +15,9 @@ type TopbarProps = {
 
 export const Topbar = ({ onOpenNav }: TopbarProps) => {
     const navigate = useNavigate();
+    const { i18n } = useTranslation();
 
-    const tenant = getTenant(); // "portal" | "backoffice" (sesuai util kamu)
+    const tenant = getTenant();
     const isPortal = tenant === "portal";
 
     // Backoffice auth (staff)
@@ -28,7 +31,7 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
     // Labels
     const roleLabel = isPortal ? "Client" : getUserRoleLabel(staffUser);
 
-    // Display name: portal pakai nama client, backoffice pakai nama staff
+    // Display name
     const displayName = isPortal
         ? clientUser?.name ||
         clientUser?.full_name ||
@@ -58,22 +61,33 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
         return () => document.removeEventListener("mousedown", onDocClick);
     }, [menuOpen]);
 
+    const setLocale = async (next: "id" | "en") => {
+        if ((i18n.resolvedLanguage ?? i18n.language) === next) return;
+
+        try {
+            localStorage.setItem(STORAGE_KEY, next);
+        } catch { }
+
+        try {
+            document.documentElement.lang = next;
+        } catch { }
+
+        await i18n.changeLanguage(next);
+    };
+
+    const currentLocale = (i18n.resolvedLanguage ?? i18n.language) === "en" ? "en" : "id";
+
     const handleLogout = async () => {
         try {
             setLoggingOut(true);
 
-            // backend logout sesuai tenant
             if (isPortal) {
                 await clientLogoutRequest();
-
-                // kalau useClientAuth kamu punya setter/clearer, panggil jika ada
                 if (typeof clientAuth?.setClient === "function") clientAuth.setClient(null);
                 if (typeof clientAuth?.setIsClientAuthenticated === "function")
                     clientAuth.setIsClientAuthenticated(false);
             } else {
                 await logoutRequest();
-
-                // kalau useAuth kamu punya setter/clearer, panggil jika ada
                 if (typeof staffAuth?.setUser === "function") staffAuth.setUser(null);
                 if (typeof staffAuth?.setIsAuthenticated === "function")
                     staffAuth.setIsAuthenticated(false);
@@ -81,13 +95,30 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
 
             setMenuOpen(false);
             navigate("/login", { replace: true });
-        } catch (err) {
-            // fallback: tetap redirect ke login agar sesi “bersih” di FE
+        } catch {
             setMenuOpen(false);
             navigate("/login", { replace: true });
         } finally {
             setLoggingOut(false);
         }
+    };
+
+    const langBtn = (code: "id" | "en", label: string) => {
+        const active = currentLocale === code;
+        return (
+            <button
+                type="button"
+                onClick={() => setLocale(code)}
+                className={[
+                    "px-2.5 py-1 rounded-full text-xs font-semibold transition",
+                    active ? "bg-primary text-white" : "text-gray-700 hover:bg-black/5",
+                ].join(" ")}
+                aria-pressed={active}
+                aria-label={`Switch language to ${code === "id" ? "Indonesian" : "English"}`}
+            >
+                {label}
+            </button>
+        );
     };
 
     return (
@@ -109,6 +140,17 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
             <div className="hidden lg:block" />
 
             <div className="flex items-center gap-4 ml-auto">
+                {/* ✅ Language toggle */}
+                <div
+                    className="flex items-center gap-1 rounded-full border border-black/10 bg-white px-1 py-1"
+                    role="group"
+                    aria-label="Language toggle"
+                    title="Language"
+                >
+                    {langBtn("id", "ID")}
+                    {langBtn("en", "EN")}
+                </div>
+
                 {/* Notifications (placeholder) */}
                 <button
                     type="button"

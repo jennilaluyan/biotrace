@@ -1,41 +1,55 @@
+// frontend/src/i18n/index.ts
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 
 import commonId from "./locales/id/common.json";
 import commonEn from "./locales/en/common.json";
 
-/**
- * i18n core:
- * - default: id
- * - supported: id, en
- * - fallback: id (safe)
- * - useSuspense: false (avoid React Suspense issues)
- */
+const STORAGE_KEY = "biotrace_locale";
+
+function readStoredLocale(): "id" | "en" | null {
+    try {
+        const v = localStorage.getItem(STORAGE_KEY);
+        if (v === "id" || v === "en") return v;
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+const initialLng = readStoredLocale() ?? "id";
+
+// Set <html lang="..."> for accessibility/SEO
+try {
+    document.documentElement.lang = initialLng;
+} catch { }
+
 void i18n.use(initReactI18next).init({
     resources: {
         id: { common: commonId },
         en: { common: commonEn },
     },
-    lng: "id",
+    lng: initialLng,
     fallbackLng: "id",
     supportedLngs: ["id", "en"],
     ns: ["common"],
     defaultNS: "common",
 
-    // Safety: don't return null/empty for missing keys
     returnNull: false,
     returnEmptyString: false,
 
     interpolation: {
-        escapeValue: false, // React already escapes by default
+        escapeValue: false,
     },
 
     react: {
         useSuspense: false,
     },
 
-    // Optional but helpful in dev:
     debug: Boolean(import.meta.env?.DEV),
 });
 
 export default i18n;
+
+// Export key biar bisa dipakai Topbar (optional, tapi rapi)
+export { STORAGE_KEY };
