@@ -55,13 +55,6 @@ use App\Http\Controllers\SampleTestDecisionController;
 use App\Http\Controllers\SampleTestStatusController;
 use App\Http\Controllers\TestResultController;
 
-// Reagent Calculation
-use App\Http\Controllers\ReagentCalculationController;
-
-// QC
-use App\Http\Controllers\QcControlController;
-use App\Http\Controllers\QcRunController;
-
 // Quality Cover (Analyst)
 use App\Http\Controllers\QualityCoverController;
 
@@ -348,7 +341,7 @@ Route::prefix('v1')->group(function () {
         */
         Route::get('sample-id-change-requests', [SampleIdChangeRequestController::class, 'index']);
         Route::get('sample-id-change-requests/by-sample/{sample}', [SampleIdChangeRequestController::class, 'latestBySample'])
-            ->whereNumber('sample'); // ✅ NEW
+            ->whereNumber('sample');
         Route::get('sample-id-change-requests/{changeRequestId}', [SampleIdChangeRequestController::class, 'show'])
             ->whereNumber('changeRequestId');
         Route::post('sample-id-change-requests/{changeRequestId}/approve', [SampleIdChangeRequestController::class, 'approve'])
@@ -428,35 +421,6 @@ Route::prefix('v1')->group(function () {
             ->where('workflowGroup', '^[a-z0-9_]+$');
         Route::delete('testing-board/columns/{columnId}', [\App\Http\Controllers\TestingBoardController::class, 'deleteColumn'])
             ->whereNumber('columnId');
-
-        /*
-        |----------------------------------------------------------------------
-        | Reagent Calculation
-        |----------------------------------------------------------------------
-        */
-        Route::get('samples/{sample}/reagent-calculation', [ReagentCalculationController::class, 'showBySample'])
-            ->whereNumber('sample');
-        Route::patch('samples/{sample}/reagent-calculation', [ReagentCalculationController::class, 'update'])
-            ->whereNumber('sample');
-        Route::post('samples/{sample}/reagent-calculation/om-approve', [ReagentCalculationController::class, 'omApprove'])
-            ->whereNumber('sample');
-        Route::post('reagent-calculations/{calc}/request-approval', [ReagentCalculationController::class, 'requestApproval'])
-            ->whereNumber('calc');
-        Route::post('reagent-calculations/{calc}/approve', [ReagentCalculationController::class, 'approve'])
-            ->whereNumber('calc');
-        Route::patch('reagent-calculations/{calc}', [ReagentCalculationController::class, 'update'])
-            ->whereNumber('calc');
-
-        /*
-        |----------------------------------------------------------------------
-        | QC
-        |----------------------------------------------------------------------
-        */
-        Route::get('qc-controls', [QcControlController::class, 'index']);
-        Route::get('samples/{sample}/qc-controls', [QcControlController::class, 'forSample'])->whereNumber('sample');
-        Route::post('samples/{sample}/qc-runs', [QcRunController::class, 'store'])->whereNumber('sample');
-        Route::get('samples/{sample}/qc-summary', [QcRunController::class, 'summary'])->whereNumber('sample');
-
         /*
         |----------------------------------------------------------------------
         | Quality Cover

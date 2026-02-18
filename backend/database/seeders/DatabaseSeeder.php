@@ -22,7 +22,6 @@ class DatabaseSeeder extends Seeder
             UnitsSeeder::class,
             MethodsSeeder::class,
             ParametersSeeder::class,
-            QCControlsSeeder::class,
             TestingBoardSeeder::class,
             DocumentTemplatesSeeder::class,
         ]);
