@@ -13,13 +13,6 @@ class TestingBoardSeeder extends Seeder
     {
         /**
          * Default columns per workflow group.
-         *
-         * IMPORTANT:
-         * - FE punya pilihan: default, pcr_sars_cov_2, pcr, wgs, elisa
-         * - Kalau group di DB tidak ada, FE akan fallback, lalu Move pakai column_id dummy (1/2/3)
-         *   dan backend akan 422 "Target column does not belong..."
-         *
-         * Jadi: kita seed semua group yang dipakai FE.
          */
         $defaults = [
             // ✅ UI default (general)
@@ -78,12 +71,13 @@ class TestingBoardSeeder extends Seeder
                     ->first();
 
                 if (!$board) {
+                    // 🔴 PERBAIKAN DI SINI: Tambahkan 'board_id' sebagai parameter kedua
                     $boardId = DB::table('testing_boards')->insertGetId([
                         'workflow_group' => $workflowGroup,
                         'name' => Str::title(str_replace('_', ' ', $workflowGroup)),
                         'created_at' => now(),
                         'updated_at' => now(),
-                    ]);
+                    ], 'board_id');
                 } else {
                     $boardId = $board->board_id;
                 }
