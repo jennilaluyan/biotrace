@@ -21,6 +21,10 @@
     "approve": "Approve",
     "reject": "Reject",
     "submit": "Submit",
+    "verify": "Verify",
+    "validate": "Validate",
+    "dismiss": "Dismiss",
+    "retry": "Retry",
     "submitting": "Submitting…",
     "processing": "Processing…",
     "preview": "Preview",
@@ -50,7 +54,109 @@
     },
     "portal": {
         "dashboard": "Dashboard",
-        "sampleRequests": "Sample Requests"
+        "sampleRequests": "Sample Requests",
+        "status": {
+            "all": "All statuses",
+            "draft": "Draft",
+            "submitted": "Submitted",
+            "returned": "Returned",
+            "needsRevision": "Needs revision",
+            "readyForDelivery": "Ready for delivery",
+            "physicallyReceived": "Physically received",
+            "pickupRequired": "Pickup required",
+            "pickedUp": "Picked up",
+            "unknown": "Unknown"
+        },
+        "dashboardPage": {
+            "title": "Dashboard",
+            "subtitle": "Welcome{{name}}. Create and track your sample requests here.",
+            "cta": {
+                "openRequests": "Open requests",
+                "createRequest": "New request"
+            },
+            "stats": {
+                "totalTitle": "Total requests",
+                "totalSub": "All requests you’ve created.",
+                "draftTitle": "Draft",
+                "draftSub": "Requests you can still edit.",
+                "submittedTitle": "Submitted",
+                "submittedSub": "Waiting for admin review.",
+                "returnedTitle": "Returned",
+                "returnedSub": "Requires revision before resubmitting."
+            },
+            "cards": {
+                "nextTitle": "What happens next?",
+                "nextBody": "Create draft → complete required fields → submit → admin review → schedule delivery → physical receive.",
+                "reviseTitle": "Need to revise?",
+                "reviseBody": "If admin returns your request, update it and submit again."
+            }
+        },
+        "requestsPage": {
+            "title": "Sample Requests",
+            "subtitle": "Create a draft → complete required fields → submit for admin review.",
+            "new": "New request",
+            "searchPlaceholder": "Search by code, sample type, notes…",
+            "filterStatus": "Status",
+            "table": {
+                "request": "Request",
+                "sampleType": "Sample type",
+                "scheduledDelivery": "Scheduled delivery",
+                "status": "Status",
+                "updated": "Updated",
+                "actions": "Actions",
+                "paramsCount": "{{count}} parameter(s)",
+                "noParams": "No parameters"
+            },
+            "empty": {
+                "title": "No requests found",
+                "body": "Create your first request to start the workflow.",
+                "cta": "Create request"
+            }
+        },
+        "requestDetail": {
+            "breadcrumbRequests": "Sample Requests",
+            "breadcrumbCurrent": "Request detail",
+            "title": "Request #{{id}}",
+            "lastUpdated": "Last updated {{at}}",
+            "alerts": {
+                "revisionTitle": "Revision requested",
+                "notEditable": "This request can’t be edited in the current status."
+            },
+            "sections": {
+                "detailsTitle": "Request details",
+                "detailsSub": "Editable while Draft / Returned."
+            },
+            "fields": {
+                "sampleType": "Sample type",
+                "scheduledDelivery": "Scheduled delivery",
+                "parameter": "Parameter",
+                "parameterSearchPlaceholder": "Search parameter…",
+                "examinationPurpose": "Examination purpose",
+                "additionalNotes": "Additional notes"
+            },
+            "parameterPicker": {
+                "searchBtn": "Search",
+                "doneBtn": "Done",
+                "loading": "Loading…",
+                "empty": "No parameters found.",
+                "unit": "Unit: {{unit}}",
+                "select": "Select",
+                "selected": "Selected",
+                "selectedCount": "Selected: {{count}}"
+            },
+            "errors": {
+                "invalidId": "Invalid request id.",
+                "loadFailed": "Failed to load request detail.",
+                "saveFailed": "Failed to save draft.",
+                "submitFailed": "Failed to submit request.",
+                "sampleTypeRequired": "Sample type is required.",
+                "scheduledDeliveryRequired": "Scheduled delivery is required.",
+                "parameterRequired": "One parameter is required."
+            },
+            "info": {
+                "draftSaved": "Draft saved."
+            }
+        }
     },
     "topbar": {
         "notifications": "Notifications",
@@ -236,6 +342,70 @@
             "rejectReasonPlaceholder": "Explain why this cover is rejected…",
             "rejectReasonHelp": "Keep it specific so the next reviewer knows what to fix.",
             "approveDefaultHint": "This will move the workflow to the next step."
+        },
+        "inbox": {
+            "title": "Quality Cover Inbox",
+            "omSubtitle": "OM — Submitted covers waiting for verification.",
+            "lhSubtitle": "LH — Verified covers waiting for validation.",
+            "searchPlaceholder": "Search sample code / client…",
+            "totalText": "{{total}} items • page {{page}}/{{pages}}",
+            "table": {
+                "sample": "Sample",
+                "group": "Group",
+                "submitted": "Submitted",
+                "verified": "Verified",
+                "checkedBy": "Checked by",
+                "verifiedBy": "Verified by",
+                "actions": "Actions",
+                "emptyOm": "No submitted quality covers found.",
+                "emptyLh": "No verified quality covers found."
+            },
+            "pagination": {
+                "page": "Page",
+                "of": "of"
+            }
+        },
+        "detail": {
+            "breadcrumbOm": "Quality Cover Inbox (OM)",
+            "breadcrumbLh": "Quality Cover Inbox (LH)",
+            "breadcrumbCurrent": "Detail",
+            "title": "Quality Cover Review",
+            "meta": {
+                "sample": "Sample",
+                "client": "Client",
+                "group": "Group",
+                "status": "Status",
+                "submitted": "Submitted",
+                "verified": "Verified"
+            },
+            "fields": {
+                "dateOfAnalysis": "Date of analysis",
+                "checkedBy": "Checked by",
+                "methodOfAnalysis": "Method of analysis"
+            },
+            "states": {
+                "loading": "Loading…",
+                "notFound": "Not found.",
+                "invalidIdTitle": "Invalid ID",
+                "invalidIdBody": "Invalid quality cover id."
+            },
+            "actions": {
+                "backToInbox": "Back to inbox",
+                "verify": "Verify",
+                "validate": "Validate",
+                "reject": "Reject"
+            },
+            "hints": {
+                "notInSubmitted": "This cover is not in submitted status.",
+                "notInVerified": "This cover is not in verified status.",
+                "approveHintOm": "This will mark the cover as verified and send it to LH inbox for validation.",
+                "approveHintLh": "This is the final step. The cover will become validated. If tests exist, COA will be generated."
+            },
+            "flash": {
+                "validatedOk": "Quality cover validated. COA generated and saved in Reports.",
+                "validatedWarn": "Quality cover validated, but COA generation is still blocked (check tests/results).",
+                "rejected": "Quality cover rejected."
+            }
         }
     },
     "reagents": {

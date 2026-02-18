@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { RefreshCw } from "lucide-react";
+import { Download, FileText, RefreshCw } from "lucide-react";
 
 import { formatDateTimeLocal } from "../../utils/date";
 import {
@@ -10,6 +10,7 @@ import {
     QualityCoverInboxItem,
     CoaReportResult,
 } from "../../services/qualityCovers";
+import { openCoaPdfBySample } from "../../services/coa";
 
 import { QualityCoverDecisionModal } from "../../components/quality-covers/QualityCoverDecisionModal";
 
@@ -71,14 +72,10 @@ export function QualityCoverLhDetailPage() {
             if (mode === "validate") {
                 const res = await lhValidate(data.quality_cover_id);
 
-                // ✅ green message
                 setSuccess(res?.message || "Quality cover validated. COA generated.");
-
-                // ✅ report info (for UX)
                 const r = res?.data?.report ?? null;
                 setReport(r);
 
-                // refresh detail view (status jadi validated)
                 await load({ silent: true });
 
                 setMode(null);
@@ -121,6 +118,7 @@ export function QualityCoverLhDetailPage() {
     const sampleCode = data?.sample?.lab_sample_code ?? (data ? `#${data.sample_id}` : "—");
     const group = data?.sample?.workflow_group ?? data?.workflow_group ?? "-";
     const clientName = data?.sample?.client?.name ?? "-";
+    const sampleId = data?.sample_id ?? null;
 
     return (
         <div className="min-h-[60vh]">
@@ -168,9 +166,21 @@ export function QualityCoverLhDetailPage() {
                     <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
                         <div className="font-medium">{success}</div>
                         <div className="mt-2 flex flex-wrap gap-2 items-center">
-                            <Link to="/reports" className="btn-outline">
-                                Open Reports Page
+                            <Link to="/reports" className="lims-btn inline-flex items-center gap-2">
+                                <FileText size={16} />
+                                Open Reports
                             </Link>
+
+                            {sampleId ? (
+                                <button
+                                    type="button"
+                                    onClick={() => openCoaPdfBySample(sampleId, `COA_${sampleId}.pdf`)}
+                                    className="lims-btn inline-flex items-center gap-2"
+                                >
+                                    <Download size={16} />
+                                    Download COA
+                                </button>
+                            ) : null}
 
                             {report?.report_id ? (
                                 <div className="text-xs text-emerald-800 flex items-center">
@@ -187,6 +197,13 @@ export function QualityCoverLhDetailPage() {
                     <div className="mt-4 text-sm text-gray-600">Not found.</div>
                 ) : (
                     <div className="mt-4 space-y-6">
+                        {/* Error banner */}
+                        {error ? (
+                            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                                {error}
+                            </div>
+                        ) : null}
+
                         {/* Top card */}
                         <div className="rounded-2xl border border-gray-200 bg-white p-4">
                             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -261,7 +278,7 @@ export function QualityCoverLhDetailPage() {
                                     Reject
                                 </button>
 
-                                <Link to="/quality-covers/inbox/lh" className="btn-outline">
+                                <Link to="/quality-covers/inbox/lh" className="lims-btn">
                                     Back to inbox
                                 </Link>
                             </div>

@@ -21,6 +21,10 @@
     "approve": "Setujui",
     "reject": "Tolak",
     "submit": "Kirim",
+    "verify": "Verifikasi",
+    "validate": "Validasi",
+    "dismiss": "Tutup",
+    "retry": "Coba lagi",
     "submitting": "Mengirim…",
     "processing": "Memproses…",
     "preview": "Pratinjau",
@@ -50,7 +54,109 @@
     },
     "portal": {
         "dashboard": "Beranda",
-        "sampleRequests": "Permintaan Sampel"
+        "sampleRequests": "Permintaan Sampel",
+        "status": {
+            "all": "Semua status",
+            "draft": "Draf",
+            "submitted": "Terkirim",
+            "returned": "Dikembalikan",
+            "needsRevision": "Perlu revisi",
+            "readyForDelivery": "Siap dikirim",
+            "physicallyReceived": "Diterima fisik",
+            "pickupRequired": "Perlu diambil",
+            "pickedUp": "Sudah diambil",
+            "unknown": "Tidak diketahui"
+        },
+        "dashboardPage": {
+            "title": "Beranda",
+            "subtitle": "Selamat datang{{name}}. Buat dan lacak permintaan sampel Anda di sini.",
+            "cta": {
+                "openRequests": "Buka permintaan",
+                "createRequest": "Permintaan baru"
+            },
+            "stats": {
+                "totalTitle": "Total permintaan",
+                "totalSub": "Semua permintaan yang Anda buat.",
+                "draftTitle": "Draf",
+                "draftSub": "Permintaan yang masih bisa Anda edit.",
+                "submittedTitle": "Terkirim",
+                "submittedSub": "Menunggu review admin.",
+                "returnedTitle": "Dikembalikan",
+                "returnedSub": "Perlu revisi sebelum kirim ulang."
+            },
+            "cards": {
+                "nextTitle": "Langkah berikutnya",
+                "nextBody": "Buat draf → lengkapi data wajib → kirim → review admin → jadwalkan pengantaran → penerimaan fisik.",
+                "reviseTitle": "Perlu revisi?",
+                "reviseBody": "Jika admin mengembalikan permintaan, Anda bisa edit lalu kirim ulang."
+            }
+        },
+        "requestsPage": {
+            "title": "Permintaan Sampel",
+            "subtitle": "Buat draf → lengkapi data wajib → kirim untuk review admin.",
+            "new": "Permintaan baru",
+            "searchPlaceholder": "Cari kode, jenis sampel, catatan…",
+            "filterStatus": "Status",
+            "table": {
+                "request": "Permintaan",
+                "sampleType": "Jenis sampel",
+                "scheduledDelivery": "Jadwal pengantaran",
+                "status": "Status",
+                "updated": "Diperbarui",
+                "actions": "Aksi",
+                "paramsCount": "{{count}} parameter",
+                "noParams": "Tanpa parameter"
+            },
+            "empty": {
+                "title": "Tidak ada permintaan",
+                "body": "Buat permintaan pertama untuk memulai workflow.",
+                "cta": "Buat permintaan"
+            }
+        },
+        "requestDetail": {
+            "breadcrumbRequests": "Permintaan Sampel",
+            "breadcrumbCurrent": "Detail permintaan",
+            "title": "Permintaan #{{id}}",
+            "lastUpdated": "Terakhir diperbarui {{at}}",
+            "alerts": {
+                "revisionTitle": "Diminta revisi",
+                "notEditable": "Permintaan ini tidak bisa diedit pada status saat ini."
+            },
+            "sections": {
+                "detailsTitle": "Detail permintaan",
+                "detailsSub": "Bisa diedit saat status Draf / Dikembalikan."
+            },
+            "fields": {
+                "sampleType": "Jenis sampel",
+                "scheduledDelivery": "Jadwal pengantaran",
+                "parameter": "Parameter",
+                "parameterSearchPlaceholder": "Cari parameter…",
+                "examinationPurpose": "Tujuan pemeriksaan",
+                "additionalNotes": "Catatan tambahan"
+            },
+            "parameterPicker": {
+                "searchBtn": "Cari",
+                "doneBtn": "Selesai",
+                "loading": "Memuat…",
+                "empty": "Parameter tidak ditemukan.",
+                "unit": "Unit: {{unit}}",
+                "select": "Pilih",
+                "selected": "Terpilih",
+                "selectedCount": "Terpilih: {{count}}"
+            },
+            "errors": {
+                "invalidId": "ID permintaan tidak valid.",
+                "loadFailed": "Gagal memuat detail permintaan.",
+                "saveFailed": "Gagal menyimpan draf.",
+                "submitFailed": "Gagal mengirim permintaan.",
+                "sampleTypeRequired": "Jenis sampel wajib diisi.",
+                "scheduledDeliveryRequired": "Jadwal pengantaran wajib diisi.",
+                "parameterRequired": "Wajib memilih 1 parameter."
+            },
+            "info": {
+                "draftSaved": "Draf tersimpan."
+            }
+        }
     },
     "topbar": {
         "notifications": "Notifikasi",
@@ -266,6 +372,70 @@
             "rejectReasonPlaceholder": "Jelaskan alasan cover ditolak…",
             "rejectReasonHelp": "Tulis spesifik supaya reviewer berikutnya tahu apa yang harus diperbaiki.",
             "approveDefaultHint": "Ini akan melanjutkan workflow ke tahap berikutnya."
+        },
+        "inbox": {
+            "title": "Inbox Quality Cover",
+            "omSubtitle": "OM — Cover berstatus submitted menunggu verifikasi.",
+            "lhSubtitle": "LH — Cover berstatus verified menunggu validasi.",
+            "searchPlaceholder": "Cari kode sampel / klien…",
+            "totalText": "{{total}} item • halaman {{page}}/{{pages}}",
+            "table": {
+                "sample": "Sampel",
+                "group": "Grup",
+                "submitted": "Dikirim",
+                "verified": "Terverifikasi",
+                "checkedBy": "Dicek oleh",
+                "verifiedBy": "Diverifikasi oleh",
+                "actions": "Aksi",
+                "emptyOm": "Tidak ada quality cover submitted.",
+                "emptyLh": "Tidak ada quality cover verified."
+            },
+            "pagination": {
+                "page": "Halaman",
+                "of": "dari"
+            }
+        },
+        "detail": {
+            "breadcrumbOm": "Inbox Quality Cover (OM)",
+            "breadcrumbLh": "Inbox Quality Cover (LH)",
+            "breadcrumbCurrent": "Detail",
+            "title": "Review Quality Cover",
+            "meta": {
+                "sample": "Sampel",
+                "client": "Klien",
+                "group": "Grup",
+                "status": "Status",
+                "submitted": "Dikirim",
+                "verified": "Terverifikasi"
+            },
+            "fields": {
+                "dateOfAnalysis": "Tanggal analisis",
+                "checkedBy": "Dicek oleh",
+                "methodOfAnalysis": "Metode analisis"
+            },
+            "states": {
+                "loading": "Memuat…",
+                "notFound": "Tidak ditemukan.",
+                "invalidIdTitle": "ID tidak valid",
+                "invalidIdBody": "ID quality cover tidak valid."
+            },
+            "actions": {
+                "backToInbox": "Kembali ke inbox",
+                "verify": "Verifikasi",
+                "validate": "Validasi",
+                "reject": "Tolak"
+            },
+            "hints": {
+                "notInSubmitted": "Cover ini tidak berada pada status submitted.",
+                "notInVerified": "Cover ini tidak berada pada status verified.",
+                "approveHintOm": "Ini akan menandai cover sebagai verified dan mengirimnya ke inbox LH untuk validasi.",
+                "approveHintLh": "Ini tahap akhir. Cover akan menjadi validated. Jika test tersedia, COA akan digenerate."
+            },
+            "flash": {
+                "validatedOk": "Quality cover berhasil divalidasi. COA digenerate dan tersimpan di halaman Laporan.",
+                "validatedWarn": "Quality cover divalidasi, tetapi COA masih diblok (cek test/hasil dulu).",
+                "rejected": "Quality cover berhasil ditolak."
+            }
         }
     },
     "reagents": {

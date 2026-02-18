@@ -9,10 +9,6 @@ import { QualityCoverDecisionModal } from "../../components/quality-covers/Quali
 
 type DecisionMode = "verify" | "reject";
 
-function cx(...arr: Array<string | false | null | undefined>) {
-    return arr.filter(Boolean).join(" ");
-}
-
 export function QualityCoverOmDetailPage() {
     const { qualityCoverId } = useParams();
     const id = Number(qualityCoverId);
@@ -158,7 +154,7 @@ export function QualityCoverOmDetailPage() {
 
                         {/* Error */}
                         {error ? (
-                            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
                                 {error}
                             </div>
                         ) : null}
@@ -216,7 +212,7 @@ export function QualityCoverOmDetailPage() {
                                     Reject
                                 </button>
 
-                                <Link to="/quality-covers/inbox/om" className="btn-outline">
+                                <Link to="/quality-covers/inbox/om" className="lims-btn">
                                     Back to inbox
                                 </Link>
                             </div>

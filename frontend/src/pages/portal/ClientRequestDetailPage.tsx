@@ -1,6 +1,16 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\portal\ClientRequestDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import {
+    ArrowLeft,
+    Check,
+    ChevronDown,
+    Loader2,
+    RefreshCw,
+    Save,
+    Search,
+    Send,
+} from "lucide-react";
+
 import type { Sample } from "../../services/samples";
 import { clientSampleRequestService } from "../../services/sampleRequests";
 import { listParameters, type ParameterRow } from "../../services/parameters";
@@ -31,10 +41,10 @@ const statusTone = (raw?: string | null) => {
     const s = (raw ?? "").toLowerCase();
     if (s === "draft") return "bg-gray-100 text-gray-700";
     if (s === "submitted") return "bg-primary-soft/10 text-primary-soft";
-    if (s === "needs_revision" || s === "returned") return "bg-red-100 text-red-700";
-    if (s === "returned_to_admin") return "bg-red-100 text-red-700"; // ✅ pickup required (client-facing)
+    if (s === "needs_revision" || s === "returned") return "bg-amber-100 text-amber-900";
+    if (s === "returned_to_admin") return "bg-amber-100 text-amber-900"; // pickup required (client-facing)
     if (s === "ready_for_delivery") return "bg-indigo-50 text-indigo-700";
-    if (s === "physically_received") return "bg-green-100 text-green-800";
+    if (s === "physically_received") return "bg-emerald-100 text-emerald-900";
     return "bg-gray-100 text-gray-700";
 };
 
@@ -81,6 +91,7 @@ export default function ClientRequestDetailPage() {
 
     const [saving, setSaving] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
 
     const [error, setError] = useState<string | null>(null);
     const [info, setInfo] = useState<string | null>(null);
@@ -140,7 +151,7 @@ export default function ClientRequestDetailPage() {
     };
 
     const hydrateForm = (s: Sample) => {
-        setSampleType(String(s.sample_type ?? ""));
+        setSampleType(String((s as any).sample_type ?? ""));
         setScheduledDeliveryAt(datetimeLocalFromIso((s as any).scheduled_delivery_at ?? null));
         setExaminationPurpose(String((s as any).examination_purpose ?? ""));
         setAdditionalNotes(String((s as any).additional_notes ?? ""));
@@ -155,27 +166,33 @@ export default function ClientRequestDetailPage() {
         setParamPickerOpen(ids.length ? false : true);
     };
 
-    const load = async () => {
+    const load = async (opts?: { silent?: boolean }) => {
+        const silent = !!opts?.silent;
+
         if (!Number.isFinite(numericId) || Number.isNaN(numericId)) {
             setError("Invalid request id.");
             setLoading(false);
             return;
         }
+
         try {
             setError(null);
             setInfo(null);
-            setLoading(true);
+            if (!silent) setLoading(true);
+            if (silent) setRefreshing(true);
 
             const s = await clientSampleRequestService.getById(numericId);
             setData(s);
             hydrateForm(s);
 
-            await loadParams("");
+            // keep params list warm for search UX
+            if (!silent) await loadParams("");
         } catch (e: any) {
             setError(getValidationMessage(e, "Failed to load request detail."));
             setData(null);
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
+            setRefreshing(false);
         }
     };
 
@@ -191,10 +208,6 @@ export default function ClientRequestDetailPage() {
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [numericId]);
-
-    const selectParam = (id: number) => {
-        setSelectedParamId(id);
-    };
 
     const selectedParamLabel = useMemo(() => {
         if (!selectedParamId) return null;
@@ -245,16 +258,17 @@ export default function ClientRequestDetailPage() {
 
     const submit = async () => {
         if (!Number.isFinite(numericId) || Number.isNaN(numericId)) return;
+
         if (!sampleType.trim()) {
             setError("Sample type is required.");
             return;
         }
         if (!scheduledDeliveryAt.trim()) {
-            setError("Scheduled delivery is required.");
+            setError("Scheduled delivery time is required.");
             return;
         }
         if (!selectedParamId) {
-            setError("One parameter is required.");
+            setError("Please select one parameter.");
             return;
         }
 
@@ -264,7 +278,16 @@ export default function ClientRequestDetailPage() {
             setSubmitting(true);
 
             await clientSampleRequestService.submit(numericId, buildPayload() as any);
-            navigate("/portal/requests");
+
+            navigate("/portal/requests", {
+                replace: true,
+                state: {
+                    flash: {
+                        type: "success",
+                        message: `Request #${(data as any)?.sample_id ?? numericId} submitted. Admin will review it next.`,
+                    },
+                },
+            });
         } catch (e: any) {
             setError(getValidationMessage(e, "Failed to submit request."));
         } finally {
@@ -275,7 +298,10 @@ export default function ClientRequestDetailPage() {
     if (loading) {
         return (
             <div className="min-h-[60vh] flex items-center justify-center">
-                <div className="text-sm text-gray-600">Loading…</div>
+                <div className="text-sm text-gray-600 flex items-center gap-2">
+                    <Loader2 size={16} className="animate-spin" />
+                    Loading…
+                </div>
             </div>
         );
     }
@@ -285,31 +311,21 @@ export default function ClientRequestDetailPage() {
             <div className="min-h-[60vh]">
                 <div className="px-0 py-2">
                     <nav className="lims-breadcrumb">
-                        <span className="lims-breadcrumb-icon">
-                            <svg
-                                viewBox="0 0 24 24"
-                                className="h-4 w-4"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.6"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                            >
-                                <path d="M4 12h9" />
-                                <path d="M11 9l3 3-3 3" />
-                                <path d="M4 6v12" />
-                            </svg>
-                        </span>
-                        <button type="button" className="lims-breadcrumb-link" onClick={() => navigate("/portal/requests")}>
+                        <button
+                            type="button"
+                            className="lims-breadcrumb-link inline-flex items-center gap-2"
+                            onClick={() => navigate("/portal/requests")}
+                        >
+                            <ArrowLeft size={16} />
                             Sample Requests
                         </button>
                         <span className="lims-breadcrumb-separator">›</span>
-                        <span className="lims-breadcrumb-current">Sample Request Detail</span>
+                        <span className="lims-breadcrumb-current">Request detail</span>
                     </nav>
                 </div>
 
                 <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-                    <div className="text-sm text-red-700">{error ?? "Request not found."}</div>
+                    <div className="text-sm text-rose-700">{error ?? "Request not found."}</div>
                 </div>
             </div>
         );
@@ -318,41 +334,46 @@ export default function ClientRequestDetailPage() {
     const updatedAt = fmtDate((data as any).updated_at ?? (data as any).created_at);
     const statusLabel = effectiveStatus || "Unknown";
     const statusLower = statusLabel.toLowerCase();
+    const requestIdLabel = (data as any).sample_id ?? numericId;
+
+    const showHelpDraft = canEdit && (statusLower === "draft" || statusLower === "");
+    const showHelpSubmitted = !canEdit && statusLower === "submitted";
 
     return (
         <div className="min-h-[60vh]">
             <div className="px-0 py-2">
                 <nav className="lims-breadcrumb">
-                    <span className="lims-breadcrumb-icon">
-                        <svg
-                            viewBox="0 0 24 24"
-                            className="h-4 w-4"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.6"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                        >
-                            <path d="M4 12h9" />
-                            <path d="M11 9l3 3-3 3" />
-                            <path d="M4 6v12" />
-                        </svg>
-                    </span>
-                    <button type="button" className="lims-breadcrumb-link" onClick={() => navigate("/portal/requests")}>
+                    <button
+                        type="button"
+                        className="lims-breadcrumb-link inline-flex items-center gap-2"
+                        onClick={() => navigate("/portal/requests")}
+                    >
+                        <ArrowLeft size={16} />
                         Sample Requests
                     </button>
                     <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">Sample Request Detail</span>
+                    <span className="lims-breadcrumb-current">Request detail</span>
                 </nav>
             </div>
 
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between px-0 py-2">
                 <div>
-                    <div className="mt-1 flex items-center gap-2">
-                        <h1 className="text-lg md:text-xl font-bold text-gray-900">Request #{(data as any).sample_id ?? numericId}</h1>
+                    <div className="mt-1 flex items-center gap-2 flex-wrap">
+                        <h1 className="text-lg md:text-xl font-bold text-gray-900">Request #{requestIdLabel}</h1>
                         <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", statusTone(statusLabel))}>
                             {statusLabel}
                         </span>
+
+                        <button
+                            type="button"
+                            className={cx("lims-icon-button", refreshing && "opacity-60 cursor-not-allowed")}
+                            onClick={() => load({ silent: true })}
+                            disabled={refreshing || submitting || saving}
+                            aria-label="Refresh request"
+                            title="Refresh"
+                        >
+                            <RefreshCw size={16} className={cx(refreshing && "animate-spin")} />
+                        </button>
                     </div>
 
                     <div className="text-sm text-gray-600 mt-1">
@@ -361,59 +382,94 @@ export default function ClientRequestDetailPage() {
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
-                    {canEdit && (
+                    {canEdit ? (
                         <button
                             type="button"
                             onClick={saveDraft}
                             disabled={saving}
-                            className={cx("lims-btn", saving && "opacity-60 cursor-not-allowed")}
+                            className={cx("lims-btn inline-flex items-center gap-2", saving && "opacity-60 cursor-not-allowed")}
                         >
-                            {saving ? "Saving..." : "Save draft"}
+                            {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                            {saving ? "Saving…" : "Save draft"}
                         </button>
-                    )}
+                    ) : null}
+
                     <button
                         type="button"
                         onClick={submit}
                         disabled={!canSubmit}
-                        className={cx("lims-btn-primary", (!canSubmit || submitting) && "opacity-60 cursor-not-allowed")}
+                        className={cx(
+                            "lims-btn-primary inline-flex items-center gap-2",
+                            (!canSubmit || submitting) && "opacity-60 cursor-not-allowed"
+                        )}
+                        aria-disabled={!canSubmit || submitting}
                     >
-                        {submitting ? "Submitting..." : "Submit"}
+                        {submitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                        {submitting ? "Submitting…" : "Submit"}
                     </button>
                 </div>
             </div>
 
-            {error && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
-            {info && <div className="text-sm text-green-800 bg-green-100 border border-green-200 px-3 py-2 rounded mb-4">{info}</div>}
+            {error ? (
+                <div className="mt-2 text-sm text-rose-900 bg-rose-50 border border-rose-200 px-4 py-3 rounded-2xl">
+                    {error}
+                </div>
+            ) : null}
 
-            {requestReturnNote && (statusLower === "returned" || statusLower === "needs_revision") && (
-                <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+            {info ? (
+                <div className="mt-2 text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl">
+                    {info}
+                </div>
+            ) : null}
+
+            {requestReturnNote && (statusLower === "returned" || statusLower === "needs_revision") ? (
+                <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
                     <div className="text-sm font-semibold text-amber-900">Revision requested</div>
                     <div className="text-sm text-amber-900 mt-1 whitespace-pre-wrap">{requestReturnNote}</div>
                 </div>
-            )}
+            ) : null}
 
-            <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            {showHelpDraft ? (
+                <div className="mt-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
+                    <div className="font-medium text-gray-900">Ready to submit?</div>
+                    <div className="mt-1 text-gray-600">
+                        Fill <span className="font-medium">sample type</span>, <span className="font-medium">scheduled delivery</span>, and pick{" "}
+                        <span className="font-medium">one parameter</span>, then submit for admin review.
+                    </div>
+                </div>
+            ) : null}
+
+            {showHelpSubmitted ? (
+                <div className="mt-3 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+                    This request is submitted and waiting for admin review. Editing is disabled to prevent conflicting changes.
+                </div>
+            ) : null}
+
+            <div className="mt-4 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white">
                     <div className="text-sm font-semibold text-gray-900">Request details</div>
-                    <div className="text-xs text-gray-500 mt-1">Editable while Draft / Returned.</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                        Editable while <span className="font-medium">Draft</span> / <span className="font-medium">Needs revision</span>.
+                    </div>
                 </div>
 
                 <div className="px-4 md:px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="md:col-span-2">
                         <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Sample type <span className="text-red-600">*</span>
+                            Sample type <span className="text-rose-600">*</span>
                         </label>
                         <input
                             value={sampleType}
                             onChange={(e) => setSampleType(e.target.value)}
                             disabled={!canEdit}
+                            placeholder="e.g., Swab, Blood, Tissue…"
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
                         />
                     </div>
 
                     <div className="md:col-span-2">
                         <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Scheduled delivery at <span className="text-red-600">*</span>
+                            Scheduled delivery <span className="text-rose-600">*</span>
                         </label>
                         <input
                             type="datetime-local"
@@ -422,94 +478,112 @@ export default function ClientRequestDetailPage() {
                             disabled={!canEdit}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
                         />
+                        <div className="mt-1 text-[11px] text-gray-500">
+                            Use a realistic time you can deliver the sample. This helps scheduling.
+                        </div>
                     </div>
 
                     <div className="md:col-span-2">
                         <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Parameter <span className="text-red-600">*</span>
+                            Parameter <span className="text-rose-600">*</span>
                         </label>
 
-                        {selectedParamLabel && (
+                        {selectedParamLabel ? (
                             <div className="mb-2 flex items-center justify-between gap-2 flex-wrap">
-                                <span className="inline-flex items-center rounded-full bg-red-600 text-white px-3 py-1 text-xs font-semibold">
+                                <span className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 text-gray-900 px-3 py-1 text-xs font-semibold">
+                                    <Check size={14} />
                                     {selectedParamLabel}
                                 </span>
                             </div>
-                        )}
+                        ) : null}
 
                         <div className="flex gap-2">
-                            <input
-                                value={paramQuery}
-                                onChange={(e) => setParamQuery(e.target.value)}
-                                onFocus={() => {
-                                    if (!canEdit) return;
-                                    setParamPickerOpen(true);
-                                    if (paramItems.length === 0 && !paramLoading) {
-                                        loadParams(paramQuery);
-                                    }
-                                }}
-                                onMouseDown={() => {
-                                    if (!canEdit) return;
-                                    setParamPickerOpen(true);
-                                }}
-                                placeholder="Search parameter…"
-                                disabled={!canEdit}
-                                className="flex-1 rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
-                            />
+                            <div className="flex-1 relative">
+                                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
+                                    <Search size={16} />
+                                </span>
+                                <input
+                                    value={paramQuery}
+                                    onChange={(e) => setParamQuery(e.target.value)}
+                                    onFocus={() => {
+                                        if (!canEdit) return;
+                                        setParamPickerOpen(true);
+                                        if (paramItems.length === 0 && !paramLoading) {
+                                            void loadParams(paramQuery);
+                                        }
+                                    }}
+                                    onMouseDown={() => {
+                                        if (!canEdit) return;
+                                        setParamPickerOpen(true);
+                                    }}
+                                    placeholder="Search parameter…"
+                                    disabled={!canEdit}
+                                    className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
+                                />
+                            </div>
+
                             <button
                                 type="button"
-                                className="lims-btn"
+                                className="lims-btn inline-flex items-center gap-2"
                                 onClick={async () => {
                                     setParamPickerOpen(true);
                                     await loadParams(paramQuery);
                                 }}
                                 disabled={!canEdit || paramLoading}
                             >
-                                {paramLoading ? "…" : "Search"}
+                                {paramLoading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+                                Search
                             </button>
 
-                            {canEdit && paramPickerOpen && (
+                            {canEdit ? (
                                 <button
                                     type="button"
-                                    className="lims-btn"
-                                    onClick={() => setParamPickerOpen(false)}
+                                    className="lims-btn inline-flex items-center gap-2"
+                                    onClick={() => setParamPickerOpen((v) => !v)}
                                 >
-                                    Done
+                                    <ChevronDown size={16} className={cx(paramPickerOpen && "rotate-180 transition-transform")} />
+                                    {paramPickerOpen ? "Hide" : "Show"}
                                 </button>
-                            )}
+                            ) : null}
                         </div>
 
-                        {paramPickerOpen && (
-                            <div className="mt-3 rounded-2xl border border-gray-200 bg-white max-h-48 overflow-auto">
+                        {paramPickerOpen ? (
+                            <div className="mt-3 rounded-2xl border border-gray-200 bg-white max-h-56 overflow-auto">
                                 {paramLoading ? (
-                                    <div className="p-3 text-sm text-gray-600">Loading…</div>
+                                    <div className="p-3 text-sm text-gray-600 flex items-center gap-2">
+                                        <Loader2 size={16} className="animate-spin" />
+                                        Loading…
+                                    </div>
                                 ) : paramItems.length === 0 ? (
                                     <div className="p-3 text-sm text-gray-600">No parameters found.</div>
                                 ) : (
                                     <ul className="divide-y divide-gray-100">
                                         {paramItems.map((p) => {
-                                            const id = Number(p.parameter_id);
-                                            const checked = selectedParamId === id;
+                                            const pid = Number(p.parameter_id);
+                                            const checked = selectedParamId === pid;
 
                                             return (
-                                                <li key={id} className="p-3 flex items-center justify-between gap-3">
+                                                <li key={pid} className="p-3 flex items-center justify-between gap-3">
                                                     <div className="min-w-0">
                                                         <div className="text-sm font-medium text-gray-900 truncate">{parameterLabel(p)}</div>
-                                                        <div className="text-xs text-gray-500 truncate">{p.unit ? `Unit: ${p.unit}` : ""}</div>
+                                                        <div className="text-xs text-gray-500 truncate">
+                                                            {p.unit ? `Unit: ${p.unit}` : "—"}
+                                                        </div>
                                                     </div>
 
                                                     <button
                                                         type="button"
-                                                        onClick={() => selectParam(id)}
+                                                        onClick={() => setSelectedParamId(pid)}
                                                         disabled={!canEdit}
                                                         className={cx(
-                                                            "px-3 py-1 rounded-full text-xs border",
+                                                            "px-3 py-1 rounded-full text-xs border inline-flex items-center gap-2",
                                                             checked
                                                                 ? "bg-primary text-white border-primary"
                                                                 : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50",
                                                             !canEdit ? "opacity-50 cursor-not-allowed" : ""
                                                         )}
                                                     >
+                                                        {checked ? <Check size={14} /> : null}
                                                         {checked ? "Selected" : "Select"}
                                                     </button>
                                                 </li>
@@ -518,10 +592,10 @@ export default function ClientRequestDetailPage() {
                                     </ul>
                                 )}
                             </div>
-                        )}
+                        ) : null}
 
                         <div className="mt-2 text-[11px] text-gray-500">
-                            Selected: <span className="font-semibold text-gray-800">{selectedParamId ? 1 : 0}</span>
+                            Selected: <span className="font-semibold text-gray-800">{selectedParamId ? 1 : 0}</span> (currently limited to one)
                         </div>
                     </div>
 
@@ -532,6 +606,7 @@ export default function ClientRequestDetailPage() {
                             onChange={(e) => setExaminationPurpose(e.target.value)}
                             disabled={!canEdit}
                             rows={2}
+                            placeholder="Optional: what is this test for?"
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
                         />
                     </div>
@@ -543,17 +618,18 @@ export default function ClientRequestDetailPage() {
                             onChange={(e) => setAdditionalNotes(e.target.value)}
                             disabled={!canEdit}
                             rows={3}
+                            placeholder="Optional: anything the lab should know (handling, constraints, etc.)"
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm min-h-[120px] focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
                         />
                     </div>
 
-                    {!canEdit && (
+                    {!canEdit ? (
                         <div className="md:col-span-2">
                             <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                                This request is not editable in the current status.
+                                Editing is disabled for this status to protect data integrity.
                             </div>
                         </div>
-                    )}
+                    ) : null}
                 </div>
             </div>
         </div>

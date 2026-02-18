@@ -139,13 +139,13 @@ export function QualityCoverOmInboxPage() {
                                     if (e.key === "Enter") fetchData({ resetPage: true });
                                 }}
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                placeholder="Search sample code / client..."
+                                placeholder="Search sample code / client…"
                             />
                         </div>
                     </div>
 
                     <div className="w-full md:w-auto flex items-center justify-between md:justify-end gap-3">
-                        <div className="text-xs text-gray-500">{loading ? "Loading..." : totalText}</div>
+                        <div className="text-xs text-gray-500">{loading ? "Loading…" : totalText}</div>
 
                         <button
                             type="button"
@@ -170,7 +170,7 @@ export function QualityCoverOmInboxPage() {
                                         <th className="text-left font-semibold px-4 py-3">Sample</th>
                                         <th className="text-left font-semibold px-4 py-3">Group</th>
                                         <th className="text-left font-semibold px-4 py-3">Submitted</th>
-                                        <th className="text-left font-semibold px-4 py-3">Checked By</th>
+                                        <th className="text-left font-semibold px-4 py-3">Checked by</th>
                                         <th className="text-right font-semibold px-4 py-3">Actions</th>
                                     </tr>
                                 </thead>

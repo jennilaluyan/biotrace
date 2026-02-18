@@ -133,14 +133,14 @@ export function QualityCoverLhInboxPage() {
                 if (report && typeof report.report_id === "number" && report.report_id > 0) {
                     setFlash({
                         type: "success",
-                        message: "Quality cover validated. COA berhasil di-generate dan tersimpan di halaman Reports.",
+                        message: "Quality cover validated. COA was generated and saved in Reports.",
                         sampleId,
                         canDownload: true,
                     });
                 } else {
                     setFlash({
                         type: "warning",
-                        message: coaError || res?.message || "Quality cover validated, tapi COA generation masih diblok (cek tests/hasil dulu).",
+                        message: coaError || res?.message || "Quality cover validated, but COA generation is currently blocked (check tests/results first).",
                         sampleId,
                         canDownload: false,
                     });
@@ -246,13 +246,13 @@ export function QualityCoverLhInboxPage() {
                                     if (e.key === "Enter") fetchData({ resetPage: true });
                                 }}
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                placeholder="Search sample code / client..."
+                                placeholder="Search sample code / client…"
                             />
                         </div>
                     </div>
 
                     <div className="w-full md:w-auto flex items-center justify-between md:justify-end gap-3">
-                        <div className="text-xs text-gray-500">{loading ? "Loading..." : totalText}</div>
+                        <div className="text-xs text-gray-500">{loading ? "Loading…" : totalText}</div>
 
                         <button
                             type="button"
@@ -277,7 +277,7 @@ export function QualityCoverLhInboxPage() {
                                         <th className="text-left font-semibold px-4 py-3">Sample</th>
                                         <th className="text-left font-semibold px-4 py-3">Group</th>
                                         <th className="text-left font-semibold px-4 py-3">Verified</th>
-                                        <th className="text-left font-semibold px-4 py-3">Verified By</th>
+                                        <th className="text-left font-semibold px-4 py-3">Verified by</th>
                                         <th className="text-right font-semibold px-4 py-3">Actions</th>
                                     </tr>
                                 </thead>

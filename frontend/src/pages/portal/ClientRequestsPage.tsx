@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { Eye, FilePlus2, RefreshCw, Search, X } from "lucide-react";
+
 import type { Sample } from "../../services/samples";
 import { clientSampleRequestService } from "../../services/sampleRequests";
 import { ClientRequestFormModal } from "../../components/portal/ClientRequestFormModal";
@@ -17,14 +19,16 @@ type ClientRequestItem = Sample & {
     client_picked_up_at?: string | null;
 };
 
+type FlashPayload = { type: "success" | "warning" | "error"; message: string };
+
 const statusTone = (raw?: string | null): StatusTone => {
     const s = (raw ?? "").toLowerCase();
     if (s === "draft") return { label: raw ?? "Draft", cls: "bg-gray-100 text-gray-700" };
     if (s === "submitted") return { label: raw ?? "Submitted", cls: "bg-primary-soft/10 text-primary-soft" };
     if (s === "returned" || s === "needs_revision")
-        return { label: raw ?? "Returned", cls: "bg-red-100 text-red-700" };
-    if (s === "ready_for_delivery") return { label: raw ?? "Ready", cls: "bg-indigo-50 text-indigo-700" };
-    if (s === "physically_received") return { label: raw ?? "Received", cls: "bg-green-100 text-green-800" };
+        return { label: "Needs revision", cls: "bg-amber-100 text-amber-900" };
+    if (s === "ready_for_delivery") return { label: "Ready for delivery", cls: "bg-indigo-50 text-indigo-700" };
+    if (s === "physically_received") return { label: "Physically received", cls: "bg-emerald-100 text-emerald-900" };
     return { label: raw ?? "Unknown", cls: "bg-gray-100 text-gray-700" };
 };
 
@@ -59,15 +63,14 @@ function stableKey(it: any, idx: number) {
  */
 function deriveClientStatus(it: ClientRequestItem): StatusTone {
     const pickedAt = it.client_picked_up_at ?? null;
-    const waitingSince =
-        it.admin_received_from_collector_at ?? it.collector_returned_to_admin_at ?? null;
+    const waitingSince = it.admin_received_from_collector_at ?? it.collector_returned_to_admin_at ?? null;
 
-    const rs = String(it.request_status ?? "").toLowerCase();
+    const rs = String((it as any).request_status ?? "").toLowerCase();
 
     if (pickedAt) {
         return {
-            label: "Picked Up",
-            cls: "bg-green-100 text-green-800",
+            label: "Picked up",
+            cls: "bg-emerald-100 text-emerald-900",
             sub: `Picked up at ${fmtDate(pickedAt)}`,
         };
     }
@@ -75,17 +78,18 @@ function deriveClientStatus(it: ClientRequestItem): StatusTone {
     const isReturnedFamily = rs === "returned" || rs === "needs_revision";
     if (isReturnedFamily && waitingSince) {
         return {
-            label: "Pickup Required",
-            cls: "bg-amber-100 text-amber-800",
+            label: "Pickup required",
+            cls: "bg-amber-100 text-amber-900",
             sub: `Waiting since ${fmtDate(waitingSince)}`,
         };
     }
 
-    return statusTone(it.request_status ?? null);
+    return statusTone((it as any).request_status ?? null);
 }
 
 export default function ClientRequestsPage() {
     const navigate = useNavigate();
+    const location = useLocation();
     const { loading: authLoading, isClientAuthenticated } = useClientAuth() as any;
 
     const [items, setItems] = useState<ClientRequestItem[]>([]);
@@ -95,6 +99,26 @@ export default function ClientRequestsPage() {
     const [searchTerm, setSearchTerm] = useState("");
     const [statusFilter, setStatusFilter] = useState<string>("all");
     const [createOpen, setCreateOpen] = useState(false);
+
+    const [flash, setFlash] = useState<FlashPayload | null>(null);
+
+    useEffect(() => {
+        const st = (location.state as any) ?? {};
+        if (st?.openCreate) setCreateOpen(true);
+        if (st?.flash?.message) setFlash(st.flash as FlashPayload);
+
+        if (st?.openCreate || st?.flash) {
+            navigate(location.pathname + location.search, { replace: true, state: {} });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // auto dismiss flash
+    useEffect(() => {
+        if (!flash) return;
+        const t = window.setTimeout(() => setFlash(null), 8000);
+        return () => window.clearTimeout(t);
+    }, [flash]);
 
     const filtered = useMemo(() => {
         let list = items;
@@ -107,7 +131,7 @@ export default function ClientRequestsPage() {
             } else if (sf === "picked_up") {
                 list = list.filter((it) => deriveClientStatus(it).label.toLowerCase() === "picked up");
             } else {
-                list = list.filter((it) => String(it.request_status ?? "").toLowerCase() === sf);
+                list = list.filter((it) => String((it as any).request_status ?? "").toLowerCase() === sf);
             }
         }
 
@@ -117,13 +141,13 @@ export default function ClientRequestsPage() {
         return list.filter((it) => {
             const d = deriveClientStatus(it);
             const hay = [
-                String(it.sample_id ?? ""),
-                it.lab_sample_code,
-                it.request_status,
+                String((it as any).sample_id ?? ""),
+                (it as any).lab_sample_code,
+                (it as any).request_status,
                 d.label,
                 d.sub,
-                it.sample_type,
-                it.additional_notes,
+                (it as any).sample_type,
+                (it as any).additional_notes,
             ]
                 .filter(Boolean)
                 .join(" ")
@@ -181,17 +205,41 @@ export default function ClientRequestsPage() {
                 <div>
                     <h1 className="text-lg md:text-xl font-bold text-gray-900">Sample Requests</h1>
                     <p className="text-sm text-gray-600 mt-1">
-                        Create draft → fill required fields → submit for admin review.
+                        Create a request, complete required fields, then submit for admin review.
                     </p>
                 </div>
                 <button
                     type="button"
                     onClick={() => setCreateOpen(true)}
-                    className="lims-btn-primary self-start md:self-auto"
+                    className="lims-btn-primary self-start md:self-auto inline-flex items-center gap-2"
                 >
-                    + New request
+                    <FilePlus2 size={16} />
+                    New request
                 </button>
             </div>
+
+            {/* Flash banner */}
+            {flash ? (
+                <div
+                    className={cx(
+                        "mt-2 rounded-2xl border px-4 py-3 text-sm flex items-start justify-between gap-3",
+                        flash.type === "success" && "border-emerald-200 bg-emerald-50 text-emerald-900",
+                        flash.type === "warning" && "border-amber-200 bg-amber-50 text-amber-900",
+                        flash.type === "error" && "border-rose-200 bg-rose-50 text-rose-900"
+                    )}
+                >
+                    <div className="leading-relaxed">{flash.message}</div>
+                    <button
+                        type="button"
+                        onClick={() => setFlash(null)}
+                        className="lims-icon-button"
+                        aria-label="Dismiss"
+                        title="Dismiss"
+                    >
+                        <X size={16} />
+                    </button>
+                </div>
+            ) : null}
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
@@ -201,18 +249,7 @@ export default function ClientRequestsPage() {
                         </label>
                         <div className="relative">
                             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
-                                <svg
-                                    viewBox="0 0 24 24"
-                                    className="h-4 w-4"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.8"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                >
-                                    <circle cx="11" cy="11" r="6" />
-                                    <line x1="16" y1="16" x2="21" y2="21" />
-                                </svg>
+                                <Search size={16} />
                             </span>
 
                             <input
@@ -220,13 +257,13 @@ export default function ClientRequestsPage() {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="Search by code, sample type, notes…"
+                                placeholder="Search by request ID, sample type, status, notes…"
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
                     </div>
 
-                    <div className="w-full md:w-56">
+                    <div className="w-full md:w-60">
                         <label className="sr-only" htmlFor="request-status-filter">
                             Status
                         </label>
@@ -239,7 +276,7 @@ export default function ClientRequestsPage() {
                             <option value="all">All status</option>
                             <option value="draft">Draft</option>
                             <option value="submitted">Submitted</option>
-                            <option value="needs_revision">Returned</option>
+                            <option value="needs_revision">Needs revision</option>
                             <option value="ready_for_delivery">Ready for delivery</option>
                             <option value="physically_received">Physically received</option>
                             <option value="pickup_required">Pickup required</option>
@@ -247,7 +284,8 @@ export default function ClientRequestsPage() {
                         </select>
                     </div>
 
-                    <button type="button" onClick={load} className="lims-btn w-full md:w-auto">
+                    <button type="button" onClick={load} className="lims-btn w-full md:w-auto inline-flex items-center gap-2">
+                        <RefreshCw size={16} />
                         Refresh
                     </button>
 
@@ -264,28 +302,29 @@ export default function ClientRequestsPage() {
                 </div>
 
                 <div className="px-4 md:px-6 py-4">
-                    {loading && <div className="text-sm text-gray-600">Loading requests...</div>}
+                    {loading ? <div className="text-sm text-gray-600">Loading requests…</div> : null}
 
-                    {error && !loading && (
-                        <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">
+                    {error && !loading ? (
+                        <div className="text-sm text-rose-900 bg-rose-50 border border-rose-200 px-4 py-3 rounded-2xl mb-4">
                             {error}
                         </div>
-                    )}
+                    ) : null}
 
-                    {!loading && !error && (
+                    {!loading && !error ? (
                         <>
                             {filtered.length === 0 ? (
                                 <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-5 text-sm text-gray-700">
                                     <div className="font-semibold text-gray-900">No requests found</div>
                                     <div className="text-sm text-gray-600 mt-1">
-                                        Create your first request to start the workflow.
+                                        Try clearing filters, or create a new request.
                                     </div>
                                     <button
                                         type="button"
-                                        className="lims-btn-primary mt-4"
+                                        className="lims-btn-primary mt-4 inline-flex items-center gap-2"
                                         onClick={() => setCreateOpen(true)}
                                     >
-                                        + Create request
+                                        <FilePlus2 size={16} />
+                                        Create request
                                     </button>
                                 </div>
                             ) : (
@@ -307,7 +346,6 @@ export default function ClientRequestsPage() {
                                                 const rid = getRequestId(it);
                                                 const updated = fmtDate(it.updated_at ?? it.created_at);
                                                 const sched = fmtDate(it.scheduled_delivery_at);
-
                                                 const st = deriveClientStatus(it as ClientRequestItem);
 
                                                 return (
@@ -349,25 +387,15 @@ export default function ClientRequestsPage() {
                                                             <button
                                                                 type="button"
                                                                 className={cx(
-                                                                    "lims-icon-button text-gray-600",
+                                                                    "lims-icon-button text-gray-700",
                                                                     !rid && "opacity-40 cursor-not-allowed"
                                                                 )}
-                                                                aria-label="View request"
+                                                                aria-label="Open request"
+                                                                title="Open request"
                                                                 disabled={!rid}
                                                                 onClick={() => rid && navigate(`/portal/requests/${rid}`)}
                                                             >
-                                                                <svg
-                                                                    viewBox="0 0 24 24"
-                                                                    className="h-4 w-4"
-                                                                    fill="none"
-                                                                    stroke="currentColor"
-                                                                    strokeWidth="1.8"
-                                                                    strokeLinecap="round"
-                                                                    strokeLinejoin="round"
-                                                                >
-                                                                    <path d="M1 12s4-7 11-7 11 7 11 7 4 7-11 7-11-7-11-7z" />
-                                                                    <circle cx="12" cy="12" r="3" />
-                                                                </svg>
+                                                                <Eye size={16} />
                                                             </button>
                                                         </td>
                                                     </tr>
@@ -378,7 +406,7 @@ export default function ClientRequestsPage() {
                                 </div>
                             )}
                         </>
-                    )}
+                    ) : null}
                 </div>
             </div>
 
@@ -387,6 +415,7 @@ export default function ClientRequestsPage() {
                 onClose={() => setCreateOpen(false)}
                 onCreated={async () => {
                     setCreateOpen(false);
+                    setFlash({ type: "success", message: "Request created. Complete the required fields, then submit." });
                     await load();
                 }}
             />
