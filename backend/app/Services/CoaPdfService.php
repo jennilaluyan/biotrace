@@ -81,11 +81,77 @@ class CoaPdfService
         ];
     }
 
+    public function resolveTemplate(int|string $reportId, ?string $overrideTemplateCode = null): array
+    {
+        // 1. Validasi Report ID
+        if (!is_int($reportId)) {
+            $rid = trim((string) $reportId);
+            if ($rid === '' || !ctype_digit($rid)) throw new \InvalidArgumentException('Invalid reportId.');
+            $reportId = (int) $rid;
+        }
+
+        $report = DB::table('reports')->where('report_id', $reportId)->first();
+        if (!$report) throw new \RuntimeException("Report {$reportId} not found.");
+
+        $sample = DB::table('samples')->where('sample_id', $report->sample_id)->first();
+
+        // 2. Tentukan Logic Default (WGS vs PCR vs Institution)
+        $clientType = 'individual';
+        if ($sample && $sample->client_id) {
+            $clientType = (string) (DB::table('clients')->where('client_id', $sample->client_id)->value('type') ?: 'individual');
+        }
+
+        $workflowGroup = strtolower(trim((string) ($sample->workflow_group ?? '')));
+        $isWgs = str_contains($workflowGroup, 'wgs');
+
+        $rawTemplate = $overrideTemplateCode;
+        if (!$rawTemplate && Schema::hasColumn('reports', 'template_code')) {
+            $rawTemplate = (string) ($report->template_code ?? '');
+        }
+        $normalized = strtoupper(trim((string) $rawTemplate));
+
+        $docCode = 'COA_PCR_MANDIRI'; // Default fallback
+
+        if ($isWgs || $normalized === 'WGS') {
+            $docCode = 'COA_WGS';
+        } elseif ($clientType === 'institution' || $normalized === 'INSTITUTION' || str_contains($normalized, 'INST')) {
+            $docCode = 'COA_PCR_KERJASAMA';
+        }
+
+        // 3. Cek DB Documents (Apakah ada template custom?)
+        $dbDoc = DB::table('documents')->where('doc_code', $docCode)->first();
+
+        // 4. Tentukan View Blade (Fallback jika DB path adalah virtual atau tidak ketemu)
+        // Mapping doc_code DB -> Blade View
+        $defaultViews = [
+            'COA_WGS' => 'reports.coa.wgs',
+            'COA_PCR_KERJASAMA' => 'reports.coa.institution',
+            'COA_PCR_MANDIRI' => 'reports.coa.individual',
+        ];
+
+        $view = $defaultViews[$docCode] ?? 'reports.coa.individual';
+
+        // Logic: Jika DB ada path fisik, return path. Jika __templates__, return view.
+        $useBlade = true;
+        $physicalPath = null;
+
+        if ($dbDoc && $dbDoc->path && !str_starts_with($dbDoc->path, '__templates__/')) {
+            $useBlade = false;
+            $physicalPath = $dbDoc->path;
+        }
+
+        return [
+            'doc_code' => $docCode,
+            'client_type' => $clientType,
+            'is_wgs' => $isWgs,
+            'use_blade' => $useBlade,
+            'view' => $view,             // Dipakai jika use_blade = true
+            'file_path' => $physicalPath // Dipakai jika use_blade = false (DOCX processing)
+        ];
+    }
+
     public function disk(): string
     {
-        // prioritas: config coa, fallback ke filesystem default
-        return (string) (config('coa.storage_disk')
-            ?: config('filesystems.default')
-            ?: 'local');
+        return (string) (config('coa.storage_disk') ?: config('filesystems.default') ?: 'local');
     }
 }

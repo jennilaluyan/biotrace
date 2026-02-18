@@ -4,11 +4,14 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class DocumentTemplatesSeeder extends Seeder
 {
     public function run(): void
     {
+        $now = Carbon::now();
+
         $rows = [
             [
                 'doc_code' => 'LOO_SURAT_PENGUJIAN',
@@ -48,20 +51,24 @@ class DocumentTemplatesSeeder extends Seeder
         ];
 
         foreach ($rows as $r) {
+            // ✅ PERBAIKAN: Gunakan 'template' agar lolos Check Constraint PostgreSQL
+            // Doc Type dibedakan lewat 'doc_code', bukan 'kind'.
+            $kind = 'template';
+
+            // Path virtual sebagai penanda bahwa ini pakai Blade View default
+            $virtualPath = '__templates__/' . $r['doc_code'];
+
             DB::table('documents')->updateOrInsert(
                 ['doc_code' => $r['doc_code']],
-                [
-                    'title' => $r['title'],
-                    'path' => '__templates__/' . $r['doc_code'], // wajib karena documents.path NOT NULL
-                    'visible_to_role' => 'ADMIN', // biar tidak “nyampah” di document repository umum
+                array_merge($r, [
+                    'path' => $virtualPath,
+                    'visible_to_role' => 'ADMIN',
                     'version_current_id' => null,
-                    'kind' => 'template',
-                    'record_no_prefix' => $r['record_no_prefix'],
-                    'form_code_prefix' => $r['form_code_prefix'],
-                    'revision_no' => $r['revision_no'],
+                    'kind' => $kind,
                     'is_active' => true,
-                    'updated_at' => now(),
-                ]
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ])
             );
         }
     }
