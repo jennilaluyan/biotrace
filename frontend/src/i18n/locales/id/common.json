@@ -252,6 +252,29 @@
         "rightPanelPortalSubtitle": "Buat akun klien dan ajukan permintaan sampel dengan alur kerja terstruktur sesuai ISO.",
         "rightPanelStaffSubtitle": "Buat pengguna baru dan mulai alur biomolekuler dengan rekaman selaras ISO 17025."
     },
+    "staff": {
+        "approvals": {
+            "title": "Persetujuan staf",
+            "subtitle": "Tinjau pendaftaran staf. Setujui untuk mengaktifkan, atau tolak dengan alasan yang jelas.",
+            "searchPlaceholder": "Cari nama, email, peran…",
+            "loading": "Memuat pendaftaran staf…",
+            "empty": "Tidak ada pendaftaran staf yang menunggu.",
+            "table": {
+                "staff": "Staf",
+                "role": "Peran",
+                "submitted": "Diajukan",
+                "actions": "Aksi"
+            },
+            "actions": {
+                "approve": "Setujui",
+                "reject": "Tolak"
+            },
+            "reject": {
+                "reasonLabel": "Alasan penolakan",
+                "reasonPlaceholder": "Jelaskan apa yang harus diperbaiki…"
+            }
+        }
+    },
     "clients": {
         "forbidden": {
             "title": "403 – Akses ditolak",
@@ -917,6 +940,78 @@
             "codesMatchHint": "Kodenya cocok. Gunakan Pass.",
             "codesMismatchHint": "Kode tidak cocok. Gunakan Fail dan isi alasan.",
             "enterBothCodesHint": "Masukkan kode label fisik untuk dibandingkan."
+        },
+        "pages": {
+            "list": {
+                "title": "Sampel",
+                "subtitle": "Cari, filter, dan buka sampel untuk mengelola workflow dan dokumen.",
+                "searchPlaceholder": "Cari kode lab, klien, jenis sampel…",
+                "filters": {
+                    "group": "Grup",
+                    "status": "Status",
+                    "allGroups": "Semua grup",
+                    "allStatuses": "Semua status"
+                },
+                "table": {
+                    "labCode": "Kode lab",
+                    "client": "Klien",
+                    "sampleType": "Jenis sampel",
+                    "group": "Grup",
+                    "status": "Status",
+                    "updated": "Diperbarui",
+                    "actions": "Aksi"
+                },
+                "empty": {
+                    "title": "Tidak ada sampel",
+                    "body": "Coba ubah filter atau kata kunci pencarian."
+                }
+            },
+            "queue": {
+                "title": "Antrian Permintaan",
+                "subtitle": "Tinjau permintaan sampel sebelum masuk workflow lab.",
+                "searchPlaceholder": "Cari ID permintaan, klien, jenis sampel…",
+                "filters": {
+                    "status": "Status",
+                    "all": "Semua status"
+                },
+                "table": {
+                    "request": "Permintaan",
+                    "client": "Klien",
+                    "sampleType": "Jenis sampel",
+                    "parameters": "Parameter",
+                    "scheduledDelivery": "Jadwal pengantaran",
+                    "status": "Status",
+                    "updated": "Diperbarui",
+                    "actions": "Aksi"
+                },
+                "empty": {
+                    "title": "Tidak ada permintaan",
+                    "body": "Permintaan baru akan muncul di sini setelah klien mengirim permintaan."
+                },
+                "actions": {
+                    "open": "Buka",
+                    "accept": "Terima",
+                    "return": "Kembalikan"
+                }
+            },
+            "requestDetail": {
+                "breadcrumbQueue": "Antrian Permintaan",
+                "breadcrumbCurrent": "Detail permintaan",
+                "title": "Permintaan #{{id}}",
+                "subtitle": "Tinjau detail dari klien dan lanjutkan workflow.",
+                "tabs": {
+                    "info": "Info permintaan",
+                    "workflow": "Workflow",
+                    "documents": "Dokumen"
+                },
+                "states": {
+                    "loading": "Memuat permintaan…",
+                    "notFound": "Permintaan tidak ditemukan."
+                },
+                "actions": {
+                    "backToQueue": "Kembali ke antrian"
+                }
+            }
         }
     },
     "audit": {

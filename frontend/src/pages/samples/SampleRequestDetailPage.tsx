@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { ArrowLeft, ChevronRight, RefreshCw } from "lucide-react";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
@@ -28,8 +31,61 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
-function StatusPill({ value }: { value?: string | null }) {
-    const v = (value ?? "-").toLowerCase();
+function safeApiMessage(err: any, fallback: string) {
+    const data = err?.response?.data ?? err?.data ?? null;
+    if (data && typeof data === "object") {
+        const msg = (data as any).message ?? (data as any).error ?? null;
+        if (typeof msg === "string" && msg.trim()) return msg.trim();
+    }
+    if (typeof err?.message === "string" && err.message.trim()) return err.message.trim();
+    return fallback;
+}
+
+function normalizeStatusToken(raw?: string | null) {
+    return String(raw ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, "_");
+}
+
+function requestStatusLabel(t: TFunction, raw?: string | null) {
+    const token = normalizeStatusToken(raw);
+    if (!token) return "-";
+
+    const map: Record<string, string> = {
+        draft: "requestStatus.draft",
+        submitted: "requestStatus.submitted",
+        returned: "requestStatus.returned",
+        needs_revision: "requestStatus.needsRevision",
+
+        ready_for_delivery: "requestStatus.readyForDelivery",
+        physically_received: "requestStatus.physicallyReceived",
+
+        in_transit_to_collector: "requestStatus.inTransitToCollector",
+        under_inspection: "requestStatus.underInspection",
+        inspection_failed: "requestStatus.inspectionFailed",
+        returned_to_admin: "requestStatus.returnedToAdmin",
+
+        intake_checklist_passed: "requestStatus.intakeChecklistPassed",
+        awaiting_verification: "requestStatus.awaitingVerification",
+        intake_validated: "requestStatus.intakeValidated",
+
+        waiting_sample_id_assignment: "requestStatus.waitingSampleIdAssignment",
+        sample_id_pending_verification: "requestStatus.sampleIdPendingVerification",
+        sample_id_approved_for_assignment: "requestStatus.sampleIdApprovedForAssignment",
+        approved_for_assignment: "requestStatus.sampleIdApprovedForAssignment",
+    };
+
+    const key = map[token];
+    if (!key) return raw ?? "-";
+
+    const out = t(key);
+    return out === key ? (raw ?? "-") : out;
+}
+
+function StatusPill({ value, t }: { value?: string | null; t: TFunction }) {
+    const token = normalizeStatusToken(value);
+
     const tones: Record<string, string> = {
         draft: "bg-slate-100 text-slate-700 border-slate-200",
         submitted: "bg-blue-50 text-blue-700 border-blue-200",
@@ -47,49 +103,16 @@ function StatusPill({ value }: { value?: string | null }) {
         waiting_sample_id_assignment: "bg-slate-50 text-slate-700 border-slate-200",
         sample_id_pending_verification: "bg-amber-50 text-amber-800 border-amber-200",
         sample_id_approved_for_assignment: "bg-emerald-50 text-emerald-700 border-emerald-200",
+        approved_for_assignment: "bg-emerald-50 text-emerald-700 border-emerald-200",
     };
 
-    const tone = tones[v] || "bg-gray-50 text-gray-600 border-gray-200";
-    const label =
-        value
-            ? (() => {
-                const vv = value.toLowerCase();
-                if (vv === "under_inspection") return "Under inspection";
-                if (vv === "inspection_failed") return "Inspection failed";
-                if (vv === "returned_to_admin") return "Returned to Admin";
-                if (vv === "awaiting_verification") return "Awaiting verification";
-                if (vv === "waiting_sample_id_assignment") return "Waiting sample ID assignment";
-                if (vv === "approved_for_assignment") return "Approved for assignment";
-                if (vv === "sample_id_pending_verification") return "Sample ID pending verification";
-                if (vv === "sample_id_approved_for_assignment") return "Sample ID approved for assignment";
-                return value;
-            })()
-            : "-";
+    const tone = tones[token] || "bg-gray-50 text-gray-600 border-gray-200";
+    const label = requestStatusLabel(t, value);
 
     return (
         <span className={cx("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border", tone)}>
             {label}
         </span>
-    );
-}
-
-function IconRefresh({ className }: { className?: string }) {
-    return (
-        <svg
-            viewBox="0 0 24 24"
-            className={cx("h-4 w-4", className)}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-        >
-            <path d="M21 12a9 9 0 0 1-15.4 6.4" />
-            <path d="M3 12a9 9 0 0 1 15.4-6.4" />
-            <path d="M3 18v-5h5" />
-            <path d="M21 6v5h-5" />
-        </svg>
     );
 }
 
@@ -100,7 +123,7 @@ function SmallButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
             {...rest}
             className={cx(
                 "lims-btn",
-                "px-3 py-1.5 text-xs rounded-xl whitespace-nowrap",
+                "px-3 py-1.5 text-xs rounded-xl whitespace-nowrap inline-flex items-center gap-2",
                 rest.disabled ? "opacity-60 cursor-not-allowed" : "",
                 className
             )}
@@ -148,8 +171,7 @@ function toSidRow(root: any, sidRaw: any): SampleIdChangeRow | null {
     const suggested = sidRaw?.suggested_lab_sample_code ?? sidRaw?.suggested_sample_id ?? sidRaw?.suggested ?? null;
     const proposed = sidRaw?.proposed_lab_sample_code ?? sidRaw?.proposed_sample_id ?? sidRaw?.proposed ?? null;
 
-    const clientName =
-        root?.client?.name ?? root?.client_name ?? (root?.client_id ? `Client #${root?.client_id}` : null);
+    const clientName = root?.client?.name ?? root?.client_name ?? (root?.client_id ? `Client #${root?.client_id}` : null);
     const clientEmail = root?.client?.email ?? root?.client_email ?? null;
 
     return {
@@ -175,6 +197,8 @@ function toSidRow(root: any, sidRaw: any): SampleIdChangeRow | null {
 }
 
 export default function SampleRequestDetailPage() {
+    const { t } = useTranslation();
+
     const { id } = useParams<{ id: string }>();
     const { user } = useAuth();
 
@@ -234,7 +258,6 @@ export default function SampleRequestDetailPage() {
     );
 
     const [workflowLogs, setWorkflowLogs] = useState<any[] | null>(null);
-
     const [tab, setTab] = useState<"info" | "workflow">("info");
 
     const [sample, setSample] = useState<Sample | null>(null);
@@ -247,9 +270,7 @@ export default function SampleRequestDetailPage() {
 
     const [assignOpen, setAssignOpen] = useState(false);
     const [finalizeApprovedOpen, setFinalizeApprovedOpen] = useState(false);
-    const [assignFlash, setAssignFlash] = useState<{ type: "success" | "warning" | "error"; message: string } | null>(
-        null
-    );
+    const [assignFlash, setAssignFlash] = useState<{ type: "success" | "warning" | "error"; message: string } | null>(null);
 
     const [wfBusy, setWfBusy] = useState(false);
     const [wfError, setWfError] = useState<string | null>(null);
@@ -296,9 +317,7 @@ export default function SampleRequestDetailPage() {
         }
 
         if (!row) {
-            setWfError(
-                "Sample ID change detail belum ada di response. Backend harus mengirim sample_id_change.id / change_request_id pada endpoint detail request (atau gunakan endpoint by-sample)."
-            );
+            setWfError(t("sampleRequestDetail.sampleIdChangeMissing"));
             return;
         }
 
@@ -312,7 +331,7 @@ export default function SampleRequestDetailPage() {
             return;
         }
         if (!requestId || Number.isNaN(requestId)) {
-            setError("Invalid request URL.");
+            setError(t("errors.invalidRequestUrl"));
             setLoading(false);
             return;
         }
@@ -330,21 +349,13 @@ export default function SampleRequestDetailPage() {
 
                 const unwrapLogs = (x: any): any[] | null => {
                     if (Array.isArray(x)) return x;
-
                     if (x && typeof x === "object") {
-                        // common shapes:
-                        // 1) { data: [...] }
                         if (Array.isArray((x as any).data)) return (x as any).data;
-
-                        // 2) { data: { data: [...] } } (pagination)
                         if ((x as any).data && typeof (x as any).data === "object" && Array.isArray((x as any).data.data)) {
                             return (x as any).data.data;
                         }
-
-                        // 3) { items: [...] }
                         if (Array.isArray((x as any).items)) return (x as any).items;
                     }
-
                     return null;
                 };
 
@@ -354,8 +365,7 @@ export default function SampleRequestDetailPage() {
                 setWorkflowLogs(null);
             }
         } catch (err: any) {
-            const msg = err?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to load sample request detail.";
-            setError(msg);
+            setError(safeApiMessage(err, t("errors.failedToLoad")));
         } finally {
             if (!silent) setLoading(false);
         }
@@ -384,13 +394,7 @@ export default function SampleRequestDetailPage() {
             await load({ silent: true });
             setTab("workflow");
         } catch (err: any) {
-            const msg =
-                err?.response?.data?.message ??
-                err?.data?.message ??
-                err?.data?.error ??
-                err?.message ??
-                "Failed to approve request.";
-            setWfError(msg);
+            setWfError(safeApiMessage(err, t("sampleRequestDetail.errors.approveFailed")));
         } finally {
             setWfBusy(false);
         }
@@ -410,13 +414,7 @@ export default function SampleRequestDetailPage() {
             await load({ silent: true });
             setTab("workflow");
         } catch (err: any) {
-            const msg =
-                err?.response?.data?.message ??
-                err?.data?.message ??
-                err?.data?.error ??
-                err?.message ??
-                "Failed to update status.";
-            setWfError(msg);
+            setWfError(safeApiMessage(err, t("sampleRequestDetail.errors.updateStatusFailed")));
         } finally {
             setWfBusy(false);
         }
@@ -431,13 +429,7 @@ export default function SampleRequestDetailPage() {
             await load({ silent: true });
             setTab("workflow");
         } catch (err: any) {
-            const msg =
-                err?.response?.data?.message ??
-                err?.data?.message ??
-                err?.data?.error ??
-                err?.message ??
-                "Failed to update workflow.";
-            setWfError(msg);
+            setWfError(safeApiMessage(err, t("sampleRequestDetail.errors.updateWorkflowFailed")));
         } finally {
             setWfBusy(false);
         }
@@ -455,8 +447,7 @@ export default function SampleRequestDetailPage() {
             await load({ silent: true });
             setTab("workflow");
         } catch (err: any) {
-            const msg = err?.response?.data?.message ?? err?.data?.message ?? err?.message ?? "Failed to verify.";
-            setWfError(msg);
+            setWfError(safeApiMessage(err, t("sampleRequestDetail.errors.verifyFailed")));
         } finally {
             setVerifyBusy(false);
         }
@@ -465,12 +456,12 @@ export default function SampleRequestDetailPage() {
     if (!canView) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
-                <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
-                <p className="text-sm text-gray-600">
-                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access sample requests.
+                <h1 className="text-2xl font-semibold text-primary mb-2">{t("errors.accessDeniedTitle")}</h1>
+                <p className="text-sm text-gray-600 text-center max-w-xl">
+                    {t("errors.accessDeniedBodyWithRole", { role: roleLabel })}
                 </p>
                 <Link to="/samples/requests" className="mt-4 lims-btn-primary">
-                    Back to Sample Requests
+                    {t("sampleRequestDetail.backToList")}
                 </Link>
             </div>
         );
@@ -480,32 +471,24 @@ export default function SampleRequestDetailPage() {
         <div className="min-h-[60vh]">
             <div className="px-0 py-2">
                 <nav className="lims-breadcrumb">
-                    <span className="lims-breadcrumb-icon">
-                        <svg
-                            viewBox="0 0 24 24"
-                            className="h-4 w-4"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.6"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                        >
-                            <path d="M4 12h9" />
-                            <path d="M11 9l3 3-3 3" />
-                            <path d="M4 6v12" />
-                        </svg>
+                    <span className="lims-breadcrumb-icon" aria-hidden="true">
+                        <ArrowLeft className="h-4 w-4" />
                     </span>
+
                     <Link to="/samples/requests" className="lims-breadcrumb-link">
-                        Sample Requests
+                        {t("sampleRequestDetail.breadcrumbList")}
                     </Link>
-                    <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">Detail</span>
+
+                    <span className="lims-breadcrumb-separator" aria-hidden="true">
+                        <ChevronRight className="h-4 w-4" />
+                    </span>
+
+                    <span className="lims-breadcrumb-current">{t("sampleRequestDetail.breadcrumbDetail")}</span>
                 </nav>
             </div>
 
             <div className="lims-detail-shell">
-                {loading && <div className="text-sm text-gray-600">Loading request detail...</div>}
+                {loading && <div className="text-sm text-gray-600">{t("sampleRequestDetail.loading")}</div>}
 
                 {error && !loading && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
 
@@ -513,20 +496,24 @@ export default function SampleRequestDetailPage() {
                     <div className="space-y-6">
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                             <div>
-                                <h1 className="text-lg md:text-xl font-bold text-gray-900">Sample Request Detail</h1>
+                                <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                                    {t("sampleRequestDetail.title")}
+                                </h1>
 
                                 <div className="text-sm text-gray-600 mt-1 flex items-center gap-2 flex-wrap">
                                     <span>
-                                        Request ID <span className="font-semibold">#{(sample as any)?.sample_id ?? requestId}</span>
+                                        {t("sampleRequestDetail.requestId")}{" "}
+                                        <span className="font-semibold">#{(sample as any)?.sample_id ?? requestId}</span>
                                     </span>
+
                                     <span className="text-gray-400">·</span>
-                                    <span className="text-xs text-gray-500">status</span>
-                                    <StatusPill value={(sample as any)?.request_status ?? "-"} />
+                                    <span className="text-xs text-gray-500">{t("sampleRequestDetail.status")}</span>
+                                    <StatusPill value={(sample as any)?.request_status ?? "-"} t={t} />
 
                                     {verifiedAt ? (
                                         <>
                                             <span className="text-gray-400">·</span>
-                                            <span className="text-xs text-gray-500">verified</span>
+                                            <span className="text-xs text-gray-500">{t("sampleRequestDetail.verified")}</span>
                                             <span className="text-xs font-semibold text-emerald-700">{formatDateTimeLocal(verifiedAt)}</span>
                                         </>
                                     ) : null}
@@ -534,7 +521,7 @@ export default function SampleRequestDetailPage() {
                                     {labSampleCode ? (
                                         <>
                                             <span className="text-gray-400">·</span>
-                                            <span className="text-xs text-gray-500">BML</span>
+                                            <span className="text-xs text-gray-500">{t("sampleRequestDetail.labCode")}</span>
                                             <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
                                                 {labSampleCode}
                                             </span>
@@ -544,14 +531,9 @@ export default function SampleRequestDetailPage() {
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <SmallButton
-                                    type="button"
-                                    onClick={refresh}
-                                    disabled={pageRefreshing}
-                                    className="flex items-center gap-2"
-                                >
-                                    <IconRefresh />
-                                    {pageRefreshing ? "Refreshing..." : "Refresh"}
+                                <SmallButton type="button" onClick={refresh} disabled={pageRefreshing} className="flex items-center gap-2">
+                                    <RefreshCw className="h-4 w-4" />
+                                    {pageRefreshing ? t("common.refreshing") : t("common.refresh")}
                                 </SmallButton>
                             </div>
                         </div>
@@ -560,10 +542,10 @@ export default function SampleRequestDetailPage() {
                             <div className="px-5 pt-5">
                                 <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-2xl p-1 flex-wrap">
                                     <TabButton active={tab === "info"} onClick={() => setTab("info")}>
-                                        Info
+                                        {t("common.info")}
                                     </TabButton>
                                     <TabButton active={tab === "workflow"} onClick={() => setTab("workflow")}>
-                                        Workflow
+                                        {t("common.workflow")}
                                     </TabButton>
                                 </div>
                             </div>
@@ -590,7 +572,7 @@ export default function SampleRequestDetailPage() {
                                             onVerify={doVerify}
                                             onVerifySampleIdChange={handleVerifySampleIdChange}
                                             onOpenAssignSampleId={() => {
-                                                const key = String((sample as any)?.request_status ?? "").trim().toLowerCase();
+                                                const key = normalizeStatusToken((sample as any)?.request_status ?? "");
                                                 const approvedKeys = ["sample_id_approved_for_assignment", "approved_for_assignment"];
 
                                                 if (approvedKeys.includes(key)) {
@@ -606,22 +588,23 @@ export default function SampleRequestDetailPage() {
 
                                         {sidPickOpen ? (
                                             <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-                                                <div
-                                                    className="absolute inset-0 bg-black/40"
-                                                    onClick={() => (sidBusy ? null : setSidPickOpen(false))}
-                                                />
+                                                <div className="absolute inset-0 bg-black/40" onClick={() => (sidBusy ? null : setSidPickOpen(false))} />
 
                                                 <div className="relative w-full max-w-sm rounded-2xl bg-white shadow-xl border">
                                                     <div className="px-5 py-4 border-b">
-                                                        <div className="text-sm font-bold text-gray-900">Verify Sample ID change</div>
-                                                        <div className="text-xs text-gray-500 mt-1">Choose an action.</div>
+                                                        <div className="text-sm font-bold text-gray-900">
+                                                            {t("sampleRequestDetail.sidVerify.title")}
+                                                        </div>
+                                                        <div className="text-xs text-gray-500 mt-1">
+                                                            {t("sampleRequestDetail.sidVerify.subtitle")}
+                                                        </div>
                                                     </div>
 
-                                                    <div className="px-5 py-4 flex items-center justify-between gap-3">
+                                                    <div className="px-5 py-4 grid grid-cols-1 gap-2">
                                                         <div className="text-xs text-gray-500">
                                                             {sidActiveRow?.suggested_lab_sample_code || sidActiveRow?.suggested_sample_id ? (
                                                                 <>
-                                                                    Suggested:{" "}
+                                                                    {t("common.suggested")}:{" "}
                                                                     <span className="font-mono text-gray-800">
                                                                         {sidActiveRow?.suggested_lab_sample_code ?? sidActiveRow?.suggested_sample_id}
                                                                     </span>
@@ -634,7 +617,7 @@ export default function SampleRequestDetailPage() {
                                                         <div className="text-xs text-gray-500">
                                                             {sidActiveRow?.proposed_lab_sample_code || sidActiveRow?.proposed_sample_id ? (
                                                                 <>
-                                                                    Proposed:{" "}
+                                                                    {t("common.proposed")}:{" "}
                                                                     <span className="font-mono text-gray-800">
                                                                         {sidActiveRow?.proposed_lab_sample_code ?? sidActiveRow?.proposed_sample_id}
                                                                     </span>
@@ -652,7 +635,7 @@ export default function SampleRequestDetailPage() {
                                                             disabled={sidBusy}
                                                             className={cx("btn-outline", sidBusy && "opacity-60 cursor-not-allowed")}
                                                         >
-                                                            Cancel
+                                                            {t("common.cancel")}
                                                         </button>
 
                                                         <button
@@ -665,7 +648,7 @@ export default function SampleRequestDetailPage() {
                                                             disabled={sidBusy || !sidActiveRow}
                                                             className={cx("btn-outline", (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed")}
                                                         >
-                                                            Reject
+                                                            {t("common.reject")}
                                                         </button>
 
                                                         <button
@@ -676,12 +659,9 @@ export default function SampleRequestDetailPage() {
                                                                 setSidModalOpen(true);
                                                             }}
                                                             disabled={sidBusy || !sidActiveRow}
-                                                            className={cx(
-                                                                "lims-btn-primary",
-                                                                (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed"
-                                                            )}
+                                                            className={cx("lims-btn-primary", (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed")}
                                                         >
-                                                            Approve
+                                                            {t("common.approve")}
                                                         </button>
                                                     </div>
                                                 </div>
@@ -721,15 +701,9 @@ export default function SampleRequestDetailPage() {
                                                     await load({ silent: true });
                                                     setTab("workflow");
                                                 } catch (e: any) {
-                                                    const msg =
-                                                        e?.response?.data?.message ??
-                                                        e?.data?.message ??
-                                                        e?.data?.error ??
-                                                        e?.message ??
-                                                        "Failed to process decision.";
                                                     setSidModalOpen(false);
                                                     setSidPickOpen(false);
-                                                    setWfError(msg);
+                                                    setWfError(safeApiMessage(e, t("sampleRequestDetail.errors.sidDecisionFailed")));
                                                 } finally {
                                                     setSidBusy(false);
                                                 }
@@ -787,7 +761,7 @@ export default function SampleRequestDetailPage() {
                                 open={intakeOpen}
                                 onClose={() => setIntakeOpen(false)}
                                 sampleId={requestId}
-                                requestLabel={`Request #${requestId}`}
+                                requestLabel={t("sampleRequestDetail.requestLabel", { id: requestId })}
                                 onSubmitted={async () => {
                                     await load({ silent: true });
                                     setTab("workflow");

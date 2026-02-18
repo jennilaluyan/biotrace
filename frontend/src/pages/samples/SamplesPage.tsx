@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Eye, RefreshCw } from "lucide-react";
+import { Eye, RefreshCw, Search } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { useAuth } from "../../hooks/useAuth";
 import { useClients } from "../../hooks/useClients";
@@ -13,14 +14,7 @@ import type { Sample, SampleStatusEnum } from "../../services/samples";
 
 type StatusFilter = "all" | SampleStatusEnum;
 
-type ReagentReqStatus =
-    | "draft"
-    | "submitted"
-    | "approved"
-    | "rejected"
-    | "denied"
-    | "cancelled"
-    | string;
+type ReagentReqStatus = "draft" | "submitted" | "approved" | "rejected" | "denied" | "cancelled" | string;
 
 const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
     const direct = s?.reagent_request_status ?? s?.reagentRequestStatus ?? null;
@@ -33,6 +27,19 @@ const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
     return null;
 };
 
+const isArchivedSample = (s: any) => {
+    return Boolean(
+        s?.archived_at ||
+        s?.is_archived ||
+        s?.coa_generated_at ||
+        s?.coa_file_url ||
+        s?.coa_report_id ||
+        s?.report_generated_at ||
+        s?.report_pdf_url ||
+        s?.report?.pdf_url
+    );
+};
+
 const normalizeStatusLabel = (label: string) => {
     const s = String(label || "")
         .trim()
@@ -40,7 +47,7 @@ const normalizeStatusLabel = (label: string) => {
         .replace(/_/g, " ")
         .replace(/\s+/g, " ");
 
-    // small cleanups
+    // cleanups to consistent “token-ish” english (used for mapping)
     if (s === "in progress") return "in progress";
     if (s === "testing completed") return "testing done";
     if (s === "ready for reagent request") return "ready for reagent";
@@ -58,7 +65,6 @@ const normalizeStatusLabel = (label: string) => {
     if (s === "reagent request (approved)") return "reagent approved";
     if (s === "reagent request (denied)") return "reagent denied";
 
-    // generic shortening for reagent request (xxx)
     const m = s.match(/^reagent request \((.+)\)$/);
     if (m?.[1]) {
         const inner = m[1].trim();
@@ -68,23 +74,15 @@ const normalizeStatusLabel = (label: string) => {
     return s;
 };
 
-const isArchivedSample = (s: any) => {
-    // best-effort: kalau backend sudah menandai sample masuk archive, jangan tampil di management
-    return Boolean(
-        s?.archived_at ||
-        s?.is_archived ||
-        s?.coa_generated_at ||
-        s?.coa_file_url ||
-        s?.coa_report_id ||
-        s?.report_generated_at ||
-        s?.report_pdf_url ||
-        s?.report?.pdf_url
-    );
-};
+function cx(...arr: Array<string | false | null | undefined>) {
+    return arr.filter(Boolean).join(" ");
+}
 
 export const SamplesPage = () => {
-    const [dateFrom, setDateFrom] = useState<string>(""); // YYYY-MM-DD
-    const [dateTo, setDateTo] = useState<string>(""); // YYYY-MM-DD
+    const { t } = useTranslation();
+
+    const [dateFrom, setDateFrom] = useState<string>("");
+    const [dateTo, setDateTo] = useState<string>("");
 
     const navigate = useNavigate();
 
@@ -92,10 +90,7 @@ export const SamplesPage = () => {
     const roleId = getUserRoleId(user) ?? ROLE_ID.CLIENT;
     const roleLabel = getUserRoleLabel(user);
 
-    const [createModalOpen, setCreateModalOpen] = useState(false);
     const [reloadTick, setReloadTick] = useState(0);
-
-    const [commentCounts, setCommentCounts] = useState<Record<number, number>>({});
 
     const canViewSamples = useMemo(() => {
         return (
@@ -109,7 +104,6 @@ export const SamplesPage = () => {
 
     const canCreateSample = roleId === ROLE_ID.ADMIN;
 
-    // UI filters
     const [searchTerm, setSearchTerm] = useState("");
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
     const [clientFilter, setClientFilter] = useState<string>("all");
@@ -129,20 +123,12 @@ export const SamplesPage = () => {
         reloadTick,
     });
 
-    // Reset page saat filter berubah
     useEffect(() => {
         setPage(1);
     }, [clientFilter, statusFilter, dateFrom, dateTo]);
 
-    /**
-     * ✅ STEP 6 (F1):
-     * SamplesPage = hanya "Lab Samples" (yang SUDAH punya lab_sample_code).
-     * Sample Requests harusnya ada di /samples/requests.
-     */
     const labOnlyItems = useMemo(() => {
-        return (items ?? [])
-            .filter((s: Sample) => !!s.lab_sample_code)
-            .filter((s: Sample) => !isArchivedSample(s as any)); // ✅ hide finished/archived
+        return (items ?? []).filter((s: Sample) => !!s.lab_sample_code).filter((s: Sample) => !isArchivedSample(s as any));
     }, [items]);
 
     const visibleItems = useMemo(() => {
@@ -174,98 +160,84 @@ export const SamplesPage = () => {
         }
     };
 
+    const translateStatus = (rawLabel: string) => {
+        const k = normalizeStatusLabel(rawLabel);
+
+        const map: Record<string, string> = {
+            "in progress": "sampleStatus.inProgress",
+            "testing done": "sampleStatus.testingDone",
+            "ready for reagent": "sampleStatus.readyForReagent",
+            "awaiting intake": "sampleStatus.awaitingIntake",
+            "in transit to analyst": "sampleStatus.inTransitToAnalyst",
+            received: "sampleStatus.received",
+            "awaiting promotion": "sampleStatus.awaitingPromotion",
+            "awaiting crosscheck": "sampleStatus.awaitingCrosscheck",
+            "crosscheck passed": "sampleStatus.crosscheckPassed",
+            "crosscheck failed": "sampleStatus.crosscheckFailed",
+            verified: "sampleStatus.verified",
+            validated: "sampleStatus.validated",
+            reported: "sampleStatus.reported",
+
+            "reagent draft": "reagentStatus.draft",
+            "reagent submitted": "reagentStatus.submitted",
+            "reagent approved": "reagentStatus.approved",
+            "reagent denied": "reagentStatus.denied",
+        };
+
+        const key = map[k];
+        if (!key) return rawLabel; // fallback
+        const out = t(key);
+        return out === key ? rawLabel : out;
+    };
+
     const getSamplesListStatusChip = (s: Sample): { label: string; className: string } => {
         const anyS = s as any;
 
-        // 0) Reagent request stage has highest priority once it exists
         const rrStatus = getReagentRequestStatus(anyS);
         if (rrStatus) {
-            if (rrStatus === "draft") {
-                return { label: normalizeStatusLabel("reagent request (draft)"), className: statusChipClass("gray") };
-            }
-            if (rrStatus === "submitted") {
-                return {
-                    label: normalizeStatusLabel("reagent request (submitted)"),
-                    className: statusChipClass("yellow"),
-                };
-            }
-            if (rrStatus === "approved") {
-                return {
-                    label: normalizeStatusLabel("reagent request (approved)"),
-                    className: statusChipClass("green"),
-                };
-            }
-            if (rrStatus === "rejected" || rrStatus === "denied") {
-                return { label: normalizeStatusLabel("reagent request (denied)"), className: statusChipClass("red") };
-            }
-            return { label: normalizeStatusLabel(`reagent request (${rrStatus})`), className: statusChipClass("gray") };
+            if (rrStatus === "draft") return { label: "reagent draft", className: statusChipClass("gray") };
+            if (rrStatus === "submitted") return { label: "reagent submitted", className: statusChipClass("yellow") };
+            if (rrStatus === "approved") return { label: "reagent approved", className: statusChipClass("green") };
+            if (rrStatus === "rejected" || rrStatus === "denied") return { label: "reagent denied", className: statusChipClass("red") };
+            return { label: `reagent ${rrStatus}`, className: statusChipClass("gray") };
         }
 
-        // ✅ 1) Request/Intake workflow status (includes SC→Analyst handoff)
         const rs = String(anyS?.request_status ?? "").trim().toLowerCase();
         if (rs) {
-            if (rs === "in_transit_to_analyst") {
-                return { label: normalizeStatusLabel("in transit to analyst"), className: statusChipClass("yellow") };
-            }
-            if (rs === "received_by_analyst") {
-                return { label: normalizeStatusLabel("received"), className: statusChipClass("blue") };
-            }
+            if (rs === "in_transit_to_analyst") return { label: "in transit to analyst", className: statusChipClass("yellow") };
+            if (rs === "received_by_analyst") return { label: "received", className: statusChipClass("blue") };
 
             const label = normalizeStatusLabel(rs);
             const tone =
-                rs.includes("rejected")
+                rs.includes("rejected") || rs.includes("failed") || rs.includes("returned")
                     ? "red"
-                    : rs.includes("failed")
-                        ? "red"
-                        : rs.includes("returned")
-                            ? "red"
-                            : rs.includes("submitted")
-                                ? "yellow"
-                                : rs.includes("ready")
-                                    ? "yellow"
-                                    : rs.includes("awaiting")
-                                        ? "yellow"
-                                        : rs.includes("validated")
-                                            ? "green"
-                                            : rs.includes("passed")
-                                                ? "green"
-                                                : "gray";
+                    : rs.includes("submitted") || rs.includes("ready") || rs.includes("awaiting")
+                        ? "yellow"
+                        : rs.includes("validated") || rs.includes("passed")
+                            ? "green"
+                            : "gray";
 
             return { label, className: statusChipClass(tone as any) };
         }
 
-        // 2) Crosscheck status (analyst gate)
         const cs = String(anyS?.crosscheck_status ?? "pending").toLowerCase();
-        if (cs === "failed") {
-            return { label: normalizeStatusLabel("crosscheck failed"), className: statusChipClass("red") };
-        }
-        if (cs === "passed") {
-            return { label: normalizeStatusLabel("crosscheck passed"), className: statusChipClass("green") };
-        }
+        if (cs === "failed") return { label: "crosscheck failed", className: statusChipClass("red") };
+        if (cs === "passed") return { label: "crosscheck passed", className: statusChipClass("green") };
 
-        // 3) Lab code existence fallback
         const hasLabCode = !!s.lab_sample_code;
-        if (!hasLabCode) {
-            return { label: normalizeStatusLabel("awaiting lab promotion"), className: statusChipClass("gray") };
-        }
+        if (!hasLabCode) return { label: "awaiting promotion", className: statusChipClass("gray") };
 
-        // 4) current_status fallback (lab workflow)
         const current = String(s.current_status ?? "").toLowerCase().replace(/_/g, " ");
-        if (current === "received") return { label: normalizeStatusLabel("received"), className: statusChipClass("blue") };
-        if (current === "in progress") return { label: normalizeStatusLabel("in progress"), className: statusChipClass("blue") };
-        if (current === "testing completed")
-            return { label: normalizeStatusLabel("testing completed"), className: statusChipClass("blue") };
-        if (current === "verified") return { label: normalizeStatusLabel("verified"), className: statusChipClass("green") };
-        if (current === "validated") return { label: normalizeStatusLabel("validated"), className: statusChipClass("green") };
-        if (current === "reported") return { label: normalizeStatusLabel("reported"), className: statusChipClass("green") };
+        if (current === "received") return { label: "received", className: statusChipClass("blue") };
+        if (current === "in progress") return { label: "in progress", className: statusChipClass("blue") };
+        if (current === "testing completed") return { label: "testing done", className: statusChipClass("blue") };
+        if (current === "verified") return { label: "verified", className: statusChipClass("green") };
+        if (current === "validated") return { label: "validated", className: statusChipClass("green") };
+        if (current === "reported") return { label: "reported", className: statusChipClass("green") };
 
-        // 5) Default
-        return { label: normalizeStatusLabel("awaiting crosscheck"), className: statusChipClass("yellow") };
+        return { label: "awaiting crosscheck", className: statusChipClass("yellow") };
     };
 
-    /**
-     * ✅ Group samples per LOO.
-     */
     const groups = useMemo(() => {
         type Group = {
             key: string;
@@ -310,7 +282,6 @@ export const SamplesPage = () => {
 
         const arr = Array.from(map.values());
 
-        // sort: LOO groups first (desc by loId), then "no-loo"
         arr.sort((a, b) => {
             if (a.loId == null && b.loId != null) return 1;
             if (a.loId != null && b.loId == null) return -1;
@@ -338,9 +309,9 @@ export const SamplesPage = () => {
     if (!canViewSamples) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
-                <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
-                <p className="text-sm text-gray-600">
-                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access the samples module.
+                <h1 className="text-2xl font-semibold text-primary mb-2">{t("errors.accessDeniedTitle")}</h1>
+                <p className="text-sm text-gray-600 text-center max-w-xl">
+                    {t("errors.accessDeniedBodyWithRole", { role: roleLabel })}
                 </p>
             </div>
         );
@@ -350,15 +321,11 @@ export const SamplesPage = () => {
         <div className="min-h-[60vh]">
             {/* Header */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
-                <h1 className="text-lg md:text-xl font-bold text-gray-900">Sample Management</h1>
+                <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("samplesPage.title")}</h1>
 
                 {canCreateSample && (
-                    <button
-                        type="button"
-                        onClick={() => setCreateModalOpen(true)}
-                        className="lims-btn-primary self-start md:self-auto"
-                    >
-                        + New sample
+                    <button type="button" onClick={() => navigate("/samples/new")} className="lims-btn-primary self-start md:self-auto">
+                        {t("samplesPage.newSample")}
                     </button>
                 )}
             </div>
@@ -368,22 +335,11 @@ export const SamplesPage = () => {
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="sample-search">
-                            Search samples
+                            {t("samplesPage.filters.searchLabel")}
                         </label>
                         <div className="relative">
-                            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
-                                <svg
-                                    viewBox="0 0 24 24"
-                                    className="h-4 w-4"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.8"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                >
-                                    <circle cx="11" cy="11" r="6" />
-                                    <line x1="16" y1="16" x2="21" y2="21" />
-                                </svg>
+                            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500" aria-hidden="true">
+                                <Search className="h-4 w-4" />
                             </span>
 
                             <input
@@ -391,7 +347,7 @@ export const SamplesPage = () => {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="Search by sample type, code, status…"
+                                placeholder={t("samplesPage.filters.searchPlaceholder")}
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
@@ -399,7 +355,7 @@ export const SamplesPage = () => {
 
                     <div className="w-full md:w-56">
                         <label className="sr-only" htmlFor="sample-client-filter">
-                            Client
+                            {t("samplesPage.filters.client")}
                         </label>
                         <select
                             id="sample-client-filter"
@@ -407,10 +363,10 @@ export const SamplesPage = () => {
                             onChange={(e) => setClientFilter(e.target.value)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
-                            <option value="all">All clients</option>
+                            <option value="all">{t("samplesPage.filters.allClients")}</option>
                             {clientsLoading ? (
                                 <option value="__loading__" disabled>
-                                    Loading clients...
+                                    {t("samplesPage.filters.loadingClients")}
                                 </option>
                             ) : (
                                 (clients ?? []).map((c) => (
@@ -424,7 +380,7 @@ export const SamplesPage = () => {
 
                     <div className="w-full md:w-52">
                         <label className="sr-only" htmlFor="sample-status-filter">
-                            Status
+                            {t("common.status")}
                         </label>
                         <select
                             id="sample-status-filter"
@@ -432,17 +388,17 @@ export const SamplesPage = () => {
                             onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
-                            <option value="all">All status</option>
-                            <option value="registered">Registered</option>
-                            <option value="testing">Testing</option>
-                            <option value="reported">Reported</option>
+                            <option value="all">{t("samplesPage.filters.allStatus")}</option>
+                            <option value="registered">{t("samplesPage.status.registered")}</option>
+                            <option value="testing">{t("samplesPage.status.testing")}</option>
+                            <option value="reported">{t("samplesPage.status.reported")}</option>
                         </select>
                     </div>
 
                     <div className="w-full md:w-auto flex flex-col sm:flex-row gap-2">
                         <div className="w-full sm:w-40">
                             <label className="sr-only" htmlFor="sample-date-from">
-                                From date
+                                {t("samplesPage.filters.fromDate")}
                             </label>
                             <input
                                 id="sample-date-from"
@@ -454,7 +410,7 @@ export const SamplesPage = () => {
                         </div>
                         <div className="w-full sm:w-40">
                             <label className="sr-only" htmlFor="sample-date-to">
-                                To date
+                                {t("samplesPage.filters.toDate")}
                             </label>
                             <input
                                 id="sample-date-to"
@@ -470,9 +426,9 @@ export const SamplesPage = () => {
                         <button
                             type="button"
                             className="lims-icon-button"
-                            onClick={() => setReloadTick((t) => t + 1)}
-                            aria-label="Refresh"
-                            title="Refresh"
+                            onClick={() => setReloadTick((x) => x + 1)}
+                            aria-label={t("common.refresh")}
+                            title={t("common.refresh")}
                         >
                             <RefreshCw size={16} />
                         </button>
@@ -483,18 +439,15 @@ export const SamplesPage = () => {
                     {error && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
 
                     {loading ? (
-                        <div className="text-sm text-gray-600">Loading samples…</div>
+                        <div className="text-sm text-gray-600">{t("samplesPage.loading")}</div>
                     ) : visibleItems.length === 0 ? (
-                        <div className="text-sm text-gray-600">No lab samples found.</div>
+                        <div className="text-sm text-gray-600">{t("samplesPage.empty")}</div>
                     ) : (
                         <>
                             <div className="text-xs text-gray-600 mb-3">
-                                Showing <span className="font-semibold">{from}</span> to{" "}
-                                <span className="font-semibold">{to}</span> of{" "}
-                                <span className="font-semibold">{total}</span> (lab samples only).
+                                {t("samplesPage.showing", { from, to, total })}
                             </div>
 
-                            {/* GROUPED BY LOO */}
                             <div className="space-y-4">
                                 {groups.map((g) => {
                                     const allPassed = g.samples.every(
@@ -504,14 +457,14 @@ export const SamplesPage = () => {
 
                                     const rrLabel =
                                         rr === "draft"
-                                            ? "Continue Reagent Request"
+                                            ? t("samplesPage.reagent.continue")
                                             : rr === "submitted"
-                                                ? "View Reagent Request (submitted)"
+                                                ? t("samplesPage.reagent.viewSubmitted")
                                                 : rr === "approved"
-                                                    ? "View Reagent Request (approved)"
+                                                    ? t("samplesPage.reagent.viewApproved")
                                                     : rr
-                                                        ? `View Reagent Request (${rr})`
-                                                        : "Create Reagent Request";
+                                                        ? t("samplesPage.reagent.viewOther", { status: rr })
+                                                        : t("samplesPage.reagent.create");
 
                                     const rrTone =
                                         rr === "approved"
@@ -522,27 +475,31 @@ export const SamplesPage = () => {
                                                     ? "bg-slate-50 text-slate-700 border-slate-200"
                                                     : "bg-white text-primary border-primary/30";
 
+                                    const groupTitle = g.loId
+                                        ? t("samplesPage.group.titleWithNumber", { number: g.loNumber ?? `#${g.loId}` })
+                                        : t("samplesPage.group.noLooTitle");
+
+                                    const groupMeta = g.loId
+                                        ? t("samplesPage.group.metaWithCrosscheck", {
+                                            count: g.samples.length,
+                                            crosscheck: allPassed ? t("samplesPage.group.crosscheckPassed") : t("samplesPage.group.crosscheckNotReady"),
+                                        })
+                                        : t("samplesPage.group.meta", { count: g.samples.length });
+
                                     return (
                                         <div key={g.key} className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
                                             <div className="px-4 md:px-6 py-4 bg-gray-50 border-b border-gray-100 flex items-start justify-between gap-3 flex-wrap">
                                                 <div>
-                                                    <div className="text-sm font-extrabold text-gray-900">
-                                                        {g.loId ? `LOO ${g.loNumber ?? `#${g.loId}`}` : "No LOO (Legacy/Manual)"}
-                                                    </div>
-                                                    <div className="text-xs text-gray-600 mt-1">
-                                                        {g.loId
-                                                            ? `samples: ${g.samples.length} • crosscheck: ${allPassed ? "passed" : "not ready"}`
-                                                            : `samples: ${g.samples.length}`}
-                                                    </div>
+                                                    <div className="text-sm font-extrabold text-gray-900">{groupTitle}</div>
+                                                    <div className="text-xs text-gray-600 mt-1">{groupMeta}</div>
                                                 </div>
 
                                                 {g.loId ? (
                                                     <button
                                                         type="button"
-                                                        className={`px-3 py-2 rounded-xl border text-xs font-bold ${rrTone} ${!allPassed ? "opacity-50 cursor-not-allowed" : ""
-                                                            }`}
+                                                        className={cx("px-3 py-2 rounded-xl border text-xs font-bold", rrTone, !allPassed && "opacity-50 cursor-not-allowed")}
                                                         disabled={!allPassed}
-                                                        title={!allPassed ? "Blocked: all samples in this LOO must be crosscheck passed" : undefined}
+                                                        title={!allPassed ? t("samplesPage.reagent.blockedTitle") : undefined}
                                                         onClick={() => navigate(`/reagents/requests/loo/${g.loId}`)}
                                                     >
                                                         {rrLabel}
@@ -554,17 +511,18 @@ export const SamplesPage = () => {
                                                 <table className="min-w-full text-sm">
                                                     <thead className="bg-white text-gray-700 border-b border-gray-100">
                                                         <tr>
-                                                            <th className="text-left font-semibold px-4 py-3">Lab Code</th>
-                                                            <th className="text-left font-semibold px-4 py-3">Sample Type</th>
-                                                            <th className="text-left font-semibold px-4 py-3">Status</th>
-                                                            <th className="text-left font-semibold px-4 py-3">Received</th>
-                                                            <th className="text-right font-semibold px-4 py-3">Actions</th>
+                                                            <th className="text-left font-semibold px-4 py-3">{t("samplesPage.table.labCode")}</th>
+                                                            <th className="text-left font-semibold px-4 py-3">{t("samplesPage.table.sampleType")}</th>
+                                                            <th className="text-left font-semibold px-4 py-3">{t("samplesPage.table.status")}</th>
+                                                            <th className="text-left font-semibold px-4 py-3">{t("samplesPage.table.received")}</th>
+                                                            <th className="text-right font-semibold px-4 py-3">{t("common.actions")}</th>
                                                         </tr>
                                                     </thead>
 
                                                     <tbody className="divide-y divide-gray-100">
                                                         {g.samples.map((s) => {
                                                             const chip = getSamplesListStatusChip(s);
+                                                            const displayLabel = translateStatus(chip.label);
 
                                                             return (
                                                                 <tr key={s.sample_id} className="hover:bg-gray-50">
@@ -577,25 +535,20 @@ export const SamplesPage = () => {
                                                                     <td className="px-4 py-3 text-gray-700">{s.sample_type ?? "-"}</td>
 
                                                                     <td className="px-4 py-3">
-                                                                        <span
-                                                                            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${chip.className}`}
-                                                                            title={chip.label}
-                                                                        >
-                                                                            {normalizeStatusLabel(chip.label)}
+                                                                        <span className={cx("inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold", chip.className)} title={displayLabel}>
+                                                                            {displayLabel}
                                                                         </span>
                                                                     </td>
 
-                                                                    <td className="px-4 py-3 text-gray-700">
-                                                                        {s.received_at ? formatDate(s.received_at) : "-"}
-                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-700">{s.received_at ? formatDate(s.received_at) : "-"}</td>
 
                                                                     <td className="px-4 py-3">
                                                                         <div className="flex items-center justify-end gap-2">
                                                                             <button
                                                                                 type="button"
                                                                                 className="lims-icon-button"
-                                                                                aria-label="View"
-                                                                                title="View"
+                                                                                aria-label={t("common.view")}
+                                                                                title={t("common.view")}
                                                                                 onClick={() =>
                                                                                     navigate(`/samples/${s.sample_id}`, {
                                                                                         state: {
@@ -623,8 +576,7 @@ export const SamplesPage = () => {
 
                             <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
                                 <div className="text-xs text-gray-600">
-                                    Page <span className="font-semibold">{meta?.current_page ?? 1}</span> of{" "}
-                                    <span className="font-semibold">{totalPages}</span>
+                                    {t("common.pageOf", { page: meta?.current_page ?? 1, totalPages })}
                                 </div>
 
                                 <div className="flex items-center gap-2">
@@ -634,7 +586,7 @@ export const SamplesPage = () => {
                                         disabled={(meta?.current_page ?? 1) <= 1}
                                         className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
                                     >
-                                        Prev
+                                        {t("common.prev")}
                                     </button>
 
                                     <button
@@ -643,19 +595,15 @@ export const SamplesPage = () => {
                                         disabled={(meta?.current_page ?? 1) >= totalPages}
                                         className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
                                     >
-                                        Next
+                                        {t("common.next")}
                                     </button>
                                 </div>
                             </div>
 
-                            <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                                <div className="font-semibold">Kapan sampel muncul di sini?</div>
-                                <div className="mt-1">
-                                    Sampel akan muncul di halaman ini setelah sudah dimasukkan ke <b>LOO</b> (atau sampel lama yang memang sudah punya workflow lab).
-                                </div>
-                                <div className="mt-2 text-xs text-slate-600">
-                                    Kalau sampel baru selesai diverifikasi tapi belum muncul di sini, itu normal—cek dulu di <b>LOO Generator</b>.
-                                </div>
+                            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                                <div className="font-semibold">{t("samplesPage.help.title")}</div>
+                                <div className="mt-1">{t("samplesPage.help.body")}</div>
+                                <div className="mt-2 text-xs text-slate-600">{t("samplesPage.help.hint")}</div>
                             </div>
                         </>
                     )}

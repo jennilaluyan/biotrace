@@ -252,6 +252,29 @@
         "rightPanelPortalSubtitle": "Create a client account and submit sample requests in a structured ISO-aligned workflow.",
         "rightPanelStaffSubtitle": "Create a new user and begin your biomolecular workflow with ISO 17025–aligned records."
     },
+    "staff": {
+        "approvals": {
+            "title": "Staff approvals",
+            "subtitle": "Review staff registrations. Approve to activate, or reject with a clear reason.",
+            "searchPlaceholder": "Search name, email, role…",
+            "loading": "Loading pending staff…",
+            "empty": "No pending staff applications.",
+            "table": {
+                "staff": "Staff",
+                "role": "Role",
+                "submitted": "Submitted",
+                "actions": "Actions"
+            },
+            "actions": {
+                "approve": "Approve",
+                "reject": "Reject"
+            },
+            "reject": {
+                "reasonLabel": "Rejection reason",
+                "reasonPlaceholder": "Explain what needs to be corrected…"
+            }
+        }
+    },
     "clients": {
         "list": {
             "title": "Client management",
@@ -890,6 +913,78 @@
             "codesMatchHint": "Codes match. Use Pass.",
             "codesMismatchHint": "Codes do not match. Use Fail and provide a reason.",
             "enterBothCodesHint": "Enter the physical label code to compare."
+        },
+        "pages": {
+            "list": {
+                "title": "Samples",
+                "subtitle": "Search, filter, and open samples to manage workflow and documents.",
+                "searchPlaceholder": "Search by lab code, client, sample type…",
+                "filters": {
+                    "group": "Group",
+                    "status": "Status",
+                    "allGroups": "All groups",
+                    "allStatuses": "All statuses"
+                },
+                "table": {
+                    "labCode": "Lab code",
+                    "client": "Client",
+                    "sampleType": "Sample type",
+                    "group": "Group",
+                    "status": "Status",
+                    "updated": "Updated",
+                    "actions": "Actions"
+                },
+                "empty": {
+                    "title": "No samples found",
+                    "body": "Try adjusting filters or changing your search keywords."
+                }
+            },
+            "queue": {
+                "title": "Request Queue",
+                "subtitle": "Review incoming sample requests before they enter the lab workflow.",
+                "searchPlaceholder": "Search request id, client, sample type…",
+                "filters": {
+                    "status": "Status",
+                    "all": "All statuses"
+                },
+                "table": {
+                    "request": "Request",
+                    "client": "Client",
+                    "sampleType": "Sample type",
+                    "parameters": "Parameters",
+                    "scheduledDelivery": "Scheduled delivery",
+                    "status": "Status",
+                    "updated": "Updated",
+                    "actions": "Actions"
+                },
+                "empty": {
+                    "title": "No requests found",
+                    "body": "New submissions will appear here after the client submits a request."
+                },
+                "actions": {
+                    "open": "Open",
+                    "accept": "Accept",
+                    "return": "Return"
+                }
+            },
+            "requestDetail": {
+                "breadcrumbQueue": "Request Queue",
+                "breadcrumbCurrent": "Request detail",
+                "title": "Request #{{id}}",
+                "subtitle": "Review client submission details and continue the workflow.",
+                "tabs": {
+                    "info": "Request info",
+                    "workflow": "Workflow",
+                    "documents": "Documents"
+                },
+                "states": {
+                    "loading": "Loading request…",
+                    "notFound": "Request not found."
+                },
+                "actions": {
+                    "backToQueue": "Back to queue"
+                }
+            }
         }
     },
     "docs": {
