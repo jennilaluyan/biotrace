@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { Filter, RefreshCw, ShieldAlert, XCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getRoleLabelById, getUserRoleLabel } from "../../utils/roles";
@@ -21,17 +23,17 @@ function safeJson(v: any) {
 }
 
 export const AuditLogsPage = () => {
+    const { t } = useTranslation();
     const { user } = useAuth();
 
     const roleId = getUserRoleId(user);
 
-    // ✅ FIX: label harus dari user / roleId, bukan getUserRoleLabel(roleId)
     const roleLabel =
         getRoleLabelById(roleId) ??
-        getUserRoleLabel(user) ?? // fallback
-        "UNKNOWN";
+        getUserRoleLabel(user) ??
+        t("roles.unknown");
 
-    // ✅ FIX: audit logs visible for all STAFF roles (exclude client)
+    // audit logs visible for all STAFF roles (exclude client)
     const canView = useMemo(() => {
         if (!roleId) return false;
         return roleId !== ROLE_ID.CLIENT;
@@ -50,39 +52,42 @@ export const AuditLogsPage = () => {
     const [page, setPage] = useState(1);
     const [perPage, setPerPage] = useState(25);
 
-    const load = async (opts?: { keepPage?: boolean }) => {
-        if (!canView) return;
+    const load = useCallback(
+        async (opts?: { keepPage?: boolean }) => {
+            if (!canView) return;
 
-        try {
-            setLoading(true);
-            setError(null);
+            try {
+                setLoading(true);
+                setError(null);
 
-            const p = opts?.keepPage ? page : 1;
+                const p = opts?.keepPage ? page : 1;
 
-            const q = {
-                page: p,
-                per_page: perPage,
-                sample_id: sampleId ? Number(sampleId) : undefined,
-                sample_test_id: sampleTestId ? Number(sampleTestId) : undefined,
-                staff_id: staffId ? Number(staffId) : undefined,
-                action: action ? action : undefined,
-            };
+                const q = {
+                    page: p,
+                    per_page: perPage,
+                    sample_id: sampleId ? Number(sampleId) : undefined,
+                    sample_test_id: sampleTestId ? Number(sampleTestId) : undefined,
+                    staff_id: staffId ? Number(staffId) : undefined,
+                    action: action ? action : undefined,
+                };
 
-            const data = await fetchAuditLogs(q);
-            setPager(data);
+                const data = await fetchAuditLogs(q);
+                setPager(data);
 
-            if (!opts?.keepPage) setPage(1);
-        } catch (err: any) {
-            const msg =
-                err?.response?.data?.message ??
-                err?.data?.message ??
-                err?.message ??
-                "Failed to load audit logs.";
-            setError(msg);
-        } finally {
-            setLoading(false);
-        }
-    };
+                if (!opts?.keepPage) setPage(1);
+            } catch (err: any) {
+                const msg =
+                    err?.response?.data?.message ??
+                    err?.data?.message ??
+                    err?.message ??
+                    t("audit.logs.errors.loadFailed");
+                setError(msg);
+            } finally {
+                setLoading(false);
+            }
+        },
+        [canView, page, perPage, sampleId, sampleTestId, staffId, action, t]
+    );
 
     useEffect(() => {
         if (!canView) return;
@@ -96,13 +101,18 @@ export const AuditLogsPage = () => {
 
     if (!canView) {
         return (
-            <div className="min-h-[60vh] flex flex-col items-center justify-center">
-                <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
-                <p className="text-sm text-gray-600">
-                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access audit logs.
+            <div className="min-h-[60vh] flex flex-col items-center justify-center text-center px-4">
+                <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-red-50 border border-red-100">
+                    <ShieldAlert className="text-red-700" />
+                </div>
+                <h1 className="text-2xl font-semibold text-primary mt-3 mb-2">
+                    {t("audit.logs.forbiddenTitle")}
+                </h1>
+                <p className="text-sm text-gray-600 max-w-xl">
+                    {t("audit.logs.forbiddenBody", { role: roleLabel })}
                 </p>
                 <Link to="/" className="mt-4 lims-btn-primary">
-                    Back to dashboard
+                    {t("audit.logs.backToDashboard")}
                 </Link>
             </div>
         );
@@ -112,69 +122,79 @@ export const AuditLogsPage = () => {
         <div className="min-h-[60vh] space-y-4">
             <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">Audit Logs</h1>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("audit.logs.title")}</h1>
                     <div className="text-xs text-gray-500 mt-1">
-                        {loading ? "Loading..." : `${total} log(s)`}
+                        {loading ? t("loading") : t("audit.logs.count", { count: total })}
                     </div>
+                    <div className="text-[11px] text-gray-500 mt-1">{t("audit.logs.subtitle")}</div>
                 </div>
 
                 <div className="flex items-center gap-2">
                     <button
-                        className="lims-btn"
+                        className={cx("lims-btn inline-flex items-center gap-2", loading && "opacity-60 cursor-not-allowed")}
                         type="button"
                         onClick={() => load({ keepPage: true })}
                         disabled={loading}
                     >
-                        Refresh
+                        <RefreshCw size={16} />
+                        {t("refresh")}
                     </button>
                 </div>
             </div>
 
             {/* Filters */}
             <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-[0_4px_14px_rgba(15,23,42,0.04)]">
+                <div className="flex items-center gap-2 mb-3 text-sm font-semibold text-gray-900">
+                    <Filter size={16} />
+                    {t("audit.logs.filters.title")}
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
                     <div className="md:col-span-1">
-                        <div className="text-xs text-gray-500 mb-1">sample_id</div>
+                        <div className="text-xs text-gray-500 mb-1">{t("audit.logs.filters.sampleId")}</div>
                         <input
                             className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm"
-                            placeholder="e.g. 35"
+                            placeholder={t("audit.logs.filters.sampleIdPlaceholder")}
                             value={sampleId}
                             onChange={(e) => setSampleId(e.target.value)}
+                            inputMode="numeric"
                         />
                     </div>
 
                     <div className="md:col-span-1">
-                        <div className="text-xs text-gray-500 mb-1">sample_test_id</div>
+                        <div className="text-xs text-gray-500 mb-1">{t("audit.logs.filters.sampleTestId")}</div>
                         <input
                             className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm"
-                            placeholder="e.g. 22"
+                            placeholder={t("audit.logs.filters.sampleTestIdPlaceholder")}
                             value={sampleTestId}
                             onChange={(e) => setSampleTestId(e.target.value)}
+                            inputMode="numeric"
                         />
                     </div>
 
                     <div className="md:col-span-1">
-                        <div className="text-xs text-gray-500 mb-1">staff_id</div>
+                        <div className="text-xs text-gray-500 mb-1">{t("audit.logs.filters.staffId")}</div>
                         <input
                             className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm"
-                            placeholder="e.g. 4"
+                            placeholder={t("audit.logs.filters.staffIdPlaceholder")}
                             value={staffId}
                             onChange={(e) => setStaffId(e.target.value)}
+                            inputMode="numeric"
                         />
                     </div>
 
                     <div className="md:col-span-2">
-                        <div className="text-xs text-gray-500 mb-1">action</div>
+                        <div className="text-xs text-gray-500 mb-1">{t("audit.logs.filters.action")}</div>
                         <input
                             className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm"
-                            placeholder='e.g. SAMPLE_TEST_OM_VERIFIED'
+                            placeholder={t("audit.logs.filters.actionPlaceholder")}
                             value={action}
                             onChange={(e) => setAction(e.target.value)}
                         />
                     </div>
 
                     <div className="md:col-span-1">
-                        <div className="text-xs text-gray-500 mb-1">per_page</div>
+                        <div className="text-xs text-gray-500 mb-1">{t("audit.logs.filters.perPage")}</div>
                         <select
                             className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm"
                             value={perPage}
@@ -190,16 +210,16 @@ export const AuditLogsPage = () => {
 
                 <div className="flex items-center gap-2 mt-3 flex-wrap">
                     <button
-                        className="lims-btn-primary"
+                        className={cx("lims-btn-primary", loading && "opacity-60 cursor-not-allowed")}
                         type="button"
                         onClick={() => load({ keepPage: false })}
                         disabled={loading}
                     >
-                        Apply filters
+                        {t("applyFilters")}
                     </button>
 
                     <button
-                        className="lims-btn"
+                        className={cx("lims-btn inline-flex items-center gap-2", loading && "opacity-60 cursor-not-allowed")}
                         type="button"
                         onClick={() => {
                             setSampleId("");
@@ -211,12 +231,11 @@ export const AuditLogsPage = () => {
                         }}
                         disabled={loading}
                     >
-                        Clear
+                        <XCircle size={16} />
+                        {t("clearFilters")}
                     </button>
 
-                    <div className="text-xs text-gray-500">
-                        Tip: isi salah satu filter untuk memperkecil hasil.
-                    </div>
+                    <div className="text-xs text-gray-500">{t("audit.logs.filters.hint")}</div>
                 </div>
             </div>
 
@@ -229,10 +248,12 @@ export const AuditLogsPage = () => {
             {/* Table */}
             <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
                 <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
-                    <div className="text-sm font-semibold text-gray-900">Logs</div>
+                    <div className="text-sm font-semibold text-gray-900">{t("audit.logs.table.title")}</div>
                     <div className="text-xs text-gray-500">
-                        Page <span className="font-semibold">{pager?.current_page ?? page}</span>{" "}
-                        / <span className="font-semibold">{lastPage}</span>
+                        {t("audit.logs.table.pageOf", {
+                            page: pager?.current_page ?? page,
+                            totalPages: lastPage,
+                        })}
                     </div>
                 </div>
 
@@ -240,21 +261,21 @@ export const AuditLogsPage = () => {
                     <table className="min-w-[1100px] w-full text-sm">
                         <thead className="bg-white sticky top-0 z-10">
                             <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
-                                <th className="px-4 py-3">Time</th>
-                                <th className="px-4 py-3">Action</th>
-                                <th className="px-4 py-3">Entity</th>
-                                <th className="px-4 py-3">Staff</th>
-                                <th className="px-4 py-3">IP</th>
-                                <th className="px-4 py-3">Old</th>
-                                <th className="px-4 py-3">New</th>
+                                <th className="px-4 py-3">{t("audit.logs.table.time")}</th>
+                                <th className="px-4 py-3">{t("audit.logs.table.action")}</th>
+                                <th className="px-4 py-3">{t("audit.logs.table.entity")}</th>
+                                <th className="px-4 py-3">{t("audit.logs.table.staff")}</th>
+                                <th className="px-4 py-3">{t("audit.logs.table.ip")}</th>
+                                <th className="px-4 py-3">{t("audit.logs.table.old")}</th>
+                                <th className="px-4 py-3">{t("audit.logs.table.new")}</th>
                             </tr>
                         </thead>
 
                         <tbody>
                             {!loading && items.length === 0 && (
                                 <tr>
-                                    <td className="px-4 py-6 text-sm text-gray-600" colSpan={7}>
-                                        No audit logs found.
+                                    <td className="px-4 py-10 text-sm text-gray-600" colSpan={7}>
+                                        {t("audit.logs.table.empty")}
                                     </td>
                                 </tr>
                             )}
@@ -266,9 +287,7 @@ export const AuditLogsPage = () => {
                                 >
                                     <td className="px-4 py-4 text-xs text-gray-600 whitespace-nowrap">
                                         {formatDateTimeLocal(r.timestamp)}
-                                        <div className="text-[10px] text-gray-400 mt-0.5 font-mono">
-                                            #{r.log_id}
-                                        </div>
+                                        <div className="text-[10px] text-gray-400 mt-0.5 font-mono">#{r.log_id}</div>
                                     </td>
 
                                     <td className="px-4 py-4">
@@ -277,23 +296,17 @@ export const AuditLogsPage = () => {
 
                                     <td className="px-4 py-4 text-gray-700">
                                         <div className="font-medium">{r.entity_name ?? "-"}</div>
-                                        <div className="text-xs text-gray-500 font-mono">
-                                            id={r.entity_id ?? "-"}
-                                        </div>
+                                        <div className="text-xs text-gray-500 font-mono">id={r.entity_id ?? "-"}</div>
                                     </td>
 
-                                    <td className="px-4 py-4 text-gray-700 font-mono">
-                                        {r.staff_id ?? "-"}
-                                    </td>
+                                    <td className="px-4 py-4 text-gray-700 font-mono">{r.staff_id ?? "-"}</td>
 
-                                    <td className="px-4 py-4 text-gray-700 font-mono">
-                                        {r.ip_address ?? "-"}
-                                    </td>
+                                    <td className="px-4 py-4 text-gray-700 font-mono">{r.ip_address ?? "-"}</td>
 
                                     <td className="px-4 py-4">
                                         <details className="group">
                                             <summary className="cursor-pointer text-xs font-semibold text-gray-600 hover:text-primary">
-                                                View
+                                                {t("view")}
                                             </summary>
                                             <pre className="mt-2 text-[11px] bg-gray-50 border border-gray-100 rounded-xl p-2 max-w-[420px] overflow-auto">
                                                 {safeJson(r.old_values)}
@@ -304,7 +317,7 @@ export const AuditLogsPage = () => {
                                     <td className="px-4 py-4">
                                         <details className="group">
                                             <summary className="cursor-pointer text-xs font-semibold text-gray-600 hover:text-primary">
-                                                View
+                                                {t("view")}
                                             </summary>
                                             <pre className="mt-2 text-[11px] bg-gray-50 border border-gray-100 rounded-xl p-2 max-w-[420px] overflow-auto">
                                                 {safeJson(r.new_values)}
@@ -325,14 +338,13 @@ export const AuditLogsPage = () => {
                         disabled={page <= 1 || loading}
                         onClick={() => setPage((p) => Math.max(1, p - 1))}
                     >
-                        Prev
+                        {t("prev")}
                     </button>
 
                     <div className="text-xs text-gray-500">
-                        Page <span className="font-semibold text-gray-700">{page}</span> /{" "}
-                        <span className="font-semibold text-gray-700">{lastPage}</span>
+                        {t("audit.logs.pagination.pageOf", { page, totalPages: lastPage })}{" "}
                         <span className="mx-2">•</span>
-                        Total <span className="font-semibold text-gray-700">{total}</span>
+                        {t("audit.logs.pagination.total", { total })}
                     </div>
 
                     <button
@@ -341,7 +353,7 @@ export const AuditLogsPage = () => {
                         disabled={page >= lastPage || loading}
                         onClick={() => setPage((p) => p + 1)}
                     >
-                        Next
+                        {t("next")}
                     </button>
                 </div>
             </div>

@@ -1,7 +1,19 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\SampleTestingKanbanTab.tsx
-import { useEffect, useMemo, useState } from "react";
-import { RefreshCw, ChevronRight, Play, Square, Plus, Pencil, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+    CheckCircle2,
+    ChevronRight,
+    Lock,
+    Pencil,
+    Play,
+    Plus,
+    RefreshCw,
+    Square,
+    Trash2,
+} from "lucide-react";
+import { useTranslation } from "react-i18next";
+
 import { getErrorMessage } from "../../utils/errors";
+import { formatDateTimeLocal } from "../../utils/date";
 import {
     fetchTestingBoard,
     moveTestingCard,
@@ -18,13 +30,6 @@ import { DeleteKanbanColumnModal } from "./DeleteKanbanColumnModal";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
-}
-
-function fmt(x?: string | null) {
-    if (!x) return "—";
-    const d = new Date(x);
-    if (Number.isNaN(d.getTime())) return String(x);
-    return d.toLocaleString();
 }
 
 type Props = {
@@ -155,6 +160,8 @@ function buildTimelineFromBackend(res: any): Record<number, StageStamp> {
 }
 
 export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocked }: Props) => {
+    const { t, i18n } = useTranslation();
+
     const [group, setGroup] = useState<string>(() => deriveGroupFromBackend(sample));
 
     const [loading, setLoading] = useState(false);
@@ -170,45 +177,53 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
     const [timeline, setTimeline] = useState<Record<number, StageStamp>>({});
     const [lastColumnId, setLastColumnId] = useState<number | null>(null);
 
-    // ✅ Rename Modal State
+    // Rename Modal State
     const [renameOpen, setRenameOpen] = useState(false);
     const [renameTarget, setRenameTarget] = useState<TestingBoardColumn | null>(null);
     const [renameSaving, setRenameSaving] = useState(false);
     const [renameError, setRenameError] = useState<string | null>(null);
 
-    // ✅ Add Modal State
+    // Add Modal State
     const [addOpen, setAddOpen] = useState(false);
     const [addSide, setAddSide] = useState<"left" | "right">("right");
     const [addRelative, setAddRelative] = useState<TestingBoardColumn | null>(null);
     const [addSaving, setAddSaving] = useState(false);
     const [addError, setAddError] = useState<string | null>(null);
 
-    // ✅ Delete Modal State
+    // Delete Modal State
     const [delOpen, setDelOpen] = useState(false);
     const [delTarget, setDelTarget] = useState<TestingBoardColumn | null>(null);
     const [delSaving, setDelSaving] = useState(false);
     const [delError, setDelError] = useState<string | null>(null);
 
-    // ✅ workflow group should come from backend sample.workflow_group
+    // workflow group should come from backend sample.workflow_group
     useEffect(() => {
         const next = deriveGroupFromBackend(sample);
         setGroup(next);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sampleId, sample?.workflow_group, sample?.workflowGroup]);
+    }, [sampleId, sample?.workflow_group, sample?.workflowGroup, sample?.workflow_group_name]);
 
     useEffect(() => {
         if (!sampleId || Number.isNaN(sampleId)) return;
         setTimeline(readTimeline(sampleId));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sampleId]);
 
     useEffect(() => {
         if (!sampleId || Number.isNaN(sampleId)) return;
         writeTimeline(sampleId, timeline);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [timeline, sampleId]);
 
-    const load = async () => {
+    const fmt = useCallback(
+        (x?: string | null) => {
+            if (!x) return t("samples.kanbanTab.timestamp.none");
+            return formatDateTimeLocal(x);
+        },
+        // ensure re-render when language changes
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [i18n.resolvedLanguage, i18n.language]
+    );
+
+    const load = useCallback(async () => {
         if (!sampleId || Number.isNaN(sampleId)) return;
 
         try {
@@ -251,18 +266,17 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                 );
             }
         } catch (e: any) {
-            setError(getErrorMessage(e, "Failed to load testing board."));
+            setError(getErrorMessage(e, t("samples.kanbanTab.errors.loadFailed")));
             setColumns([]);
             setCards([]);
         } finally {
             setLoading(false);
         }
-    };
+    }, [group, sampleId, t]);
 
     useEffect(() => {
         load();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [group, sampleId]);
+    }, [load]);
 
     const sortedCols = useMemo(() => [...columns].sort((a, b) => a.position - b.position), [columns]);
     const firstCol = sortedCols[0];
@@ -284,8 +298,8 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
     const alreadyStarted = !!myCard?.column_id;
 
-    const headerTitle = sample?.lab_sample_code || "—";
-    const headerSub = sample?.sample_type || "—";
+    const headerCode = sample?.lab_sample_code || "—";
+    const headerType = sample?.sample_type || "—";
 
     const isAtLastColumn = useMemo(() => {
         if (!alreadyStarted) return false;
@@ -302,7 +316,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
         return !!(exited || exited2);
     }, [isAtLastColumn, myCard, timeline]);
 
-    // ✅ DONE detector: prefer backend done flags, fallback to kanban computed
+    // DONE detector: prefer backend done flags, fallback to kanban computed
     const isSampleDone = useMemo(() => {
         const hardDoneFlags = [
             (sample as any)?.testing_completed_at,
@@ -323,6 +337,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
         const nowIso = new Date().toISOString();
         const fromColId = myCard?.column_id ? Number(myCard.column_id) : null;
 
+        // optimistic timeline
         setTimeline((prev) => {
             const patch: any = {};
             if (fromColId) patch[fromColId] = { exited_at: nowIso };
@@ -330,6 +345,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             return mergeTimeline(prev, patch);
         });
 
+        // optimistic card
         setCards((prev) => {
             const arr = Array.isArray(prev) ? prev : [];
             const hasMine = arr.some((c) => Number(c.sample_id) === Number(sampleId));
@@ -380,7 +396,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
             await load();
         } catch (e: any) {
-            setError(getErrorMessage(e, "Move failed."));
+            setError(getErrorMessage(e, t("samples.kanbanTab.errors.moveFailed")));
             await load();
         } finally {
             setBusyMove(false);
@@ -425,19 +441,17 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             await load();
             onQualityCoverUnlocked?.();
         } catch (e: any) {
-            setError(getErrorMessage(e, "End failed."));
+            setError(getErrorMessage(e, t("samples.kanbanTab.errors.finishFailed")));
             await load();
         } finally {
             setBusyMove(false);
         }
     };
 
-    // --------------------
-    // ✅ Column CRUD (synced only) + LOCK when sample DONE
-    // --------------------
+    // Column CRUD (synced only) + LOCK when sample DONE
     const canEditColumns =
         mode === "synced" &&
-        !isSampleDone && // ✅ NEW: if done, no column CRUD
+        !isSampleDone &&
         !loading &&
         !busyMove &&
         !busyCols &&
@@ -470,7 +484,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             setAddRelative(null);
             await load();
         } catch (e: any) {
-            setAddError(getErrorMessage(e, "Failed to add column."));
+            setAddError(getErrorMessage(e, t("samples.kanbanTab.errors.addColumnFailed")));
         } finally {
             setAddSaving(false);
         }
@@ -495,7 +509,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             setRenameTarget(null);
             await load();
         } catch (e: any) {
-            setRenameError(getErrorMessage(e, "Failed to rename column."));
+            setRenameError(getErrorMessage(e, t("samples.kanbanTab.errors.renameColumnFailed")));
         } finally {
             setRenameSaving(false);
         }
@@ -520,24 +534,35 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             setDelTarget(null);
             await load();
         } catch (e: any) {
-            setDelError(getErrorMessage(e, "Failed to delete column."));
+            setDelError(getErrorMessage(e, t("samples.kanbanTab.errors.deleteColumnFailed")));
         } finally {
             setDelSaving(false);
         }
     }
 
-    const actionButton = (() => {
+    const primaryAction = (() => {
+        if (isSampleDone) {
+            return (
+                <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold border border-emerald-200 bg-emerald-50 text-emerald-700">
+                    <CheckCircle2 size={16} />
+                    {t("samples.kanbanTab.actions.done")}
+                </span>
+            );
+        }
+
         if (!alreadyStarted) {
             return (
                 <button
                     type="button"
-                    className={cx("lims-icon-button", (!firstCol || busyMove) && "opacity-50 cursor-not-allowed")}
+                    className={cx(
+                        "lims-btn-primary inline-flex items-center gap-2",
+                        (!firstCol || busyMove) && "opacity-60 cursor-not-allowed"
+                    )}
                     disabled={!firstCol || busyMove}
                     onClick={() => firstCol && doMove(firstCol.column_id)}
-                    aria-label="Start"
-                    title="Start"
                 >
                     <Play size={16} />
+                    {t("samples.kanbanTab.actions.start")}
                 </button>
             );
         }
@@ -546,13 +571,12 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             return (
                 <button
                     type="button"
-                    className={cx("lims-icon-button", busyMove && "opacity-50 cursor-not-allowed")}
+                    className={cx("lims-btn-primary inline-flex items-center gap-2", busyMove && "opacity-60 cursor-not-allowed")}
                     disabled={busyMove}
                     onClick={() => doMove(nextCol.column_id)}
-                    aria-label="Next"
-                    title="Next"
                 >
                     <ChevronRight size={16} />
+                    {t("samples.kanbanTab.actions.next")}
                 </button>
             );
         }
@@ -561,67 +585,100 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             return (
                 <button
                     type="button"
-                    className={cx("lims-icon-button", busyMove && "opacity-50 cursor-not-allowed")}
+                    className={cx("lims-btn-primary inline-flex items-center gap-2", busyMove && "opacity-60 cursor-not-allowed")}
                     disabled={busyMove}
                     onClick={doFinalizeLastStage}
-                    aria-label="End"
-                    title="End"
                 >
                     <Square size={16} />
+                    {t("samples.kanbanTab.actions.finish")}
                 </button>
             );
         }
 
         return (
             <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold border border-emerald-200 bg-emerald-50 text-emerald-700">
-                done
+                <CheckCircle2 size={16} />
+                {t("samples.kanbanTab.actions.done")}
             </span>
         );
     })();
+
+    const badgeModeClass =
+        mode === "synced"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            : "border-amber-200 bg-amber-50 text-amber-800";
+
+    const showBusy = loading || busyMove || busyCols || renameSaving || addSaving || delSaving;
 
     return (
         <div className="space-y-4">
             <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
                 <div className="px-4 py-4 border-b border-gray-100 flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0">
-                        <div className="text-sm font-extrabold text-gray-900 truncate">{headerTitle}</div>
-                        <div className="text-xs text-gray-600 mt-1 truncate">{headerSub}</div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <h2 className="text-sm md:text-base font-extrabold text-gray-900">
+                                {t("samples.kanbanTab.title")}
+                            </h2>
+
+                            {isSampleDone && (
+                                <span className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold border border-gray-200 bg-gray-50 text-gray-700">
+                                    <Lock size={14} />
+                                    {t("samples.kanbanTab.badges.locked")}
+                                </span>
+                            )}
+                        </div>
+
+                        <div className="mt-2 flex items-center gap-2 flex-wrap">
+                            <span className="inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold border border-gray-200 bg-gray-50 text-gray-700">
+                                <span className="font-semibold">{t("samples.kanbanTab.header.labCode")}:</span>
+                                <span className="ml-1 font-mono">{headerCode}</span>
+                            </span>
+
+                            <span className="inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold border border-gray-200 bg-gray-50 text-gray-700">
+                                <span className="font-semibold">{t("samples.kanbanTab.header.sampleType")}:</span>
+                                <span className="ml-1">{headerType}</span>
+                            </span>
+                        </div>
 
                         <div className="mt-2 text-[11px] text-gray-500 flex items-center gap-2 flex-wrap">
                             <span
-                                className={cx(
-                                    "inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold border",
-                                    mode === "synced"
-                                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                        : "border-amber-200 bg-amber-50 text-amber-800"
-                                )}
-                                title={mode === "synced" ? "Board data comes from server" : "Board uses local fallback"}
+                                className={cx("inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold border", badgeModeClass)}
+                                title={mode === "synced" ? t("samples.kanbanTab.tooltips.synced") : t("samples.kanbanTab.tooltips.local")}
                             >
-                                {mode === "synced" ? "synced" : "local"}
+                                {mode === "synced" ? t("samples.kanbanTab.badges.synced") : t("samples.kanbanTab.badges.local")}
                             </span>
 
                             <span
                                 className="inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold border border-gray-200 bg-gray-50 text-gray-700"
-                                title="Workflow group (from backend)"
+                                title={t("samples.kanbanTab.tooltips.group")}
                             >
                                 {group || "default"}
                             </span>
+
+                            {alreadyStarted && sortedCols.length > 0 && (
+                                <span className="inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold border border-gray-200 bg-gray-50 text-gray-700">
+                                    {t("samples.kanbanTab.progress", {
+                                        current: Math.max(1, currentColIndex + 1),
+                                        total: sortedCols.length,
+                                    })}
+                                </span>
+                            )}
                         </div>
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
                         <button
                             type="button"
-                            className="lims-icon-button"
+                            className={cx("lims-icon-button", showBusy && "opacity-60 cursor-not-allowed")}
                             onClick={load}
-                            disabled={loading || busyMove || busyCols || renameSaving || addSaving || delSaving}
-                            aria-label="Refresh"
-                            title="Refresh"
+                            disabled={showBusy}
+                            aria-label={t("refresh")}
+                            title={t("refresh")}
                         >
                             <RefreshCw size={16} />
                         </button>
 
-                        {actionButton}
+                        {primaryAction}
                     </div>
                 </div>
 
@@ -634,113 +691,170 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                 )}
 
                 <div className="px-4 py-4">
-                    <div className="overflow-x-auto">
-                        <div className="min-w-[980px] grid grid-flow-col auto-cols-[320px] gap-4 pb-2">
-                            {sortedCols.map((col) => {
-                                const isHere = alreadyStarted && Number(myCard?.column_id) === Number(col.column_id);
-                                const idx = sortedCols.findIndex((c) => Number(c.column_id) === Number(col.column_id));
-                                const isDone = alreadyStarted && currentColIndex >= 0 && idx < currentColIndex;
+                    {loading && sortedCols.length === 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            {[0, 1, 2].map((k) => (
+                                <div key={k} className="rounded-2xl border border-gray-200 bg-white overflow-hidden animate-pulse">
+                                    <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
+                                        <div className="h-4 w-1/2 bg-gray-200 rounded" />
+                                        <div className="h-3 w-1/3 bg-gray-200 rounded mt-2" />
+                                    </div>
+                                    <div className="px-4 py-4">
+                                        <div className="h-20 bg-gray-100 rounded-xl" />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <>
+                            <div className="overflow-x-auto">
+                                <div className="min-w-[980px] grid grid-flow-col auto-cols-[320px] gap-4 pb-2">
+                                    {sortedCols.map((col) => {
+                                        const isHere = alreadyStarted && Number(myCard?.column_id) === Number(col.column_id);
+                                        const idx = sortedCols.findIndex((c) => Number(c.column_id) === Number(col.column_id));
+                                        const isDone = alreadyStarted && currentColIndex >= 0 && idx < currentColIndex;
 
-                                const stamp = timeline?.[Number(col.column_id)] ?? null;
-                                const enteredAt =
-                                    stamp?.entered_at ?? (isHere ? (myCard as any)?.entered_at ?? null : null);
-                                const exitedAt =
-                                    stamp?.exited_at ?? (isHere ? (myCard as any)?.exited_at ?? null : null);
+                                        const stamp = timeline?.[Number(col.column_id)] ?? null;
+                                        const enteredAt = stamp?.entered_at ?? (isHere ? (myCard as any)?.entered_at ?? null : null);
+                                        const exitedAt = stamp?.exited_at ?? (isHere ? (myCard as any)?.exited_at ?? null : null);
+                                        const hasAnyStamp = !!enteredAt || !!exitedAt;
 
-                                const hasAnyStamp = !!enteredAt || !!exitedAt;
+                                        const statusKey = isHere ? "current" : isDone ? "done" : "pending";
+                                        const statusText = t(`samples.kanbanTab.column.status.${statusKey}`);
 
-                                return (
-                                    <div
-                                        key={col.column_id}
-                                        className={cx(
-                                            "rounded-2xl border bg-white overflow-hidden",
-                                            isHere ? "border-primary ring-2 ring-primary-soft" : "border-gray-200"
-                                        )}
-                                    >
-                                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-start justify-between gap-2">
-                                            <div className="min-w-0">
-                                                <div className="text-sm font-extrabold text-gray-900 truncate">{col.name}</div>
-                                                <div className="text-xs text-gray-500 mt-0.5">
-                                                    {isHere ? "current" : isDone ? "done" : "pending"}
-                                                </div>
-                                            </div>
-
-                                            {/* ✅ Column actions */}
-                                            <div className="flex items-center gap-1">
-                                                <button
-                                                    type="button"
-                                                    className={cx("lims-icon-button", !canEditColumns && "opacity-40 cursor-not-allowed")}
-                                                    disabled={!canEditColumns}
-                                                    title={isSampleDone ? "Locked (sample done)" : "Add column left"}
-                                                    onClick={() => openAdd("left", col)}
-                                                >
-                                                    <Plus size={16} />
-                                                </button>
-
-                                                <button
-                                                    type="button"
-                                                    className={cx("lims-icon-button", !canEditColumns && "opacity-40 cursor-not-allowed")}
-                                                    disabled={!canEditColumns}
-                                                    title={isSampleDone ? "Locked (sample done)" : "Rename column"}
-                                                    onClick={() => openRename(col)}
-                                                >
-                                                    <Pencil size={16} />
-                                                </button>
-
-                                                <button
-                                                    type="button"
-                                                    className={cx("lims-icon-button", !canEditColumns && "opacity-40 cursor-not-allowed")}
-                                                    disabled={!canEditColumns}
-                                                    title={isSampleDone ? "Locked (sample done)" : "Delete column"}
-                                                    onClick={() => openDelete(col)}
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-
-                                                <button
-                                                    type="button"
-                                                    className={cx("lims-icon-button", !canEditColumns && "opacity-40 cursor-not-allowed")}
-                                                    disabled={!canEditColumns}
-                                                    title={isSampleDone ? "Locked (sample done)" : "Add column right"}
-                                                    onClick={() => openAdd("right", col)}
-                                                >
-                                                    <Plus size={16} className="rotate-180" />
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <div className="px-3 py-3 min-h-[210px]">
-                                            {hasAnyStamp || isHere ? (
-                                                <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
-                                                    <div className="text-xs font-semibold text-gray-900">{headerTitle}</div>
-                                                    <div className="text-[11px] text-gray-500 mt-1">{headerSub}</div>
-
-                                                    <div className="mt-2 grid grid-cols-1 gap-1 text-[11px] text-gray-700">
-                                                        <div>
-                                                            <span className="font-semibold">entered:</span> {fmt(enteredAt)}
-                                                        </div>
-                                                        <div>
-                                                            <span className="font-semibold">exited:</span> {fmt(exitedAt)}
+                                        return (
+                                            <div
+                                                key={col.column_id}
+                                                className={cx(
+                                                    "group rounded-2xl border bg-white overflow-hidden",
+                                                    isHere ? "border-primary ring-2 ring-primary-soft" : "border-gray-200"
+                                                )}
+                                            >
+                                                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-start justify-between gap-2">
+                                                    <div className="min-w-0">
+                                                        <div className="text-sm font-extrabold text-gray-900 truncate">{col.name}</div>
+                                                        <div className="text-xs text-gray-500 mt-0.5">
+                                                            <span className={cx("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold border",
+                                                                statusKey === "current"
+                                                                    ? "border-blue-200 bg-blue-50 text-blue-700"
+                                                                    : statusKey === "done"
+                                                                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                                                        : "border-gray-200 bg-white text-gray-700"
+                                                            )}>
+                                                                {statusText}
+                                                            </span>
                                                         </div>
                                                     </div>
-                                                </div>
-                                            ) : (
-                                                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-sm text-gray-500">
-                                                    —
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
 
-                    {sortedCols.length === 0 && !loading && <div className="text-sm text-gray-600">No columns.</div>}
+                                                    {/* Column actions (synced only) */}
+                                                    <div
+                                                        className={cx(
+                                                            "flex items-center gap-1",
+                                                            canEditColumns ? "opacity-100" : "opacity-50",
+                                                            // reduce visual noise: show on hover for desktop
+                                                            "md:opacity-0 md:group-hover:opacity-100 md:transition-opacity"
+                                                        )}
+                                                    >
+                                                        <button
+                                                            type="button"
+                                                            className={cx("lims-icon-button", !canEditColumns && "cursor-not-allowed")}
+                                                            disabled={!canEditColumns}
+                                                            title={
+                                                                isSampleDone
+                                                                    ? t("samples.kanbanTab.columnActions.locked")
+                                                                    : t("samples.kanbanTab.columnActions.addBefore")
+                                                            }
+                                                            aria-label={t("samples.kanbanTab.columnActions.addBefore")}
+                                                            onClick={() => openAdd("left", col)}
+                                                        >
+                                                            <Plus size={16} />
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            className={cx("lims-icon-button", !canEditColumns && "cursor-not-allowed")}
+                                                            disabled={!canEditColumns}
+                                                            title={
+                                                                isSampleDone
+                                                                    ? t("samples.kanbanTab.columnActions.locked")
+                                                                    : t("samples.kanbanTab.columnActions.rename")
+                                                            }
+                                                            aria-label={t("samples.kanbanTab.columnActions.rename")}
+                                                            onClick={() => openRename(col)}
+                                                        >
+                                                            <Pencil size={16} />
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            className={cx("lims-icon-button", !canEditColumns && "cursor-not-allowed")}
+                                                            disabled={!canEditColumns}
+                                                            title={
+                                                                isSampleDone
+                                                                    ? t("samples.kanbanTab.columnActions.locked")
+                                                                    : t("samples.kanbanTab.columnActions.delete")
+                                                            }
+                                                            aria-label={t("samples.kanbanTab.columnActions.delete")}
+                                                            onClick={() => openDelete(col)}
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            className={cx("lims-icon-button", !canEditColumns && "cursor-not-allowed")}
+                                                            disabled={!canEditColumns}
+                                                            title={
+                                                                isSampleDone
+                                                                    ? t("samples.kanbanTab.columnActions.locked")
+                                                                    : t("samples.kanbanTab.columnActions.addAfter")
+                                                            }
+                                                            aria-label={t("samples.kanbanTab.columnActions.addAfter")}
+                                                            onClick={() => openAdd("right", col)}
+                                                        >
+                                                            <Plus size={16} className="rotate-180" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                <div className="px-3 py-3 min-h-[210px]">
+                                                    {hasAnyStamp || isHere ? (
+                                                        <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
+                                                            <div className="text-xs font-semibold text-gray-900">{headerCode}</div>
+                                                            <div className="text-[11px] text-gray-500 mt-1">{headerType}</div>
+
+                                                            <div className="mt-3 grid grid-cols-1 gap-1 text-[11px] text-gray-700">
+                                                                <div>
+                                                                    <span className="font-semibold">{t("samples.kanbanTab.column.entered")}:</span>{" "}
+                                                                    {fmt(enteredAt)}
+                                                                </div>
+                                                                <div>
+                                                                    <span className="font-semibold">{t("samples.kanbanTab.column.exited")}:</span>{" "}
+                                                                    {fmt(exitedAt)}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-sm text-gray-500">
+                                                            {t("samples.kanbanTab.column.empty")}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {sortedCols.length === 0 && !loading && (
+                                <div className="text-sm text-gray-600">{t("samples.kanbanTab.empty.noColumns")}</div>
+                            )}
+                        </>
+                    )}
                 </div>
             </div>
 
-            {/* ✅ Add modal */}
+            {/* Add modal */}
             <AddKanbanColumnModal
                 open={addOpen}
                 side={addSide}
@@ -756,11 +870,15 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                 onSubmit={submitAdd}
             />
 
-            {/* ✅ Rename modal */}
+            {/* Rename modal */}
             <RenameKanbanColumnModal
                 open={renameOpen}
                 currentName={renameTarget?.name ?? ""}
-                title={renameTarget ? `Rename “${renameTarget.name}”` : "Rename column"}
+                title={
+                    renameTarget
+                        ? t("samples.kanbanTab.renameModal.titleNamed", { name: renameTarget.name })
+                        : t("samples.kanbanTab.renameModal.title")
+                }
                 loading={renameSaving}
                 error={renameError}
                 onClose={() => {
@@ -772,7 +890,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                 onSubmit={submitRename}
             />
 
-            {/* ✅ Delete modal */}
+            {/* Delete modal */}
             <DeleteKanbanColumnModal
                 open={delOpen}
                 columnName={delTarget?.name ?? ""}

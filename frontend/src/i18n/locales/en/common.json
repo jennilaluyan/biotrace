@@ -9,6 +9,12 @@
     "back": "Back",
     "search": "Search",
     "loading": "Loading…",
+    "refresh": "Refresh",
+    "applyFilters": "Apply filters",
+    "clearFilters": "Clear filters",
+    "prev": "Prev",
+    "next": "Next",
+    "view": "View",
     "yes": "Yes",
     "no": "No",
     "confirm": "Confirm",
@@ -139,6 +145,90 @@
         "rightPanelStaffTitle": "Trace Every Sample",
         "rightPanelPortalSubtitle": "Create a client account and submit sample requests in a structured ISO-aligned workflow.",
         "rightPanelStaffSubtitle": "Create a new user and begin your biomolecular workflow with ISO 17025–aligned records."
+    },
+    "clients": {
+        "list": {
+            "title": "Client management",
+            "subtitle": "View and maintain client records.",
+            "newClient": "New client",
+            "loading": "Loading clients…",
+            "empty": "No clients found.",
+            "emptyFiltered": "No clients match the current filters."
+        },
+        "approvals": {
+            "title": "Client approvals",
+            "subtitle": "Approve or reject newly registered client applications.",
+            "loading": "Loading pending applications…",
+            "empty": "No pending client applications.",
+            "statusPending": "Status: Pending",
+            "approveAction": "Approve",
+            "rejectAction": "Reject"
+        },
+        "filters": {
+            "searchPlaceholder": "Search by name, email, institution…",
+            "typeAll": "All types",
+            "typeIndividual": "Individual",
+            "typeInstitution": "Institution"
+        },
+        "table": {
+            "client": "Client",
+            "name": "Name",
+            "type": "Type",
+            "contact": "Contact",
+            "details": "Details",
+            "institutionOrAddress": "Institution / Address",
+            "actions": "Actions",
+            "pic": "PIC"
+        },
+        "badges": {
+            "individual": "Individual",
+            "institution": "Institution"
+        },
+        "actions": {
+            "view": "View",
+            "edit": "Edit",
+            "delete": "Delete"
+        },
+        "pagination": {
+            "showing": "Showing {{from}}–{{to}} of {{total}} clients",
+            "previous": "Previous",
+            "next": "Next"
+        },
+        "detail": {
+            "breadcrumbClients": "Clients",
+            "breadcrumbCurrent": "Client detail",
+            "loading": "Loading client detail…",
+            "invalidUrl": "Invalid client URL.",
+            "basicTitle": "Basic information",
+            "personalTitle": "Personal profile",
+            "institutionTitle": "Institution information",
+            "labels": {
+                "clientType": "Client type",
+                "clientId": "Client ID",
+                "createdAt": "Created at",
+                "updatedAt": "Last updated",
+                "phone": "Phone",
+                "email": "Email",
+                "address": "Address",
+                "domicile": "Domicile",
+                "ktp": "KTP address",
+                "nationalId": "National ID (NIK)",
+                "dob": "Date of birth",
+                "gender": "Gender",
+                "institutionName": "Institution name",
+                "institutionAddress": "Institution address",
+                "contactPerson": "Contact person",
+                "contactPersonContact": "Contact person phone / email"
+            }
+        },
+        "deleteModal": {
+            "title": "Delete client?",
+            "subtitle": "This removes the client from the active list.",
+            "body": "You are about to remove {{name}} from the active client registry.",
+            "softDeleteNote": "This is a soft delete. Historical samples, reports, and audit logs linked to this client will remain stored to preserve ISO/IEC 17025 traceability.",
+            "confirm": "Delete client",
+            "deleting": "Deleting…"
+        }
     },
     "qualityCover": {
         "decision": {
@@ -361,6 +451,98 @@
                 "addButton": "Add column"
             }
         },
+        "kanbanTab": {
+            "title": "Testing board",
+            "progress": "Stage {{current}} of {{total}}",
+            "badges": {
+                "synced": "Synced",
+                "local": "Local fallback",
+                "locked": "Locked"
+            },
+            "tooltips": {
+                "synced": "Board data comes from the server.",
+                "local": "Board uses local fallback data.",
+                "group": "Workflow group (from backend)"
+            },
+            "header": {
+                "labCode": "Lab code",
+                "sampleType": "Sample type"
+            },
+            "timestamp": {
+                "none": "—"
+            },
+            "actions": {
+                "start": "Start",
+                "next": "Next stage",
+                "finish": "Finish",
+                "done": "Done"
+            },
+            "column": {
+                "status": {
+                    "current": "Current",
+                    "done": "Done",
+                    "pending": "Pending"
+                },
+                "entered": "Entered",
+                "exited": "Exited",
+                "empty": "No activity yet."
+            },
+            "columnActions": {
+                "addBefore": "Add column before",
+                "addAfter": "Add column after",
+                "rename": "Rename column",
+                "delete": "Delete column",
+                "locked": "Locked (sample done)"
+            },
+            "renameModal": {
+                "title": "Rename column",
+                "titleNamed": "Rename “{{name}}”"
+            },
+            "empty": {
+                "noColumns": "No columns yet."
+            },
+            "errors": {
+                "loadFailed": "Failed to load testing board.",
+                "moveFailed": "Failed to move the card.",
+                "finishFailed": "Failed to finish the last stage.",
+                "addColumnFailed": "Failed to add column.",
+                "renameColumnFailed": "Failed to rename column.",
+                "deleteColumnFailed": "Failed to delete column."
+            }
+        },
+        "requestStatusModal": {
+            "title": {
+                "return": "Return request",
+                "approve": "Approve request",
+                "received": "Mark physically received"
+            },
+            "subtitle": {
+                "return": "Send this request back to the client for revision. A note is required.",
+                "approve": "Approve this request and move it to the next step.",
+                "received": "Confirm the sample has been physically received by the lab (admin desk)."
+            },
+            "summary": {
+                "sampleId": "Sample ID",
+                "current": "Current",
+                "next": "Next"
+            },
+            "note": {
+                "labelRequired": "Return reason / note *",
+                "labelOptional": "Note (optional)",
+                "placeholderReturn": "Explain what needs to be revised (required)…",
+                "placeholderApprove": "Optional note for internal record…",
+                "placeholderReceived": "Optional note (e.g. received condition)…",
+                "helpReturn": "A note is required so the client knows what to fix."
+            },
+            "buttons": {
+                "confirmReturn": "Return request",
+                "confirmApprove": "Approve request",
+                "confirmReceived": "Mark received"
+            },
+            "errors": {
+                "updateFailed": "Failed to update request status."
+            }
+        },
         "assignSampleId": {
             "title": "Assign sample ID",
             "subtitle": "Request #{{id}} • {{client}} • {{group}}",
@@ -441,11 +623,55 @@
             "enterBothCodesHint": "Enter the physical label code to compare."
         }
     },
+    "audit": {
+        "logs": {
+            "title": "Audit logs",
+            "subtitle": "A chronological record of actions in the system.",
+            "count": "{{count}} log(s)",
+            "forbiddenTitle": "403 – Access denied",
+            "forbiddenBody": "Your role ({{role}}) is not allowed to access audit logs.",
+            "backToDashboard": "Back to dashboard",
+            "filters": {
+                "title": "Filters",
+                "hint": "Tip: use at least one filter to narrow results.",
+                "sampleId": "sample_id",
+                "sampleTestId": "sample_test_id",
+                "staffId": "staff_id",
+                "action": "action",
+                "perPage": "per_page",
+                "sampleIdPlaceholder": "e.g. 35",
+                "sampleTestIdPlaceholder": "e.g. 22",
+                "staffIdPlaceholder": "e.g. 4",
+                "actionPlaceholder": "e.g. SAMPLE_TEST_OM_VERIFIED"
+            },
+            "table": {
+                "title": "Logs",
+                "pageOf": "Page {{page}} / {{totalPages}}",
+                "time": "Time",
+                "action": "Action",
+                "entity": "Entity",
+                "staff": "Staff",
+                "ip": "IP",
+                "old": "Old",
+                "new": "New",
+                "empty": "No audit logs found."
+            },
+            "pagination": {
+                "pageOf": "Page {{page}} / {{totalPages}}",
+                "total": "Total {{total}}"
+            },
+            "errors": {
+                "loadFailed": "Failed to load audit logs."
+            }
+        }
+    },
     "notFound": {
         "title": "404 – Page not found",
         "message": "The page you are looking for does not exist."
     },
     "errors": {
-        "somethingWentWrong": "Something went wrong."
+        "somethingWentWrong": "Something went wrong.",
+        "forbiddenTitle": "403 – Access denied",
+        "forbiddenBodyRole": "Your role ({{role}}) is not allowed to access this page."
     }
 }

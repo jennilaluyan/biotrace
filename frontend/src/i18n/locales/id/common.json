@@ -9,6 +9,12 @@
     "back": "Kembali",
     "search": "Cari",
     "loading": "Memuat…",
+    "refresh": "Muat ulang",
+    "applyFilters": "Terapkan filter",
+    "clearFilters": "Hapus filter",
+    "prev": "Sebelumnya",
+    "next": "Berikutnya",
+    "view": "Lihat",
     "yes": "Ya",
     "no": "Tidak",
     "confirm": "Konfirmasi",
@@ -139,6 +145,120 @@
         "rightPanelStaffTitle": "Lacak Setiap Sampel",
         "rightPanelPortalSubtitle": "Buat akun klien dan ajukan permintaan sampel dengan alur kerja terstruktur sesuai ISO.",
         "rightPanelStaffSubtitle": "Buat pengguna baru dan mulai alur biomolekuler dengan rekaman selaras ISO 17025."
+    },
+    "clients": {
+        "forbidden": {
+            "title": "403 – Akses ditolak",
+            "bodyClients": "Peran Anda ({{role}}) tidak diizinkan mengakses modul klien.",
+            "bodyApprovals": "Peran Anda ({{role}}) tidak diizinkan menyetujui klien.",
+            "backToClients": "Kembali ke klien"
+        },
+        "list": {
+            "title": "Manajemen klien",
+            "new": "Klien baru",
+            "loading": "Memuat daftar klien…",
+            "searchPlaceholder": "Cari nama, email, institusi…",
+            "filterType": "Tipe klien",
+            "typeAll": "Semua tipe",
+            "typeIndividual": "Individu",
+            "typeInstitution": "Institusi",
+            "empty": "Tidak ada klien yang sesuai dengan filter saat ini.",
+            "table": {
+                "name": "Nama",
+                "type": "Tipe",
+                "contact": "Kontak",
+                "institutionOrAddress": "Institusi / alamat",
+                "actions": "Aksi",
+                "pic": "PIC"
+            },
+            "pagination": {
+                "showing": "Menampilkan {{from}}–{{to}} dari {{total}} klien",
+                "previous": "Sebelumnya",
+                "next": "Berikutnya"
+            },
+            "actions": {
+                "view": "Lihat klien",
+                "edit": "Edit klien",
+                "delete": "Hapus klien"
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat daftar klien.",
+                "createFailed": "Gagal membuat klien.",
+                "updateFailed": "Gagal memperbarui klien.",
+                "deleteFailed": "Gagal menghapus klien."
+            }
+        },
+        "detail": {
+            "title": "Detail klien",
+            "loading": "Memuat detail klien…",
+            "invalidUrl": "URL klien tidak valid.",
+            "basicInfo": "Informasi dasar",
+            "personalProfile": "Profil personal",
+            "institutionInfo": "Informasi institusi",
+            "labels": {
+                "clientType": "Tipe klien",
+                "clientId": "ID Klien",
+                "createdAt": "Dibuat pada",
+                "updatedAt": "Terakhir diperbarui",
+                "phone": "Telepon",
+                "email": "Email",
+                "address": "Alamat",
+                "domicile": "Domisili",
+                "ktp": "Alamat KTP",
+                "nationalId": "NIK",
+                "dob": "Tanggal lahir",
+                "gender": "Jenis kelamin",
+                "institutionName": "Nama institusi",
+                "institutionAddress": "Alamat institusi",
+                "contactPerson": "Narahubung",
+                "contactPersonContact": "Telepon / email narahubung"
+            },
+            "type": {
+                "institutionalClient": "Klien institusi",
+                "individualClient": "Klien individu"
+            }
+        },
+        "deleteModal": {
+            "title": "Hapus klien?",
+            "subtitle": "Ini akan menghapus klien dari daftar aktif.",
+            "body": "Anda akan menghapus {{name}} dari daftar klien aktif.",
+            "hint": "Ini soft delete. Riwayat sampel, laporan, dan log audit yang terhubung akan tetap tersimpan untuk menjaga keterlacakan ISO/IEC 17025.",
+            "cancel": "Batal",
+            "confirm": "Hapus klien",
+            "confirming": "Menghapus…"
+        },
+        "approvals": {
+            "title": "Persetujuan klien",
+            "subtitle": "Setujui atau tolak pendaftaran klien yang baru diajukan.",
+            "loading": "Memuat pendaftaran yang menunggu…",
+            "empty": "Tidak ada pendaftaran klien yang menunggu.",
+            "searchPlaceholder": "Cari nama, email, institusi…",
+            "typeAll": "Semua tipe",
+            "typeIndividual": "Individu",
+            "typeInstitution": "Institusi",
+            "statusPending": "Status: Menunggu",
+            "table": {
+                "client": "Klien",
+                "type": "Tipe",
+                "contact": "Kontak",
+                "details": "Detail",
+                "actions": "Aksi"
+            },
+            "actions": {
+                "approve": "Setujui",
+                "reject": "Tolak"
+            },
+            "confirm": {
+                "approve": "Setujui pendaftaran klien ini? Ini akan membuat akun klien.",
+                "reject": "Tolak pendaftaran ini?",
+                "rejectReasonPrompt": "Alasan penolakan (opsional):"
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat pendaftaran klien yang menunggu.",
+                "approveFailed": "Gagal menyetujui pendaftaran.",
+                "rejectFailed": "Gagal menolak pendaftaran."
+            }
+        }
     },
     "qualityCover": {
         "decision": {
@@ -361,6 +481,98 @@
                 "addButton": "Tambah kolom"
             }
         },
+        "kanbanTab": {
+            "title": "Papan pengujian",
+            "progress": "Tahap {{current}} dari {{total}}",
+            "badges": {
+                "synced": "Tersinkron",
+                "local": "Fallback lokal",
+                "locked": "Terkunci"
+            },
+            "tooltips": {
+                "synced": "Data papan berasal dari server.",
+                "local": "Papan menggunakan data fallback lokal.",
+                "group": "Kelompok workflow (dari backend)"
+            },
+            "header": {
+                "labCode": "Kode lab",
+                "sampleType": "Jenis sampel"
+            },
+            "timestamp": {
+                "none": "—"
+            },
+            "actions": {
+                "start": "Mulai",
+                "next": "Tahap berikutnya",
+                "finish": "Selesai",
+                "done": "Selesai"
+            },
+            "column": {
+                "status": {
+                    "current": "Sedang berjalan",
+                    "done": "Selesai",
+                    "pending": "Menunggu"
+                },
+                "entered": "Masuk",
+                "exited": "Keluar",
+                "empty": "Belum ada aktivitas."
+            },
+            "columnActions": {
+                "addBefore": "Tambah kolom sebelum",
+                "addAfter": "Tambah kolom sesudah",
+                "rename": "Ganti nama kolom",
+                "delete": "Hapus kolom",
+                "locked": "Terkunci (sampel sudah selesai)"
+            },
+            "renameModal": {
+                "title": "Ganti nama kolom",
+                "titleNamed": "Ganti nama “{{name}}”"
+            },
+            "empty": {
+                "noColumns": "Belum ada kolom."
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat papan pengujian.",
+                "moveFailed": "Gagal memindahkan kartu.",
+                "finishFailed": "Gagal menyelesaikan tahap terakhir.",
+                "addColumnFailed": "Gagal menambah kolom.",
+                "renameColumnFailed": "Gagal mengganti nama kolom.",
+                "deleteColumnFailed": "Gagal menghapus kolom."
+            }
+        },
+        "requestStatusModal": {
+            "title": {
+                "return": "Kembalikan permintaan",
+                "approve": "Setujui permintaan",
+                "received": "Tandai diterima fisik"
+            },
+            "subtitle": {
+                "return": "Kembalikan permintaan ke klien untuk revisi. Catatan wajib diisi.",
+                "approve": "Setujui permintaan dan lanjutkan ke langkah berikutnya.",
+                "received": "Konfirmasi sampel sudah diterima secara fisik oleh lab (meja admin)."
+            },
+            "summary": {
+                "sampleId": "ID Sampel",
+                "current": "Saat ini",
+                "next": "Berikutnya"
+            },
+            "note": {
+                "labelRequired": "Alasan / catatan pengembalian *",
+                "labelOptional": "Catatan (opsional)",
+                "placeholderReturn": "Jelaskan apa yang perlu direvisi (wajib)…",
+                "placeholderApprove": "Catatan opsional untuk arsip internal…",
+                "placeholderReceived": "Catatan opsional (mis. kondisi diterima)…",
+                "helpReturn": "Catatan wajib agar klien tahu apa yang harus diperbaiki."
+            },
+            "buttons": {
+                "confirmReturn": "Kembalikan",
+                "confirmApprove": "Setujui",
+                "confirmReceived": "Tandai diterima"
+            },
+            "errors": {
+                "updateFailed": "Gagal memperbarui status permintaan."
+            }
+        },
         "assignSampleId": {
             "title": "Tetapkan Sample ID",
             "subtitle": "Permintaan #{{id}} • {{client}} • {{group}}",
@@ -439,6 +651,48 @@
             "codesMatchHint": "Kodenya cocok. Gunakan Pass.",
             "codesMismatchHint": "Kode tidak cocok. Gunakan Fail dan isi alasan.",
             "enterBothCodesHint": "Masukkan kode label fisik untuk dibandingkan."
+        }
+    },
+    "audit": {
+        "logs": {
+            "title": "Log audit",
+            "subtitle": "Catatan kronologis aktivitas di sistem.",
+            "count": "{{count}} log",
+            "forbiddenTitle": "403 – Akses ditolak",
+            "forbiddenBody": "Peran Anda ({{role}}) tidak diizinkan mengakses log audit.",
+            "backToDashboard": "Kembali ke dashboard",
+            "filters": {
+                "title": "Filter",
+                "hint": "Tip: isi minimal satu filter untuk memperkecil hasil.",
+                "sampleId": "sample_id",
+                "sampleTestId": "sample_test_id",
+                "staffId": "staff_id",
+                "action": "action",
+                "perPage": "per_page",
+                "sampleIdPlaceholder": "mis. 35",
+                "sampleTestIdPlaceholder": "mis. 22",
+                "staffIdPlaceholder": "mis. 4",
+                "actionPlaceholder": "mis. SAMPLE_TEST_OM_VERIFIED"
+            },
+            "table": {
+                "title": "Logs",
+                "pageOf": "Halaman {{page}} / {{totalPages}}",
+                "time": "Waktu",
+                "action": "Aksi",
+                "entity": "Entitas",
+                "staff": "Staf",
+                "ip": "IP",
+                "old": "Lama",
+                "new": "Baru",
+                "empty": "Tidak ada log audit."
+            },
+            "pagination": {
+                "pageOf": "Halaman {{page}} / {{totalPages}}",
+                "total": "Total {{total}}"
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat log audit."
+            }
         }
     },
     "notFound": {
