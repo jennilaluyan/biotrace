@@ -1,3 +1,5 @@
+import { useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { AlertTriangle, Check, X } from "lucide-react";
 
 function cx(...arr: Array<string | false | null | undefined>) {
@@ -23,6 +25,8 @@ type Props = {
 };
 
 export function QualityCoverDecisionModal(props: Props) {
+    const { t } = useTranslation();
+
     const {
         open,
         mode,
@@ -37,19 +41,34 @@ export function QualityCoverDecisionModal(props: Props) {
         onConfirm,
     } = props;
 
-    if (!open) return null;
-
     const isReject = mode === "reject";
 
+    const reasonLen = useMemo(() => String(rejectReason ?? "").trim().length, [rejectReason]);
+
+    useEffect(() => {
+        if (!open) return;
+
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                if (!submitting) onClose();
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [open, onClose, submitting]);
+
+    if (!open) return null;
+
     return (
-        <div className="lims-modal-backdrop p-4">
-            <div className="lims-modal-panel">
+        <div className="lims-modal-backdrop p-4" role="dialog" aria-modal="true" aria-label={title}>
+            <div className="lims-modal-panel max-w-lg">
                 <div className="lims-modal-header">
                     <div
                         className={cx(
                             "h-9 w-9 rounded-full flex items-center justify-center",
                             isReject ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"
                         )}
+                        aria-hidden="true"
                     >
                         {isReject ? <AlertTriangle size={18} /> : <Check size={18} />}
                     </div>
@@ -62,8 +81,8 @@ export function QualityCoverDecisionModal(props: Props) {
                     <button
                         type="button"
                         className="ml-auto lims-icon-button"
-                        aria-label="Close"
-                        title="Close"
+                        aria-label={t("close")}
+                        title={t("close")}
                         onClick={onClose}
                         disabled={submitting}
                     >
@@ -74,20 +93,31 @@ export function QualityCoverDecisionModal(props: Props) {
                 <div className="lims-modal-body">
                     {isReject ? (
                         <div>
-                            <div className="text-xs font-semibold tracking-wide text-gray-500 uppercase mb-2">
-                                Reject reason (required)
+                            <div className="flex items-baseline justify-between gap-3 mb-2">
+                                <div className="text-xs font-semibold tracking-wide text-gray-500 uppercase">
+                                    {t("qualityCover.decision.rejectReasonRequired")}
+                                </div>
+                                <div className="text-[11px] text-gray-500 tabular-nums">
+                                    {reasonLen}/500
+                                </div>
                             </div>
+
                             <textarea
                                 value={rejectReason}
                                 onChange={(e) => onRejectReasonChange(e.target.value)}
-                                className="min-h-[110px] w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                placeholder="Explain why this cover is rejected..."
+                                className="min-h-[120px] w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                placeholder={t("qualityCover.decision.rejectReasonPlaceholder")}
                                 disabled={submitting}
+                                maxLength={500}
                             />
+
+                            <div className="mt-2 text-[11px] text-gray-500">
+                                {t("qualityCover.decision.rejectReasonHelp")}
+                            </div>
                         </div>
                     ) : (
                         <div className="text-sm text-gray-700">
-                            {approveHint ?? "This will continue the workflow to the next step."}
+                            {approveHint ?? t("qualityCover.decision.approveDefaultHint")}
                         </div>
                     )}
 
@@ -99,8 +129,13 @@ export function QualityCoverDecisionModal(props: Props) {
                 </div>
 
                 <div className="lims-modal-footer">
-                    <button type="button" onClick={onClose} disabled={submitting} className="btn-outline disabled:opacity-50">
-                        Cancel
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        disabled={submitting}
+                        className="btn-outline disabled:opacity-50"
+                    >
+                        {t("cancel")}
                     </button>
 
                     <button
@@ -111,9 +146,9 @@ export function QualityCoverDecisionModal(props: Props) {
                             isReject ? "lims-btn-danger" : "lims-btn-primary",
                             "disabled:opacity-50 disabled:cursor-not-allowed"
                         )}
-                        title={isReject ? "Reject" : "Confirm"}
+                        title={isReject ? t("reject") : t("confirm")}
                     >
-                        {submitting ? "Submitting..." : isReject ? "Reject" : "Confirm"}
+                        {submitting ? t("submitting") : isReject ? t("reject") : t("confirm")}
                     </button>
                 </div>
             </div>

@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { X, FileText, AlertTriangle } from "lucide-react";
 import { http } from "../../services/api";
 
 type Props = {
@@ -33,10 +35,14 @@ export const ReportPreviewModal: React.FC<Props> = ({
     onClose,
     reportId = null,
     pdfUrl = null,
-    title = "PDF Preview",
+    title,
 }) => {
+    const { t } = useTranslation();
+
+    const dialogTitle = title ?? t("reports.pdfPreviewTitle");
+
     const requestUrl = useMemo(() => {
-        if (pdfUrl) return pdfUrl;               // storage/static
+        if (pdfUrl) return pdfUrl; // storage/static
         if (reportId) return `/v1/reports/${reportId}/pdf`; // API endpoint
         return null;
     }, [pdfUrl, reportId]);
@@ -45,6 +51,18 @@ export const ReportPreviewModal: React.FC<Props> = ({
     const [directUrl, setDirectUrl] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!open) return;
+
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                if (!loading) onClose();
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [open, loading, onClose]);
 
     useEffect(() => {
         let cancelled = false;
@@ -70,13 +88,13 @@ export const ReportPreviewModal: React.FC<Props> = ({
 
             const path = normalizeToSameOriginPath(requestUrl);
 
-            // ✅ CASE 1: storage/static → jangan axios → iframe langsung
+            // CASE 1: storage/static → iframe langsung
             if (path.startsWith("/storage/")) {
                 setDirectUrl(path);
                 return;
             }
 
-            // ✅ CASE 2: API endpoint → axios blob
+            // CASE 2: API endpoint → axios blob
             try {
                 setLoading(true);
 
@@ -102,7 +120,7 @@ export const ReportPreviewModal: React.FC<Props> = ({
                 setBlobUrl(url);
             } catch (e: any) {
                 if (cancelled) return;
-                const msg = e?.response?.data?.message ?? e?.message ?? "Failed to load PDF.";
+                const msg = e?.response?.data?.message ?? e?.message ?? t("reports.failedToLoadPdf");
                 setError(String(msg));
             } finally {
                 if (!cancelled) setLoading(false);
@@ -118,48 +136,58 @@ export const ReportPreviewModal: React.FC<Props> = ({
                 return null;
             });
         };
-    }, [open, requestUrl]);
+    }, [open, requestUrl, t]);
 
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="bg-white w-[90vw] h-[90vh] rounded-xl shadow-lg flex flex-col overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b">
-                    <h2 className="text-sm font-semibold text-gray-800">{title}</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+            <div className="bg-white w-[92vw] h-[92vh] rounded-2xl shadow-xl flex flex-col overflow-hidden border border-black/10">
+                <div className="flex items-center justify-between px-5 py-4 border-b bg-gray-50">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <div className="inline-flex items-center justify-center h-9 w-9 rounded-xl bg-white border border-gray-200">
+                            <FileText size={18} />
+                        </div>
+                        <h2 className="text-sm font-bold text-gray-900 truncate">{dialogTitle}</h2>
+                    </div>
+
                     <button
                         onClick={onClose}
-                        className="text-gray-500 hover:text-gray-700"
-                        aria-label="Close preview"
+                        className={cx("lims-icon-button", loading && "opacity-60 cursor-not-allowed")}
+                        aria-label={t("close")}
+                        title={t("close")}
                         type="button"
+                        disabled={loading}
                     >
-                        ✕
+                        <X size={16} />
                     </button>
                 </div>
 
                 <div className="flex-1 bg-gray-100">
                     {loading ? (
                         <div className="w-full h-full flex items-center justify-center text-sm text-gray-600">
-                            Loading PDF...
+                            {t("reports.loadingPdf")}
                         </div>
                     ) : error ? (
                         <div className="w-full h-full flex items-center justify-center p-6">
-                            <div className="max-w-xl text-center">
-                                <div className="text-sm font-semibold text-red-700 mb-2">
-                                    Failed to preview PDF
+                            <div className="max-w-2xl w-full">
+                                <div className="flex items-center justify-center gap-2 text-sm font-semibold text-red-700 mb-3">
+                                    <AlertTriangle size={18} />
+                                    {t("reports.failedPreview")}
                                 </div>
-                                <pre className="text-xs bg-white border rounded-lg p-3 overflow-auto max-h-[40vh] text-left">
+
+                                <pre className="text-xs bg-white border rounded-xl p-3 overflow-auto max-h-[50vh] text-left">
                                     {error}
                                 </pre>
                             </div>
                         </div>
                     ) : blobUrl ? (
-                        <iframe title={title} src={blobUrl} className="w-full h-full border-0" />
+                        <iframe title={dialogTitle} src={blobUrl} className="w-full h-full border-0" />
                     ) : directUrl ? (
-                        <iframe title={title} src={directUrl} className="w-full h-full border-0" />
+                        <iframe title={dialogTitle} src={directUrl} className="w-full h-full border-0" />
                     ) : (
                         <div className="w-full h-full flex items-center justify-center text-sm text-gray-600">
-                            No PDF to preview.
+                            {t("reports.noPdf")}
                         </div>
                     )}
                 </div>
@@ -167,3 +195,7 @@ export const ReportPreviewModal: React.FC<Props> = ({
         </div>
     );
 };
+
+function cx(...arr: Array<string | false | null | undefined>) {
+    return arr.filter(Boolean).join(" ");
+}

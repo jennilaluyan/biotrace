@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
     ClipboardList,
     X,
@@ -74,6 +75,8 @@ type Props = {
 };
 
 export default function ReagentRequestCartModal(props: Props) {
+    const { t } = useTranslation();
+
     const {
         open,
         onClose,
@@ -94,59 +97,75 @@ export default function ReagentRequestCartModal(props: Props) {
         onUpdateBooking,
     } = props;
 
-    const headerSummary = useMemo(() => {
-        const itemText = `${items.length} item`;
-        const equipText = `${bookings.length} alat`;
-        const qtyText = totalSelectedQty > 0 ? `• total qty ${totalSelectedQty}` : "";
-        return `${itemText} • ${equipText} ${qtyText}`.trim();
-    }, [items.length, bookings.length, totalSelectedQty]);
-
     const statusLower = String(requestStatus ?? "draft").toLowerCase();
     const isLocked = statusLower === "submitted" || statusLower === "approved";
     const canEdit = !isLocked;
 
-    const lockedHint = isLocked ? `Request sudah ${statusLower}. Edit dikunci.` : "";
+    const busy = saving || submitting;
+
+    const lockedHint = isLocked
+        ? t("reagents.cart.lockedHint", { status: statusLower })
+        : "";
+
+    const headerSummary = useMemo(() => {
+        const itemText = t("reagents.cart.itemsCount", { count: items.length });
+        const equipText = t("reagents.cart.bookingsCount", { count: bookings.length });
+        const qtyText =
+            totalSelectedQty > 0 ? t("reagents.cart.totalQty", { qty: totalSelectedQty }) : "";
+        return [itemText, equipText, qtyText].filter(Boolean).join(" • ");
+    }, [t, items.length, bookings.length, totalSelectedQty]);
+
+    useEffect(() => {
+        if (!open) return;
+
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                if (!busy) onClose();
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [open, busy, onClose]);
 
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
             {/* overlay */}
             <div
                 className="absolute inset-0 bg-black/40"
-                onClick={onClose}
+                onClick={() => (busy ? null : onClose())}
                 role="button"
-                aria-label="Close modal"
+                aria-label={t("close")}
                 tabIndex={0}
             />
 
             {/* modal */}
             <div
-                className="relative z-10 w-full max-w-5xl h-[85vh] rounded-2xl bg-white shadow-xl border border-black/10 overflow-hidden flex flex-col"
+                className="relative z-10 w-full max-w-6xl h-[85vh] rounded-2xl bg-white shadow-xl border border-black/10 overflow-hidden flex flex-col"
                 onClick={(e) => e.stopPropagation()}
-                role="dialog"
-                aria-modal="true"
-                aria-label="Reagent Request Cart"
+                aria-label={t("reagents.cart.ariaLabel")}
             >
-                {/* top bar */}
+                {/* header */}
                 <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3">
                     <div className="min-w-0">
                         <div className="flex items-center gap-2">
                             <div className="inline-flex items-center justify-center h-9 w-9 rounded-xl bg-white border border-gray-200">
                                 <ClipboardList size={18} />
                             </div>
+
                             <div className="min-w-0">
-                                <div className="text-sm font-bold text-gray-900">Request</div>
+                                <div className="text-sm font-bold text-gray-900">{t("reagents.cart.title")}</div>
                                 <div className="text-xs text-gray-600 mt-0.5 truncate">
-                                    LOO #{loId}
-                                    {requestStatus ? (
+                                    {t("reagents.cart.looNumber", { id: loId })}
+                                    <span className="text-gray-400"> • </span>
+                                    {t("reagents.cart.statusLabel", { status: String(requestStatus ?? "draft") })}
+                                    {cycleNo != null ? (
                                         <>
-                                            {" "}
-                                            • status{" "}
-                                            <span className="font-semibold text-gray-800">{requestStatus}</span>
+                                            <span className="text-gray-400"> • </span>
+                                            {t("reagents.cart.cycleLabel", { cycle: cycleNo })}
                                         </>
                                     ) : null}
-                                    {cycleNo != null ? <span className="text-gray-500"> • cycle {cycleNo}</span> : null}
                                     <span className="text-gray-400"> • </span>
                                     <span className="text-gray-700">{headerSummary}</span>
                                 </div>
@@ -156,83 +175,37 @@ export default function ReagentRequestCartModal(props: Props) {
                         {isLocked ? (
                             <div className="mt-2 inline-flex items-center gap-2 text-xs font-semibold rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2">
                                 <Lock size={16} />
-                                Editing locked (submitted/approved)
+                                {t("reagents.cart.lockedBanner")}
                             </div>
                         ) : null}
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                        <button
-                            type="button"
-                            className={cx(
-                                "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
-                                "border-gray-200 bg-white",
-                                saving || !canEdit ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-50"
-                            )}
-                            disabled={saving || !canEdit}
-                            onClick={onSaveDraft}
-                            title={!canEdit ? lockedHint : "Save draft"}
-                        >
-                            {saving ? (
-                                <>
-                                    <span className="inline-flex items-center">
-                                        <Save size={16} />
-                                    </span>
-                                    Saving…
-                                </>
-                            ) : (
-                                <>
-                                    <Save size={16} />
-                                    Save
-                                </>
-                            )}
-                        </button>
-
-                        <button
-                            type="button"
-                            className={cx(
-                                "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                                !canSubmit || submitting || !canEdit
-                                    ? "bg-gray-200 text-gray-500 cursor-not-allowed"
-                                    : "bg-primary text-white hover:opacity-95"
-                            )}
-                            disabled={!canSubmit || submitting || !canEdit}
-                            onClick={onSubmit}
-                            title={
-                                !canEdit
-                                    ? lockedHint
-                                    : !canSubmit
-                                        ? "Add at least 1 item or 1 booking"
-                                        : "Submit"
-                            }
-                        >
-                            <Send size={16} />
-                            {submitting ? "Submitting…" : "Submit"}
-                        </button>
-
-                        <button
-                            type="button"
-                            className="ml-1 inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-gray-50"
-                            onClick={onClose}
-                            aria-label="Close"
-                            title="Close"
-                        >
-                            <X size={16} />
-                        </button>
-                    </div>
+                    <button
+                        type="button"
+                        className={cx(
+                            "inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-3 py-2 hover:bg-gray-50",
+                            busy && "opacity-60 cursor-not-allowed"
+                        )}
+                        onClick={onClose}
+                        disabled={busy}
+                        aria-label={t("close")}
+                        title={t("close")}
+                    >
+                        <X size={16} />
+                    </button>
                 </div>
 
-                {/* content (scroll area) */}
+                {/* content */}
                 <div className="flex-1 overflow-auto">
-                    {/* Request Items */}
+                    {/* Items */}
                     <div className="px-5 py-5">
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                             <div>
                                 <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
                                     <Package size={18} />
-                                    Request Items
+                                    {t("reagents.cart.itemsTitle")}
                                 </div>
-                                <div className="text-xs text-gray-500 mt-1">Nama • Qty • Unit • Note</div>
+                                <div className="text-xs text-gray-500 mt-1">{t("reagents.cart.itemsSubtitle")}</div>
                             </div>
                         </div>
 
@@ -240,10 +213,8 @@ export default function ReagentRequestCartModal(props: Props) {
                             <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 inline-flex items-start gap-2">
                                 <AlertTriangle size={18} className="mt-0.5" />
                                 <div>
-                                    <div className="font-semibold">Belum ada item</div>
-                                    <div className="mt-0.5 text-xs text-slate-600">
-                                        Pilih dari Catalog Items di halaman utama.
-                                    </div>
+                                    <div className="font-semibold">{t("reagents.cart.emptyItemsTitle")}</div>
+                                    <div className="mt-0.5 text-xs text-slate-600">{t("reagents.cart.emptyItemsBody")}</div>
                                 </div>
                             </div>
                         ) : (
@@ -251,19 +222,19 @@ export default function ReagentRequestCartModal(props: Props) {
                                 <table className="min-w-full text-sm">
                                     <thead className="bg-gray-50 text-gray-700 border-b border-gray-100">
                                         <tr>
-                                            <th className="px-4 py-3 text-left font-semibold">Name</th>
-                                            <th className="px-4 py-3 text-left font-semibold w-44">Qty</th>
-                                            <th className="px-4 py-3 text-left font-semibold w-44">Unit</th>
-                                            <th className="px-4 py-3 text-left font-semibold">Note</th>
-                                            <th className="px-4 py-3 text-right font-semibold w-[90px]" />
+                                            <th className="px-4 py-3 text-left font-semibold">{t("reagents.cart.table.name")}</th>
+                                            <th className="px-4 py-3 text-left font-semibold w-44">{t("reagents.cart.table.qty")}</th>
+                                            <th className="px-4 py-3 text-left font-semibold w-44">{t("reagents.cart.table.unit")}</th>
+                                            <th className="px-4 py-3 text-left font-semibold">{t("reagents.cart.table.note")}</th>
+                                            <th className="px-4 py-3 text-right font-semibold w-[110px]" />
                                         </tr>
                                     </thead>
 
                                     <tbody className="divide-y divide-gray-100">
                                         {items.map((it, idx) => {
                                             const qty = Number(it.qty ?? 0);
+                                            const safeQty = Number.isFinite(qty) ? qty : 0;
 
-                                            // ✅ unit options: remove backend defaults, keep current + common list only
                                             const unitOptions = uniqUnits(
                                                 it.unit_text ?? null,
                                                 "pcs",
@@ -294,11 +265,11 @@ export default function ReagentRequestCartModal(props: Props) {
                                                                     "border-gray-200 bg-white hover:bg-gray-50",
                                                                     disabledRow && "cursor-not-allowed"
                                                                 )}
-                                                                onClick={() => onUpdateItem(idx, { qty: Math.max(0, qty - 1) })}
+                                                                onClick={() => onUpdateItem(idx, { qty: Math.max(0, safeQty - 1) })}
                                                                 type="button"
-                                                                aria-label="Decrease"
+                                                                aria-label={t("reagents.cart.decrease")}
                                                                 disabled={disabledRow}
-                                                                title={disabledRow ? lockedHint : "Decrease"}
+                                                                title={disabledRow ? lockedHint : t("reagents.cart.decrease")}
                                                             >
                                                                 <Minus size={16} />
                                                             </button>
@@ -312,10 +283,10 @@ export default function ReagentRequestCartModal(props: Props) {
                                                                 type="number"
                                                                 min="0"
                                                                 step="1"
-                                                                value={qty}
+                                                                value={safeQty}
                                                                 onChange={(e) => onUpdateItem(idx, { qty: Number(e.target.value) })}
                                                                 disabled={disabledRow}
-                                                                title={disabledRow ? lockedHint : "Qty"}
+                                                                title={disabledRow ? lockedHint : t("reagents.cart.table.qty")}
                                                             />
 
                                                             <button
@@ -324,11 +295,11 @@ export default function ReagentRequestCartModal(props: Props) {
                                                                     "border-gray-200 bg-white hover:bg-gray-50",
                                                                     disabledRow && "cursor-not-allowed"
                                                                 )}
-                                                                onClick={() => onUpdateItem(idx, { qty: qty + 1 })}
+                                                                onClick={() => onUpdateItem(idx, { qty: safeQty + 1 })}
                                                                 type="button"
-                                                                aria-label="Increase"
+                                                                aria-label={t("reagents.cart.increase")}
                                                                 disabled={disabledRow}
-                                                                title={disabledRow ? lockedHint : "Increase"}
+                                                                title={disabledRow ? lockedHint : t("reagents.cart.increase")}
                                                             >
                                                                 <Plus size={16} />
                                                             </button>
@@ -345,9 +316,9 @@ export default function ReagentRequestCartModal(props: Props) {
                                                             value={it.unit_text ?? ""}
                                                             onChange={(e) => onUpdateItem(idx, { unit_text: e.target.value })}
                                                             disabled={disabledRow}
-                                                            title={disabledRow ? lockedHint : "Unit"}
+                                                            title={disabledRow ? lockedHint : t("reagents.cart.table.unit")}
                                                         >
-                                                            <option value="">(choose unit)</option>
+                                                            <option value="">{t("reagents.cart.unitPlaceholder")}</option>
                                                             {unitOptions.map((u) => (
                                                                 <option key={u} value={u}>
                                                                     {u}
@@ -365,9 +336,9 @@ export default function ReagentRequestCartModal(props: Props) {
                                                             )}
                                                             value={it.note ?? ""}
                                                             onChange={(e) => onUpdateItem(idx, { note: e.target.value })}
-                                                            placeholder="optional…"
+                                                            placeholder={t("reagents.cart.notePlaceholder")}
                                                             disabled={disabledRow}
-                                                            title={disabledRow ? lockedHint : "Note"}
+                                                            title={disabledRow ? lockedHint : t("reagents.cart.table.note")}
                                                         />
                                                     </td>
 
@@ -381,10 +352,10 @@ export default function ReagentRequestCartModal(props: Props) {
                                                             onClick={() => onRemoveItem(idx)}
                                                             type="button"
                                                             disabled={disabledRow}
-                                                            title={disabledRow ? lockedHint : "Remove"}
+                                                            title={disabledRow ? lockedHint : t("remove")}
                                                         >
                                                             <Trash2 size={14} />
-                                                            Remove
+                                                            {t("remove")}
                                                         </button>
                                                     </td>
                                                 </tr>
@@ -396,22 +367,20 @@ export default function ReagentRequestCartModal(props: Props) {
                         )}
                     </div>
 
-                    {/* Equipment Bookings */}
+                    {/* Equipment */}
                     <div className="px-5 pb-5">
                         <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
                             <Wrench size={18} />
-                            Equipment Bookings
+                            {t("reagents.cart.equipmentTitle")}
                         </div>
-                        <div className="text-xs text-gray-500 mt-1">Nama alat • Mulai • Selesai • Note</div>
+                        <div className="text-xs text-gray-500 mt-1">{t("reagents.cart.equipmentSubtitle")}</div>
 
                         {bookings.length === 0 ? (
                             <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 inline-flex items-start gap-2">
                                 <AlertTriangle size={18} className="mt-0.5" />
                                 <div>
-                                    <div className="font-semibold">Belum ada booking</div>
-                                    <div className="mt-0.5 text-xs text-slate-600">
-                                        Pilih equipment dari daftar di halaman utama.
-                                    </div>
+                                    <div className="font-semibold">{t("reagents.cart.emptyBookingsTitle")}</div>
+                                    <div className="mt-0.5 text-xs text-slate-600">{t("reagents.cart.emptyBookingsBody")}</div>
                                 </div>
                             </div>
                         ) : (
@@ -419,11 +388,11 @@ export default function ReagentRequestCartModal(props: Props) {
                                 <table className="min-w-full text-sm">
                                     <thead className="bg-gray-50 text-gray-700 border-b border-gray-100">
                                         <tr>
-                                            <th className="px-4 py-3 text-left font-semibold">Equipment</th>
-                                            <th className="px-4 py-3 text-left font-semibold w-[220px]">Start</th>
-                                            <th className="px-4 py-3 text-left font-semibold w-[220px]">End</th>
-                                            <th className="px-4 py-3 text-left font-semibold">Note</th>
-                                            <th className="px-4 py-3 text-right font-semibold w-[90px]" />
+                                            <th className="px-4 py-3 text-left font-semibold">{t("reagents.cart.table.equipment")}</th>
+                                            <th className="px-4 py-3 text-left font-semibold w-[220px]">{t("reagents.cart.table.start")}</th>
+                                            <th className="px-4 py-3 text-left font-semibold w-[220px]">{t("reagents.cart.table.end")}</th>
+                                            <th className="px-4 py-3 text-left font-semibold">{t("reagents.cart.table.note")}</th>
+                                            <th className="px-4 py-3 text-right font-semibold w-[110px]" />
                                         </tr>
                                     </thead>
 
@@ -432,7 +401,7 @@ export default function ReagentRequestCartModal(props: Props) {
                                             const displayName =
                                                 (b as any)?.equipment_name ||
                                                 (b as any)?.equipment_code ||
-                                                `equipment_id: ${b.equipment_id}`;
+                                                `${t("reagents.cart.equipmentId")}: ${b.equipment_id}`;
 
                                             const disabledRow = !canEdit;
 
@@ -442,10 +411,10 @@ export default function ReagentRequestCartModal(props: Props) {
                                                         <div className="font-semibold text-gray-900">{displayName}</div>
                                                         {(b as any)?.booking_id ? (
                                                             <div className="text-xs text-gray-500">
-                                                                booking_id: {(b as any).booking_id}
+                                                                {t("reagents.cart.bookingId")}: {(b as any).booking_id}
                                                             </div>
                                                         ) : (
-                                                            <div className="text-xs text-gray-500">new booking</div>
+                                                            <div className="text-xs text-gray-500">{t("reagents.cart.newBooking")}</div>
                                                         )}
                                                     </td>
 
@@ -460,12 +429,10 @@ export default function ReagentRequestCartModal(props: Props) {
                                                             value={isoToLocalInput(b.planned_start_at)}
                                                             onChange={(e) => {
                                                                 const iso = localInputToIso(e.target.value);
-                                                                onUpdateBooking(idx, {
-                                                                    planned_start_at: iso ?? b.planned_start_at,
-                                                                });
+                                                                onUpdateBooking(idx, { planned_start_at: iso ?? b.planned_start_at });
                                                             }}
                                                             disabled={disabledRow}
-                                                            title={disabledRow ? lockedHint : "Start time"}
+                                                            title={disabledRow ? lockedHint : t("reagents.cart.table.start")}
                                                         />
                                                     </td>
 
@@ -483,7 +450,7 @@ export default function ReagentRequestCartModal(props: Props) {
                                                                 onUpdateBooking(idx, { planned_end_at: iso ?? b.planned_end_at });
                                                             }}
                                                             disabled={disabledRow}
-                                                            title={disabledRow ? lockedHint : "End time"}
+                                                            title={disabledRow ? lockedHint : t("reagents.cart.table.end")}
                                                         />
                                                     </td>
 
@@ -496,9 +463,9 @@ export default function ReagentRequestCartModal(props: Props) {
                                                             )}
                                                             value={b.note ?? ""}
                                                             onChange={(e) => onUpdateBooking(idx, { note: e.target.value })}
-                                                            placeholder="optional…"
+                                                            placeholder={t("reagents.cart.notePlaceholder")}
                                                             disabled={disabledRow}
-                                                            title={disabledRow ? lockedHint : "Note"}
+                                                            title={disabledRow ? lockedHint : t("reagents.cart.table.note")}
                                                         />
                                                     </td>
 
@@ -512,10 +479,10 @@ export default function ReagentRequestCartModal(props: Props) {
                                                             onClick={() => onRemoveBooking(idx)}
                                                             type="button"
                                                             disabled={disabledRow}
-                                                            title={disabledRow ? lockedHint : "Remove"}
+                                                            title={disabledRow ? lockedHint : t("remove")}
                                                         >
                                                             <Trash2 size={14} />
-                                                            Remove
+                                                            {t("remove")}
                                                         </button>
                                                     </td>
                                                 </tr>
@@ -526,22 +493,16 @@ export default function ReagentRequestCartModal(props: Props) {
                             </div>
                         )}
 
-                        {/* tips */}
                         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                            <div className="font-semibold">Tips</div>
-                            <div className="mt-1">
-                                Pilih item/alat dari halaman utama → otomatis masuk ke Request → atur jumlah/unit/waktu → Save Draft → Submit.
-                            </div>
+                            <div className="font-semibold">{t("tips")}</div>
+                            <div className="mt-1">{t("reagents.cart.tipsBody")}</div>
                         </div>
                     </div>
                 </div>
 
-                {/* footer (always visible, not cut) */}
+                {/* footer actions */}
                 <div className="border-t border-gray-100 bg-white px-5 py-3 flex items-center justify-between gap-3">
-                    <div className="text-xs text-gray-600">
-                        {items.length} item • {bookings.length} alat
-                        {totalSelectedQty ? <span className="text-gray-500"> • total qty {totalSelectedQty}</span> : null}
-                    </div>
+                    <div className="text-xs text-gray-600">{headerSummary}</div>
 
                     <div className="flex items-center gap-2">
                         <button
@@ -549,45 +510,46 @@ export default function ReagentRequestCartModal(props: Props) {
                             className={cx(
                                 "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
                                 "border-gray-200 bg-white",
-                                saving || !canEdit ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-50"
+                                (saving || !canEdit) ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-50"
                             )}
                             disabled={saving || !canEdit}
                             onClick={onSaveDraft}
-                            title={!canEdit ? lockedHint : "Save draft"}
+                            title={!canEdit ? lockedHint : t("saveDraft")}
                         >
                             <Save size={16} />
-                            Save
+                            {saving ? t("saving") : t("saveDraft")}
                         </button>
 
                         <button
                             type="button"
                             className={cx(
                                 "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                                !canSubmit || submitting || !canEdit
+                                (!canSubmit || submitting || !canEdit)
                                     ? "bg-gray-200 text-gray-500 cursor-not-allowed"
                                     : "bg-primary text-white hover:opacity-95"
                             )}
                             disabled={!canSubmit || submitting || !canEdit}
                             onClick={onSubmit}
                             title={
-                                !canEdit
-                                    ? lockedHint
-                                    : !canSubmit
-                                        ? "Add at least 1 item or 1 booking"
-                                        : "Submit"
+                                !canEdit ? lockedHint : !canSubmit ? t("reagents.cart.minSubmitHint") : t("submit")
                             }
                         >
                             <Send size={16} />
-                            Submit
+                            {submitting ? t("submitting") : t("submit")}
                         </button>
 
                         <button
                             type="button"
-                            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-gray-50"
+                            className={cx(
+                                "inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-gray-50",
+                                busy && "opacity-60 cursor-not-allowed"
+                            )}
                             onClick={onClose}
+                            disabled={busy}
+                            title={t("close")}
                         >
                             <X size={16} />
-                            Close
+                            {t("close")}
                         </button>
                     </div>
                 </div>

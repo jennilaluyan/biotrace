@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { CheckCircle2, XCircle, Truck, Hand } from "lucide-react";
 import type { Sample } from "../../../services/samples";
 import { ROLE_ID } from "../../../utils/roles";
@@ -13,7 +14,6 @@ type Props = {
     apiPatch: (url: string, body: any) => Promise<any>;
 };
 
-// local UI helpers (no external ./ui import)
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
@@ -21,7 +21,7 @@ function cx(...arr: Array<string | false | null | undefined>) {
 function normalizeLabel(input?: string | null) {
     const s = String(input ?? "").trim();
     if (!s) return "-";
-    if (s.includes("-") && /[A-Za-z]/.test(s) && /\d/.test(s)) return s; // keep codes like BML-034
+    if (s.includes("-") && /[A-Za-z]/.test(s) && /\d/.test(s)) return s;
 
     return s
         .replace(/_/g, " ")
@@ -31,6 +31,7 @@ function normalizeLabel(input?: string | null) {
 }
 
 export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowChanged, apiPatch }: Props) {
+    const { t } = useTranslation();
     const s: any = sample;
 
     const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
@@ -42,7 +43,6 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
     const scDeliveredToAnalystAt = s?.sc_delivered_to_analyst_at ?? null;
     const analystReceivedAt = s?.analyst_received_at ?? null;
 
-    // ✅ Use RAW status for logic, label for UI
     const crossStatusRaw = String(s?.crosscheck_status ?? "pending").trim().toLowerCase();
     const crossStatusLabel = normalizeLabel(crossStatusRaw);
     const crossAt = s?.crosschecked_at ?? null;
@@ -50,7 +50,7 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
     const crossSavedNote = s?.crosscheck_note ?? null;
 
     const isCrossPassed = crossStatusRaw === "passed";
-    const showCrosscheck = !isCrossPassed; // ✅ hide full form when passed
+    const showCrosscheck = !isCrossPassed;
 
     const [wfBusy, setWfBusy] = useState(false);
     const [wfError, setWfError] = useState<string | null>(null);
@@ -85,7 +85,7 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
                 err?.data?.message ??
                 err?.data?.error ??
                 err?.message ??
-                "Failed to update workflow.";
+                t("samples.workflow.workflowUpdateFailed");
             setWfError(msg);
         } finally {
             setWfBusy(false);
@@ -109,11 +109,11 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
         setCcError(null);
 
         if (!entered) {
-            setCcError("Physical label code is required.");
+            setCcError(t("samples.workflow.physicalLabelRequired"));
             return;
         }
         if (!expected) {
-            setCcError("Expected lab code is missing.");
+            setCcError(t("samples.workflow.expectedLabCodeMissing"));
             return;
         }
 
@@ -121,17 +121,17 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
 
         if (mode === "pass") {
             if (!isMatch) {
-                setCcError("Mismatch. Use FAIL and add a reason.");
+                setCcError(t("samples.workflow.mismatchUseFail"));
                 return;
             }
         } else {
             const note = String(ccReason ?? "").trim();
             if (isMatch) {
-                setCcError("Codes match. Use PASS.");
+                setCcError(t("samples.workflow.codesMatchUsePass"));
                 return;
             }
             if (!note) {
-                setCcError("Reason is required for FAIL.");
+                setCcError(t("samples.workflow.failReasonRequired"));
                 return;
             }
         }
@@ -152,19 +152,26 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
                 err?.response?.data?.message ??
                 err?.data?.error ??
                 err?.message ??
-                "Failed to submit crosscheck.";
+                t("samples.workflow.submitCrosscheckFailed");
             setCcError(msg);
         } finally {
             setCcBusy(false);
         }
     };
 
+    const entered = String(ccPhysicalCode ?? "").trim().toUpperCase();
+    const expected = String(expectedLabCode ?? "").trim().toUpperCase();
+    const codesMatch = !!entered && !!expected && entered === expected;
+
+    const passDisabled = !canDoCrosscheck || ccBusy || !entered || !expected || !codesMatch;
+    const failDisabled = !canDoCrosscheck || ccBusy || !entered || !expected || codesMatch;
+
     return (
         <div className="space-y-6">
             {/* Physical Workflow */}
             <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                 <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
-                    <div className="text-sm font-bold text-gray-900">Physical workflow</div>
+                    <div className="text-sm font-bold text-gray-900">{t("samples.workflow.physicalTitle")}</div>
                 </div>
 
                 <div className="px-5 py-4">
@@ -176,14 +183,14 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                         <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
-                            <div className="text-xs text-gray-500">Delivered to analyst</div>
+                            <div className="text-xs text-gray-500">{t("samples.workflow.deliveredToAnalyst")}</div>
                             <div className="font-semibold text-gray-900 mt-0.5">
                                 {scDeliveredToAnalystAt ? formatDateTimeLocal(scDeliveredToAnalystAt) : "—"}
                             </div>
                         </div>
 
                         <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
-                            <div className="text-xs text-gray-500">Analyst received</div>
+                            <div className="text-xs text-gray-500">{t("samples.workflow.analystReceived")}</div>
                             <div className="font-semibold text-gray-900 mt-0.5">
                                 {analystReceivedAt ? formatDateTimeLocal(analystReceivedAt) : "—"}
                             </div>
@@ -201,11 +208,11 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
                                 )}
                                 disabled={!canWfScDeliverToAnalyst || wfBusy}
                                 onClick={() => doPhysicalWorkflow("sc_delivered_to_analyst")}
-                                title="Mark delivered"
-                                aria-label="Delivered to analyst"
+                                title={t("samples.workflow.deliver")}
+                                aria-label={t("samples.workflow.deliver")}
                             >
                                 <Truck size={16} />
-                                Deliver
+                                {wfBusy ? t("processing") : t("samples.workflow.deliver")}
                             </button>
                         ) : null}
 
@@ -219,22 +226,22 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
                                 )}
                                 disabled={!canWfAnalystReceive || wfBusy}
                                 onClick={() => doPhysicalWorkflow("analyst_received")}
-                                title="Mark received"
-                                aria-label="Analyst received"
+                                title={t("samples.workflow.receive")}
+                                aria-label={t("samples.workflow.receive")}
                             >
                                 <Hand size={16} />
-                                Receive
+                                {wfBusy ? t("processing") : t("samples.workflow.receive")}
                             </button>
                         ) : null}
                     </div>
                 </div>
             </div>
 
-            {/* ✅ Crosscheck compact card when PASSED */}
+            {/* Crosscheck compact card when PASSED */}
             {isCrossPassed ? (
                 <div className="rounded-2xl border border-emerald-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                     <div className="px-5 py-3 border-b border-emerald-100 bg-emerald-50 flex items-center justify-between gap-3 flex-wrap">
-                        <div className="text-sm font-bold text-emerald-900">Crosscheck</div>
+                        <div className="text-sm font-bold text-emerald-900">{t("samples.workflow.crosscheckTitle")}</div>
 
                         <span
                             className={cx(
@@ -243,7 +250,7 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
                             )}
                         >
                             <CheckCircle2 size={16} />
-                            Passed
+                            {t("samples.workflow.passed")}
                             {crossAt ? (
                                 <span className="text-[11px] font-normal opacity-80">
                                     • {formatDateTimeLocal(crossAt)}
@@ -255,12 +262,12 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
                     <div className="px-5 py-3">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                             <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
-                                <div className="text-xs text-gray-500">Expected lab code</div>
+                                <div className="text-xs text-gray-500">{t("samples.workflow.expectedLabCode")}</div>
                                 <div className="font-mono text-xs mt-1">{labCode || "—"}</div>
                             </div>
 
                             <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
-                                <div className="text-xs text-gray-500">Last submitted label</div>
+                                <div className="text-xs text-gray-500">{t("samples.workflow.lastSubmittedLabel")}</div>
                                 <div className="font-mono text-xs mt-1">
                                     {crossSavedPhysical ? String(crossSavedPhysical) : "—"}
                                 </div>
@@ -269,20 +276,20 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
 
                         {crossSavedNote ? (
                             <div className="mt-3 text-xs text-gray-600">
-                                note: <span className="font-medium">{String(crossSavedNote)}</span>
+                                {t("samples.workflow.note")}: <span className="font-medium">{String(crossSavedNote)}</span>
                             </div>
                         ) : null}
                     </div>
                 </div>
             ) : null}
 
-            {/* Crosscheck (full form, hidden if passed) */}
+            {/* Crosscheck full form */}
             {showCrosscheck ? (
                 <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                     <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-3 flex-wrap">
                         <div>
-                            <div className="text-sm font-bold text-gray-900">Crosscheck</div>
-                            <div className="text-xs text-gray-500 mt-1">Match lab code with physical label.</div>
+                            <div className="text-sm font-bold text-gray-900">{t("samples.workflow.crosscheckTitle")}</div>
+                            <div className="text-xs text-gray-500 mt-1">{t("samples.workflow.crosscheckSubtitle")}</div>
                         </div>
 
                         <span
@@ -310,39 +317,47 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
-                                <div className="text-xs text-gray-500">Expected lab code</div>
+                                <div className="text-xs text-gray-500">{t("samples.workflow.expectedLabCode")}</div>
                                 <div className="font-mono text-xs mt-1">{labCode || "—"}</div>
 
-                                <div className="mt-3 text-xs text-gray-500">Last submitted label</div>
+                                <div className="mt-3 text-xs text-gray-500">{t("samples.workflow.lastSubmittedLabel")}</div>
                                 <div className="font-mono text-xs mt-1">
                                     {crossSavedPhysical ? String(crossSavedPhysical) : "—"}
                                 </div>
 
                                 {crossSavedNote ? (
                                     <div className="mt-3 text-xs text-gray-600">
-                                        note: <span className="font-medium">{String(crossSavedNote)}</span>
+                                        {t("samples.workflow.note")}: <span className="font-medium">{String(crossSavedNote)}</span>
                                     </div>
                                 ) : null}
                             </div>
 
                             <div>
-                                <label className="block text-xs text-gray-500">Physical label code</label>
+                                <label className="block text-xs text-gray-500">{t("samples.workflow.physicalLabelCode")}</label>
                                 <input
                                     value={ccPhysicalCode}
                                     onChange={(e) => setCcPhysicalCode(e.target.value)}
                                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                    placeholder="Type label code…"
+                                    placeholder={t("samples.workflow.labelPlaceholder")}
                                     disabled={!canDoCrosscheck || ccBusy}
                                 />
 
-                                <label className="block text-xs text-gray-500 mt-3">Reason (for fail)</label>
+                                <label className="block text-xs text-gray-500 mt-3">{t("samples.workflow.reasonForFail")}</label>
                                 <textarea
                                     value={ccReason}
                                     onChange={(e) => setCcReason(e.target.value)}
                                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm min-h-24 focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                    placeholder="Explain mismatch…"
+                                    placeholder={t("samples.workflow.reasonPlaceholder")}
                                     disabled={!canDoCrosscheck || ccBusy}
                                 />
+
+                                <div className="mt-3 text-[11px] text-gray-500">
+                                    {entered && expected ? (
+                                        codesMatch
+                                            ? t("samples.workflow.codesMatchHint")
+                                            : t("samples.workflow.codesMismatchHint")
+                                    ) : t("samples.workflow.enterBothCodesHint")}
+                                </div>
 
                                 <div className="mt-3 flex items-center gap-2">
                                     <button
@@ -350,15 +365,15 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
                                         className={cx(
                                             "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
                                             "border-emerald-200 bg-emerald-50 text-emerald-800 hover:opacity-90",
-                                            (!canDoCrosscheck || ccBusy) && "opacity-50 cursor-not-allowed"
+                                            passDisabled && "opacity-50 cursor-not-allowed"
                                         )}
-                                        disabled={!canDoCrosscheck || ccBusy}
+                                        disabled={passDisabled}
                                         onClick={() => submitCrosscheck("pass")}
-                                        aria-label="Pass"
-                                        title="Pass"
+                                        aria-label={t("samples.workflow.pass")}
+                                        title={t("samples.workflow.pass")}
                                     >
                                         <CheckCircle2 size={16} />
-                                        Pass
+                                        {ccBusy ? t("processing") : t("samples.workflow.pass")}
                                     </button>
 
                                     <button
@@ -366,15 +381,15 @@ export function SampleWorkflowTab({ sample, roleId, canDoCrosscheck, onWorkflowC
                                         className={cx(
                                             "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
                                             "border-red-200 bg-red-50 text-red-700 hover:opacity-90",
-                                            (!canDoCrosscheck || ccBusy) && "opacity-50 cursor-not-allowed"
+                                            failDisabled && "opacity-50 cursor-not-allowed"
                                         )}
-                                        disabled={!canDoCrosscheck || ccBusy}
+                                        disabled={failDisabled}
                                         onClick={() => submitCrosscheck("fail")}
-                                        aria-label="Fail"
-                                        title="Fail"
+                                        aria-label={t("samples.workflow.fail")}
+                                        title={t("samples.workflow.fail")}
                                     >
                                         <XCircle size={16} />
-                                        Fail
+                                        {ccBusy ? t("processing") : t("samples.workflow.fail")}
                                     </button>
                                 </div>
                             </div>
