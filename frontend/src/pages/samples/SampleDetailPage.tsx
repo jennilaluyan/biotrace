@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { Link, useParams, useLocation } from "react-router-dom";
 import { Lock, RefreshCw } from "lucide-react";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import { formatDateTimeLocal } from "../../utils/date";
-import { sampleService, Sample } from "../../services/samples";
+import { getErrorMessage } from "../../utils/errors";
+
+import { sampleService, type Sample } from "../../services/samples";
 import { apiGet, apiPatch } from "../../services/api";
 
 import { SampleTestingKanbanTab } from "../../components/samples/SampleTestingKanbanTab";
@@ -16,7 +19,6 @@ import { SampleDocumentsCard } from "../../components/samples/detail/SampleDocum
 import { SampleInfoTab } from "../../components/samples/detail/SampleInfoTab";
 import { SampleWorkflowTab } from "../../components/samples/detail/SampleWorkflowTab";
 
-/* ----------------------------- Local Types ----------------------------- */
 type ReagentReqStatus =
     | "draft"
     | "submitted"
@@ -26,7 +28,6 @@ type ReagentReqStatus =
     | "cancelled"
     | string;
 
-// unwrap like other pages (handles {data: ...} nesting)
 function unwrapApi(res: any) {
     let x = res?.data ?? res;
     for (let i = 0; i < 5; i++) {
@@ -39,12 +40,10 @@ function unwrapApi(res: any) {
     return x;
 }
 
-// local UI helpers (no external ./ui import)
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
-// robust extractor (same as SamplesPage)
 const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
     const direct = s?.reagent_request_status ?? s?.reagentRequestStatus ?? null;
     if (direct) return String(direct).toLowerCase();
@@ -57,17 +56,16 @@ const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
 };
 
 export const SampleDetailPage = () => {
+    const { t } = useTranslation();
     const { id } = useParams<{ id: string }>();
-    const navigate = useNavigate();
     const location = useLocation();
     const { user } = useAuth();
 
     const roleId = getUserRoleId(user);
-    const roleLabel = getUserRoleLabel(roleId);
+    const roleLabel = getUserRoleLabel(user);
 
     const sampleId = Number(id);
 
-    /* ----------------------------- Derived auth ----------------------------- */
     const navReagentStatus = useMemo(() => {
         const st = (location.state as any)?.reagent_request_status ?? null;
         return st ? String(st).toLowerCase() : null;
@@ -87,27 +85,21 @@ export const SampleDetailPage = () => {
         (user as any)?.name ??
         (user as any)?.staff?.name ??
         (user as any)?.staff_name ??
-        "-";
+        t("common.na", "—");
 
     const isAnalyst = roleId === ROLE_ID.ANALYST;
-    const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
 
-    /* ----------------------------- Page State ----------------------------- */
     const [sample, setSample] = useState<Sample | null>(null);
-
-    // Tabs
     const [tab, setTab] = useState<"summary" | "sample" | "workflow" | "tests" | "quality_cover">("summary");
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [pageRefreshing, setPageRefreshing] = useState(false);
 
-    /* ----------------------------- Documents State ----------------------------- */
     const [docsLoading, setDocsLoading] = useState(false);
     const [docsError, setDocsError] = useState<string | null>(null);
     const [docs, setDocs] = useState<any[]>([]);
 
-    /* ----------------------------- Derived fields ----------------------------- */
     const reagentRequestStatus = useMemo(() => {
         const fromSample = getReagentRequestStatus(sample as any);
         return (fromSample ?? navReagentStatus ?? "") as string;
@@ -115,16 +107,11 @@ export const SampleDetailPage = () => {
 
     const labSampleCode = String((sample as any)?.lab_sample_code ?? "").trim();
 
-    const crossStatus = String((sample as any)?.crosscheck_status ?? "pending").toLowerCase();
     const analystReceivedAt = sample?.analyst_received_at ?? null;
     const expectedLabCode = String(sample?.lab_sample_code ?? "");
 
-    // physical workflow
-    const scDeliveredToAnalystAt = sample?.sc_delivered_to_analyst_at ?? null;
-
     const canDoCrosscheck = isAnalyst && !!analystReceivedAt && !!expectedLabCode;
 
-    // ✅ Tests tab appears ONLY after reagent request is approved (and lab code exists)
     const canSeeTestsTab = useMemo(() => {
         if (!sample) return false;
         if (!labSampleCode) return false;
@@ -133,13 +120,9 @@ export const SampleDetailPage = () => {
         return rr === "approved";
     }, [sample, labSampleCode, reagentRequestStatus]);
 
-    /**
-     * ✅ Quality Cover gate: open ONLY after DONE flags OR explicit unlock timestamp
-     */
     const canSeeQualityCoverTab = useMemo(() => {
         if (!sample) return false;
 
-        // ✅ strong "done" flags set by backend on finalize (if columns exist)
         const doneFlags = [
             (sample as any)?.testing_completed_at,
             (sample as any)?.testing_done_at,
@@ -148,7 +131,6 @@ export const SampleDetailPage = () => {
 
         if (doneFlags.length > 0) return true;
 
-        // ✅ fallback unlock field (still allowed)
         const unlockedAt = (sample as any)?.quality_cover_unlocked_at ?? null;
         if (unlockedAt) return true;
 
@@ -157,14 +139,12 @@ export const SampleDetailPage = () => {
 
     const qualityCoverDisabled = !isAnalyst;
 
-    // Keep user from landing on tab they can't access
     useEffect(() => {
         if (tab === "tests" && !canSeeTestsTab) setTab("summary");
         if (tab === "quality_cover" && !canSeeQualityCoverTab) setTab("summary");
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tab, canSeeTestsTab, canSeeQualityCoverTab]);
 
-    /* ----------------------------- Data Loaders ----------------------------- */
     const tryFetchReagentStatusByLoo = async (loId: number) => {
         try {
             const res = await apiGet<any>(`/v1/reagents/requests/loo/${loId}`);
@@ -188,7 +168,7 @@ export const SampleDetailPage = () => {
             return;
         }
         if (!sampleId || Number.isNaN(sampleId)) {
-            setError("Invalid sample URL.");
+            setError(t("samples.invalidUrl", "Invalid sample URL."));
             setLoading(false);
             return;
         }
@@ -216,8 +196,7 @@ export const SampleDetailPage = () => {
 
             setSample(merged as Sample);
         } catch (err: any) {
-            const msg = err?.data?.message ?? err?.data?.error ?? err?.message ?? "Failed to load sample detail.";
-            setError(msg);
+            setError(getErrorMessage(err) || t("samples.loadDetailError", "Failed to load sample detail."));
         } finally {
             if (!silent) setLoading(false);
         }
@@ -235,12 +214,7 @@ export const SampleDetailPage = () => {
 
             setDocs(Array.isArray(payload) ? payload : []);
         } catch (err: any) {
-            const msg =
-                err?.data?.message ??
-                err?.response?.data?.message ??
-                err?.message ??
-                "Failed to load documents.";
-            setDocsError(msg);
+            setDocsError(getErrorMessage(err) || t("samples.loadDocsError", "Failed to load documents."));
             setDocs([]);
         } finally {
             setDocsLoading(false);
@@ -258,7 +232,6 @@ export const SampleDetailPage = () => {
         }
     };
 
-    /* ----------------------------- Effects ----------------------------- */
     useEffect(() => {
         loadSample();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -271,60 +244,65 @@ export const SampleDetailPage = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sampleId, loading, error, sample]);
 
-    /* ----------------------------- Guard ----------------------------- */
     if (!canViewSamples) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
-                <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
+                <h1 className="text-2xl font-semibold text-primary mb-2">
+                    {t("common.accessDeniedTitle", "403 – Access denied")}
+                </h1>
                 <p className="text-sm text-gray-600">
-                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access the samples module.
+                    {t("samples.accessDenied", "Your role ({{role}}) is not allowed to access the samples module.", {
+                        role: roleLabel,
+                    })}
                 </p>
                 <Link to="/samples" className="mt-4 lims-btn-primary">
-                    Back to samples
+                    {t("common.backToSamples", "Back to samples")}
                 </Link>
             </div>
         );
     }
 
-    /* ----------------------------- Render ----------------------------- */
-    const headerCode = labSampleCode || "—";
+    const headerCode = labSampleCode || t("common.na", "—");
 
     return (
         <div className="min-h-[60vh]">
-            {/* Breadcrumb */}
             <div className="px-0 py-2">
                 <nav className="lims-breadcrumb">
                     <Link to="/samples" className="lims-breadcrumb-link">
-                        Samples
+                        {t("samples.title", "Samples")}
                     </Link>
                     <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">Detail</span>
+                    <span className="lims-breadcrumb-current">{t("common.detail", "Detail")}</span>
                 </nav>
             </div>
 
             <div className="lims-detail-shell">
-                {loading && <div className="text-sm text-gray-600">Loading…</div>}
+                {loading && (
+                    <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 flex items-center gap-2">
+                        <RefreshCw size={16} className="animate-spin" />
+                        {t("common.loading", "Loading…")}
+                    </div>
+                )}
 
                 {error && !loading && (
-                    <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">
+                    <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-4">
                         {error}
                     </div>
                 )}
 
                 {!loading && !error && sample && (
                     <div className="space-y-6">
-                        {/* Header */}
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                             <div>
-                                <h1 className="text-lg md:text-xl font-bold text-gray-900">Sample</h1>
+                                <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("samples.detailTitle", "Sample")}</h1>
                                 <div className="mt-1 flex items-center gap-2 flex-wrap">
-                                    <span className="text-xs text-gray-500">Lab code</span>
+                                    <span className="text-xs text-gray-500">{t("samples.labCode", "Lab code")}</span>
                                     <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
                                         {headerCode}
                                     </span>
                                     {(sample as any)?.updated_at ? (
                                         <span className="text-[11px] text-gray-500">
-                                            updated {formatDateTimeLocal((sample as any)?.updated_at)}
+                                            {t("common.updatedAt", "updated {{at}}", { at: formatDateTimeLocal((sample as any)?.updated_at) })}
                                         </span>
                                     ) : null}
                                 </div>
@@ -336,15 +314,14 @@ export const SampleDetailPage = () => {
                                     className="lims-icon-button"
                                     onClick={refreshAll}
                                     disabled={pageRefreshing}
-                                    aria-label="Refresh"
-                                    title="Refresh"
+                                    aria-label={t("common.refresh", "Refresh")}
+                                    title={t("common.refresh", "Refresh")}
                                 >
-                                    <RefreshCw size={16} />
+                                    <RefreshCw size={16} className={cx(pageRefreshing && "animate-spin")} />
                                 </button>
                             </div>
                         </div>
 
-                        {/* Tabs */}
                         <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                             <div className="px-5 pt-5">
                                 <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-2xl p-1 flex-wrap">
@@ -352,39 +329,33 @@ export const SampleDetailPage = () => {
                                         type="button"
                                         className={cx(
                                             "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                            tab === "summary"
-                                                ? "bg-white shadow-sm text-gray-900"
-                                                : "text-gray-600 hover:text-gray-800"
+                                            tab === "summary" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
                                         )}
                                         onClick={() => setTab("summary")}
                                     >
-                                        Summary
+                                        {t("samples.tabs.summary", "Summary")}
                                     </button>
 
                                     <button
                                         type="button"
                                         className={cx(
                                             "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                            tab === "sample"
-                                                ? "bg-white shadow-sm text-gray-900"
-                                                : "text-gray-600 hover:text-gray-800"
+                                            tab === "sample" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
                                         )}
                                         onClick={() => setTab("sample")}
                                     >
-                                        Sample
+                                        {t("samples.tabs.sample", "Sample")}
                                     </button>
 
                                     <button
                                         type="button"
                                         className={cx(
                                             "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                            tab === "workflow"
-                                                ? "bg-white shadow-sm text-gray-900"
-                                                : "text-gray-600 hover:text-gray-800"
+                                            tab === "workflow" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
                                         )}
                                         onClick={() => setTab("workflow")}
                                     >
-                                        Workflow
+                                        {t("samples.tabs.workflow", "Workflow")}
                                     </button>
 
                                     {canSeeTestsTab ? (
@@ -392,22 +363,20 @@ export const SampleDetailPage = () => {
                                             type="button"
                                             className={cx(
                                                 "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                                tab === "tests"
-                                                    ? "bg-white shadow-sm text-gray-900"
-                                                    : "text-gray-600 hover:text-gray-800"
+                                                tab === "tests" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
                                             )}
                                             onClick={() => setTab("tests")}
-                                            title="Testing board"
+                                            title={t("samples.tabs.testsTitle", "Testing board")}
                                         >
-                                            Tests
+                                            {t("samples.tabs.tests", "Tests")}
                                         </button>
                                     ) : (
                                         <span
-                                            className="px-4 py-2 text-xs font-semibold rounded-xl border border-red-200 bg-red-50 text-red-700 inline-flex items-center gap-2"
-                                            title="Locked until Reagent Request is approved"
+                                            className="px-4 py-2 text-xs font-semibold rounded-xl border border-gray-200 bg-gray-50 text-gray-600 inline-flex items-center gap-2"
+                                            title={t("samples.testsLockedHint", "Locked until the Reagent Request is approved")}
                                         >
                                             <Lock size={14} />
-                                            Tests
+                                            {t("samples.tabs.tests", "Tests")}
                                         </span>
                                     )}
 
@@ -416,22 +385,24 @@ export const SampleDetailPage = () => {
                                             type="button"
                                             className={cx(
                                                 "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                                tab === "quality_cover"
-                                                    ? "bg-white shadow-sm text-gray-900"
-                                                    : "text-gray-600 hover:text-gray-800"
+                                                tab === "quality_cover" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
                                             )}
                                             onClick={() => setTab("quality_cover")}
-                                            title="Quality cover"
+                                            title={
+                                                qualityCoverDisabled
+                                                    ? t("samples.qualityCoverReadOnlyHint", "Read-only for your role")
+                                                    : t("samples.tabs.qualityCoverTitle", "Quality cover")
+                                            }
                                         >
-                                            Quality cover
+                                            {t("samples.tabs.qualityCover", "Quality cover")}
                                         </button>
                                     ) : (
                                         <span
-                                            className="px-4 py-2 text-xs font-semibold rounded-xl border border-red-200 bg-red-50 text-red-700 inline-flex items-center gap-2"
-                                            title="Unlocks after final testing stage"
+                                            className="px-4 py-2 text-xs font-semibold rounded-xl border border-gray-200 bg-gray-50 text-gray-600 inline-flex items-center gap-2"
+                                            title={t("samples.qualityCoverLockedHint", "Unlocks after the final testing stage is completed")}
                                         >
                                             <Lock size={14} />
-                                            Quality cover
+                                            {t("samples.tabs.qualityCover", "Quality cover")}
                                         </span>
                                     )}
                                 </div>
@@ -441,18 +412,11 @@ export const SampleDetailPage = () => {
                                 {tab === "summary" && (
                                     <div className="space-y-6">
                                         <SampleStatusCard sample={sample} reagentRequestStatus={reagentRequestStatus} />
-
-                                        <SampleDocumentsCard
-                                            docs={docs}
-                                            loading={docsLoading}
-                                            error={docsError}
-                                        />
+                                        <SampleDocumentsCard docs={docs} loading={docsLoading} error={docsError} />
                                     </div>
                                 )}
 
-                                {tab === "sample" && (
-                                    <SampleInfoTab sample={sample} />
-                                )}
+                                {tab === "sample" && <SampleInfoTab sample={sample} />}
 
                                 {tab === "workflow" && (
                                     <SampleWorkflowTab
@@ -469,8 +433,8 @@ export const SampleDetailPage = () => {
                                         sampleId={sampleId}
                                         sample={sample}
                                         onQualityCoverUnlocked={async () => {
-                                            await refreshAll();       // ✅ ensure gate fields updated
-                                            setTab("quality_cover");  // ✅ then open QC tab
+                                            await refreshAll();
+                                            setTab("quality_cover");
                                         }}
                                     />
                                 )}

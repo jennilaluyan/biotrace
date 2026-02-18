@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Eye, FileText, RefreshCw } from "lucide-react";
+import { ArrowLeft, Eye, FileText, RefreshCw, Info } from "lucide-react";
 
 import { getErrorMessage } from "../../utils/errors";
 import { formatDateTimeLocal } from "../../utils/date";
@@ -27,16 +28,16 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
-function safeText(v: any) {
-    if (v === null || v === undefined) return "-";
+function safeText(v: any, fallback = "—") {
+    if (v === null || v === undefined) return fallback;
     const s = String(v).trim();
-    return s.length ? s : "-";
+    return s.length ? s : fallback;
 }
 
-function buildLabel(row: ReportDocumentRow) {
-    const name = (row.document_name ?? row.type ?? "Document").trim();
+function buildLabel(row: ReportDocumentRow, fallbackDocLabel: string) {
+    const name = (row.document_name ?? row.type ?? fallbackDocLabel).trim();
     const code = (row.document_code ?? row.number ?? "").trim();
-    return code ? `${name} (${code})` : name;
+    return code ? `${name} (${code})` : name || fallbackDocLabel;
 }
 
 function normalizeTimeline(d?: SampleArchiveDetail | null): ArchiveTimelineEvent[] {
@@ -67,7 +68,15 @@ function normalizeTimeline(d?: SampleArchiveDetail | null): ArchiveTimelineEvent
     return out;
 }
 
-function normalizeFallbackDocs(d?: SampleArchiveDetail | null, latestReportId?: number | null): RenderDoc[] {
+function normalizeFallbackDocs(
+    d?: SampleArchiveDetail | null,
+    latestReportId?: number | null,
+    labels?: {
+        docFallback: string;
+        loo: string;
+        coa: string;
+    }
+): RenderDoc[] {
     const docs: RenderDoc[] = [];
     const fromArray = ((d as any)?.documents ?? []) as Array<ArchiveDocument & { download_url?: string | null }>;
 
@@ -76,7 +85,7 @@ function normalizeFallbackDocs(d?: SampleArchiveDetail | null, latestReportId?: 
         if (!url) continue;
         docs.push({
             type: String(x?.type ?? "document"),
-            label: String(x?.label ?? "Document"),
+            label: String(x?.label ?? labels?.docFallback ?? "Document"),
             kind: "pdf_url",
             pdfUrl: String(url),
         });
@@ -90,14 +99,14 @@ function normalizeFallbackDocs(d?: SampleArchiveDetail | null, latestReportId?: 
     if (loId) {
         docs.push({
             type: "LOO",
-            label: loNumber ? `Letter of Order (LOO) (${loNumber})` : "Letter of Order (LOO)",
+            label: loNumber ? `${labels?.loo ?? "Letter of Order (LOO)"} — ${loNumber}` : labels?.loo ?? "Letter of Order (LOO)",
             kind: "pdf_url",
             pdfUrl: `/api/v1/reports/documents/loo/${loId}/pdf`,
         });
     } else if (loFile) {
         docs.push({
             type: "LOO",
-            label: loNumber ? `Letter of Order (LOO) (${loNumber})` : "Letter of Order (LOO)",
+            label: loNumber ? `${labels?.loo ?? "Letter of Order (LOO)"} — ${loNumber}` : labels?.loo ?? "Letter of Order (LOO)",
             kind: "pdf_url",
             pdfUrl: String(loFile),
         });
@@ -116,7 +125,7 @@ function normalizeFallbackDocs(d?: SampleArchiveDetail | null, latestReportId?: 
     if (reportId) {
         docs.push({
             type: "COA",
-            label: "Certificate of Analysis (CoA)",
+            label: labels?.coa ?? "Certificate of Analysis (COA)",
             kind: "report_preview",
             reportId,
         });
@@ -132,11 +141,13 @@ function normalizeFallbackDocs(d?: SampleArchiveDetail | null, latestReportId?: 
 }
 
 export function SampleArchiveDetailPage() {
+    const { t } = useTranslation();
     const nav = useNavigate();
     const params = useParams();
     const sampleId = Number((params as any).sampleId ?? (params as any).sample_id);
 
     const [data, setData] = useState<SampleArchiveDetail | null>(null);
+
     const [repoDocs, setRepoDocs] = useState<ReportDocumentRow[]>([]);
     const [repoDocsError, setRepoDocsError] = useState<string | null>(null);
 
@@ -146,7 +157,7 @@ export function SampleArchiveDetailPage() {
 
     const [previewReportId, setPreviewReportId] = useState<number | null>(null);
     const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
-    const [previewTitle, setPreviewTitle] = useState<string>("PDF Preview");
+    const [previewTitle, setPreviewTitle] = useState<string>(t("archive.previewTitle", "PDF Preview"));
     const [previewOpen, setPreviewOpen] = useState(false);
 
     async function load(opts?: { silent?: boolean }) {
@@ -166,7 +177,7 @@ export function SampleArchiveDetailPage() {
                 setRepoDocsError(getErrorMessage(e));
             }
         } catch (e) {
-            setError(getErrorMessage(e));
+            setError(getErrorMessage(e) || t("archive.detailLoadError", "Failed to load archive detail."));
         } finally {
             if (!opts?.silent) setLoading(false);
         }
@@ -183,7 +194,7 @@ export function SampleArchiveDetailPage() {
 
     useEffect(() => {
         if (!Number.isFinite(sampleId) || sampleId <= 0) {
-            setError("Invalid sample id.");
+            setError(t("common.invalidId", "Invalid id."));
             return;
         }
         load();
@@ -193,6 +204,7 @@ export function SampleArchiveDetailPage() {
     const sample = (data as any)?.sample ?? null;
     const client = (data as any)?.client ?? null;
     const loo = (data as any)?.loo ?? null;
+
     const reports = (((data as any)?.reports ?? []) as any[]) || [];
     const latestReport = reports?.[0] ?? null;
 
@@ -204,6 +216,10 @@ export function SampleArchiveDetailPage() {
                 : null;
 
     const docs = useMemo<RenderDoc[]>(() => {
+        const docFallback = t("common.document", "Document");
+        const looLabel = t("docs.loo", "Letter of Order (LOO)");
+        const coaLabel = t("docs.coa", "Certificate of Analysis (COA)");
+
         const primary: RenderDoc[] = repoDocs.length
             ? (repoDocs
                 .map((r) => {
@@ -211,7 +227,7 @@ export function SampleArchiveDetailPage() {
                     if (!url) return null;
                     return {
                         type: String(r.type ?? "document"),
-                        label: buildLabel(r),
+                        label: buildLabel(r, docFallback),
                         kind: "pdf_url" as const,
                         pdfUrl: url,
                     };
@@ -219,25 +235,24 @@ export function SampleArchiveDetailPage() {
                 .filter(Boolean) as RenderDoc[])
             : [];
 
-        const fallback = normalizeFallbackDocs(data, latestReportId);
+        const fallback = normalizeFallbackDocs(data, latestReportId, {
+            docFallback,
+            loo: looLabel,
+            coa: coaLabel,
+        });
 
-        // Merge + dedupe (repo docs biasanya punya LOO/RR, fallback punya COA preview)
         const out: RenderDoc[] = [];
         const seen = new Set<string>();
 
         for (const d of [...primary, ...fallback]) {
-            const key =
-                d.kind === "report_preview"
-                    ? `report:${d.reportId ?? ""}`
-                    : `url:${String(d.pdfUrl ?? "").trim()}`;
-
+            const key = d.kind === "report_preview" ? `report:${d.reportId ?? ""}` : `url:${String(d.pdfUrl ?? "").trim()}`;
             if (!key || seen.has(key)) continue;
             seen.add(key);
             out.push(d);
         }
 
         return out;
-    }, [repoDocs, data, latestReportId]);
+    }, [repoDocs, data, latestReportId, t]);
 
     const timeline = useMemo(() => normalizeTimeline(data), [data]);
 
@@ -257,8 +272,7 @@ export function SampleArchiveDetailPage() {
     const coaNumber =
         (data as any)?.coa_number ?? latestReport?.report_no ?? latestReport?.number ?? (data as any)?.coa_report_id ?? null;
 
-    const coaGeneratedAt =
-        (data as any)?.coa_generated_at ?? latestReport?.generated_at ?? latestReport?.created_at ?? null;
+    const coaGeneratedAt = (data as any)?.coa_generated_at ?? latestReport?.generated_at ?? latestReport?.created_at ?? null;
 
     const archivedAt =
         (data as any)?.archived_at ?? sample?.archived_at ?? sample?.reported_at ?? sample?.updated_at ?? null;
@@ -276,7 +290,7 @@ export function SampleArchiveDetailPage() {
         if (!url) return;
 
         setPreviewPdfUrl(url);
-        setPreviewTitle(`${doc.label} Preview`);
+        setPreviewTitle(t("archive.previewDocTitle", "{{name}} — Preview", { name: doc.label }));
         setPreviewOpen(true);
     };
 
@@ -285,22 +299,29 @@ export function SampleArchiveDetailPage() {
             <div className="px-0 py-2">
                 <nav className="lims-breadcrumb">
                     <Link to="/samples" className="lims-breadcrumb-link">
-                        Samples
+                        {t("samples.title", "Samples")}
                     </Link>
                     <span className="lims-breadcrumb-separator">›</span>
                     <Link to="/samples/archive" className="lims-breadcrumb-link">
-                        Archive
+                        {t("archive.titleShort", "Archive")}
                     </Link>
                     <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">Detail</span>
+                    <span className="lims-breadcrumb-current">{t("common.detail", "Detail")}</span>
                 </nav>
             </div>
 
             <div className="lims-detail-shell">
-                {loading && <div className="text-sm text-gray-600">Loading…</div>}
+                {loading && (
+                    <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 flex items-center gap-2">
+                        <RefreshCw size={16} className="animate-spin" />
+                        {t("common.loading", "Loading…")}
+                    </div>
+                )}
 
                 {error && !loading && (
-                    <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
+                    <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-4">
+                        {error}
+                    </div>
                 )}
 
                 {!loading && !error && (
@@ -311,24 +332,26 @@ export function SampleArchiveDetailPage() {
                                     type="button"
                                     className="lims-icon-button"
                                     onClick={() => nav(-1)}
-                                    aria-label="Back"
-                                    title="Back"
+                                    aria-label={t("common.back", "Back")}
+                                    title={t("common.back", "Back")}
                                 >
                                     <ArrowLeft size={16} />
                                 </button>
 
                                 <div>
-                                    <h1 className="text-lg md:text-xl font-bold text-gray-900">Sample Archive</h1>
+                                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("archive.detailTitle", "Sample Archive")}</h1>
 
                                     <div className="mt-1 flex items-center gap-2 flex-wrap">
-                                        <span className="text-xs text-gray-500">Lab code</span>
+                                        <span className="text-xs text-gray-500">{t("samples.labCode", "Lab code")}</span>
                                         <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
-                                            {safeText(labCode)}
+                                            {safeText(labCode, t("common.na", "—"))}
                                         </span>
 
                                         {archivedAt ? (
                                             <span className="text-[11px] text-gray-500">
-                                                archived {formatDateTimeLocal(archivedAt)}
+                                                {t("archive.archivedAtLabel", "archived {{at}}", {
+                                                    at: formatDateTimeLocal(archivedAt),
+                                                })}
                                             </span>
                                         ) : null}
                                     </div>
@@ -341,8 +364,8 @@ export function SampleArchiveDetailPage() {
                                     className="lims-icon-button"
                                     onClick={refresh}
                                     disabled={pageRefreshing}
-                                    aria-label="Refresh"
-                                    title="Refresh"
+                                    aria-label={t("common.refresh", "Refresh")}
+                                    title={t("common.refresh", "Refresh")}
                                 >
                                     <RefreshCw size={16} className={cx(pageRefreshing && "animate-spin")} />
                                 </button>
@@ -352,45 +375,47 @@ export function SampleArchiveDetailPage() {
                         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
                             <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden lg:col-span-2">
                                 <div className="px-5 py-4 border-b border-gray-100 bg-white">
-                                    <div className="text-sm font-extrabold text-gray-900">Overview</div>
-                                    <div className="text-xs text-gray-500 mt-1">Ringkasan sample + status akhir.</div>
+                                    <div className="text-sm font-extrabold text-gray-900">{t("common.overview", "Overview")}</div>
+                                    <div className="text-xs text-gray-500 mt-1">
+                                        {t("archive.overviewHint", "Key metadata for traceability (client, workflow group, final status, and generated docs).")}
+                                    </div>
                                 </div>
 
                                 <div className="px-5 py-5">
                                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                                         <div>
-                                            <div className="text-xs text-gray-500">Client</div>
-                                            <div className="text-sm font-semibold text-gray-900">{safeText(clientName)}</div>
+                                            <div className="text-xs text-gray-500">{t("common.client", "Client")}</div>
+                                            <div className="text-sm font-semibold text-gray-900">{safeText(clientName, t("common.na", "—"))}</div>
                                         </div>
 
                                         <div>
-                                            <div className="text-xs text-gray-500">Workflow Group</div>
-                                            <div className="text-sm font-semibold text-gray-900">{safeText(workflowGroup)}</div>
+                                            <div className="text-xs text-gray-500">{t("samples.workflowGroup", "Workflow Group")}</div>
+                                            <div className="text-sm font-semibold text-gray-900">{safeText(workflowGroup, t("common.na", "—"))}</div>
                                         </div>
 
                                         <div>
-                                            <div className="text-xs text-gray-500">Status (Final)</div>
-                                            <div className="text-sm font-semibold text-gray-900">{safeText(finalStatus)}</div>
+                                            <div className="text-xs text-gray-500">{t("archive.finalStatus", "Final Status")}</div>
+                                            <div className="text-sm font-semibold text-gray-900">{safeText(finalStatus, t("common.na", "—"))}</div>
                                         </div>
 
                                         <div>
-                                            <div className="text-xs text-gray-500">Archived At</div>
+                                            <div className="text-xs text-gray-500">{t("archive.archivedAt", "Archived At")}</div>
                                             <div className="text-sm font-semibold text-gray-900">
-                                                {archivedAt ? formatDateTimeLocal(archivedAt) : "-"}
+                                                {archivedAt ? formatDateTimeLocal(archivedAt) : t("common.na", "—")}
                                             </div>
                                         </div>
 
                                         <div>
-                                            <div className="text-xs text-gray-500">LOO</div>
-                                            <div className="text-sm font-semibold text-gray-900">{safeText(loNumber)}</div>
+                                            <div className="text-xs text-gray-500">{t("docs.looShort", "LOO")}</div>
+                                            <div className="text-sm font-semibold text-gray-900">{safeText(loNumber, t("common.na", "—"))}</div>
                                             {loGeneratedAt ? (
                                                 <div className="text-xs text-gray-500">{formatDateTimeLocal(loGeneratedAt)}</div>
                                             ) : null}
                                         </div>
 
                                         <div>
-                                            <div className="text-xs text-gray-500">COA</div>
-                                            <div className="text-sm font-semibold text-gray-900">{safeText(coaNumber)}</div>
+                                            <div className="text-xs text-gray-500">{t("docs.coaShort", "COA")}</div>
+                                            <div className="text-sm font-semibold text-gray-900">{safeText(coaNumber, t("common.na", "—"))}</div>
                                             {coaGeneratedAt ? (
                                                 <div className="text-xs text-gray-500">{formatDateTimeLocal(coaGeneratedAt)}</div>
                                             ) : null}
@@ -399,7 +424,7 @@ export function SampleArchiveDetailPage() {
 
                                     <div className="mt-6">
                                         <div className="text-xs font-semibold tracking-wide text-gray-500 uppercase">
-                                            Requested Parameters
+                                            {t("samples.requestedParameters", "Requested Parameters")}
                                         </div>
 
                                         <div className="mt-2 flex flex-wrap gap-2">
@@ -409,11 +434,11 @@ export function SampleArchiveDetailPage() {
                                                         key={`${p?.parameter_id ?? p?.id ?? p?.name ?? idx}`}
                                                         className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-700"
                                                     >
-                                                        {safeText(p?.name ?? p?.parameter_name ?? p?.label)}
+                                                        {safeText(p?.name ?? p?.parameter_name ?? p?.label, t("common.na", "—"))}
                                                     </span>
                                                 ))
                                             ) : (
-                                                <span className="text-sm text-gray-500">-</span>
+                                                <span className="text-sm text-gray-500">{t("common.na", "—")}</span>
                                             )}
                                         </div>
                                     </div>
@@ -422,21 +447,35 @@ export function SampleArchiveDetailPage() {
 
                             <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                                 <div className="px-5 py-4 border-b border-gray-100 bg-white">
-                                    <div className="text-sm font-extrabold text-gray-900">Documents</div>
+                                    <div className="text-sm font-extrabold text-gray-900">{t("common.documents", "Documents")}</div>
                                     <div className="text-xs text-gray-500 mt-1">
-                                        Dokumen diambil dari repository dokumen (sample-scoped).
+                                        {t("archive.docsHint", "Documents linked to this sample (repository + fallback sources).")}
                                     </div>
                                 </div>
 
                                 <div className="px-5 py-5 space-y-3">
                                     {repoDocsError ? (
-                                        <div className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-                                            Failed to load documents repository: {repoDocsError}
+                                        <div className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                                            {t("archive.repoDocsError", "Failed to load repository docs: {{msg}}", { msg: repoDocsError })}
                                         </div>
                                     ) : null}
 
                                     {docs.length === 0 ? (
-                                        <div className="text-sm text-gray-600">No documents found.</div>
+                                        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                                            <div className="flex items-start gap-3">
+                                                <span className="mt-0.5 text-gray-500">
+                                                    <Info size={16} />
+                                                </span>
+                                                <div>
+                                                    <div className="text-sm font-semibold text-gray-900">
+                                                        {t("archive.docsEmptyTitle", "No documents available")}
+                                                    </div>
+                                                    <div className="text-sm text-gray-600 mt-1">
+                                                        {t("archive.docsEmptyHint", "This sample does not have stored PDFs yet (or access is restricted).")}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     ) : (
                                         <div className="space-y-2">
                                             {docs.map((d, idx) => (
@@ -454,7 +493,7 @@ export function SampleArchiveDetailPage() {
                                                         <div className="min-w-0">
                                                             <div className="font-semibold text-gray-900 truncate">{d.label}</div>
                                                             <div className="text-xs text-gray-500 truncate">
-                                                                {safeText(d.type)?.toUpperCase?.() ?? d.type}
+                                                                {safeText(d.type, t("common.na", "—"))?.toUpperCase?.() ?? d.type}
                                                             </div>
                                                         </div>
                                                     </div>
@@ -469,7 +508,7 @@ export function SampleArchiveDetailPage() {
 
                                     <div className="pt-2">
                                         <Link className="text-sm text-gray-700 underline" to="/samples/archive">
-                                            Back to Archive List
+                                            {t("archive.backToList", "Back to Archive List")}
                                         </Link>
                                     </div>
                                 </div>
@@ -478,13 +517,17 @@ export function SampleArchiveDetailPage() {
 
                         <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                             <div className="px-5 py-4 border-b border-gray-100 bg-white">
-                                <div className="text-sm font-extrabold text-gray-900">Workflow Timeline</div>
-                                <div className="text-xs text-gray-500 mt-1">Event workflow dari audit logs / timeline payload.</div>
+                                <div className="text-sm font-extrabold text-gray-900">{t("archive.timelineTitle", "Workflow Timeline")}</div>
+                                <div className="text-xs text-gray-500 mt-1">
+                                    {t("archive.timelineHint", "A chronological trail of workflow events (from audit logs / timeline payload).")}
+                                </div>
                             </div>
 
                             <div className="px-5 py-5">
                                 {timeline.length === 0 ? (
-                                    <div className="text-sm text-gray-600">No timeline events.</div>
+                                    <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 text-sm text-gray-700">
+                                        {t("archive.timelineEmpty", "No timeline events recorded.")}
+                                    </div>
                                 ) : (
                                     <ol className="space-y-2">
                                         {timeline.map((e, idx) => (
@@ -495,7 +538,7 @@ export function SampleArchiveDetailPage() {
                                                 </div>
 
                                                 <div className="mt-1 text-xs text-gray-600">
-                                                    {e.actor_name ? <span>By: {e.actor_name}</span> : <span>By: -</span>}
+                                                    {t("archive.timelineBy", "By: {{name}}", { name: e.actor_name ? e.actor_name : t("common.na", "—") })}
                                                 </div>
 
                                                 {e.note ? (
@@ -511,7 +554,11 @@ export function SampleArchiveDetailPage() {
                 )}
             </div>
 
-            <ReportPreviewModal open={previewReportId !== null} reportId={previewReportId} onClose={() => setPreviewReportId(null)} />
+            <ReportPreviewModal
+                open={previewReportId !== null}
+                reportId={previewReportId}
+                onClose={() => setPreviewReportId(null)}
+            />
 
             <ReportPreviewModal
                 open={previewOpen}
