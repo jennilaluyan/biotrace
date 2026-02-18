@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CheckSquare, FileText, Info, RefreshCw, RotateCcw, Search, Square } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { useAuth } from "../../hooks/useAuth";
 import { getUserRoleLabel } from "../../utils/roles";
@@ -10,43 +12,6 @@ import { ReportPreviewModal } from "../../components/reports/ReportPreviewModal"
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
-}
-
-function SearchIcon() {
-    return (
-        <svg
-            viewBox="0 0 24 24"
-            className="h-4 w-4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-        >
-            <circle cx="11" cy="11" r="6" />
-            <line x1="16" y1="16" x2="21" y2="21" />
-        </svg>
-    );
-}
-
-function InfoIcon() {
-    return (
-        <svg
-            viewBox="0 0 24 24"
-            className="h-4 w-4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-        >
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 16v-4" />
-            <path d="M12 8h.01" />
-        </svg>
-    );
 }
 
 type RequestedParameter = {
@@ -96,7 +61,9 @@ function toStrOrNull(v: any): string | null {
 }
 
 export function LooGeneratorPage() {
+    const { t } = useTranslation();
     const { user } = useAuth();
+
     const roleLabel = getUserRoleLabel(user);
     const actorRole = getActorRoleCode(roleLabel);
 
@@ -118,7 +85,7 @@ export function LooGeneratorPage() {
     const [resultUrl, setResultUrl] = useState<string | null>(null);
     const [resultNumber, setResultNumber] = useState<string | null>(null);
 
-    // ✅ Step 18: show record + form code
+    // show record + form code
     const [resultRecordNo, setResultRecordNo] = useState<string | null>(null);
     const [resultFormCode, setResultFormCode] = useState<string | null>(null);
 
@@ -146,7 +113,7 @@ export function LooGeneratorPage() {
         return raw;
     };
 
-    // ✅ Step 18: prefer download_url -> pdf_file_id -> pdf_url -> fallback
+    // prefer download_url -> pdf_file_id -> pdf_url -> fallback
     const resolveResultUrl = (res: any): string | null => {
         const obj = res?.data ?? res;
 
@@ -253,7 +220,7 @@ export function LooGeneratorPage() {
                 err?.response?.data?.message ??
                 err?.data?.message ??
                 err?.message ??
-                "Failed to load LOO candidates.";
+                t("loo.generator.errors.loadFailed");
             setError(msg);
         } finally {
             setLoading(false);
@@ -346,7 +313,7 @@ export function LooGeneratorPage() {
                 err?.response?.data?.message ??
                 err?.data?.message ??
                 err?.message ??
-                "Gagal update approval.";
+                t("loo.generator.errors.approvalFailed");
             setError(msg);
 
             // rollback by refetch
@@ -373,19 +340,19 @@ export function LooGeneratorPage() {
         if (busy) return;
 
         if (!selectedIds.length) {
-            setError("Pilih minimal 1 sampel.");
+            setError(t("loo.generator.errors.selectAtLeastOne"));
             return;
         }
 
         if (!readySelectedIds.length) {
-            setError("Belum ada sampel Ready (OM ✅ dan LH ✅).");
+            setError(t("loo.generator.errors.noneReadySelected"));
             return;
         }
 
         const map = buildParamMapFor(readySelectedIds);
         for (const sid of readySelectedIds) {
             if (!map[sid] || map[sid].length === 0) {
-                setError(`Parameter uji untuk sample #${sid} belum dipilih (minimal 1).`);
+                setError(t("loo.generator.errors.paramRequiredForSample", { id: sid }));
                 return;
             }
         }
@@ -411,15 +378,12 @@ export function LooGeneratorPage() {
 
             setResultNumber(looNumber);
 
-            // ✅ Step 18: record_no + form_code
             setResultRecordNo(toStrOrNull(obj?.record_no ?? obj?.payload?.record_no) ?? null);
             setResultFormCode(toStrOrNull(obj?.form_code ?? obj?.payload?.form_code) ?? null);
 
             const url = resolveResultUrl(res);
             if (!url) {
-                setError(
-                    "LOO berhasil dibuat, tapi URL preview/download tidak tersedia (butuh download_url / pdf_file_id / pdf_url / lo_id)."
-                );
+                setError(t("loo.generator.errors.missingPreviewUrl"));
                 return;
             }
 
@@ -432,7 +396,7 @@ export function LooGeneratorPage() {
                 err?.response?.data?.message ??
                 err?.data?.message ??
                 err?.message ??
-                "Gagal generate LOO.";
+                t("loo.generator.errors.generateFailed");
             setError(msg);
         } finally {
             setBusy(false);
@@ -446,22 +410,25 @@ export function LooGeneratorPage() {
     const readyOff = "bg-amber-50 text-amber-800 border-amber-200";
 
     const generateDisabledReason = (() => {
-        if (busy) return "Sedang memproses…";
-        if (items.length === 0) return "Belum ada kandidat sampel.";
-        if (!anyReadyInList) return "Belum ada sampel Ready (butuh OM ✅ dan LH ✅).";
-        if (readySelectedIds.length === 0) return "Pilih minimal 1 sampel yang Ready.";
+        if (busy) return t("processing");
+        if (items.length === 0) return t("loo.generator.disabled.noCandidates");
+        if (!anyReadyInList) return t("loo.generator.disabled.noneReadyInList");
+        if (readySelectedIds.length === 0) return t("loo.generator.disabled.pickReady");
         return "";
     })();
 
     return (
         <div className="min-h-[60vh]">
             {/* Header */}
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
-                <h1 className="text-lg md:text-xl font-bold text-gray-900">LOO Generator</h1>
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between px-0 py-2">
+                <div>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("nav.looWorkspace")}</h1>
+                    <p className="text-xs text-gray-500 mt-1">{t("loo.generator.subtitle")}</p>
+                </div>
 
                 <div className="text-xs text-gray-600">
                     <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1">
-                        <span className="text-gray-500">Role:</span>
+                        <span className="text-gray-500">{t("loo.generator.roleLabel")}</span>
                         <span className="font-semibold text-gray-900">{roleLabel}</span>
                     </div>
                 </div>
@@ -472,11 +439,11 @@ export function LooGeneratorPage() {
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="loo-search">
-                            Search samples
+                            {t("search")}
                         </label>
                         <div className="relative">
                             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
-                                <SearchIcon />
+                                <Search size={16} />
                             </span>
                             <input
                                 id="loo-search"
@@ -485,7 +452,7 @@ export function LooGeneratorPage() {
                                 onKeyDown={(e) => {
                                     if (e.key === "Enter") load({ query: q });
                                 }}
-                                placeholder="Search client / lab code / sample type…"
+                                placeholder={t("loo.generator.searchPlaceholder")}
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
@@ -494,32 +461,35 @@ export function LooGeneratorPage() {
                     <div className="w-full md:w-auto flex flex-col sm:flex-row gap-2">
                         <button
                             type="button"
-                            className="btn-outline"
+                            className="btn-outline inline-flex items-center gap-2"
                             onClick={() => load({ query: q })}
                             disabled={loading || busy}
-                            title={busy ? "Sedang memproses…" : "Ambil ulang kandidat sampel"}
+                            title={busy ? t("processing") : t("loo.generator.refreshHint")}
                         >
-                            Refresh
+                            <RefreshCw size={16} />
+                            {t("refresh")}
                         </button>
 
                         <button
                             type="button"
-                            className="btn-outline"
+                            className="btn-outline inline-flex items-center gap-2"
                             onClick={() => toggleAll(true)}
                             disabled={busy || items.length === 0}
-                            title={items.length === 0 ? "Tidak ada sampel" : "Pilih semua"}
+                            title={items.length === 0 ? t("loo.generator.disabled.noCandidates") : t("loo.generator.selectAllHint")}
                         >
-                            Select all
+                            <CheckSquare size={16} />
+                            {t("loo.generator.selectAll")}
                         </button>
 
                         <button
                             type="button"
-                            className="btn-outline"
+                            className="btn-outline inline-flex items-center gap-2"
                             onClick={() => toggleAll(false)}
                             disabled={busy || items.length === 0}
-                            title={items.length === 0 ? "Tidak ada sampel" : "Bersihkan pilihan"}
+                            title={items.length === 0 ? t("loo.generator.disabled.noCandidates") : t("loo.generator.clearSelectionHint")}
                         >
-                            Clear
+                            <Square size={16} />
+                            {t("loo.generator.clearSelection")}
                         </button>
                     </div>
                 </div>
@@ -535,41 +505,40 @@ export function LooGeneratorPage() {
                     <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
                         <div className="flex items-start gap-2">
                             <span className="mt-0.5 text-gray-500">
-                                <InfoIcon />
+                                <Info size={16} />
                             </span>
-                            <div className="text-xs">
-                                Sampel dianggap <b>Ready</b> jika <b>OM ready</b> dan <b>LH ready</b>. Hanya sampel Ready yang bisa dibuatkan LOO.
-                            </div>
+                            <div className="text-xs">{t("loo.generator.guidance")}</div>
                         </div>
                     </div>
 
                     {/* Summary */}
                     <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 mb-4">
                         <span className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1">
-                            Selected: <span className="font-semibold text-gray-900">{selectedIds.length}</span>
+                            {t("loo.generator.summary.selected")}{" "}
+                            <span className="font-semibold text-gray-900">{selectedIds.length}</span>
                         </span>
                         <span className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1">
-                            Ready (selected): <span className="font-semibold text-gray-900">{readySelectedIds.length}</span>
+                            {t("loo.generator.summary.readySelected")}{" "}
+                            <span className="font-semibold text-gray-900">{readySelectedIds.length}</span>
                         </span>
                         <span className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1">
-                            Ready (in list): <span className="font-semibold text-gray-900">{readyCountInList}</span>
+                            {t("loo.generator.summary.readyInList")}{" "}
+                            <span className="font-semibold text-gray-900">{readyCountInList}</span>
                         </span>
                     </div>
 
                     {loading ? (
-                        <div className="text-sm text-gray-600">Loading candidates…</div>
+                        <div className="text-sm text-gray-600">{t("loo.generator.loading")}</div>
                     ) : items.length === 0 ? (
                         <div className="rounded-2xl border border-gray-200 bg-white px-5 py-8 text-center">
                             <div className="mx-auto h-10 w-10 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-500">
-                                <InfoIcon />
+                                <FileText size={18} />
                             </div>
-                            <div className="mt-3 text-sm font-semibold text-gray-900">Tidak ada kandidat</div>
-                            <div className="mt-1 text-xs text-gray-500 max-w-xl mx-auto">
-                                Sampel akan muncul di sini setelah selesai diverifikasi dan masuk waiting room LOO.
-                            </div>
+                            <div className="mt-3 text-sm font-semibold text-gray-900">{t("loo.generator.emptyTitle")}</div>
+                            <div className="mt-1 text-xs text-gray-500 max-w-xl mx-auto">{t("loo.generator.emptyBody")}</div>
                             <div className="mt-4">
                                 <button type="button" className="btn-outline" onClick={() => load({ query: q })} disabled={busy}>
-                                    Refresh
+                                    {t("refresh")}
                                 </button>
                             </div>
                         </div>
@@ -579,11 +548,7 @@ export function LooGeneratorPage() {
                                 const sid = s.sample_id;
                                 const checked = !!selected[sid];
 
-                                const rx =
-                                    s.received_at ??
-                                    s.physically_received_at ??
-                                    s.admin_received_from_client_at ??
-                                    null;
+                                const rx = s.received_at ?? s.physically_received_at ?? s.admin_received_from_client_at ?? null;
 
                                 const params = s.requested_parameters ?? [];
                                 const selMap = paramSel[sid] ?? {};
@@ -597,37 +562,46 @@ export function LooGeneratorPage() {
                                         ? "bg-emerald-50/20"
                                         : "bg-white";
 
+                                const checkboxId = `loo-sel-${sid}`;
+
                                 return (
                                     <div key={sid} className={cx("rounded-2xl border p-4", rowBorder, rowBg)}>
+                                        {/* ✅ Fix UX bug: do NOT wrap the whole row in <label> (buttons inside would toggle checkbox). */}
                                         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-                                            <label className="flex items-start gap-3 cursor-pointer">
+                                            <div className="flex items-start gap-3">
                                                 <input
+                                                    id={checkboxId}
                                                     type="checkbox"
                                                     checked={checked}
                                                     onChange={(e) => setSelected((p) => ({ ...p, [sid]: e.target.checked }))}
                                                     disabled={busy}
                                                     className="mt-1"
                                                 />
-                                                <div>
-                                                    <div className="text-sm font-semibold text-gray-900">
-                                                        #{sid}{" "}
-                                                        {s.lab_sample_code ? (
-                                                            <span className="ml-2 font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
-                                                                {s.lab_sample_code}
-                                                            </span>
-                                                        ) : null}
-                                                    </div>
 
-                                                    <div className="text-xs text-gray-600 mt-1">
-                                                        {s.client?.name ?? "-"}
-                                                        {s.client?.organization ? ` · ${s.client.organization}` : ""}
-                                                        {s.sample_type ? ` · ${s.sample_type}` : ""}
-                                                    </div>
+                                                <div className="min-w-0">
+                                                    <label htmlFor={checkboxId} className="cursor-pointer block">
+                                                        <div className="text-sm font-semibold text-gray-900">
+                                                            #{sid}{" "}
+                                                            {s.lab_sample_code ? (
+                                                                <span className="ml-2 font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
+                                                                    {s.lab_sample_code}
+                                                                </span>
+                                                            ) : null}
+                                                        </div>
 
-                                                    <div className="text-[11px] text-gray-500 mt-1">
-                                                        Verified: {s.verified_at ? formatDateTimeLocal(s.verified_at) : "-"} ·{" "}
-                                                        Received: {rx ? formatDateTimeLocal(rx) : "-"}
-                                                    </div>
+                                                        <div className="text-xs text-gray-600 mt-1">
+                                                            {s.client?.name ?? "—"}
+                                                            {s.client?.organization ? ` · ${s.client.organization}` : ""}
+                                                            {s.sample_type ? ` · ${s.sample_type}` : ""}
+                                                        </div>
+
+                                                        <div className="text-[11px] text-gray-500 mt-1">
+                                                            {t("loo.generator.timestamps.verified")}{" "}
+                                                            {s.verified_at ? formatDateTimeLocal(s.verified_at) : "—"} ·{" "}
+                                                            {t("loo.generator.timestamps.received")}{" "}
+                                                            {rx ? formatDateTimeLocal(rx) : "—"}
+                                                        </div>
+                                                    </label>
 
                                                     <div className="mt-2 flex flex-wrap items-center gap-2">
                                                         <button
@@ -639,9 +613,10 @@ export function LooGeneratorPage() {
                                                             )}
                                                             onClick={canToggleOM ? () => setApprovalFor(sid, !st.OM) : undefined}
                                                             disabled={!canToggleOM || busy}
-                                                            title={canToggleOM ? "Toggle persetujuan OM" : "Hanya OM yang bisa mengubah ini"}
+                                                            aria-pressed={st.OM}
+                                                            title={canToggleOM ? t("loo.generator.approval.toggleOm") : t("loo.generator.approval.onlyOm")}
                                                         >
-                                                            OM {st.OM ? "ready" : "not ready"}
+                                                            {t("loo.generator.approval.om")} {st.OM ? t("loo.generator.approval.ready") : t("loo.generator.approval.notReady")}
                                                         </button>
 
                                                         <button
@@ -653,26 +628,28 @@ export function LooGeneratorPage() {
                                                             )}
                                                             onClick={canToggleLH ? () => setApprovalFor(sid, !st.LH) : undefined}
                                                             disabled={!canToggleLH || busy}
-                                                            title={canToggleLH ? "Toggle persetujuan LH" : "Hanya LH yang bisa mengubah ini"}
+                                                            aria-pressed={st.LH}
+                                                            title={canToggleLH ? t("loo.generator.approval.toggleLh") : t("loo.generator.approval.onlyLh")}
                                                         >
-                                                            LH {st.LH ? "ready" : "not ready"}
+                                                            {t("loo.generator.approval.lh")} {st.LH ? t("loo.generator.approval.ready") : t("loo.generator.approval.notReady")}
                                                         </button>
 
                                                         <span
                                                             className={cx(chipBase, st.ready ? readyOn : readyOff)}
-                                                            title={st.ready ? "Ready: OM & LH sudah approve" : "Not ready: masih butuh approve"}
+                                                            title={st.ready ? t("loo.generator.approval.readyHint") : t("loo.generator.approval.notReadyHint")}
                                                         >
-                                                            {st.ready ? "Ready" : "Not ready"}
+                                                            {st.ready ? t("loo.generator.approval.readyStatus") : t("loo.generator.approval.notReadyStatus")}
                                                         </span>
                                                     </div>
                                                 </div>
-                                            </label>
+                                            </div>
                                         </div>
 
                                         {checked ? (
                                             <div className="mt-3">
                                                 <div className="text-xs font-semibold text-gray-800 mb-2">
-                                                    Parameters to test <span className="text-gray-500">(minimal 1)</span>
+                                                    {t("loo.generator.params.title")}{" "}
+                                                    <span className="text-gray-500">{t("loo.generator.params.minOne")}</span>
                                                 </div>
 
                                                 <div className="flex flex-wrap gap-2">
@@ -681,7 +658,7 @@ export function LooGeneratorPage() {
                                                             const pid = p.parameter_id;
                                                             const on = !!selMap[pid];
                                                             const label =
-                                                                (p.code ? `${p.code} — ` : "") + (p.name ?? `Parameter #${pid}`);
+                                                                (p.code ? `${p.code} — ` : "") + (p.name ?? t("loo.generator.params.fallback", { id: pid }));
 
                                                             return (
                                                                 <button
@@ -700,6 +677,7 @@ export function LooGeneratorPage() {
                                                                         }))
                                                                     }
                                                                     disabled={busy}
+                                                                    aria-pressed={on}
                                                                     title={label}
                                                                 >
                                                                     {label}
@@ -707,13 +685,13 @@ export function LooGeneratorPage() {
                                                             );
                                                         })
                                                     ) : (
-                                                        <span className="text-xs text-gray-500">No requested parameters.</span>
+                                                        <span className="text-xs text-gray-500">{t("loo.generator.params.none")}</span>
                                                     )}
                                                 </div>
 
                                                 {!st.ready ? (
                                                     <div className="mt-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-                                                        Boleh pilih parameter dulu, tapi LOO hanya bisa dibuat setelah <b>Ready</b>.
+                                                        {t("loo.generator.params.notReadyNote")}
                                                     </div>
                                                 ) : null}
                                             </div>
@@ -729,16 +707,16 @@ export function LooGeneratorPage() {
                         <div className="text-[11px] text-gray-500">
                             <span className="inline-flex items-center gap-2">
                                 <span className="text-gray-400">
-                                    <InfoIcon />
+                                    <Info size={14} />
                                 </span>
-                                Generate hanya untuk sampel yang <b>Ready</b>.
+                                {t("loo.generator.footerHint")}
                             </span>
                         </div>
 
                         <div className="flex items-center justify-end gap-2">
                             <button
                                 type="button"
-                                className="btn-outline"
+                                className="btn-outline inline-flex items-center gap-2"
                                 onClick={() => {
                                     setResultUrl(null);
                                     setResultNumber(null);
@@ -747,19 +725,21 @@ export function LooGeneratorPage() {
                                     setPreviewOpen(false);
                                 }}
                                 disabled={busy}
-                                title="Bersihkan hasil (tidak menghapus LOO di backend)"
+                                title={t("loo.generator.resetHint")}
                             >
-                                Reset Result
+                                <RotateCcw size={16} />
+                                {t("loo.generator.reset")}
                             </button>
 
                             <button
                                 type="button"
-                                className="lims-btn-primary"
+                                className="lims-btn-primary inline-flex items-center gap-2"
                                 onClick={generate}
                                 disabled={busy || readySelectedIds.length === 0}
                                 title={generateDisabledReason}
                             >
-                                {busy ? "Generating..." : "Generate LOO PDF"}
+                                <FileText size={16} />
+                                {busy ? t("loo.generator.generating") : t("loo.generator.generate")}
                             </button>
                         </div>
                     </div>
@@ -767,24 +747,26 @@ export function LooGeneratorPage() {
                     {/* Result */}
                     {resultUrl ? (
                         <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                            <div className="font-semibold">LOO berhasil dibuat</div>
+                            <div className="font-semibold">{t("loo.generator.result.title")}</div>
 
                             <div className="mt-1">
-                                Number: <span className="font-mono">{resultNumber ?? "-"}</span>
+                                {t("loo.generator.result.number")}{" "}
+                                <span className="font-mono">{resultNumber ?? "—"}</span>
                             </div>
 
-                            {/* ✅ Step 18 */}
                             <div className="mt-1 text-xs text-emerald-900">
-                                Nomor Rekaman: <span className="font-mono">{resultRecordNo ?? "-"}</span>
+                                {t("loo.generator.result.recordNo")}{" "}
+                                <span className="font-mono">{resultRecordNo ?? "—"}</span>
                                 {"  "}•{"  "}
-                                Kode Form: <span className="font-mono">{resultFormCode ?? "-"}</span>
+                                {t("loo.generator.result.formCode")}{" "}
+                                <span className="font-mono">{resultFormCode ?? "—"}</span>
                             </div>
 
                             <div className="mt-3 flex items-center gap-2 flex-wrap">
                                 <button type="button" className="btn-outline" onClick={() => setPreviewOpen(true)}>
-                                    Open Preview
+                                    {t("loo.generator.result.openPreview")}
                                 </button>
-                                <span className="text-xs text-emerald-800">(Download tersedia dari viewer)</span>
+                                <span className="text-xs text-emerald-800">{t("loo.generator.result.downloadHint")}</span>
                             </div>
                         </div>
                     ) : null}
@@ -795,7 +777,7 @@ export function LooGeneratorPage() {
                 open={previewOpen}
                 onClose={() => setPreviewOpen(false)}
                 pdfUrl={resultUrl}
-                title={resultNumber ? `LOO ${resultNumber}` : "LOO PDF Preview"}
+                title={resultNumber ? `LOO ${resultNumber}` : t("loo.generator.previewTitleFallback")}
             />
         </div>
     );

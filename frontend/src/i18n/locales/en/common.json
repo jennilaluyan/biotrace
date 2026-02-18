@@ -507,7 +507,10 @@
                 "finishFailed": "Failed to finish the last stage.",
                 "addColumnFailed": "Failed to add column.",
                 "renameColumnFailed": "Failed to rename column.",
-                "deleteColumnFailed": "Failed to delete column."
+                "deleteColumnFailed": "Failed to delete column.",
+                "somethingWentWrong": "Something went wrong.",
+                "forbiddenTitle": "403 – Access denied",
+                "forbiddenBodyRole": "Your role ({{role}}) is not allowed to access this page."
             }
         },
         "requestStatusModal": {
@@ -623,55 +626,201 @@
             "enterBothCodesHint": "Enter the physical label code to compare."
         }
     },
-    "audit": {
-        "logs": {
-            "title": "Audit logs",
-            "subtitle": "A chronological record of actions in the system.",
-            "count": "{{count}} log(s)",
-            "forbiddenTitle": "403 – Access denied",
-            "forbiddenBody": "Your role ({{role}}) is not allowed to access audit logs.",
-            "backToDashboard": "Back to dashboard",
-            "filters": {
-                "title": "Filters",
-                "hint": "Tip: use at least one filter to narrow results.",
-                "sampleId": "sample_id",
-                "sampleTestId": "sample_test_id",
-                "staffId": "staff_id",
-                "action": "action",
-                "perPage": "per_page",
-                "sampleIdPlaceholder": "e.g. 35",
-                "sampleTestIdPlaceholder": "e.g. 22",
-                "staffIdPlaceholder": "e.g. 4",
-                "actionPlaceholder": "e.g. SAMPLE_TEST_OM_VERIFIED"
+    "docs": {
+        "templates": {
+            "title": "Document templates",
+            "subtitle": "Manage DOCX templates: upload new versions, set record/form prefixes, and keep revision numbers consistent.",
+            "searchPlaceholder": "Search by doc code, title, or kind…",
+            "activeFilterLabel": "Active filter",
+            "activeFilter": {
+                "all": "All",
+                "active": "Active",
+                "inactive": "Inactive"
+            },
+            "loading": "Loading templates…",
+            "emptyTitle": "No templates found",
+            "emptyBody": "Try clearing filters or refresh to fetch the latest list.",
+            "kindValue": "kind: {{kind}}",
+            "kindEmpty": "kind: —",
+            "status": {
+                "active": "Active",
+                "inactive": "Inactive"
+            },
+            "actions": {
+                "uploadDocx": "Upload DOCX",
+                "editMetadata": "Edit metadata"
             },
             "table": {
-                "title": "Logs",
-                "pageOf": "Page {{page}} / {{totalPages}}",
-                "time": "Time",
-                "action": "Action",
-                "entity": "Entity",
-                "staff": "Staff",
-                "ip": "IP",
-                "old": "Old",
-                "new": "New",
-                "empty": "No audit logs found."
+                "template": "Template",
+                "docCode": "Doc code",
+                "revision": "Revision",
+                "currentVersion": "Current version",
+                "updated": "Updated",
+                "active": "Active",
+                "actions": "Actions"
             },
             "pagination": {
-                "pageOf": "Page {{page}} / {{totalPages}}",
-                "total": "Total {{total}}"
+                "showing": "Showing {{from}}–{{to}} of {{total}} templates",
+                "pageOf": "Page {{page}} / {{totalPages}}"
+            },
+            "quickAccess": "Quick access:",
+            "upload": {
+                "title": "Upload DOCX template",
+                "hint": "Upload a .docx file. After upload, the system creates a new version (vN).",
+                "dropzoneAria": "Upload area",
+                "dropzoneTitle": "Drag & drop a .docx file or click to browse",
+                "dropzoneHeadline": "Drag & drop file here",
+                "dropzoneSub": "or",
+                "dropzoneBrowse": "click to browse",
+                "supported": "Supported:",
+                "action": "Upload",
+                "uploading": "Uploading…"
+            },
+            "edit": {
+                "title": "Edit template metadata",
+                "fields": {
+                    "title": "Title",
+                    "recordPrefix": "Record no prefix",
+                    "formPrefix": "Form code prefix",
+                    "revisionNo": "Revision no"
+                },
+                "placeholders": {
+                    "title": "Document title…",
+                    "recordPrefix": "REK/LAB-BM/…/",
+                    "formPrefix": "FORM/LAB-BM/…RevXX."
+                },
+                "hints": {
+                    "recordPrefix": "Output: prefix + DDMMYY",
+                    "formPrefix": "Output: prefix + DD-MM-YY",
+                    "revisionNo": "Shown as RevXX (pad 2)."
+                },
+                "footerTip": "Tip: if your form prefix already includes RevXX, keep it consistent with revision_no."
             },
             "errors": {
-                "loadFailed": "Failed to load audit logs."
+                "docxOnly": "File must be a .docx",
+                "pickDocxFirst": "Please choose a .docx file first."
             }
         }
     },
-    "notFound": {
-        "title": "404 – Page not found",
-        "message": "The page you are looking for does not exist."
-    },
-    "errors": {
-        "somethingWentWrong": "Something went wrong.",
-        "forbiddenTitle": "403 – Access denied",
-        "forbiddenBodyRole": "Your role ({{role}}) is not allowed to access this page."
+    "loo": {
+        "generator": {
+            "title": "LOO Workspace",
+            "subtitle": "Select candidates, confirm approvals (OM + LH), then generate the LOO PDF.",
+            "roleLabel": "Role:",
+            "searchPlaceholder": "Search client, lab code, or sample type…",
+            "refreshHint": "Reload candidates",
+            "selectAll": "Select all",
+            "selectAllHint": "Select all candidates",
+            "clearSelection": "Clear",
+            "clearSelectionHint": "Clear selection",
+            "guidance": "A sample is Ready when OM and LH are both approved. Only Ready samples can be generated into an LOO.",
+            "loading": "Loading candidates…",
+            "emptyTitle": "No candidates yet",
+            "emptyBody": "Candidates appear after verification and once they enter the LOO waiting room.",
+            "summary": {
+                "selected": "Selected:",
+                "readySelected": "Ready (selected):",
+                "readyInList": "Ready (in list):"
+            },
+            "timestamps": {
+                "verified": "Verified:",
+                "received": "Received:"
+            },
+            "approval": {
+                "om": "OM",
+                "lh": "LH",
+                "ready": "ready",
+                "notReady": "not ready",
+                "readyStatus": "Ready",
+                "notReadyStatus": "Not ready",
+                "readyHint": "Ready: OM & LH approved",
+                "notReadyHint": "Not ready yet",
+                "toggleOm": "Toggle OM approval",
+                "toggleLh": "Toggle LH approval",
+                "onlyOm": "Only OM can change this",
+                "onlyLh": "Only LH can change this"
+            },
+            "params": {
+                "title": "Parameters to test",
+                "minOne": "(min 1)",
+                "fallback": "Parameter #{{id}}",
+                "none": "No requested parameters.",
+                "notReadyNote": "You can pre-select parameters, but LOO can only be generated once the sample is Ready."
+            },
+            "footerHint": "Generate is available only for samples marked Ready.",
+            "reset": "Reset result",
+            "resetHint": "Clear the result (does not delete anything in backend).",
+            "generate": "Generate LOO PDF",
+            "generating": "Generating…",
+            "previewTitleFallback": "LOO PDF Preview",
+            "disabled": {
+                "noCandidates": "No candidates available.",
+                "noneReadyInList": "No Ready samples (needs OM + LH).",
+                "pickReady": "Select at least 1 Ready sample."
+            },
+            "result": {
+                "title": "LOO generated",
+                "number": "Number:",
+                "recordNo": "Record no:",
+                "formCode": "Form code:",
+                "openPreview": "Open preview",
+                "downloadHint": "(Download is available in the viewer)"
+            },
+            "errors": {
+                "loadFailed": "Failed to load LOO candidates.",
+                "approvalFailed": "Failed to update approval.",
+                "generateFailed": "Failed to generate LOO.",
+                "selectAtLeastOne": "Select at least 1 sample.",
+                "noneReadySelected": "No Ready samples selected (needs OM + LH).",
+                "paramRequiredForSample": "Please select at least 1 parameter for sample #{{id}}.",
+                "missingPreviewUrl": "LOO created, but preview/download URL is missing (need download_url / pdf_file_id / pdf_url / lo_id)."
+            },
+            "audit": {
+                "logs": {
+                    "title": "Audit logs",
+                    "subtitle": "A chronological record of actions in the system.",
+                    "count": "{{count}} log(s)",
+                    "forbiddenTitle": "403 – Access denied",
+                    "forbiddenBody": "Your role ({{role}}) is not allowed to access audit logs.",
+                    "backToDashboard": "Back to dashboard",
+                    "filters": {
+                        "title": "Filters",
+                        "hint": "Tip: use at least one filter to narrow results.",
+                        "sampleId": "sample_id",
+                        "sampleTestId": "sample_test_id",
+                        "staffId": "staff_id",
+                        "action": "action",
+                        "perPage": "per_page",
+                        "sampleIdPlaceholder": "e.g. 35",
+                        "sampleTestIdPlaceholder": "e.g. 22",
+                        "staffIdPlaceholder": "e.g. 4",
+                        "actionPlaceholder": "e.g. SAMPLE_TEST_OM_VERIFIED"
+                    },
+                    "table": {
+                        "title": "Logs",
+                        "pageOf": "Page {{page}} / {{totalPages}}",
+                        "time": "Time",
+                        "action": "Action",
+                        "entity": "Entity",
+                        "staff": "Staff",
+                        "ip": "IP",
+                        "old": "Old",
+                        "new": "New",
+                        "empty": "No audit logs found."
+                    },
+                    "pagination": {
+                        "pageOf": "Page {{page}} / {{totalPages}}",
+                        "total": "Total {{total}}"
+                    },
+                    "errors": {
+                        "loadFailed": "Failed to load audit logs."
+                    }
+                }
+            },
+            "notFound": {
+                "title": "404 – Page not found",
+                "message": "The page you are looking for does not exist."
+            }
+        }
     }
 }

@@ -1,7 +1,7 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\docs\DocumentTemplatesPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Pencil, RefreshCw, Search, Upload, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { apiGet, apiPatch, apiPostRaw } from "../../services/api";
 import { formatDateTimeLocal } from "../../utils/date";
@@ -79,9 +79,8 @@ function pickUpdatedAt(r: DocTemplateRow): string | null {
 }
 
 function isDocxFile(file: File): boolean {
-    const nameOk = /\.docx$/i.test(file.name);
     // Some browsers may not provide correct mime; name is the most reliable.
-    return nameOk;
+    return /\.docx$/i.test(file.name);
 }
 
 function formatBytes(bytes: number): string {
@@ -97,12 +96,16 @@ function formatBytes(bytes: number): string {
 }
 
 export function DocumentTemplatesPage() {
+    const { t } = useTranslation();
+
     // =============================
     // State
     // =============================
     const [rows, setRows] = useState<DocTemplateRow[]>([]);
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
+
+    // One shared error string, but we *avoid* showing it behind modals.
     const [err, setErr] = useState<string | null>(null);
 
     // filters
@@ -127,6 +130,8 @@ export function DocumentTemplatesPage() {
     const uploadInputRef = useRef<HTMLInputElement | null>(null);
     const [uploadFile, setUploadFile] = useState<File | null>(null);
     const [dragActive, setDragActive] = useState(false);
+
+    const anyModalOpen = uploadModal.open || editModal.open;
 
     // =============================
     // Data loading
@@ -180,7 +185,6 @@ export function DocumentTemplatesPage() {
     const total = filtered.length;
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const clampedPage = Math.min(Math.max(1, page), totalPages);
-
     const pageItems = filtered.slice((clampedPage - 1) * PAGE_SIZE, clampedPage * PAGE_SIZE);
 
     const canPrev = clampedPage > 1;
@@ -230,7 +234,7 @@ export function DocumentTemplatesPage() {
 
         if (!isDocxFile(file)) {
             setUploadFile(null);
-            setErr("File harus berformat .docx");
+            setErr(t("docs.templates.errors.docxOnly"));
             return;
         }
 
@@ -332,12 +336,12 @@ export function DocumentTemplatesPage() {
         if (!doc) return;
 
         if (!uploadFile) {
-            setErr("Pilih file .docx dulu.");
+            setErr(t("docs.templates.errors.pickDocxFirst"));
             return;
         }
 
         if (!isDocxFile(uploadFile)) {
-            setErr("File harus berformat .docx");
+            setErr(t("docs.templates.errors.docxOnly"));
             return;
         }
 
@@ -363,26 +367,30 @@ export function DocumentTemplatesPage() {
         }
     }
 
+    function clearFilters() {
+        setSearchTerm("");
+        setActiveFilter("all");
+        setPage(1);
+    }
+
     // =============================
     // Render
     // =============================
     return (
         <div className="min-h-[60vh]">
-            {/* Header (match ReportsPage) */}
+            {/* Header */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">Document Templates</h1>
-                    <p className="text-xs text-gray-500 mt-1">
-                        Upload DOCX template, atur prefix nomor rekaman, prefix kode form, dan revision (RevXX).
-                    </p>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("docs.templates.title")}</h1>
+                    <p className="text-xs text-gray-500 mt-1">{t("docs.templates.subtitle")}</p>
                 </div>
 
                 <button
                     type="button"
                     className="lims-icon-button self-start md:self-auto"
                     onClick={load}
-                    aria-label="Refresh"
-                    title="Refresh"
+                    aria-label={t("refresh")}
+                    title={t("refresh")}
                     disabled={loading}
                 >
                     <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
@@ -390,11 +398,11 @@ export function DocumentTemplatesPage() {
             </div>
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Filter bar (match ReportsPage) */}
+                {/* Filter bar */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="tpl-search">
-                            Search templates
+                            {t("search")}
                         </label>
 
                         <div className="relative">
@@ -407,15 +415,27 @@ export function DocumentTemplatesPage() {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="Search by doc code / title / kind…"
-                                className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                placeholder={t("docs.templates.searchPlaceholder")}
+                                className="w-full rounded-xl border border-gray-300 pl-9 pr-10 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
+
+                            {searchTerm.trim() ? (
+                                <button
+                                    type="button"
+                                    className="absolute inset-y-0 right-2 my-auto h-8 w-8 rounded-lg flex items-center justify-center text-gray-500 hover:bg-gray-100"
+                                    onClick={() => setSearchTerm("")}
+                                    aria-label={t("clearFilters")}
+                                    title={t("clearFilters")}
+                                >
+                                    <X size={16} />
+                                </button>
+                            ) : null}
                         </div>
                     </div>
 
-                    <div className="w-full md:w-48">
+                    <div className="w-full md:w-52">
                         <label className="sr-only" htmlFor="tpl-active-filter">
-                            Active filter
+                            {t("docs.templates.activeFilterLabel")}
                         </label>
 
                         <select
@@ -424,47 +444,62 @@ export function DocumentTemplatesPage() {
                             onChange={(e) => setActiveFilter(e.target.value as ActiveFilter)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
-                            <option value="all">All</option>
-                            <option value="active">Active</option>
-                            <option value="inactive">Inactive</option>
+                            <option value="all">{t("docs.templates.activeFilter.all")}</option>
+                            <option value="active">{t("docs.templates.activeFilter.active")}</option>
+                            <option value="inactive">{t("docs.templates.activeFilter.inactive")}</option>
                         </select>
                     </div>
 
                     <button
                         type="button"
-                        className="lims-icon-button"
-                        onClick={() => setPage(1)}
-                        aria-label="Apply filters"
-                        title="Apply filters"
-                        disabled={loading}
+                        className="btn-outline w-full md:w-auto"
+                        onClick={clearFilters}
+                        disabled={loading || saving}
+                        title={t("clearFilters")}
                     >
-                        <Search size={16} />
+                        {t("clearFilters")}
                     </button>
                 </div>
 
                 {/* Content */}
                 <div className="px-4 md:px-6 py-4">
-                    {err && !loading && (
-                        <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{err}</div>
+                    {err && !loading && !anyModalOpen && (
+                        <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-4">
+                            {err}
+                        </div>
                     )}
 
                     {loading ? (
-                        <div className="text-sm text-gray-600">Loading templates…</div>
+                        <div className="text-sm text-gray-600">{t("docs.templates.loading")}</div>
                     ) : pageItems.length === 0 ? (
-                        <div className="text-sm text-gray-600">No templates found.</div>
+                        <div className="rounded-2xl border border-gray-200 bg-white px-5 py-8 text-center">
+                            <div className="mx-auto h-10 w-10 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-500">
+                                <Search size={18} />
+                            </div>
+                            <div className="mt-3 text-sm font-semibold text-gray-900">{t("docs.templates.emptyTitle")}</div>
+                            <div className="mt-1 text-xs text-gray-500 max-w-xl mx-auto">{t("docs.templates.emptyBody")}</div>
+                            <div className="mt-4 flex items-center justify-center gap-2">
+                                <button type="button" className="btn-outline" onClick={clearFilters} disabled={saving}>
+                                    {t("clearFilters")}
+                                </button>
+                                <button type="button" className="btn-outline" onClick={load} disabled={saving}>
+                                    {t("refresh")}
+                                </button>
+                            </div>
+                        </div>
                     ) : (
                         <>
                             <div className="overflow-x-auto">
                                 <table className="min-w-full text-sm">
                                     <thead className="bg-white text-gray-700 border-b border-gray-100">
                                         <tr>
-                                            <th className="text-left font-semibold px-4 py-3">Template</th>
-                                            <th className="text-left font-semibold px-4 py-3">Doc Code</th>
-                                            <th className="text-left font-semibold px-4 py-3">Revision</th>
-                                            <th className="text-left font-semibold px-4 py-3">Current Version</th>
-                                            <th className="text-left font-semibold px-4 py-3">Updated</th>
-                                            <th className="text-left font-semibold px-4 py-3">Active</th>
-                                            <th className="text-right font-semibold px-4 py-3">Actions</th>
+                                            <th className="text-left font-semibold px-4 py-3">{t("docs.templates.table.template")}</th>
+                                            <th className="text-left font-semibold px-4 py-3">{t("docs.templates.table.docCode")}</th>
+                                            <th className="text-left font-semibold px-4 py-3">{t("docs.templates.table.revision")}</th>
+                                            <th className="text-left font-semibold px-4 py-3">{t("docs.templates.table.currentVersion")}</th>
+                                            <th className="text-left font-semibold px-4 py-3">{t("docs.templates.table.updated")}</th>
+                                            <th className="text-left font-semibold px-4 py-3">{t("docs.templates.table.active")}</th>
+                                            <th className="text-right font-semibold px-4 py-3">{t("docs.templates.table.actions")}</th>
                                         </tr>
                                     </thead>
 
@@ -478,9 +513,9 @@ export function DocumentTemplatesPage() {
                                             return (
                                                 <tr key={r.doc_code} className="hover:bg-gray-50">
                                                     <td className="px-4 py-3 text-gray-900">
-                                                        <div className="font-medium">{r.title || "-"}</div>
+                                                        <div className="font-medium">{r.title || "—"}</div>
                                                         <div className="text-xs text-gray-500">
-                                                            {r.kind ? `kind: ${r.kind}` : "kind: -"}
+                                                            {r.kind ? t("docs.templates.kindValue", { kind: r.kind }) : t("docs.templates.kindEmpty")}
                                                         </div>
                                                     </td>
 
@@ -490,10 +525,10 @@ export function DocumentTemplatesPage() {
 
                                                     <td className="px-4 py-3 text-gray-700">{revLabel}</td>
 
-                                                    <td className="px-4 py-3 text-gray-700">{ver === null ? "-" : `v${ver}`}</td>
+                                                    <td className="px-4 py-3 text-gray-700">{ver === null ? "—" : `v${ver}`}</td>
 
                                                     <td className="px-4 py-3 text-gray-700">
-                                                        {updated ? formatDateTimeLocal(updated) : "-"}
+                                                        {updated ? formatDateTimeLocal(updated) : "—"}
                                                     </td>
 
                                                     <td className="px-4 py-3 text-gray-700">
@@ -505,7 +540,7 @@ export function DocumentTemplatesPage() {
                                                                 onChange={(e) => toggleActive(r, e.target.checked)}
                                                             />
                                                             <span className="text-xs text-gray-600">
-                                                                {active ? "Active" : "Inactive"}
+                                                                {active ? t("docs.templates.status.active") : t("docs.templates.status.inactive")}
                                                             </span>
                                                         </label>
                                                     </td>
@@ -515,8 +550,8 @@ export function DocumentTemplatesPage() {
                                                             <button
                                                                 type="button"
                                                                 className="lims-icon-button"
-                                                                aria-label="Upload DOCX"
-                                                                title="Upload DOCX"
+                                                                aria-label={t("docs.templates.actions.uploadDocx")}
+                                                                title={t("docs.templates.actions.uploadDocx")}
                                                                 onClick={() => openUpload(r)}
                                                                 disabled={saving}
                                                             >
@@ -526,8 +561,8 @@ export function DocumentTemplatesPage() {
                                                             <button
                                                                 type="button"
                                                                 className="lims-icon-button"
-                                                                aria-label="Edit metadata"
-                                                                title="Edit metadata"
+                                                                aria-label={t("docs.templates.actions.editMetadata")}
+                                                                title={t("docs.templates.actions.editMetadata")}
                                                                 onClick={() => openEdit(r)}
                                                                 disabled={saving}
                                                             >
@@ -542,15 +577,14 @@ export function DocumentTemplatesPage() {
                                 </table>
                             </div>
 
-                            {/* Pagination (match ReportsPage) */}
+                            {/* Pagination */}
                             <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
                                 <div className="text-xs text-gray-600">
-                                    Showing{" "}
-                                    <span className="font-semibold">
-                                        {total === 0 ? 0 : (clampedPage - 1) * PAGE_SIZE + 1}
-                                    </span>{" "}
-                                    to <span className="font-semibold">{Math.min(clampedPage * PAGE_SIZE, total)}</span>{" "}
-                                    of <span className="font-semibold">{total}</span>
+                                    {t("docs.templates.pagination.showing", {
+                                        from: total === 0 ? 0 : (clampedPage - 1) * PAGE_SIZE + 1,
+                                        to: Math.min(clampedPage * PAGE_SIZE, total),
+                                        total,
+                                    })}
                                 </div>
 
                                 <div className="flex items-center gap-2">
@@ -559,15 +593,14 @@ export function DocumentTemplatesPage() {
                                         onClick={() => setPage((p) => Math.max(1, p - 1))}
                                         disabled={!canPrev}
                                         className="lims-icon-button disabled:opacity-40 disabled:cursor-not-allowed"
-                                        aria-label="Previous"
-                                        title="Previous"
+                                        aria-label={t("prev")}
+                                        title={t("prev")}
                                     >
                                         <ChevronLeft size={16} />
                                     </button>
 
                                     <div className="text-xs text-gray-600">
-                                        Page <span className="font-semibold">{clampedPage}</span> /{" "}
-                                        <span className="font-semibold">{totalPages}</span>
+                                        {t("docs.templates.pagination.pageOf", { page: clampedPage, totalPages })}
                                     </div>
 
                                     <button
@@ -575,8 +608,8 @@ export function DocumentTemplatesPage() {
                                         onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                                         disabled={!canNext}
                                         className="lims-icon-button disabled:opacity-40 disabled:cursor-not-allowed"
-                                        aria-label="Next"
-                                        title="Next"
+                                        aria-label={t("next")}
+                                        title={t("next")}
                                     >
                                         <ChevronRight size={16} />
                                     </button>
@@ -584,9 +617,9 @@ export function DocumentTemplatesPage() {
                             </div>
 
                             <div className="mt-3 text-xs text-gray-500">
-                                <span className="mr-2">Quick access:</span>
+                                <span className="mr-2">{t("docs.templates.quickAccess")}</span>
                                 <Link className="underline" to="/reports">
-                                    Reports
+                                    {t("nav.reports")}
                                 </Link>
                                 <span className="mx-2">·</span>
                                 <span className="font-mono">/v1/document-templates</span>
@@ -602,7 +635,7 @@ export function DocumentTemplatesPage() {
                     <div className="w-full max-w-lg rounded-2xl bg-white shadow-lg">
                         <div className="lims-modal-header justify-between">
                             <div className="min-w-0">
-                                <div className="font-semibold text-gray-900">Upload DOCX Template</div>
+                                <div className="font-semibold text-gray-900">{t("docs.templates.upload.title")}</div>
                                 <div className="text-xs text-gray-500 font-mono truncate">{uploadModal.doc?.doc_code}</div>
                             </div>
 
@@ -610,8 +643,8 @@ export function DocumentTemplatesPage() {
                                 type="button"
                                 className="lims-icon-button"
                                 onClick={closeUpload}
-                                aria-label="Close"
-                                title="Close"
+                                aria-label={t("close")}
+                                title={t("close")}
                                 disabled={saving}
                             >
                                 <X size={16} />
@@ -626,10 +659,7 @@ export function DocumentTemplatesPage() {
                                 </div>
                             )}
 
-                            <div className="text-sm text-gray-600">
-                                Upload file <span className="font-medium">.docx</span>. Setelah upload, sistem akan bikin version baru
-                                (vN).
-                            </div>
+                            <div className="text-sm text-gray-600">{t("docs.templates.upload.hint")}</div>
 
                             {/* Dropzone */}
                             <div
@@ -650,8 +680,8 @@ export function DocumentTemplatesPage() {
                                         ? "border-primary-soft bg-primary-soft/10"
                                         : "border-gray-300 bg-gray-50 hover:bg-gray-100/70"
                                 )}
-                                aria-label="Upload area"
-                                title="Drag & drop file .docx atau klik untuk browse"
+                                aria-label={t("docs.templates.upload.dropzoneAria")}
+                                title={t("docs.templates.upload.dropzoneTitle")}
                             >
                                 <div className="flex flex-col items-center text-center gap-2">
                                     <div
@@ -663,19 +693,15 @@ export function DocumentTemplatesPage() {
                                         <Upload size={18} />
                                     </div>
 
-                                    <div className="text-sm text-gray-800 font-medium">
-                                        Drag & drop file di sini
-                                    </div>
+                                    <div className="text-sm text-gray-800 font-medium">{t("docs.templates.upload.dropzoneHeadline")}</div>
 
                                     <div className="text-xs text-gray-600">
-                                        atau{" "}
-                                        <span className="underline text-primary">
-                                            klik untuk browse
-                                        </span>
+                                        {t("docs.templates.upload.dropzoneSub")}
+                                        <span className="underline text-primary"> {t("docs.templates.upload.dropzoneBrowse")}</span>
                                     </div>
 
                                     <div className="text-[11px] text-gray-500 mt-1">
-                                        Supported: <span className="font-mono">.docx</span>
+                                        {t("docs.templates.upload.supported")} <span className="font-mono">.docx</span>
                                     </div>
                                 </div>
 
@@ -701,8 +727,8 @@ export function DocumentTemplatesPage() {
                                     <button
                                         type="button"
                                         className="lims-icon-button"
-                                        aria-label="Remove file"
-                                        title="Remove file"
+                                        aria-label={t("remove")}
+                                        title={t("remove")}
                                         onClick={() => {
                                             pickFile(null);
                                             if (uploadInputRef.current) uploadInputRef.current.value = "";
@@ -717,16 +743,16 @@ export function DocumentTemplatesPage() {
 
                         <div className="lims-modal-footer">
                             <button type="button" className="btn-outline" onClick={closeUpload} disabled={saving}>
-                                Cancel
+                                {t("cancel")}
                             </button>
                             <button
                                 type="button"
                                 className={cx("lims-btn-primary", saving && "opacity-70 cursor-not-allowed")}
                                 onClick={doUpload}
                                 disabled={saving || !uploadFile}
-                                title={!uploadFile ? "Pilih file .docx dulu" : "Upload"}
+                                title={!uploadFile ? t("docs.templates.errors.pickDocxFirst") : t("docs.templates.upload.action")}
                             >
-                                {saving ? "Uploading…" : "Upload"}
+                                {saving ? t("docs.templates.upload.uploading") : t("docs.templates.upload.action")}
                             </button>
                         </div>
                     </div>
@@ -739,7 +765,7 @@ export function DocumentTemplatesPage() {
                     <div className="w-full max-w-2xl rounded-2xl bg-white shadow-lg">
                         <div className="lims-modal-header justify-between">
                             <div className="min-w-0">
-                                <div className="font-semibold text-gray-900">Edit Template Metadata</div>
+                                <div className="font-semibold text-gray-900">{t("docs.templates.edit.title")}</div>
                                 <div className="text-xs text-gray-500 font-mono truncate">{editModal.doc?.doc_code}</div>
                             </div>
 
@@ -747,8 +773,8 @@ export function DocumentTemplatesPage() {
                                 type="button"
                                 className="lims-icon-button"
                                 onClick={closeEdit}
-                                aria-label="Close"
-                                title="Close"
+                                aria-label={t("close")}
+                                title={t("close")}
                                 disabled={saving}
                             >
                                 <X size={16} />
@@ -756,48 +782,50 @@ export function DocumentTemplatesPage() {
                         </div>
 
                         <div className="px-5 py-4">
+                            {err && (
+                                <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-4">
+                                    {err}
+                                </div>
+                            )}
+
                             <div className="grid gap-4 md:grid-cols-2">
                                 <div className="md:col-span-2">
-                                    <label className="text-xs font-medium text-gray-600">Title</label>
+                                    <label className="text-xs font-medium text-gray-600">{t("docs.templates.edit.fields.title")}</label>
                                     <input
                                         className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                                         value={editTitle}
                                         onChange={(e) => setEditTitle(e.target.value)}
-                                        placeholder="Document title…"
+                                        placeholder={t("docs.templates.edit.placeholders.title")}
                                         disabled={saving}
                                     />
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-medium text-gray-600">Record No Prefix</label>
+                                    <label className="text-xs font-medium text-gray-600">{t("docs.templates.edit.fields.recordPrefix")}</label>
                                     <input
                                         className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                                         value={editRecordPrefix}
                                         onChange={(e) => setEditRecordPrefix(e.target.value)}
-                                        placeholder="REK/LAB-BM/…/"
+                                        placeholder={t("docs.templates.edit.placeholders.recordPrefix")}
                                         disabled={saving}
                                     />
-                                    <div className="mt-1 text-[11px] text-gray-500">
-                                        Output: prefix + <span className="font-mono">DDMMYY</span>
-                                    </div>
+                                    <div className="mt-1 text-[11px] text-gray-500">{t("docs.templates.edit.hints.recordPrefix")}</div>
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-medium text-gray-600">Form Code Prefix</label>
+                                    <label className="text-xs font-medium text-gray-600">{t("docs.templates.edit.fields.formPrefix")}</label>
                                     <input
                                         className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                                         value={editFormPrefix}
                                         onChange={(e) => setEditFormPrefix(e.target.value)}
-                                        placeholder="FORM/LAB-BM/…RevXX."
+                                        placeholder={t("docs.templates.edit.placeholders.formPrefix")}
                                         disabled={saving}
                                     />
-                                    <div className="mt-1 text-[11px] text-gray-500">
-                                        Output: prefix + <span className="font-mono">DD-MM-YY</span>
-                                    </div>
+                                    <div className="mt-1 text-[11px] text-gray-500">{t("docs.templates.edit.hints.formPrefix")}</div>
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-medium text-gray-600">Revision No</label>
+                                    <label className="text-xs font-medium text-gray-600">{t("docs.templates.edit.fields.revisionNo")}</label>
                                     <input
                                         type="number"
                                         min={0}
@@ -806,9 +834,7 @@ export function DocumentTemplatesPage() {
                                         onChange={(e) => setEditRevisionNo(Number(e.target.value))}
                                         disabled={saving}
                                     />
-                                    <div className="mt-1 text-[11px] text-gray-500">
-                                        Ditampilkan sebagai <span className="font-mono">RevXX</span> (pad 2).
-                                    </div>
+                                    <div className="mt-1 text-[11px] text-gray-500">{t("docs.templates.edit.hints.revisionNo")}</div>
                                 </div>
 
                                 <div className="flex items-end">
@@ -819,21 +845,18 @@ export function DocumentTemplatesPage() {
                                             onChange={(e) => setEditIsActive(e.target.checked)}
                                             disabled={saving}
                                         />
-                                        Active
+                                        {t("docs.templates.status.active")}
                                     </label>
                                 </div>
                             </div>
                         </div>
 
                         <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between gap-3 flex-wrap">
-                            <div className="text-xs text-gray-500">
-                                Tips: kalau prefix form kamu sudah mengandung <span className="font-mono">RevXX</span>, pastikan
-                                konsisten sama revision_no.
-                            </div>
+                            <div className="text-xs text-gray-500">{t("docs.templates.edit.footerTip")}</div>
 
                             <div className="flex gap-2">
                                 <button type="button" className="btn-outline" onClick={closeEdit} disabled={saving}>
-                                    Cancel
+                                    {t("cancel")}
                                 </button>
                                 <button
                                     type="button"
@@ -841,7 +864,7 @@ export function DocumentTemplatesPage() {
                                     onClick={saveEdit}
                                     disabled={saving}
                                 >
-                                    {saving ? "Saving…" : "Save"}
+                                    {saving ? t("saving") : t("save")}
                                 </button>
                             </div>
                         </div>
