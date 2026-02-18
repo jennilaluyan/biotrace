@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Search, X, Check } from "lucide-react";
 import { clientSampleRequestService, type ClientSampleDraftPayload } from "../../services/sampleRequests";
 import type { Sample } from "../../services/samples";
 import { listParameters, type ParameterRow } from "../../services/parameters";
+
+function cx(...arr: Array<string | false | null | undefined>) {
+    return arr.filter(Boolean).join(" ");
+}
 
 type Props = {
     open: boolean;
@@ -41,17 +46,8 @@ function datetimeLocalToApi(v: string): string | null {
 }
 
 function extractPaginatedRows<T>(res: any): T[] {
-    // Supports multiple shapes:
-    // 1) { data: { data: [] } }
-    // 2) { data: [] }
-    // 3) { status, data: { data: [] } }
-    // 4) axios-like: { data: { status, data: { data: [] } } }
     const root = res?.data ?? res;
-
-    // axios wrapper
     const maybeEnvelope = root?.data && typeof root === "object" && "status" in root && "data" in root ? root : root;
-
-    // envelope.data could be paginated or array
     const d = maybeEnvelope?.data ?? maybeEnvelope;
 
     if (Array.isArray(d)) return d as T[];
@@ -100,9 +96,7 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
             setParamLoading(true);
             setParamError(null);
 
-            // IMPORTANT:
             // Portal should call scope:"client" so it hits /client/parameters
-            // (backend route must exist)
             const res = await listParameters({
                 scope: "client",
                 page: 1,
@@ -114,7 +108,7 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
             setParamItems(rows);
         } catch (err: any) {
             setParamItems([]);
-            setParamError(getErrorMessage(err, "Failed to load parameters."));
+            setParamError(getErrorMessage(err, "Gagal memuat daftar parameter."));
         } finally {
             setParamLoading(false);
         }
@@ -218,16 +212,16 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
             const payload: ClientSampleDraftPayload = {
                 sample_type: sampleType.trim(),
                 scheduled_delivery_at: datetimeLocalToApi(scheduledDeliveryAt),
-                examination_purpose: examinationPurpose.trim(), // REQUIRED (C/E)
+                examination_purpose: examinationPurpose.trim(),
                 additional_notes: additionalNotes.trim() || null,
-                parameter_ids: [Number(selectedParam!.parameter_id)], // single select, send as array for compatibility
+                parameter_ids: [Number(selectedParam!.parameter_id)],
             };
 
             const created = await clientSampleRequestService.createDraft(payload);
             onClose();
             onCreated(created);
         } catch (err: unknown) {
-            setError(getErrorMessage(err, "Failed to create request."));
+            setError(getErrorMessage(err, "Gagal membuat request."));
         } finally {
             setSubmitting(false);
         }
@@ -236,49 +230,56 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden="true" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+            <div className="absolute inset-0 bg-black/40" onClick={submitting ? undefined : onClose} aria-hidden="true" />
 
-            <div className="relative w-[92vw] max-w-2xl rounded-2xl bg-white shadow-xl border border-gray-100 overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col">
-                <div className="shrink-0 flex items-start justify-between px-6 py-5 border-b border-gray-100">
-                    <div>
-                        <h2 className="text-base font-semibold text-gray-900">Create New Sample Request</h2>
-                        <p className="text-xs text-gray-500 mt-1">Draft → complete required fields → submit. Admin will review it.</p>
+            <div
+                className="relative w-[92vw] max-w-2xl rounded-2xl bg-white shadow-xl border border-gray-100 overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="shrink-0 flex items-start justify-between px-6 py-5 border-b border-gray-100 bg-gray-50">
+                    <div className="min-w-0">
+                        <h2 className="text-sm font-bold text-gray-900">Buat Sample Request</h2>
+                        <p className="text-xs text-gray-600 mt-1">
+                            Isi data wajib → simpan sebagai draft. Admin akan review sebelum diproses.
+                        </p>
                     </div>
 
                     <button
                         type="button"
-                        className="text-gray-500 hover:text-gray-700"
+                        className={cx("lims-icon-button", submitting && "opacity-60 cursor-not-allowed")}
                         onClick={onClose}
-                        aria-label="Close"
+                        aria-label="Tutup"
                         disabled={submitting}
+                        title="Tutup"
                     >
-                        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M18 6L6 18" />
-                            <path d="M6 6l12 12" />
-                        </svg>
+                        <X size={16} />
                     </button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-6 py-5">
-                    {error && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
+                    {error ? (
+                        <div className="text-sm text-red-800 bg-red-50 border border-red-200 px-3 py-2 rounded-xl mb-4">
+                            {error}
+                        </div>
+                    ) : null}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="md:col-span-2">
-                            <label className="block text-xs font-medium text-gray-600 mb-1">
-                                Sample type <span className="text-red-600">*</span>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                Jenis sampel <span className="text-red-600">*</span>
                             </label>
                             <input
                                 value={sampleType}
                                 onChange={(e) => setSampleType(e.target.value)}
-                                placeholder="e.g. Swab, Blood, Water…"
+                                placeholder="contoh: Swab, Blood, Water…"
                                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
 
                         <div className="md:col-span-2">
-                            <label className="block text-xs font-medium text-gray-600 mb-1">
-                                Scheduled delivery to lab <span className="text-red-600">*</span>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                Jadwal pengantaran ke lab <span className="text-red-600">*</span>
                             </label>
                             <input
                                 type="datetime-local"
@@ -287,14 +288,14 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                             <div className="mt-1 text-[11px] text-gray-500">
-                                Isi waktu rencana kamu antar sampel ke lab (bukan waktu lab menerima).
+                                Ini waktu rencana kamu antar sampel (bukan waktu lab menerima).
                             </div>
                         </div>
 
                         {/* PARAMETERS (single searchable dropdown) */}
                         <div className="md:col-span-2" ref={boxRef}>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">
-                                Test parameter <span className="text-red-600">*</span>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                Parameter uji <span className="text-red-600">*</span>
                             </label>
 
                             <div className="relative">
@@ -309,7 +310,7 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                                         setParamOpen(true);
                                         if (paramItems.length === 0) loadParams(paramQuery);
                                     }}
-                                    placeholder="Search and select parameter…"
+                                    placeholder="Cari dan pilih parameter…"
                                     className="w-full rounded-xl border border-gray-300 px-3 py-2 pr-24 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                                 />
 
@@ -317,7 +318,8 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                                     <button
                                         type="button"
                                         onClick={clearParam}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                                        disabled={submitting}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                                     >
                                         Clear
                                     </button>
@@ -325,36 +327,56 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                                     <button
                                         type="button"
                                         onClick={() => loadParams(paramQuery)}
-                                        disabled={paramLoading}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                                        disabled={paramLoading || submitting}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                                     >
-                                        {paramLoading ? "…" : "Search"}
+                                        <Search size={14} />
+                                        {paramLoading ? "..." : "Search"}
                                     </button>
                                 )}
 
-                                {paramOpen && (
+                                {paramOpen ? (
                                     <div className="absolute z-20 mt-2 w-full rounded-2xl border border-gray-200 bg-white shadow-lg overflow-hidden">
                                         {paramLoading ? (
-                                            <div className="p-3 text-sm text-gray-600">Loading…</div>
+                                            <div className="p-3 text-sm text-gray-600">Memuat…</div>
                                         ) : paramError ? (
-                                            <div className="p-3 text-sm text-red-600 bg-red-50">{paramError}</div>
+                                            <div className="p-3 text-sm text-red-800 bg-red-50 border-t border-red-100">
+                                                {paramError}
+                                            </div>
                                         ) : paramItems.length === 0 ? (
-                                            <div className="p-3 text-sm text-gray-600">No parameters found.</div>
+                                            <div className="p-3 text-sm text-gray-600">Parameter tidak ditemukan.</div>
                                         ) : (
                                             <ul className="max-h-56 overflow-auto divide-y divide-gray-100">
                                                 {paramItems.map((p) => {
                                                     const id = Number(p.parameter_id);
+                                                    const label = parameterLabel(p);
+                                                    const isSelected = selectedParam?.parameter_id === p.parameter_id;
+
                                                     return (
                                                         <li
                                                             key={id}
-                                                            className="p-3 hover:bg-gray-50 cursor-pointer"
+                                                            className={cx(
+                                                                "p-3 hover:bg-gray-50 cursor-pointer",
+                                                                isSelected && "bg-emerald-50/60"
+                                                            )}
                                                             onClick={() => chooseParam(p)}
                                                         >
-                                                            <div className="text-sm font-medium text-gray-900">
-                                                                {parameterLabel(p)}
-                                                            </div>
-                                                            <div className="text-xs text-gray-500">
-                                                                {p.unit ? `Unit: ${p.unit}` : ""}
+                                                            <div className="flex items-start justify-between gap-3">
+                                                                <div className="min-w-0">
+                                                                    <div className="text-sm font-medium text-gray-900">
+                                                                        {label}
+                                                                    </div>
+                                                                    <div className="text-xs text-gray-500 mt-0.5">
+                                                                        {p.unit ? `Unit: ${p.unit}` : "Unit: —"}
+                                                                    </div>
+                                                                </div>
+
+                                                                {isSelected ? (
+                                                                    <span className="text-emerald-700 inline-flex items-center gap-1 text-xs font-semibold">
+                                                                        <Check size={14} />
+                                                                        Selected
+                                                                    </span>
+                                                                ) : null}
                                                             </div>
                                                         </li>
                                                     );
@@ -362,11 +384,11 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                                             </ul>
                                         )}
                                     </div>
-                                )}
+                                ) : null}
                             </div>
 
                             <div className="mt-2 text-[11px] text-gray-500">
-                                Selected:{" "}
+                                Terpilih:{" "}
                                 <span className="font-semibold text-gray-800">
                                     {selectedParam ? parameterLabel(selectedParam) : "—"}
                                 </span>
@@ -374,25 +396,25 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                         </div>
 
                         <div className="md:col-span-2">
-                            <label className="block text-xs font-medium text-gray-600 mb-1">
-                                Examination purpose <span className="text-red-600">*</span>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                Tujuan pemeriksaan <span className="text-red-600">*</span>
                             </label>
                             <textarea
                                 value={examinationPurpose}
                                 onChange={(e) => setExaminationPurpose(e.target.value)}
                                 rows={2}
-                                placeholder="Write purpose…"
+                                placeholder="Tulis tujuan pemeriksaan…"
                                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
 
                         <div className="md:col-span-2">
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Additional notes</label>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">Catatan tambahan</label>
                             <textarea
                                 value={additionalNotes}
                                 onChange={(e) => setAdditionalNotes(e.target.value)}
                                 rows={3}
-                                placeholder="Optional notes…"
+                                placeholder="Opsional…"
                                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                             <div className="mt-1 text-[11px] text-gray-500">{(additionalNotes?.length ?? 0)}/5000</div>
@@ -401,11 +423,16 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                 </div>
 
                 <div className="shrink-0 px-6 py-5 border-t border-gray-100 flex items-center justify-end gap-3 bg-white">
-                    <button type="button" className="lims-btn" onClick={onClose} disabled={submitting}>
-                        Cancel
+                    <button type="button" className="btn-outline" onClick={onClose} disabled={submitting}>
+                        Batal
                     </button>
-                    <button type="button" className="lims-btn-primary" onClick={submit} disabled={!canSubmit}>
-                        {submitting ? "Creating..." : "Create request"}
+                    <button
+                        type="button"
+                        className={cx("lims-btn-primary", (!canSubmit || submitting) && "opacity-60 cursor-not-allowed")}
+                        onClick={submit}
+                        disabled={!canSubmit || submitting}
+                    >
+                        {submitting ? "Membuat..." : "Buat request"}
                     </button>
                 </div>
             </div>

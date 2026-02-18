@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, FlaskConical, RefreshCw, X, Check } from "lucide-react";
 import { createQcRun, listQcControls, type QcControl } from "../../services/qc";
 
 function cx(...arr: Array<string | false | null | undefined>) {
@@ -12,6 +13,11 @@ type Props = {
     /** dipanggil setelah submit sukses (biasanya untuk refresh qc summary di parent) */
     onSubmitted?: () => void | Promise<void>;
 };
+
+function asNumber(input: string) {
+    const v = Number(String(input ?? "").trim());
+    return Number.isFinite(v) ? v : null;
+}
 
 export function EnterQcModal({ open, sampleId, onClose, onSubmitted }: Props) {
     const [qcControls, setQcControls] = useState<QcControl[]>([]);
@@ -37,6 +43,7 @@ export function EnterQcModal({ open, sampleId, onClose, onSubmitted }: Props) {
     };
 
     const close = () => {
+        if (qcSubmitting) return;
         resetForm();
         onClose();
     };
@@ -48,7 +55,7 @@ export function EnterQcModal({ open, sampleId, onClose, onSubmitted }: Props) {
             setQcControlsLoading(true);
             setQcControlsError(null);
 
-            // ✅ fixed: listQcControls memang menerima optional sampleId
+            // listQcControls menerima optional sampleId
             const items = await listQcControls(sampleId);
             setQcControls(items);
         } catch (err: any) {
@@ -56,7 +63,7 @@ export function EnterQcModal({ open, sampleId, onClose, onSubmitted }: Props) {
                 err?.data?.message ??
                 err?.data?.error ??
                 err?.message ??
-                "Failed to load QC controls.";
+                "Gagal memuat daftar QC control.";
             setQcControlsError(msg);
             setQcControls([]);
         } finally {
@@ -64,20 +71,26 @@ export function EnterQcModal({ open, sampleId, onClose, onSubmitted }: Props) {
         }
     };
 
+    // init modal open
     useEffect(() => {
         if (!open) return;
 
-        // saat modal dibuka: bersihkan error submit, lalu pastikan controls ter-load
         setQcSubmitError(null);
 
         // load sekali per open kalau controls belum ada
         if (qcControls.length === 0 && !qcControlsLoading) {
             loadControls();
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, sampleId]);
 
-    // kalau sampleId berubah (navigasi ke sample lain), reset controls & form
+        const onEsc = (e: KeyboardEvent) => {
+            if (e.key === "Escape") close();
+        };
+        window.addEventListener("keydown", onEsc);
+        return () => window.removeEventListener("keydown", onEsc);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open]);
+
+    // kalau sampleId berubah, reset state
     useEffect(() => {
         setQcControls([]);
         setQcControlsError(null);
@@ -85,20 +98,28 @@ export function EnterQcModal({ open, sampleId, onClose, onSubmitted }: Props) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sampleId]);
 
+    const canSubmit = useMemo(() => {
+        if (!open) return false;
+        if (!isValidSampleId) return false;
+        if (qcSubmitting) return false;
+        if (!qcControlId) return false;
+        return asNumber(qcValue) != null;
+    }, [open, isValidSampleId, qcSubmitting, qcControlId, qcValue]);
+
     const submitQc = async () => {
         if (!isValidSampleId) {
-            setQcSubmitError("Invalid sample.");
+            setQcSubmitError("Sample tidak valid. Silakan refresh halaman.");
             return;
         }
 
         if (!qcControlId) {
-            setQcSubmitError("Please select QC control.");
+            setQcSubmitError("Pilih QC control terlebih dulu.");
             return;
         }
 
-        const v = Number(String(qcValue).trim());
-        if (!Number.isFinite(v)) {
-            setQcSubmitError("Please input numeric value.");
+        const v = asNumber(qcValue);
+        if (v == null) {
+            setQcSubmitError("Value harus berupa angka.");
             return;
         }
 
@@ -109,7 +130,6 @@ export function EnterQcModal({ open, sampleId, onClose, onSubmitted }: Props) {
             await createQcRun(sampleId, {
                 qc_control_id: Number(qcControlId),
                 value: v,
-                // ✅ fixed: jangan kirim null (lebih aman undefined)
                 ...(qcNote?.trim() ? { note: qcNote.trim() } : {}),
             });
 
@@ -120,7 +140,7 @@ export function EnterQcModal({ open, sampleId, onClose, onSubmitted }: Props) {
                 err?.data?.message ??
                 err?.data?.error ??
                 err?.message ??
-                "Failed to submit QC.";
+                "Gagal submit QC.";
             setQcSubmitError(msg);
         } finally {
             setQcSubmitting(false);
@@ -130,54 +150,82 @@ export function EnterQcModal({ open, sampleId, onClose, onSubmitted }: Props) {
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 z-80 bg-black/40 flex items-center justify-center px-3">
-            <div className="w-full max-w-xl bg-white rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-gray-100 overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-3">
-                    <div>
-                        <div className="text-base font-bold text-gray-900">Enter QC</div>
-                        <div className="text-xs text-gray-500 mt-1">
-                            Select QC control, input numeric value, then submit.
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+            {/* backdrop */}
+            <div
+                className="absolute inset-0 bg-black/40"
+                onClick={qcSubmitting ? undefined : close}
+                aria-hidden="true"
+            />
+
+            {/* panel */}
+            <div
+                className="relative w-full max-w-xl rounded-2xl bg-white shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-gray-100 overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* header */}
+                <div className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-3 bg-gray-50">
+                    <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white">
+                                <FlaskConical size={18} />
+                            </span>
+                            <div className="min-w-0">
+                                <div className="text-sm font-bold text-gray-900">Input QC</div>
+                                <div className="text-xs text-gray-600 mt-0.5">
+                                    Pilih control, masukkan nilai, lalu simpan.
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <button className="lims-btn" onClick={close} type="button">
-                        Close
+
+                    <button
+                        type="button"
+                        className={cx("lims-icon-button", qcSubmitting && "opacity-60 cursor-not-allowed")}
+                        onClick={close}
+                        aria-label="Tutup"
+                        title="Tutup"
+                        disabled={qcSubmitting}
+                    >
+                        <X size={16} />
                     </button>
                 </div>
 
+                {/* body */}
                 <div className="p-5 space-y-4">
-                    {!isValidSampleId && (
-                        <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
-                            Invalid sample. Please refresh the page.
+                    {!isValidSampleId ? (
+                        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 inline-flex gap-2">
+                            <AlertTriangle size={18} className="mt-0.5" />
+                            <div>Sample tidak valid. Silakan refresh halaman.</div>
                         </div>
-                    )}
+                    ) : null}
 
-                    {qcControlsError && (
-                        <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
+                    {qcControlsError ? (
+                        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                             {qcControlsError}
                         </div>
-                    )}
+                    ) : null}
 
-                    {qcSubmitError && (
-                        <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
+                    {qcSubmitError ? (
+                        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                             {qcSubmitError}
                         </div>
-                    )}
+                    ) : null}
 
+                    {/* Control */}
                     <div>
-                        <div className="text-xs font-semibold text-gray-600 mb-1">
-                            QC Control
-                        </div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">QC control</label>
                         <select
-                            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                            className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50"
                             value={qcControlId}
                             onChange={(e) => {
                                 const v = e.target.value;
                                 setQcControlId(v ? Number(v) : "");
                             }}
-                            disabled={!isValidSampleId || qcControlsLoading}
+                            disabled={!isValidSampleId || qcControlsLoading || qcSubmitting}
                         >
                             <option value="">
-                                {qcControlsLoading ? "Loading..." : "Select QC control..."}
+                                {qcControlsLoading ? "Memuat QC control..." : "Pilih QC control..."}
                             </option>
                             {qcControls.map((c) => (
                                 <option key={c.qc_control_id} value={c.qc_control_id}>
@@ -186,90 +234,85 @@ export function EnterQcModal({ open, sampleId, onClose, onSubmitted }: Props) {
                             ))}
                         </select>
 
-                        <div className="mt-1 flex items-center justify-between gap-3">
-                            {qcControlsLoading ? (
-                                <div className="text-xs text-gray-500">Loading QC controls...</div>
-                            ) : (
-                                <div className="text-xs text-gray-400">
-                                    {qcControls.length > 0
-                                        ? `${qcControls.length} control(s) available`
-                                        : "No controls available."}
-                                </div>
-                            )}
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                            <div className="text-xs text-gray-500">
+                                {qcControlsLoading
+                                    ? "Memuat daftar control..."
+                                    : qcControls.length > 0
+                                        ? `${qcControls.length} control tersedia`
+                                        : "Belum ada control."}
+                            </div>
 
                             <button
                                 type="button"
                                 className={cx(
-                                    "lims-btn",
-                                    "px-3 py-1.5 text-xs rounded-xl whitespace-nowrap",
-                                    qcControlsLoading ? "opacity-60 cursor-not-allowed" : ""
+                                    "inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-gray-50",
+                                    (qcControlsLoading || qcSubmitting || !isValidSampleId) && "opacity-60 cursor-not-allowed"
                                 )}
-                                disabled={!isValidSampleId || qcControlsLoading}
+                                disabled={!isValidSampleId || qcControlsLoading || qcSubmitting}
                                 onClick={loadControls}
-                                title="Reload QC controls"
+                                title="Muat ulang QC control"
                             >
+                                <RefreshCw size={14} />
                                 Reload
                             </button>
                         </div>
                     </div>
 
+                    {/* Value */}
                     <div>
-                        <div className="text-xs font-semibold text-gray-600 mb-1">
-                            Value (numeric)
-                        </div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Value (angka)</label>
                         <input
                             type="number"
                             step="any"
-                            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                            inputMode="decimal"
+                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50"
                             value={qcValue}
                             onChange={(e) => setQcValue(e.target.value)}
-                            placeholder="e.g. 15.0"
-                            disabled={!isValidSampleId}
+                            placeholder="contoh: 15.0"
+                            disabled={!isValidSampleId || qcSubmitting}
                         />
+                        <div className="mt-1 text-[11px] text-gray-500">
+                            Gunakan titik untuk desimal (mis. 15.25).
+                        </div>
                     </div>
 
+                    {/* Note */}
                     <div>
-                        <div className="text-xs font-semibold text-gray-600 mb-1">
-                            Note (optional)
-                        </div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Catatan (opsional)</label>
                         <input
-                            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50"
                             value={qcNote}
                             onChange={(e) => setQcNote(e.target.value)}
-                            placeholder="e.g. rerun recommended"
-                            disabled={!isValidSampleId}
+                            placeholder="contoh: rerun recommended"
+                            disabled={!isValidSampleId || qcSubmitting}
                         />
                     </div>
                 </div>
 
-                <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+                {/* footer */}
+                <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2 bg-white">
                     <button
-                        className="lims-btn"
                         type="button"
                         onClick={close}
                         disabled={qcSubmitting}
+                        className={cx("btn-outline", qcSubmitting && "opacity-60 cursor-not-allowed")}
                     >
-                        Cancel
+                        Batal
                     </button>
+
                     <button
-                        className={cx(
-                            "lims-btn-primary px-4 py-2 text-sm rounded-xl",
-                            (qcSubmitting ||
-                                !qcControlId ||
-                                String(qcValue).trim() === "" ||
-                                !isValidSampleId) &&
-                            "opacity-60 cursor-not-allowed"
-                        )}
                         type="button"
                         onClick={submitQc}
-                        disabled={
-                            qcSubmitting ||
-                            !qcControlId ||
-                            String(qcValue).trim() === "" ||
-                            !isValidSampleId
-                        }
+                        disabled={!canSubmit}
+                        className={cx(
+                            "lims-btn-primary inline-flex items-center gap-2",
+                            !canSubmit && "opacity-60 cursor-not-allowed"
+                        )}
+                        title={!canSubmit ? "Lengkapi QC control dan value" : "Simpan QC"}
                     >
-                        {qcSubmitting ? "Submitting..." : "Submit QC"}
+                        <Check size={16} />
+                        {qcSubmitting ? "Menyimpan..." : "Simpan QC"}
                     </button>
                 </div>
             </div>

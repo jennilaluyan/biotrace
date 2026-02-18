@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, CheckCircle2, ClipboardCheck, X, XCircle } from "lucide-react";
 import { submitIntakeChecklist, type IntakeChecklistPayload } from "../../services/intake";
 
 function cx(...arr: Array<string | false | null | undefined>) {
@@ -173,12 +174,12 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
         for (const row of CHECKLIST) {
             const d = decision[row.key] ?? null;
             if (!d) {
-                errs[row.key] = "Please choose PASS or FAIL.";
+                errs[row.key] = "Pilih PASS atau FAIL.";
                 continue;
             }
             if (d === "fail") {
                 const r = (reason[row.key] ?? "").trim();
-                if (!r) errs[row.key] = "Reason is required when FAIL.";
+                if (!r) errs[row.key] = "Wajib isi alasan saat FAIL.";
             }
         }
 
@@ -187,6 +188,23 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
     };
 
     const anyFail = useMemo(() => CHECKLIST.some((c) => decision[c.key] === "fail"), [decision]);
+
+    const progress = useMemo(() => {
+        const total = CHECKLIST.length;
+        let decided = 0;
+        let passed = 0;
+        let failed = 0;
+
+        for (const c of CHECKLIST) {
+            const d = decision[c.key] ?? null;
+            if (!d) continue;
+            decided += 1;
+            if (d === "pass") passed += 1;
+            if (d === "fail") failed += 1;
+        }
+
+        return { total, decided, passed, failed };
+    }, [decision]);
 
     const submit = async () => {
         if (submitting) return;
@@ -228,7 +246,7 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
                 err?.data?.message ??
                 err?.data?.error ??
                 err?.message ??
-                "Failed to submit checklist.";
+                "Gagal submit checklist.";
             setError(msg);
         } finally {
             setSubmitting(false);
@@ -238,36 +256,52 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
             <div className="absolute inset-0 bg-black/40" onClick={submitting ? undefined : onClose} aria-hidden="true" />
 
-            <div className="relative w-[92vw] max-w-3xl rounded-2xl bg-white shadow-xl border border-gray-100 overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col">
-                <div className="shrink-0 flex items-start justify-between px-6 py-5 border-b border-gray-100">
-                    <div>
-                        <h2 className="text-base font-semibold text-gray-900">Intake Checklist</h2>
-                        <p className="text-xs text-gray-500 mt-1">
-                            {requestLabel ? <span className="font-semibold">{requestLabel}</span> : null}
-                            {requestLabel ? " · " : null}
-                            All items must PASS. Any FAIL returns the request to admin.
-                        </p>
+            <div
+                className="relative w-[92vw] max-w-3xl rounded-2xl bg-white shadow-xl border border-gray-100 overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="shrink-0 flex items-start justify-between px-6 py-5 border-b border-gray-100 bg-gray-50">
+                    <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white">
+                                <ClipboardCheck size={18} />
+                            </span>
+                            <div className="min-w-0">
+                                <h2 className="text-sm font-bold text-gray-900">Intake Checklist</h2>
+                                <p className="text-xs text-gray-600 mt-0.5">
+                                    {requestLabel ? <span className="font-semibold">{requestLabel}</span> : null}
+                                    {requestLabel ? <span className="text-gray-400"> • </span> : null}
+                                    Semua item harus PASS. Jika ada FAIL, request akan dikembalikan ke admin.
+                                </p>
+
+                                <div className="mt-2 text-[11px] text-gray-500">
+                                    Progress: {progress.decided}/{progress.total} • PASS: {progress.passed} • FAIL: {progress.failed}
+                                </div>
+                            </div>
+                        </div>
                     </div>
+
                     <button
                         type="button"
-                        className="text-gray-500 hover:text-gray-700"
+                        className={cx("lims-icon-button", submitting && "opacity-60 cursor-not-allowed")}
                         onClick={onClose}
-                        aria-label="Close"
+                        aria-label="Tutup"
                         disabled={submitting}
+                        title="Tutup"
                     >
-                        ×
+                        <X size={16} />
                     </button>
                 </div>
 
                 <div className="px-6 py-5 overflow-auto">
-                    {error && (
-                        <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-4">
+                    {error ? (
+                        <div className="text-sm text-red-800 bg-red-50 border border-red-200 px-3 py-2 rounded-xl mb-4">
                             {error}
                         </div>
-                    )}
+                    ) : null}
 
                     <div className="space-y-3">
                         {CHECKLIST.map((c, idx) => {
@@ -304,7 +338,7 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
                                                 <button
                                                     type="button"
                                                     className={cx(
-                                                        "px-3 py-1.5 rounded-xl text-xs font-semibold border",
+                                                        "px-3 py-1.5 rounded-xl text-xs font-semibold border inline-flex items-center gap-2",
                                                         d === "pass"
                                                             ? "bg-emerald-50 border-emerald-200 text-emerald-700"
                                                             : "bg-white border-gray-200 text-gray-600"
@@ -320,13 +354,14 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
                                                     }}
                                                     disabled={submitting}
                                                 >
+                                                    <CheckCircle2 size={14} />
                                                     PASS
                                                 </button>
 
                                                 <button
                                                     type="button"
                                                     className={cx(
-                                                        "px-3 py-1.5 rounded-xl text-xs font-semibold border",
+                                                        "px-3 py-1.5 rounded-xl text-xs font-semibold border inline-flex items-center gap-2",
                                                         d === "fail"
                                                             ? "bg-red-50 border-red-200 text-red-700"
                                                             : "bg-white border-gray-200 text-gray-600"
@@ -341,6 +376,7 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
                                                     }}
                                                     disabled={submitting}
                                                 >
+                                                    <XCircle size={14} />
                                                     FAIL
                                                 </button>
                                             </div>
@@ -349,12 +385,12 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
                                         {isFail ? (
                                             <div className="mt-3">
                                                 <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                    Reason (required)
+                                                    Alasan (wajib)
                                                 </label>
                                                 <input
                                                     value={reason[c.key] ?? ""}
                                                     onChange={(e) => setReason((s) => ({ ...s, [c.key]: e.target.value }))}
-                                                    placeholder="Explain what failed..."
+                                                    placeholder="Jelaskan apa yang tidak sesuai…"
                                                     className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                                                     disabled={submitting}
                                                 />
@@ -367,31 +403,40 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
                     </div>
 
                     <div className="mt-4">
-                        <label className="block text-xs font-medium text-gray-700 mb-1">General note (optional)</label>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Catatan umum (opsional)</label>
                         <textarea
                             value={generalNote}
                             onChange={(e) => setGeneralNote(e.target.value)}
                             rows={3}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                            placeholder="Any additional context..."
+                            placeholder="Tambahkan konteks bila perlu…"
                             disabled={submitting}
                         />
                     </div>
 
                     {anyFail ? (
-                        <div className="mt-4 text-xs text-amber-800 bg-amber-50 border border-amber-100 px-3 py-2 rounded-xl">
-                            At least one item is FAIL. This request will be returned to admin as{" "}
-                            <span className="font-semibold">Inspection failed</span>.
+                        <div className="mt-4 text-xs text-amber-900 bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl inline-flex items-start gap-2">
+                            <AlertTriangle size={16} className="mt-0.5" />
+                            <div>
+                                Ada item yang FAIL. Status request akan menjadi{" "}
+                                <span className="font-semibold">Inspection failed</span> dan dikembalikan ke admin.
+                            </div>
                         </div>
                     ) : null}
                 </div>
 
                 <div className="shrink-0 px-6 py-5 border-t border-gray-100 flex items-center justify-end gap-3 bg-white">
-                    <button type="button" className="lims-btn" onClick={onClose} disabled={submitting}>
-                        Cancel
+                    <button type="button" className="btn-outline" onClick={onClose} disabled={submitting}>
+                        Batal
                     </button>
-                    <button type="button" className="lims-btn-primary" onClick={submit} disabled={submitting}>
-                        {submitting ? "Submitting..." : "Submit Checklist"}
+                    <button
+                        type="button"
+                        className={cx("lims-btn-primary", submitting && "opacity-60 cursor-not-allowed")}
+                        onClick={submit}
+                        disabled={submitting}
+                        title={progress.decided < progress.total ? "Checklist belum lengkap" : "Submit checklist"}
+                    >
+                        {submitting ? "Mengirim..." : "Submit Checklist"}
                     </button>
                 </div>
             </div>
