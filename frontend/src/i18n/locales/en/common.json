@@ -230,6 +230,176 @@
             "workflowGroup": "Workflow group",
             "receivedAdmin": "Received (admin)"
         },
+        "requestInfo": {
+            "title": "Request details",
+            "subtitle": "Client submission information.",
+            "sampleType": "Sample type",
+            "scheduledDelivery": "Scheduled delivery",
+            "requestedParameters": "Requested parameters",
+            "noParameters": "No parameters selected.",
+            "examinationPurpose": "Examination purpose",
+            "additionalNotes": "Additional notes",
+            "client": "Client",
+            "parameterFallback": "Parameter #{{id}}",
+            "clientFallback": "Client #{{id}}"
+        },
+        "requestWorkflow": {
+            "youAre": "You are:",
+            "openSampleDetail": "Open sample detail",
+            "open": "Open",
+            "verify": "Verify",
+            "by": "By",
+            "omLhLabel": "Operational Manager / Laboratory Head",
+            "banner": {
+                "assignedLock": "Sample ID assigned: {{code}}. Workflow actions are now locked.",
+                "sampleIdPendingVerification": "Sample ID change is pending OM/LH verification.",
+                "sampleIdApproved": "Sample ID change approved. Admin can assign again.",
+                "sampleIdRejected": "Sample ID change rejected. Admin can propose again."
+            },
+            "actions": {
+                "title": "Next actions",
+                "subtitle": "Buttons appear only when your step is needed.",
+                "hiddenBody": "Sample ID has been assigned. Workflow actions are hidden.",
+                "none": "No actions required for your role right now.",
+                "adminAccept": {
+                    "title": "Accept request",
+                    "subtitle": "Confirm details and continue to the physical workflow."
+                },
+                "adminReturn": {
+                    "title": "Return request to client",
+                    "subtitle": "Requires a note. Client will revise and resubmit."
+                },
+                "adminReceivedFromClient": {
+                    "title": "Mark as received from client",
+                    "subtitle": "Record arrival time at the admin desk."
+                },
+                "adminBringToCollector": {
+                    "title": "Hand off to Sample Collector",
+                    "subtitle": "Moves status to in-transit to Sample Collector."
+                },
+                "collectorReceived": {
+                    "title": "Confirm receipt from admin",
+                    "subtitle": "Start intake inspection."
+                },
+                "openIntakeChecklist": {
+                    "title": "Open intake checklist",
+                    "subtitle": "Complete checks. If failed, return to admin."
+                },
+                "collectorReturnToAdmin": {
+                    "title": "Return sample to admin",
+                    "subtitle": "Use this when intake fails."
+                },
+                "adminReceivedFromCollector": {
+                    "title": "Mark as received from collector",
+                    "subtitle": "Record return time from Sample Collector."
+                },
+                "clientPickedUp": {
+                    "title": "Mark as picked up by client",
+                    "subtitle": "Final step for returned samples."
+                },
+                "verifyIntake": {
+                    "title": "Verify intake",
+                    "subtitle": "Verify intake result from Sample Collector."
+                },
+                "verifySampleIdChange": {
+                    "title": "Review sample ID change",
+                    "subtitle": "Approve or reject the requested sample ID change."
+                },
+                "assignSampleId": {
+                    "title": "Assign sample ID",
+                    "subtitle": "Assign the final lab code (BML)."
+                }
+            },
+            "history": {
+                "title": "Workflow history",
+                "subtitle": "Only shows events that actually happened.",
+                "empty": "No workflow events yet."
+            },
+            "timeline": {
+                "clientSubmitted": "Client submitted request",
+                "adminAccepted": "Admin accepted request",
+                "adminReturned": "Admin returned request to client",
+                "adminReceivedFromClient": "Admin received sample from client",
+                "adminHandoffToCollector": "Admin handed sample to Sample Collector",
+                "collectorReceived": "Sample Collector received sample",
+                "collectorIntakePassed": "Sample Collector completed intake (passed)",
+                "collectorIntakeFailed": "Sample Collector completed intake (failed)",
+                "collectorReturnedToAdmin": "Sample Collector returned sample to admin",
+                "adminReceivedBackFromCollector": "Admin received sample back from Sample Collector",
+                "omlhVerifiedIntake": "OM/LH verified intake",
+                "sampleIdProposed": "Admin proposed sample ID",
+                "sampleIdApproved": "OM/LH approved sample ID proposal",
+                "sampleIdRejected": "OM/LH rejected sample ID proposal",
+                "sampleIdPending": "Sample ID change is pending verification",
+                "sampleIdAssigned": "Admin assigned sample ID",
+                "clientPickedUp": "Client picked up sample",
+                "notes": {
+                    "suggestedToProposed": "Suggested: {{suggested}} → Proposed: {{proposed}}",
+                    "assigned": "Assigned: {{code}}"
+                }
+            }
+        },
+        "kanban": {
+            "addColumn": {
+                "title": "Add column {{position}} {{reference}}",
+                "position": {
+                    "before": "before",
+                    "after": "after"
+                },
+                "reference": {
+                    "thisColumn": "this column",
+                    "named": "“{{name}}”"
+                },
+                "helper": "Give the new column a clear name. You can rename it later.",
+                "nameLabel": "Column name",
+                "namePlaceholder": "e.g. Extraction, QC, Review…",
+                "sideLabel": "Side:",
+                "side": {
+                    "left": "left",
+                    "right": "right"
+                },
+                "addButton": "Add column"
+            }
+        },
+        "assignSampleId": {
+            "title": "Assign sample ID",
+            "subtitle": "Request #{{id}} • {{client}} • {{group}}",
+            "summary": {
+                "client": "Client",
+                "group": "Workflow group",
+                "parameters": "Parameters"
+            },
+            "parametersCount": "{{count}} parameter(s)",
+            "suggestedTitle": "Suggested sample ID",
+            "actions": {
+                "useSuggested": "Use suggested",
+                "copySuggested": "Copy suggested"
+            },
+            "fieldLabel": "Sample ID",
+            "placeholder": "e.g. LBMA 001",
+            "hints": {
+                "format": "Format: PREFIX 001 (max 5 letters, space, number). Number will be padded to 3 digits.",
+                "normalized": "Normalized:",
+                "matchesSuggestion": "matches suggestion",
+                "differsSuggestion": "differs from suggestion",
+                "approvedByOmLh": "approved by OM/LH"
+            },
+            "buttons": {
+                "finalize": "Finalize",
+                "assign": "Assign",
+                "propose": "Propose"
+            },
+            "done": {
+                "assigned": "Sample ID assigned.",
+                "sentForVerification": "Sent to OM/LH for verification."
+            },
+            "errors": {
+                "required": "Sample ID is required.",
+                "format": "Format must be: PREFIX 001 (uppercase letters, max 5-letter prefix, space, number).",
+                "number": "Number must be greater than 0.",
+                "submitFailedFallback": "Failed to submit sample ID."
+            }
+        },
         "status": {
             "title": "Status",
             "pending": "Pending",

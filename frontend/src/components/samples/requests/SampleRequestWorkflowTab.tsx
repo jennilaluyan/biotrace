@@ -1,8 +1,20 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\requests\SampleRequestWorkflowTab.tsx
 import { useMemo } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { CheckCircle2, ArrowRight, Truck, Hand, ClipboardCheck, Hash, ShieldCheck, RotateCcw } from "lucide-react";
+import {
+    CheckCircle2,
+    ArrowRight,
+    Truck,
+    Hand,
+    ClipboardCheck,
+    Hash,
+    ShieldCheck,
+    RotateCcw,
+    ChevronRight,
+    Lock,
+    Loader2,
+} from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import type { Sample } from "../../../services/samples";
 import { ROLE_ID, getUserRoleLabel } from "../../../utils/roles";
@@ -15,7 +27,7 @@ function cx(...arr: Array<string | false | null | undefined>) {
 type TimelineEvent = {
     key: string;
     title: string;
-    actor: string;
+    actor: string; // canonical-ish
     actorObj?: any;
     actorName?: string | null;
     actorRole?: string | null;
@@ -97,7 +109,6 @@ function logText(log: any) {
 }
 
 function logAt(log: any) {
-    // diperluas: banyak backend beda-beda key timestamp-nya
     return (
         (log?.timestamp ? String(log.timestamp) : null) ??
         (log?.occurred_at ? String(log.occurred_at) : null) ??
@@ -113,43 +124,36 @@ function logAt(log: any) {
     );
 }
 
-function normalizeRoleLabel(raw?: string | null) {
+type RoleKey =
+    | "client"
+    | "administrator"
+    | "sampleCollector"
+    | "analyst"
+    | "operationalManager"
+    | "laboratoryHead"
+    | "unknown";
+
+function normalizeRoleKey(raw?: string | null): RoleKey | null {
     const s = String(raw ?? "").trim();
     const k = s.toLowerCase();
+    if (!k) return null;
 
-    // samakan label agar konsisten seperti requirement kamu
-    if (!k) return "";
-
-    // admin variants
-    if (k === "admin" || k.includes("administrator")) return "Administrator";
-
-    // sample collector variants
+    if (k === "admin" || k.includes("administrator")) return "administrator";
     if (k === "sample collector" || k === "samplecollector" || k === "collector" || k.includes("sample_collector"))
-        return "Sample Collector";
+        return "sampleCollector";
+    if (k === "om" || k.includes("operational manager")) return "operationalManager";
+    if (k === "lh" || k.includes("lab head") || k.includes("laboratory head")) return "laboratoryHead";
+    if (k.includes("analyst")) return "analyst";
+    if (k.includes("client")) return "client";
 
-    // OM variants
-    if (k === "om" || k.includes("operational manager")) return "Operational Manager";
-
-    // LH variants
-    if (k === "lh" || k.includes("lab head") || k.includes("laboratory head")) return "Laboratory Head";
-
-    // analyst
-    if (k.includes("analyst")) return "Analyst";
-
-    // client
-    if (k.includes("client")) return "Client";
-
-    // default: keep original (trimmed)
-    return s;
+    return "unknown";
 }
 
-function roleLabelFromRoleId(roleId?: any) {
+function roleLabelFromRoleId(roleId?: any): RoleKey | null {
     const n = Number(roleId);
     if (!Number.isFinite(n) || n <= 0) return null;
-
-    // getUserRoleLabel kadang keluarkan "Admin", "Sample Collector", dst
     const lbl = getUserRoleLabel(n);
-    return normalizeRoleLabel(lbl);
+    return normalizeRoleKey(lbl);
 }
 
 function pickName(obj: any): string | null {
@@ -183,7 +187,7 @@ function pickRoleName(obj: any): string | null {
         null;
 
     const directStr = typeof direct === "string" ? direct.trim() : "";
-    if (directStr) return normalizeRoleLabel(directStr);
+    if (directStr) return directStr;
 
     const roleId =
         obj?.role_id ??
@@ -197,16 +201,7 @@ function pickRoleName(obj: any): string | null {
         null;
 
     const fromId = roleLabelFromRoleId(roleId);
-    return fromId ? fromId : null;
-}
-
-function prettyRoleLabel(fallback: string) {
-    // fallback label internal event (Admin / OM/LH / Sample Collector)
-    const k = String(fallback ?? "").trim().toLowerCase();
-    if (k === "admin") return "Administrator";
-    if (k === "sample collector") return "Sample Collector";
-    if (k === "om/lh") return "OM/LH";
-    return fallback;
+    return fromId ? String(fromId) : null;
 }
 
 function extractActorFromLog(log: any): { obj?: any; name?: string | null; role?: string | null } | null {
@@ -216,7 +211,7 @@ function extractActorFromLog(log: any): { obj?: any; name?: string | null; role?
         log?.actorUser ??
         log?.actor_staff ??
         log?.actorStaff ??
-        log?.causer ?? // laravel-ish
+        log?.causer ??
         log?.staff ??
         log?.user ??
         log?.performed_by ??
@@ -264,16 +259,14 @@ function extractActorFromLog(log: any): { obj?: any; name?: string | null; role?
         pickNum(log, ["actor_role_id", "actorRoleId", "role_id", "roleId", "causer_role_id", "causerRoleId"])
     );
 
-    const roleFromLog = normalizeRoleLabel(roleFromLogStr ?? roleFromLogId ?? null) || null;
+    const roleFromLog = String(roleFromLogStr ?? roleFromLogId ?? "").trim() || null;
 
     if (direct && typeof direct === "object") {
-        // walau direct object ada, sering kali cuma {id}, jadi tetap ambil name/role dari log juga
         const name = pickName(direct) ?? nameFromLog ?? null;
         const role = pickRoleName(direct) ?? roleFromLog ?? null;
         return { obj: direct, name, role };
     }
 
-    // kalau direct bukan object (mis: string), pakai name/role dari log
     const name = nameFromLog ? String(nameFromLog).trim() : null;
     const role = roleFromLog ? String(roleFromLog).trim() : null;
 
@@ -326,7 +319,6 @@ function findActorFromLogs(logs: any[] | null, needles: string[], at?: string | 
                 }
             }
 
-            // fallback newest by time (kalau time 0 semua, tetap ambil terakhir)
             const newest = candidates.sort((a, b) => (b.t || 0) - (a.t || 0))[0];
             return newest ? extractActorFromLog(newest.l) : null;
         }
@@ -353,10 +345,11 @@ function ActionCard(props: {
     icon: ReactNode;
     onClick?: () => void;
     disabled?: boolean;
+    busy?: boolean;
     tone?: "primary" | "neutral" | "danger";
-    rightText?: string;
+    right?: ReactNode;
 }) {
-    const { title, subtitle, icon, onClick, disabled, tone = "neutral", rightText } = props;
+    const { title, subtitle, icon, onClick, disabled, busy, tone = "neutral", right } = props;
 
     const base =
         "w-full text-left rounded-2xl border px-4 py-3 transition " +
@@ -380,7 +373,11 @@ function ActionCard(props: {
                         <div className="text-xs text-slate-600 mt-0.5">{subtitle}</div>
                     </div>
                 </div>
-                <div className="text-slate-400 text-sm shrink-0">{disabled ? "Locked" : rightText ?? "→"}</div>
+
+                <div className="shrink-0 flex items-center gap-2 text-slate-500">
+                    {busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : null}
+                    {right ?? <ChevronRight size={18} aria-hidden="true" />}
+                </div>
             </div>
         </button>
     );
@@ -406,6 +403,7 @@ export function SampleRequestWorkflowTab(props: {
     onVerifySampleIdChange?: () => void;
     onOpenAssignSampleId: () => void;
 }) {
+    const { t, i18n } = useTranslation();
     const { sample, roleId, roleLabel } = props;
     const s: any = sample;
 
@@ -413,27 +411,42 @@ export function SampleRequestWorkflowTab(props: {
     const isCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
     const isOmLh = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
 
+    const omLhLabel = t("samples.requestWorkflow.omLhLabel");
+
+    function roleLabelForDisplay(raw?: string | null): string | null {
+        const k = normalizeRoleKey(raw);
+        if (!k) return null;
+
+        if (k === "unknown") return raw ? String(raw).trim() : t("roles.unknown");
+        return t(`roles.${k}`);
+    }
+
+    function fallbackActorLabel(fallback: string): string {
+        const k = String(fallback ?? "").trim().toLowerCase();
+
+        if (!k) return t("roles.unknown");
+        if (k === "om/lh" || k === "omlh") return omLhLabel;
+        if (k === "admin" || k === "administrator") return t("roles.administrator");
+        if (k === "sample collector" || k === "samplecollector") return t("roles.sampleCollector");
+        if (k === "client") return t("roles.client");
+
+        return fallback;
+    }
+
     function formatActor(fallbackRole: string, actorObj?: any, actorName?: string | null, actorRole?: string | null): string {
-        const fallbackRolePretty = prettyRoleLabel(fallbackRole);
-
         const n = (actorName && String(actorName).trim()) ? String(actorName).trim() : pickName(actorObj);
-        const rRaw =
-            (actorRole && String(actorRole).trim()) ? String(actorRole).trim()
-                : pickRoleName(actorObj) ?? fallbackRolePretty;
+        const roleFromObj = roleLabelForDisplay(pickRoleName(actorObj));
+        const roleFromLog = roleLabelForDisplay(actorRole);
+        const fallbackRolePretty = fallbackActorLabel(fallbackRole);
 
-        const r = normalizeRoleLabel(rRaw);
-
-        // Client special case (biar selalu "Client Name - Client")
-        if (!n && fallbackRole === "Client") {
+        // Client special case: always show "Client Name - Client"
+        if (!n && String(fallbackRole).toLowerCase() === "client") {
             const cn = pickName(s?.client) ?? (typeof s?.client_name === "string" ? s.client_name.trim() : null);
-            if (cn) return `${cn} - Client`;
+            if (cn) return `${cn} - ${t("roles.client")}`;
         }
 
-        // target utama requirement: "Nama - Role"
-        if (n) return `${n} - ${r || fallbackRolePretty}`;
-
-        // fallback: minimal role (kalau backend benar-benar gak kirim nama)
-        return r || fallbackRolePretty;
+        if (n) return `${n} - ${roleFromLog ?? roleFromObj ?? fallbackRolePretty}`;
+        return roleFromLog ?? roleFromObj ?? fallbackRolePretty;
     }
 
     const requestStatus = s?.request_status ?? null;
@@ -553,8 +566,8 @@ export function SampleRequestWorkflowTab(props: {
         if (submittedAt && requestStatusKey !== "draft") {
             out.push({
                 key: "client_submit",
-                title: "Client submitted request",
-                actor: "Client",
+                title: t("samples.requestWorkflow.timeline.clientSubmitted"),
+                actor: "client",
                 actorObj: s?.client ?? null,
                 at: submittedAt,
             });
@@ -592,8 +605,8 @@ export function SampleRequestWorkflowTab(props: {
 
             out.push({
                 key: "admin_accept",
-                title: "Admin accepted request",
-                actor: "Admin",
+                title: t("samples.requestWorkflow.timeline.adminAccepted"),
+                actor: "admin",
                 actorObj: adminAccept.obj,
                 actorName: adminAccept.name,
                 actorRole: adminAccept.role,
@@ -621,8 +634,8 @@ export function SampleRequestWorkflowTab(props: {
 
             out.push({
                 key: "admin_return",
-                title: "Admin returned request to client",
-                actor: "Admin",
+                title: t("samples.requestWorkflow.timeline.adminReturned"),
+                actor: "admin",
                 actorObj: adminReturn.obj,
                 actorName: adminReturn.name,
                 actorRole: adminReturn.role,
@@ -651,8 +664,8 @@ export function SampleRequestWorkflowTab(props: {
 
             out.push({
                 key: "admin_received",
-                title: "Admin received sample from client",
-                actor: "Admin",
+                title: t("samples.requestWorkflow.timeline.adminReceivedFromClient"),
+                actor: "admin",
                 actorObj: adminRecv.obj,
                 actorName: adminRecv.name,
                 actorRole: adminRecv.role,
@@ -680,8 +693,8 @@ export function SampleRequestWorkflowTab(props: {
 
             out.push({
                 key: "admin_handoff",
-                title: "Admin brought sample to Sample Collector",
-                actor: "Admin",
+                title: t("samples.requestWorkflow.timeline.adminHandoffToCollector"),
+                actor: "admin",
                 actorObj: adminHandoff.obj,
                 actorName: adminHandoff.name,
                 actorRole: adminHandoff.role,
@@ -710,8 +723,8 @@ export function SampleRequestWorkflowTab(props: {
 
             out.push({
                 key: "collector_received",
-                title: "Sample Collector received sample from admin",
-                actor: "Sample Collector",
+                title: t("samples.requestWorkflow.timeline.collectorReceived"),
+                actor: "sample_collector",
                 actorObj: collectorRecv.obj,
                 actorName: collectorRecv.name,
                 actorRole: collectorRecv.role,
@@ -741,8 +754,10 @@ export function SampleRequestWorkflowTab(props: {
 
             out.push({
                 key: "collector_intake",
-                title: failed ? "Sample Collector intake failed" : "Sample Collector intake completed (all passed)",
-                actor: "Sample Collector",
+                title: failed
+                    ? t("samples.requestWorkflow.timeline.collectorIntakeFailed")
+                    : t("samples.requestWorkflow.timeline.collectorIntakePassed"),
+                actor: "sample_collector",
                 actorObj: collectorIntake.obj,
                 actorName: collectorIntake.name,
                 actorRole: collectorIntake.role,
@@ -771,8 +786,8 @@ export function SampleRequestWorkflowTab(props: {
 
             out.push({
                 key: "collector_return",
-                title: "Sample Collector returned sample to admin",
-                actor: "Sample Collector",
+                title: t("samples.requestWorkflow.timeline.collectorReturnedToAdmin"),
+                actor: "sample_collector",
                 actorObj: collectorReturn.obj,
                 actorName: collectorReturn.name,
                 actorRole: collectorReturn.role,
@@ -800,8 +815,8 @@ export function SampleRequestWorkflowTab(props: {
 
             out.push({
                 key: "admin_receive_back",
-                title: "Admin received sample back from Sample Collector",
-                actor: "Admin",
+                title: t("samples.requestWorkflow.timeline.adminReceivedBackFromCollector"),
+                actor: "admin",
                 actorObj: adminBack.obj,
                 actorName: adminBack.name,
                 actorRole: adminBack.role,
@@ -824,8 +839,8 @@ export function SampleRequestWorkflowTab(props: {
 
             out.push({
                 key: "omlh_verify",
-                title: "OM/LH verified intake from Sample Collector",
-                actor: "OM/LH",
+                title: t("samples.requestWorkflow.timeline.omlhVerifiedIntake"),
+                actor: "omlh",
                 actorObj: verifier.obj,
                 actorName: verifier.name,
                 actorRole: verifier.role,
@@ -877,16 +892,19 @@ export function SampleRequestWorkflowTab(props: {
                     )
                     : null;
 
+            const suggested = String(sampleIdChangeObj.suggested_sample_id ?? "-");
+            const proposed = String(sampleIdChangeObj.proposed_sample_id ?? "-");
+
             out.push({
                 key: "sid_proposed",
-                title: "Admin proposed Sample ID",
-                actor: "Admin",
+                title: t("samples.requestWorkflow.timeline.sampleIdProposed"),
+                actor: "admin",
                 actorObj: sidRequestedBy ?? fromLogs?.obj ?? null,
                 actorName: sidRequesterName ?? fromLogs?.name ?? null,
                 actorRole: sidRequesterRole ?? fromLogs?.role ?? null,
                 at: sidReqAt ?? null,
                 note: sampleIdChangeObj?.proposed_sample_id
-                    ? `Suggested: ${String(sampleIdChangeObj.suggested_sample_id ?? "-")} → Proposed: ${String(sampleIdChangeObj.proposed_sample_id)}`
+                    ? t("samples.requestWorkflow.timeline.notes.suggestedToProposed", { suggested, proposed })
                     : null,
             });
         }
@@ -903,8 +921,10 @@ export function SampleRequestWorkflowTab(props: {
 
             out.push({
                 key: "sid_decided",
-                title: isSampleIdChangeApproved ? "OM/LH approved sample ID proposal" : "OM/LH rejected sample ID proposal",
-                actor: "OM/LH",
+                title: isSampleIdChangeApproved
+                    ? t("samples.requestWorkflow.timeline.sampleIdApproved")
+                    : t("samples.requestWorkflow.timeline.sampleIdRejected"),
+                actor: "omlh",
                 actorObj: sidReviewedBy ?? fromLogs?.obj ?? null,
                 actorName: sidReviewerName ?? fromLogs?.name ?? null,
                 actorRole: sidReviewerRole ?? fromLogs?.role ?? null,
@@ -914,8 +934,8 @@ export function SampleRequestWorkflowTab(props: {
         } else if (sampleIdChangeObj && isSampleIdChangePending) {
             out.push({
                 key: "sid_pending",
-                title: "Sample ID change is pending verification",
-                actor: "OM/LH",
+                title: t("samples.requestWorkflow.timeline.sampleIdPending"),
+                actor: "omlh",
                 at: sidReqAt ?? null,
             });
         }
@@ -943,21 +963,21 @@ export function SampleRequestWorkflowTab(props: {
 
             out.push({
                 key: "admin_assign",
-                title: "Admin assigned Sample ID",
-                actor: "Admin",
+                title: t("samples.requestWorkflow.timeline.sampleIdAssigned"),
+                actor: "admin",
                 actorObj: assigner.obj,
                 actorName: assigner.name,
                 actorRole: assigner.role,
                 at: assignedAt ?? null,
-                note: `Assigned: ${labSampleCode}`,
+                note: t("samples.requestWorkflow.timeline.notes.assigned", { code: labSampleCode }),
             });
         }
 
         if (s?.client_picked_up_at) {
             out.push({
                 key: "client_pickup",
-                title: "Client picked up sample",
-                actor: "Client",
+                title: t("samples.requestWorkflow.timeline.clientPickedUp"),
+                actor: "client",
                 actorObj: s?.client ?? null,
                 at: String(s.client_picked_up_at),
             });
@@ -970,6 +990,7 @@ export function SampleRequestWorkflowTab(props: {
         });
 
         return out;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
         s,
         props.workflowLogs,
@@ -981,6 +1002,8 @@ export function SampleRequestWorkflowTab(props: {
         isSampleIdChangePending,
         isSampleIdChangeApproved,
         isSampleIdChangeRejected,
+        i18n.resolvedLanguage,
+        i18n.language,
     ]);
 
     const topBanner = useMemo(() => {
@@ -989,23 +1012,20 @@ export function SampleRequestWorkflowTab(props: {
         if (labSampleCode) {
             return {
                 type: "success" as const,
-                message: `Sample ID assigned: ${labSampleCode}. Workflow actions are now locked.`,
+                message: t("samples.requestWorkflow.banner.assignedLock", { code: labSampleCode }),
             };
         }
 
         if (isSampleIdChangePending || isSampleIdPendingVerification) {
-            return { type: "warning" as const, message: "Sample ID change is pending OM/LH verification." };
+            return { type: "warning" as const, message: t("samples.requestWorkflow.banner.sampleIdPendingVerification") };
         }
 
         if (isSampleIdChangeApproved) {
-            return { type: "success" as const, message: "Sample ID change approved by OM/LH. Admin can assign again." };
+            return { type: "success" as const, message: t("samples.requestWorkflow.banner.sampleIdApproved") };
         }
 
         if (isSampleIdChangeRejected) {
-            return {
-                type: "error" as const,
-                message: "Sample ID change rejected by OM/LH. Admin can try assigning again.",
-            };
+            return { type: "error" as const, message: t("samples.requestWorkflow.banner.sampleIdRejected") };
         }
 
         return null;
@@ -1016,6 +1036,7 @@ export function SampleRequestWorkflowTab(props: {
         isSampleIdPendingVerification,
         isSampleIdChangeApproved,
         isSampleIdChangeRejected,
+        t,
     ]);
 
     const anyAction =
@@ -1035,16 +1056,16 @@ export function SampleRequestWorkflowTab(props: {
         <div className="space-y-6">
             <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="text-[11px] text-gray-500">
-                    You are: <span className="font-semibold">{roleLabel}</span>
+                    {t("samples.requestWorkflow.youAre")} <span className="font-semibold">{roleLabel}</span>
                 </div>
 
                 {labSampleCode ? (
                     <Link
                         to={`/samples/${Number(s?.sample_id ?? 0)}`}
                         className="text-xs text-gray-700 underline"
-                        title="Open sample detail"
+                        title={t("samples.requestWorkflow.openSampleDetail")}
                     >
-                        Open Sample Detail
+                        {t("samples.requestWorkflow.openSampleDetail")}
                     </Link>
                 ) : null}
             </div>
@@ -1071,38 +1092,39 @@ export function SampleRequestWorkflowTab(props: {
             {showActions ? (
                 <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                     <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
-                        <div className="text-sm font-bold text-gray-900">Next actions</div>
-                        <div className="text-xs text-gray-500 mt-1">Buttons appear only when your step is needed.</div>
+                        <div className="text-sm font-bold text-gray-900">{t("samples.requestWorkflow.actions.title")}</div>
+                        <div className="text-xs text-gray-500 mt-1">{t("samples.requestWorkflow.actions.subtitle")}</div>
                     </div>
 
                     <div className="px-5 py-4 space-y-2">
                         {canAdminAcceptRequest ? (
                             <ActionCard
-                                title="Admin: Accept request"
-                                subtitle="Client request is valid. Continue to physical workflow."
+                                title={t("samples.requestWorkflow.actions.adminAccept.title")}
+                                subtitle={t("samples.requestWorkflow.actions.adminAccept.subtitle")}
                                 icon={<CheckCircle2 size={18} />}
                                 onClick={props.onApprove}
                                 disabled={props.wfBusy}
+                                busy={props.wfBusy}
                                 tone="primary"
                             />
                         ) : null}
 
                         {canAdminReturnRequest ? (
                             <ActionCard
-                                title="Admin: Return request"
-                                subtitle="Send back to client (note required)."
+                                title={t("samples.requestWorkflow.actions.adminReturn.title")}
+                                subtitle={t("samples.requestWorkflow.actions.adminReturn.subtitle")}
                                 icon={<RotateCcw size={18} />}
                                 onClick={props.onOpenReturn}
                                 disabled={props.wfBusy}
                                 tone="danger"
-                                rightText="Open"
+                                right={<span className="text-xs font-semibold">{t("samples.requestWorkflow.open")}</span>}
                             />
                         ) : null}
 
                         {canMarkPhysicallyReceived ? (
                             <ActionCard
-                                title="Admin: Received sample from client"
-                                subtitle="Record arrival at admin desk."
+                                title={t("samples.requestWorkflow.actions.adminReceivedFromClient.title")}
+                                subtitle={t("samples.requestWorkflow.actions.adminReceivedFromClient.subtitle")}
                                 icon={<Hand size={18} />}
                                 onClick={props.onMarkPhysicallyReceived}
                                 disabled={props.wfBusy}
@@ -1112,8 +1134,8 @@ export function SampleRequestWorkflowTab(props: {
 
                         {canAdminBringToCollector ? (
                             <ActionCard
-                                title="Admin: Bring sample to Sample Collector"
-                                subtitle="Moves status to In transit to Sample Collector."
+                                title={t("samples.requestWorkflow.actions.adminBringToCollector.title")}
+                                subtitle={t("samples.requestWorkflow.actions.adminBringToCollector.subtitle")}
                                 icon={<Truck size={18} />}
                                 onClick={() => props.onDoPhysicalWorkflow("admin_brought_to_collector")}
                                 disabled={props.wfBusy}
@@ -1123,8 +1145,8 @@ export function SampleRequestWorkflowTab(props: {
 
                         {canCollectorReceive ? (
                             <ActionCard
-                                title="Sample Collector: Received sample"
-                                subtitle="Confirm you received the sample from admin."
+                                title={t("samples.requestWorkflow.actions.collectorReceived.title")}
+                                subtitle={t("samples.requestWorkflow.actions.collectorReceived.subtitle")}
                                 icon={<Hand size={18} />}
                                 onClick={() => props.onDoPhysicalWorkflow("collector_received")}
                                 disabled={props.wfBusy}
@@ -1134,20 +1156,20 @@ export function SampleRequestWorkflowTab(props: {
 
                         {canOpenIntakeChecklist ? (
                             <ActionCard
-                                title="Sample Collector: Intake checklist"
-                                subtitle="Complete intake checks. If failed, return to admin."
+                                title={t("samples.requestWorkflow.actions.openIntakeChecklist.title")}
+                                subtitle={t("samples.requestWorkflow.actions.openIntakeChecklist.subtitle")}
                                 icon={<ClipboardCheck size={18} />}
                                 onClick={props.onOpenIntakeChecklist}
                                 disabled={props.wfBusy}
                                 tone="neutral"
-                                rightText="Open"
+                                right={<span className="text-xs font-semibold">{t("samples.requestWorkflow.open")}</span>}
                             />
                         ) : null}
 
                         {canCollectorReturnToAdmin ? (
                             <ActionCard
-                                title="Sample Collector: Return sample to admin"
-                                subtitle="Used when intake fails."
+                                title={t("samples.requestWorkflow.actions.collectorReturnToAdmin.title")}
+                                subtitle={t("samples.requestWorkflow.actions.collectorReturnToAdmin.subtitle")}
                                 icon={<ArrowRight size={18} />}
                                 onClick={() => props.onDoPhysicalWorkflow("collector_returned_to_admin")}
                                 disabled={props.wfBusy}
@@ -1157,8 +1179,8 @@ export function SampleRequestWorkflowTab(props: {
 
                         {canAdminReceiveBack ? (
                             <ActionCard
-                                title="Admin: Received back from Sample Collector"
-                                subtitle="Record return time from collector."
+                                title={t("samples.requestWorkflow.actions.adminReceivedFromCollector.title")}
+                                subtitle={t("samples.requestWorkflow.actions.adminReceivedFromCollector.subtitle")}
                                 icon={<Hand size={18} />}
                                 onClick={() => props.onDoPhysicalWorkflow("admin_received_from_collector")}
                                 disabled={props.wfBusy}
@@ -1168,8 +1190,8 @@ export function SampleRequestWorkflowTab(props: {
 
                         {canAdminClientPickup ? (
                             <ActionCard
-                                title="Admin: Client picked up"
-                                subtitle="Final step for returned samples."
+                                title={t("samples.requestWorkflow.actions.clientPickedUp.title")}
+                                subtitle={t("samples.requestWorkflow.actions.clientPickedUp.subtitle")}
                                 icon={<ArrowRight size={18} />}
                                 onClick={() => props.onDoPhysicalWorkflow("client_picked_up")}
                                 disabled={props.wfBusy}
@@ -1179,11 +1201,15 @@ export function SampleRequestWorkflowTab(props: {
 
                         {canVerify ? (
                             <ActionCard
-                                title={verifyMode === "sample_id_change" ? "OM/LH: Verify Sample ID change" : "OM/LH: Verify intake"}
+                                title={
+                                    verifyMode === "sample_id_change"
+                                        ? t("samples.requestWorkflow.actions.verifySampleIdChange.title")
+                                        : t("samples.requestWorkflow.actions.verifyIntake.title")
+                                }
                                 subtitle={
                                     verifyMode === "sample_id_change"
-                                        ? "Approve/reject the requested Sample ID change."
-                                        : "Verify intake result from Sample Collector."
+                                        ? t("samples.requestWorkflow.actions.verifySampleIdChange.subtitle")
+                                        : t("samples.requestWorkflow.actions.verifyIntake.subtitle")
                                 }
                                 icon={<ShieldCheck size={18} />}
                                 onClick={() => {
@@ -1191,57 +1217,62 @@ export function SampleRequestWorkflowTab(props: {
                                     return props.onVerify();
                                 }}
                                 disabled={props.verifyBusy}
+                                busy={props.verifyBusy}
                                 tone="primary"
-                                rightText={props.verifyBusy ? "Saving..." : "Verify"}
+                                right={
+                                    <span className="text-xs font-semibold">
+                                        {props.verifyBusy ? t("processing") : t("samples.requestWorkflow.verify")}
+                                    </span>
+                                }
                             />
                         ) : null}
 
                         {isAdmin && canAssignSampleId ? (
                             <ActionCard
-                                title="Admin: Assign Sample ID"
-                                subtitle="Assign the final lab code (BML)."
+                                title={t("samples.requestWorkflow.actions.assignSampleId.title")}
+                                subtitle={t("samples.requestWorkflow.actions.assignSampleId.subtitle")}
                                 icon={<Hash size={18} />}
                                 onClick={props.onOpenAssignSampleId}
                                 disabled={props.wfBusy}
                                 tone="primary"
-                                rightText="Open"
+                                right={<span className="text-xs font-semibold">{t("samples.requestWorkflow.open")}</span>}
                             />
                         ) : null}
 
                         {!anyAction ? (
-                            <div className="text-sm text-gray-600">No actions required from your role right now.</div>
+                            <div className="text-sm text-gray-600">{t("samples.requestWorkflow.actions.none")}</div>
                         ) : null}
                     </div>
                 </div>
             ) : (
                 <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                     <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
-                        <div className="text-sm font-bold text-gray-900">Next actions</div>
+                        <div className="text-sm font-bold text-gray-900">{t("samples.requestWorkflow.actions.title")}</div>
                     </div>
-                    <div className="px-5 py-4 text-sm text-gray-600">Sample ID has been assigned. Actions are hidden.</div>
+                    <div className="px-5 py-4 text-sm text-gray-600">{t("samples.requestWorkflow.actions.hiddenBody")}</div>
                 </div>
             )}
 
             <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                 <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
-                    <div className="text-sm font-bold text-gray-900">Workflow history</div>
-                    <div className="text-xs text-gray-500 mt-1">Only shows events that actually happened.</div>
+                    <div className="text-sm font-bold text-gray-900">{t("samples.requestWorkflow.history.title")}</div>
+                    <div className="text-xs text-gray-500 mt-1">{t("samples.requestWorkflow.history.subtitle")}</div>
                 </div>
 
                 <div className="px-5 py-5">
                     {timeline.length === 0 ? (
-                        <div className="text-sm text-gray-600">No workflow events yet.</div>
+                        <div className="text-sm text-gray-600">{t("samples.requestWorkflow.history.empty")}</div>
                     ) : (
                         <ol className="space-y-2">
                             {timeline.map((e) => (
                                 <li key={e.key} className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
                                     <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
                                         <div className="text-sm font-semibold text-gray-900">{e.title}</div>
-                                        <div className="text-xs text-gray-600">{e.at ? formatDateTimeLocal(e.at) : "-"}</div>
+                                        <div className="text-xs text-gray-600">{e.at ? formatDateTimeLocal(e.at) : "—"}</div>
                                     </div>
 
                                     <div className="mt-1 text-xs text-gray-600">
-                                        By: {formatActor(e.actor, e.actorObj, e.actorName, e.actorRole)}
+                                        {t("samples.requestWorkflow.by")}: {formatActor(e.actor, e.actorObj, e.actorName, e.actorRole)}
                                     </div>
 
                                     {e.note ? <div className="mt-2 text-sm text-gray-700 whitespace-pre-wrap">{e.note}</div> : null}

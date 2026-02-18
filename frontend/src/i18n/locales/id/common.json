@@ -230,6 +230,176 @@
             "workflowGroup": "Kelompok workflow",
             "receivedAdmin": "Diterima (admin)"
         },
+        "requestInfo": {
+            "title": "Detail permintaan",
+            "subtitle": "Informasi permintaan dari klien.",
+            "sampleType": "Jenis sampel",
+            "scheduledDelivery": "Jadwal pengantaran",
+            "requestedParameters": "Parameter yang diminta",
+            "noParameters": "Belum ada parameter yang dipilih.",
+            "examinationPurpose": "Tujuan pemeriksaan",
+            "additionalNotes": "Catatan tambahan",
+            "client": "Klien",
+            "parameterFallback": "Parameter #{{id}}",
+            "clientFallback": "Klien #{{id}}"
+        },
+        "requestWorkflow": {
+            "youAre": "Peran Anda:",
+            "openSampleDetail": "Buka detail sampel",
+            "open": "Buka",
+            "verify": "Verifikasi",
+            "by": "Oleh",
+            "omLhLabel": "Manajer Operasional / Kepala Laboratorium",
+            "banner": {
+                "assignedLock": "Sample ID sudah ditetapkan: {{code}}. Aksi workflow sekarang terkunci.",
+                "sampleIdPendingVerification": "Perubahan Sample ID menunggu verifikasi OM/LH.",
+                "sampleIdApproved": "Perubahan Sample ID disetujui. Admin bisa menetapkan lagi.",
+                "sampleIdRejected": "Perubahan Sample ID ditolak. Admin bisa ajukan lagi."
+            },
+            "actions": {
+                "title": "Aksi berikutnya",
+                "subtitle": "Tombol hanya muncul jika langkah Anda diperlukan.",
+                "hiddenBody": "Sample ID sudah ditetapkan. Aksi workflow disembunyikan.",
+                "none": "Tidak ada aksi untuk peran Anda saat ini.",
+                "adminAccept": {
+                    "title": "Terima permintaan",
+                    "subtitle": "Konfirmasi detail dan lanjutkan ke workflow fisik."
+                },
+                "adminReturn": {
+                    "title": "Kembalikan ke klien",
+                    "subtitle": "Wajib isi catatan. Klien akan revisi dan kirim ulang."
+                },
+                "adminReceivedFromClient": {
+                    "title": "Tandai diterima dari klien",
+                    "subtitle": "Catat waktu sampel tiba di meja admin."
+                },
+                "adminBringToCollector": {
+                    "title": "Serahkan ke Pengambil Sampel",
+                    "subtitle": "Mengubah status menjadi dikirim ke Pengambil Sampel."
+                },
+                "collectorReceived": {
+                    "title": "Konfirmasi diterima dari admin",
+                    "subtitle": "Mulai inspeksi intake."
+                },
+                "openIntakeChecklist": {
+                    "title": "Buka checklist intake",
+                    "subtitle": "Selesaikan pemeriksaan. Jika gagal, kembalikan ke admin."
+                },
+                "collectorReturnToAdmin": {
+                    "title": "Kembalikan sampel ke admin",
+                    "subtitle": "Gunakan jika intake gagal."
+                },
+                "adminReceivedFromCollector": {
+                    "title": "Tandai diterima dari kolektor",
+                    "subtitle": "Catat waktu sampel kembali dari Pengambil Sampel."
+                },
+                "clientPickedUp": {
+                    "title": "Tandai diambil klien",
+                    "subtitle": "Langkah terakhir untuk sampel yang dikembalikan."
+                },
+                "verifyIntake": {
+                    "title": "Verifikasi intake",
+                    "subtitle": "Verifikasi hasil intake dari Pengambil Sampel."
+                },
+                "verifySampleIdChange": {
+                    "title": "Review perubahan Sample ID",
+                    "subtitle": "Setujui atau tolak perubahan Sample ID yang diajukan."
+                },
+                "assignSampleId": {
+                    "title": "Tetapkan Sample ID",
+                    "subtitle": "Tetapkan kode lab final (BML)."
+                }
+            },
+            "history": {
+                "title": "Riwayat workflow",
+                "subtitle": "Hanya menampilkan event yang benar-benar terjadi.",
+                "empty": "Belum ada event workflow."
+            },
+            "timeline": {
+                "clientSubmitted": "Klien mengirim permintaan",
+                "adminAccepted": "Admin menerima permintaan",
+                "adminReturned": "Admin mengembalikan permintaan ke klien",
+                "adminReceivedFromClient": "Admin menerima sampel dari klien",
+                "adminHandoffToCollector": "Admin menyerahkan sampel ke Pengambil Sampel",
+                "collectorReceived": "Pengambil Sampel menerima sampel",
+                "collectorIntakePassed": "Pengambil Sampel menyelesaikan intake (lulus)",
+                "collectorIntakeFailed": "Pengambil Sampel menyelesaikan intake (gagal)",
+                "collectorReturnedToAdmin": "Pengambil Sampel mengembalikan sampel ke admin",
+                "adminReceivedBackFromCollector": "Admin menerima sampel kembali dari Pengambil Sampel",
+                "omlhVerifiedIntake": "OM/LH memverifikasi intake",
+                "sampleIdProposed": "Admin mengajukan Sample ID",
+                "sampleIdApproved": "OM/LH menyetujui usulan Sample ID",
+                "sampleIdRejected": "OM/LH menolak usulan Sample ID",
+                "sampleIdPending": "Perubahan Sample ID menunggu verifikasi",
+                "sampleIdAssigned": "Admin menetapkan Sample ID",
+                "clientPickedUp": "Klien mengambil sampel",
+                "notes": {
+                    "suggestedToProposed": "Saran: {{suggested}} → Usulan: {{proposed}}",
+                    "assigned": "Ditetapkan: {{code}}"
+                }
+            }
+        },
+        "kanban": {
+            "addColumn": {
+                "title": "Tambah kolom {{position}} {{reference}}",
+                "position": {
+                    "before": "sebelum",
+                    "after": "sesudah"
+                },
+                "reference": {
+                    "thisColumn": "kolom ini",
+                    "named": "“{{name}}”"
+                },
+                "helper": "Beri nama kolom yang jelas. Anda bisa ganti namanya nanti.",
+                "nameLabel": "Nama kolom",
+                "namePlaceholder": "mis. Ekstraksi, QC, Review…",
+                "sideLabel": "Sisi:",
+                "side": {
+                    "left": "kiri",
+                    "right": "kanan"
+                },
+                "addButton": "Tambah kolom"
+            }
+        },
+        "assignSampleId": {
+            "title": "Tetapkan Sample ID",
+            "subtitle": "Permintaan #{{id}} • {{client}} • {{group}}",
+            "summary": {
+                "client": "Klien",
+                "group": "Kelompok workflow",
+                "parameters": "Parameter"
+            },
+            "parametersCount": "{{count}} parameter",
+            "suggestedTitle": "Sample ID yang disarankan",
+            "actions": {
+                "useSuggested": "Pakai saran",
+                "copySuggested": "Salin saran"
+            },
+            "fieldLabel": "Sample ID",
+            "placeholder": "mis. LBMA 001",
+            "hints": {
+                "format": "Format: PREFIX 001 (maks 5 huruf, spasi, angka). Nomor akan dipad ke 3 digit.",
+                "normalized": "Normalisasi:",
+                "matchesSuggestion": "sesuai saran",
+                "differsSuggestion": "berbeda dari saran",
+                "approvedByOmLh": "disetujui OM/LH"
+            },
+            "buttons": {
+                "finalize": "Finalisasi",
+                "assign": "Tetapkan",
+                "propose": "Ajukan"
+            },
+            "done": {
+                "assigned": "Sample ID berhasil ditetapkan.",
+                "sentForVerification": "Dikirim ke OM/LH untuk verifikasi."
+            },
+            "errors": {
+                "required": "Sample ID wajib diisi.",
+                "format": "Format harus: PREFIX 001 (huruf kapital, prefix maks 5, spasi, angka).",
+                "number": "Nomor harus lebih besar dari 0.",
+                "submitFailedFallback": "Gagal mengirim Sample ID."
+            }
+        },
         "status": {
             "title": "Status",
             "pending": "Menunggu",
