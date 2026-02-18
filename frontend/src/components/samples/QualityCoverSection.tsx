@@ -1,13 +1,7 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\QualityCoverSection.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Save, Send, Loader2 } from "lucide-react";
 import type { Sample } from "../../services/samples";
-import {
-    QualityCover,
-    getQualityCover,
-    saveQualityCoverDraft,
-    submitQualityCover,
-} from "../../services/qualityCovers";
+import { QualityCover, getQualityCover, saveQualityCoverDraft, submitQualityCover } from "../../services/qualityCovers";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -29,6 +23,13 @@ function prettyErr(e: any, fallback: string) {
         e?.response?.data?.error ||
         fallback
     );
+}
+
+function statusLabel(s?: string | null) {
+    const v = String(s ?? "draft").trim().toLowerCase();
+    if (v === "submitted") return "Submitted";
+    if (v === "draft") return "Draft";
+    return v.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
 export function QualityCoverSection(props: Props) {
@@ -155,7 +156,8 @@ export function QualityCoverSection(props: Props) {
             const parameterId =
                 requested.length === 1 && requested?.[0]?.parameter_id ? Number(requested[0].parameter_id) : undefined;
 
-            const ensuredDraft = await saveQualityCoverDraft(sampleId, {
+            // ensure saved draft (audit-friendly)
+            await saveQualityCoverDraft(sampleId, {
                 parameter_id: parameterId,
                 parameter_label: paramLabel !== "—" ? paramLabel : undefined,
                 method_of_analysis: methodOfAnalysis.trim(),
@@ -187,45 +189,63 @@ export function QualityCoverSection(props: Props) {
     const sampleCode = String((sample as any)?.lab_sample_code ?? "—");
 
     const isLocked = disabled || cover?.status === "submitted";
+    const isBusy = qcLoading || qcSaving || qcSubmitting;
 
     return (
         <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
                 <div>
-                    <div className="text-sm font-bold text-gray-900">Quality cover</div>
+                    <div className="flex items-center gap-2">
+                        <div className="text-sm font-bold text-gray-900">Quality cover</div>
+                        <span
+                            className={cx(
+                                "text-[11px] px-2 py-0.5 rounded-full border",
+                                cover?.status === "submitted"
+                                    ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                                    : "bg-white border-gray-200 text-gray-700"
+                            )}
+                        >
+                            {statusLabel(cover?.status as any)}
+                        </span>
+                    </div>
                     <div className="text-xs text-gray-500 mt-1">
-                        {String(cover?.status ?? "draft").toLowerCase().replace(/_/g, " ")}
+                        Fill in QC results and method of analysis. Submit to lock the record.
                     </div>
                 </div>
 
                 <div className="flex items-center gap-2">
                     <button
                         type="button"
-                        className="lims-icon-button"
+                        className={cx("lims-btn inline-flex items-center gap-2", (qcLoading || qcSaving || isLocked) && "opacity-60 cursor-not-allowed")}
                         onClick={onSaveDraft}
                         disabled={qcLoading || qcSaving || isLocked}
                         aria-label="Save draft"
                         title={isLocked ? "Locked" : "Save draft"}
                     >
                         {qcSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                        Save draft
                     </button>
 
                     <button
                         type="button"
-                        className={cx("lims-icon-button", (!!submitDisabledReason || qcLoading || qcSubmitting) && "opacity-50 cursor-not-allowed")}
+                        className={cx(
+                            "lims-btn-primary inline-flex items-center gap-2",
+                            (!!submitDisabledReason || qcLoading || qcSubmitting) && "opacity-60 cursor-not-allowed"
+                        )}
                         onClick={onSubmit}
                         disabled={qcLoading || qcSubmitting || !!submitDisabledReason}
                         aria-label="Submit"
                         title={submitDisabledReason || "Submit"}
                     >
                         {qcSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                        Submit
                     </button>
                 </div>
             </div>
 
             <div className="px-5 py-4">
                 {qcError ? (
-                    <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-3">
+                    <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-3" role="alert">
                         {qcError}
                     </div>
                 ) : null}
@@ -255,12 +275,15 @@ export function QualityCoverSection(props: Props) {
                 </div>
 
                 <div className="mt-4">
-                    <label className="block text-xs text-gray-500">Method of analysis</label>
+                    <label className="block text-xs text-gray-500">
+                        Method of analysis <span className="text-red-600">*</span>
+                    </label>
                     <input
                         value={methodOfAnalysis}
                         onChange={(e) => setMethodOfAnalysis(e.target.value)}
                         className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
                         disabled={isLocked}
+                        placeholder="e.g. RT-qPCR, WGS library prep + bioinformatics pipeline…"
                     />
                 </div>
 
@@ -283,7 +306,9 @@ export function QualityCoverSection(props: Props) {
                                                     }))
                                                 }
                                                 disabled={isLocked}
-                                                className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+                                                inputMode="decimal"
+                                                className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                                placeholder="e.g. 28.5"
                                             />
                                         </div>
 
@@ -298,7 +323,8 @@ export function QualityCoverSection(props: Props) {
                                                     }))
                                                 }
                                                 disabled={isLocked}
-                                                className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+                                                className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                                placeholder="e.g. Positive / Negative"
                                             />
                                         </div>
 
@@ -313,7 +339,8 @@ export function QualityCoverSection(props: Props) {
                                                     }))
                                                 }
                                                 disabled={isLocked}
-                                                className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+                                                className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                                placeholder="e.g. Detected / Not detected"
                                             />
                                         </div>
                                     </div>
@@ -330,7 +357,8 @@ export function QualityCoverSection(props: Props) {
                                     value={qcPayload?.lineage ?? ""}
                                     onChange={(e) => setQcPayload((prev: any) => ({ ...prev, lineage: e.target.value }))}
                                     disabled={isLocked}
-                                    className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+                                    className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                    placeholder="e.g. BA.2.86"
                                 />
                             </div>
 
@@ -340,7 +368,8 @@ export function QualityCoverSection(props: Props) {
                                     value={qcPayload?.variant ?? ""}
                                     onChange={(e) => setQcPayload((prev: any) => ({ ...prev, variant: e.target.value }))}
                                     disabled={isLocked}
-                                    className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+                                    className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                    placeholder="e.g. Omicron"
                                 />
                             </div>
                         </div>
@@ -357,12 +386,15 @@ export function QualityCoverSection(props: Props) {
                                     "mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm min-h-24",
                                     "focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
                                 )}
+                                placeholder="Write a brief QC note…"
                             />
                         </div>
                     ) : null}
 
                     {submitDisabledReason ? (
-                        <div className="mt-3 text-xs text-gray-500 italic">{submitDisabledReason}</div>
+                        <div className={cx("mt-3 text-xs", isBusy ? "text-gray-400" : "text-gray-500 italic")}>
+                            {submitDisabledReason}
+                        </div>
                     ) : null}
                 </div>
             </div>
