@@ -7,7 +7,6 @@ import { useClientAuth } from "../../hooks/useClientAuth";
 import { clientLogoutRequest, logoutRequest } from "../../services/auth";
 import { getTenant } from "../../utils/tenant";
 import { getUserRoleLabel } from "../../utils/roles";
-import { STORAGE_KEY } from "../../i18n";
 
 type TopbarProps = {
     onOpenNav?: () => void;
@@ -40,11 +39,7 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
         clientUser?.username ||
         clientUser?.email ||
         "Client"
-        : staffUser?.name ||
-        staffUser?.full_name ||
-        staffUser?.username ||
-        staffUser?.email ||
-        "Lab User";
+        : staffUser?.name || staffUser?.full_name || staffUser?.username || staffUser?.email || "Lab User";
 
     const [menuOpen, setMenuOpen] = useState(false);
     const [loggingOut, setLoggingOut] = useState(false);
@@ -61,36 +56,56 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
         return () => document.removeEventListener("mousedown", onDocClick);
     }, [menuOpen]);
 
-    const setLocale = async (next: "id" | "en") => {
-        if ((i18n.resolvedLanguage ?? i18n.language) === next) return;
+    const currentLocale = (i18n.resolvedLanguage ?? i18n.language) === "en" ? "en" : "id";
 
+    // ✅ This now persists to DB through context.setLocale()
+    const handleChangeLocale = async (next: "id" | "en") => {
+        if (currentLocale === next) return;
+
+        // Prefer context methods (persist to backend)
         try {
-            localStorage.setItem(STORAGE_KEY, next);
-        } catch { }
+            if (isPortal && typeof clientAuth?.setLocale === "function") {
+                await clientAuth.setLocale(next);
+                return;
+            }
+            if (!isPortal && typeof staffAuth?.setLocale === "function") {
+                await staffAuth.setLocale(next);
+                return;
+            }
+        } catch {
+            // fallback below
+        }
 
+        // Fallback: local change only
         try {
             document.documentElement.lang = next;
         } catch { }
-
         await i18n.changeLanguage(next);
     };
-
-    const currentLocale = (i18n.resolvedLanguage ?? i18n.language) === "en" ? "en" : "id";
 
     const handleLogout = async () => {
         try {
             setLoggingOut(true);
 
             if (isPortal) {
-                await clientLogoutRequest();
-                if (typeof clientAuth?.setClient === "function") clientAuth.setClient(null);
-                if (typeof clientAuth?.setIsClientAuthenticated === "function")
-                    clientAuth.setIsClientAuthenticated(false);
+                // Prefer context logout
+                if (typeof clientAuth?.logoutClient === "function") {
+                    await clientAuth.logoutClient();
+                } else {
+                    // fallback legacy
+                    await clientLogoutRequest();
+                    if (typeof clientAuth?.setClient === "function") clientAuth.setClient(null);
+                    if (typeof clientAuth?.setIsClientAuthenticated === "function")
+                        clientAuth.setIsClientAuthenticated(false);
+                }
             } else {
-                await logoutRequest();
-                if (typeof staffAuth?.setUser === "function") staffAuth.setUser(null);
-                if (typeof staffAuth?.setIsAuthenticated === "function")
-                    staffAuth.setIsAuthenticated(false);
+                if (typeof staffAuth?.logout === "function") {
+                    await staffAuth.logout();
+                } else {
+                    await logoutRequest();
+                    if (typeof staffAuth?.setUser === "function") staffAuth.setUser(null);
+                    if (typeof staffAuth?.setIsAuthenticated === "function") staffAuth.setIsAuthenticated(false);
+                }
             }
 
             setMenuOpen(false);
@@ -108,7 +123,7 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
         return (
             <button
                 type="button"
-                onClick={() => setLocale(code)}
+                onClick={() => handleChangeLocale(code)}
                 className={[
                     "px-2.5 py-1 rounded-full text-xs font-semibold transition",
                     active ? "bg-primary text-white" : "text-gray-700 hover:bg-black/5",
@@ -124,12 +139,7 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
     return (
         <header className="flex items-center justify-between px-4 md:px-6 py-6 border-b border-black/5 bg-cream">
             {/* Hamburger left – muncul < lg */}
-            <button
-                type="button"
-                className="lg:hidden"
-                onClick={onOpenNav}
-                aria-label="Open navigation"
-            >
+            <button type="button" className="lg:hidden" onClick={onOpenNav} aria-label="Open navigation">
                 <div className="space-y-1.5">
                     <span className="block h-0.5 w-5 rounded-full bg-gray-900" />
                     <span className="block h-0.5 w-5 rounded-full bg-gray-900" />
@@ -140,7 +150,7 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
             <div className="hidden lg:block" />
 
             <div className="flex items-center gap-4 ml-auto">
-                {/* ✅ Language toggle */}
+                {/* ✅ Language toggle (persist) */}
                 <div
                     className="flex items-center gap-1 rounded-full border border-black/10 bg-white px-1 py-1"
                     role="group"
@@ -152,11 +162,7 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
                 </div>
 
                 {/* Notifications (placeholder) */}
-                <button
-                    type="button"
-                    className="lims-icon-button text-gray-700"
-                    aria-label="Notifications"
-                >
+                <button type="button" className="lims-icon-button text-gray-700" aria-label="Notifications">
                     <svg
                         viewBox="0 0 24 24"
                         className="h-5 w-5"
@@ -181,9 +187,7 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
                     >
                         <div className="h-8 w-8 rounded-full bg-gray-300" />
                         <div className="hidden sm:flex flex-col items-start">
-                            <span className="text-xs font-semibold text-gray-900">
-                                {displayName}
-                            </span>
+                            <span className="text-xs font-semibold text-gray-900">{displayName}</span>
                             <span className="text-[11px] text-gray-500">{roleLabel}</span>
                         </div>
                     </button>
@@ -191,9 +195,7 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
                     {menuOpen && (
                         <div className="absolute right-0 mt-2 w-56 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden z-50">
                             <div className="px-4 py-3 border-b border-gray-100">
-                                <div className="text-sm font-semibold text-gray-900">
-                                    {displayName}
-                                </div>
+                                <div className="text-sm font-semibold text-gray-900">{displayName}</div>
                                 <div className="text-xs text-gray-500">{roleLabel}</div>
                             </div>
 

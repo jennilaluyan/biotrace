@@ -128,6 +128,7 @@ class AuthController extends Controller
                 'id'    => $user->getKey(),
                 'name'  => $user->name ?? $user->full_name ?? null,
                 'email' => $user->email,
+                'locale' => $user->locale ?? 'id',
                 'role'  => $role
                     ? [
                         'id'   => $role->role_id,
@@ -155,7 +156,43 @@ class AuthController extends Controller
                 'id'    => $user->getKey(),
                 'name'  => $user->name ?? $user->full_name ?? null,
                 'email' => $user->email,
+                'locale' => $user->locale ?? 'id',
                 'role'  => $role ? [
+                    'id'   => $role->role_id,
+                    'name' => $role->name,
+                ] : null,
+            ],
+        ], 200);
+    }
+
+    // PATCH /api/v1/auth/me
+    public function updateLocale(Request $request)
+    {
+        $user = $request->user('sanctum') ?? Auth::guard('web')->user();
+
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+
+        $data = $request->validate([
+            'locale' => ['required', 'string', Rule::in(['id', 'en'])],
+        ]);
+
+        // only update if column exists (safe)
+        if (Schema::hasColumn('staffs', 'locale')) {
+            $user->locale = $data['locale'];
+            $user->save();
+        }
+
+        $role = $user->role()->select('role_id', 'name')->first();
+
+        return response()->json([
+            'user' => [
+                'id'     => $user->getKey(),
+                'name'   => $user->name ?? $user->full_name ?? null,
+                'email'  => $user->email,
+                'locale' => $user->locale ?? 'id',
+                'role'   => $role ? [
                     'id'   => $role->role_id,
                     'name' => $role->name,
                 ] : null,

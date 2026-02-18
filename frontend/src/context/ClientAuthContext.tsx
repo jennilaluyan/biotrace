@@ -1,5 +1,13 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { clientLoginRequest, clientFetchProfile, clientLogoutRequest } from "../services/auth";
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
+import i18n from "i18next";
+
+import {
+    clientLoginRequest,
+    clientFetchProfile,
+    clientLogoutRequest,
+    updateClientLocale,
+    type LocaleCode,
+} from "../services/auth";
 import { getClientAuthToken } from "../services/api";
 import { getTenant } from "../utils/tenant";
 import { publishAuthEvent, subscribeAuthEvents } from "../utils/authSync";
@@ -10,6 +18,7 @@ export type ClientUser = {
     name: string;
     email: string;
     type?: string;
+    locale?: LocaleCode;
 };
 
 type ClientAuthContextType = {
@@ -20,6 +29,7 @@ type ClientAuthContextType = {
     loginClient: (email: string, password: string) => Promise<void>;
     logoutClient: () => Promise<void>;
     refreshClient: () => Promise<void>;
+    setLocale: (locale: LocaleCode) => Promise<void>;
 };
 
 const ClientAuthContext = createContext<ClientAuthContextType | null>(null);
@@ -44,6 +54,27 @@ function storeClient(c: ClientUser | null) {
     localStorage.setItem(CLIENT_KEY, JSON.stringify(c));
 }
 
+function normalizeLocale(v: any): LocaleCode | null {
+    return v === "en" || v === "id" ? v : null;
+}
+
+async function applyLocaleFromClient(profile: any) {
+    const loc = normalizeLocale(profile?.locale);
+    if (!loc) return;
+
+    try {
+        document.documentElement.lang = loc;
+    } catch {
+        // ignore
+    }
+
+    try {
+        await i18n.changeLanguage(loc);
+    } catch {
+        // ignore
+    }
+}
+
 /**
  * Normalize berbagai bentuk response backend:
  * - { client: {...} }
@@ -56,21 +87,14 @@ function storeClient(c: ClientUser | null) {
 function normalizeClient(payload: any): ClientUser | null {
     if (!payload) return null;
 
-    // Step 1: ambil kandidat object paling mungkin jadi "client"
-    let c =
-        payload.client ??
-        payload.data?.client ??
-        payload.data ??
-        payload;
+    let c = payload.client ?? payload.data?.client ?? payload.data ?? payload;
 
-    // Step 2: kalau ternyata masih wrapper (misalnya { client: {..} } di dalam lagi)
     if (c && typeof c === "object" && (c as any).client && typeof (c as any).client === "object") {
         c = (c as any).client;
     }
 
     if (!c || typeof c !== "object") return null;
 
-    // Step 3: id bisa beda nama
     const idRaw =
         (c as any).id ??
         (c as any).client_id ??
@@ -78,7 +102,6 @@ function normalizeClient(payload: any): ClientUser | null {
         (c as any).user_id ??
         (c as any).userId;
 
-    // Step 4: email bisa beda nama
     const emailRaw =
         (c as any).email ??
         (c as any).email_address ??
@@ -89,23 +112,19 @@ function normalizeClient(payload: any): ClientUser | null {
 
     if (idRaw == null || emailRaw == null) return null;
 
-    const nameRaw =
-        (c as any).name ??
-        (c as any).full_name ??
-        (c as any).client_name ??
-        "";
+    const nameRaw = (c as any).name ?? (c as any).full_name ?? (c as any).client_name ?? "";
 
-    const typeRaw =
-        (c as any).type ??
-        (c as any).client_type ??
-        (c as any).category ??
-        undefined;
+    const typeRaw = (c as any).type ?? (c as any).client_type ?? (c as any).category ?? undefined;
+
+    const localeRaw = (c as any).locale ?? (c as any).language ?? (c as any).lang ?? null;
+    const locale = normalizeLocale(localeRaw) ?? undefined;
 
     return {
         id: Number(idRaw),
         name: String(nameRaw ?? ""),
         email: String(emailRaw ?? ""),
         type: typeRaw ? String(typeRaw) : undefined,
+        locale,
     };
 }
 
@@ -115,6 +134,11 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
 
     const isClientAuthenticated = !!client;
 
+    const clientRef = useRef<ClientUser | null>(null);
+    useEffect(() => {
+        clientRef.current = client;
+    }, [client]);
+
     const hardClearClient = () => {
         setClient(null);
         storeClient(null);
@@ -122,7 +146,6 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const refreshClient = async () => {
-        // jangan spam /me kalau belum ada token
         const token = getClientAuthToken();
         if (!token) {
             hardClearClient();
@@ -133,28 +156,67 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
             const res = await clientFetchProfile();
             const normalized = normalizeClient(res);
 
-            // ✅ FIX UTAMA: jangan auto-logout hanya karena shape beda
-            // Kalau gagal normalize, kita TIDAK hardClear langsung.
-            // (Biar nggak “masuk sebentar lalu mental ke login”.)
             if (!normalized) {
                 console.error("Client profile response shape not recognized:", res);
-                // kalau sebelumnya sudah ada client tersimpan, keep it.
-                // kalau belum ada, biarkan null (nanti ketahuan dari /me di backend/log)
                 return;
             }
 
             setClient(normalized);
             storeClient(normalized);
+            await applyLocaleFromClient(normalized);
         } catch (err: any) {
             if (err?.status === 401) {
                 hardClearClient();
                 publishAuthEvent("client", "session_expired");
             } else {
                 console.error("Failed to refresh client session:", err);
-                // error non-401: jangan “tendang” brutal kalau sebelumnya ada session
-                // tapi kalau kamu mau super ketat, bisa hardClearClient() di sini.
                 return;
             }
+        }
+    };
+
+    const setLocale = async (locale: LocaleCode) => {
+        const next = normalizeLocale(locale);
+        if (!next) return;
+
+        const current = normalizeLocale(i18n.resolvedLanguage ?? i18n.language) ?? "id";
+        if (current === next) return;
+
+        // If not logged in, change locally only
+        if (!clientRef.current) {
+            try {
+                document.documentElement.lang = next;
+            } catch { }
+            await i18n.changeLanguage(next);
+            return;
+        }
+
+        try {
+            document.documentElement.lang = next;
+        } catch { }
+
+        try {
+            await i18n.changeLanguage(next);
+
+            const updated = await updateClientLocale(next);
+            const savedLocale = normalizeLocale(updated?.locale) ?? next;
+
+            setClient((c) => {
+                if (!c) return c;
+                const merged = { ...c, locale: savedLocale };
+                storeClient(merged);
+                return merged;
+            });
+
+            publishAuthEvent("client", "refresh");
+        } catch (err) {
+            try {
+                document.documentElement.lang = current;
+            } catch { }
+            try {
+                await i18n.changeLanguage(current);
+            } catch { }
+            throw err;
         }
     };
 
@@ -165,9 +227,7 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
         (async () => {
             try {
                 setLoading(true);
-
                 if (getTenant() !== "portal") return;
-
                 await refreshClient();
             } finally {
                 if (!cancelled) setLoading(false);
@@ -180,7 +240,7 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // ✅ Cross-tab sync (client)
+    // Cross-tab sync (client)
     useEffect(() => {
         if (getTenant() !== "portal") return;
 
@@ -205,15 +265,13 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
         setLoading(true);
         try {
             const res = await clientLoginRequest(email, password);
-
-            // login response juga bisa beda shape → normalize toleran
             const normalized = normalizeClient(res);
 
             if (normalized) {
                 setClient(normalized);
                 storeClient(normalized);
+                await applyLocaleFromClient(normalized);
             } else {
-                // fallback: token sudah tersimpan saat login, ambil profile dari /me
                 await refreshClient();
             }
 
@@ -244,6 +302,7 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
                 loginClient,
                 logoutClient,
                 refreshClient,
+                setLocale,
             }}
         >
             {children}

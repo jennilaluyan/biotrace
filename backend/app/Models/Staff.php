@@ -20,6 +20,7 @@ class Staff extends Authenticatable
         'password_hash',
         'role_id',
         'is_active',
+        'locale',
     ];
 
     // Use email for auth identifier

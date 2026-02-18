@@ -22,9 +22,8 @@ class Client extends Authenticatable
         'name',
         'phone',
         'email',
-
-        // optional (only if column exists)
         'email_ci',
+        'locale',
 
         // Individual
         'national_id',

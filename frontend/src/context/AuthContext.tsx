@@ -1,5 +1,7 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { loginRequest, logoutRequest, fetchProfile } from "../services/auth";
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
+import i18n from "i18next";
+
+import { loginRequest, logoutRequest, fetchProfile, updateStaffLocale, type LocaleCode } from "../services/auth";
 import { getTenant } from "../utils/tenant";
 import { publishAuthEvent, subscribeAuthEvents } from "../utils/authSync";
 import { clearLastRoute } from "../utils/lastRoute";
@@ -13,6 +15,7 @@ type User = {
     role: UserRole;
     role_id?: number;
     role_name?: string;
+    locale?: LocaleCode;
 };
 
 type AuthContextType = {
@@ -22,7 +25,30 @@ type AuthContextType = {
     login: (email: string, password: string) => Promise<void>;
     logout: () => Promise<void>;
     refresh: () => Promise<void>;
+    setLocale: (locale: LocaleCode) => Promise<void>;
 };
+
+function normalizeLocale(v: any): LocaleCode | null {
+    return v === "en" || v === "id" ? v : null;
+}
+
+async function applyLocaleFromProfile(profile: any) {
+    const loc = normalizeLocale(profile?.locale);
+    if (!loc) return;
+
+    try {
+        // Optional: set <html lang="..">
+        document.documentElement.lang = loc;
+    } catch {
+        // ignore
+    }
+
+    try {
+        await i18n.changeLanguage(loc);
+    } catch {
+        // ignore
+    }
+}
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
@@ -32,10 +58,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const isAuthenticated = !!user;
 
+    // keep latest user for subscriptions without dependency chaos
+    const userRef = useRef<User | null>(null);
+    useEffect(() => {
+        userRef.current = user;
+    }, [user]);
+
     const refresh = async () => {
         try {
             const profile = await fetchProfile();
             setUser(profile as any);
+            await applyLocaleFromProfile(profile);
         } catch (err: any) {
             if (err?.status === 401 || err?.status === 419) {
                 setUser(null);
@@ -43,6 +76,50 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             }
             console.error("Failed to refresh session:", err);
             setUser(null);
+        }
+    };
+
+    const setLocale = async (locale: LocaleCode) => {
+        const next = normalizeLocale(locale);
+        if (!next) return;
+
+        const current = normalizeLocale(i18n.resolvedLanguage ?? i18n.language) ?? "id";
+        if (current === next) return;
+
+        // If not logged in, just change locally (still useful in UI)
+        if (!userRef.current) {
+            try {
+                document.documentElement.lang = next;
+            } catch { }
+            await i18n.changeLanguage(next);
+            return;
+        }
+
+        // optimistic UI
+        try {
+            document.documentElement.lang = next;
+        } catch { }
+
+        try {
+            await i18n.changeLanguage(next);
+
+            // persist to backend
+            const updated = await updateStaffLocale(next);
+
+            // update local state
+            setUser((u) => (u ? { ...u, locale: updated?.locale ?? next } : u));
+
+            // broadcast so other tabs can refresh if needed
+            publishAuthEvent("staff", "refresh");
+        } catch (err) {
+            // rollback
+            try {
+                document.documentElement.lang = current;
+            } catch { }
+            try {
+                await i18n.changeLanguage(current);
+            } catch { }
+            throw err;
         }
     };
 
@@ -60,7 +137,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 }
 
                 const profile = await fetchProfile();
-                if (!cancelled) setUser(profile as any);
+                if (!cancelled) {
+                    setUser(profile as any);
+                    await applyLocaleFromProfile(profile);
+                }
             } catch (err: any) {
                 if (!cancelled) {
                     if (err?.status === 401 || err?.status === 419) {
@@ -81,22 +161,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         };
     }, []);
 
-    // ✅ NEW: cross-tab sync (staff)
+    // Cross-tab sync (staff)
     useEffect(() => {
         if (getTenant() !== "backoffice") return;
 
         const unsub = subscribeAuthEvents((evt) => {
-            // ignore non-staff
             if (evt.actor !== "staff") return;
 
-            // logout/expired in another tab -> clear immediately
             if (evt.action === "logout" || evt.action === "session_expired") {
-                const uid = (user as any)?.id;
+                const uid = userRef.current?.id;
                 setUser(null);
                 clearLastRoute("staff", uid);
                 return;
             }
-            // login/refresh in another tab -> refresh user (optional)
+
             if (evt.action === "login" || evt.action === "refresh") {
                 refresh();
             }
@@ -110,10 +188,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setLoading(true);
         try {
             const u = await loginRequest(email, password);
-            if (u) setUser(u as any);
-            else await refresh();
 
-            // ✅ broadcast: other tabs can refresh UI if they want
+            if (u) {
+                setUser(u as any);
+                await applyLocaleFromProfile(u);
+            } else {
+                await refresh();
+            }
+
             publishAuthEvent("staff", "login");
         } finally {
             setLoading(false);
@@ -122,9 +204,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const logout = async () => {
         setLoading(true);
-
-        // capture dulu sebelum setUser(null)
-        const uid = (user as any)?.id;
+        const uid = userRef.current?.id;
 
         try {
             await logoutRequest();
@@ -138,7 +218,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     return (
-        <AuthContext.Provider value={{ user, isAuthenticated, loading, login, logout, refresh }}>
+        <AuthContext.Provider value={{ user, isAuthenticated, loading, login, logout, refresh, setLocale }}>
             {children}
         </AuthContext.Provider>
     );

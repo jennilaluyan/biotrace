@@ -201,6 +201,7 @@ class ClientAuthController extends Controller
                     'id' => $client->client_id,
                     'name' => $client->name,
                     'email' => $client->email,
+                    'locale' => $client->locale ?? 'id',
                 ],
             ], 200);
         }
@@ -237,6 +238,35 @@ class ClientAuthController extends Controller
                 'id' => $client->client_id,
                 'name' => $client->name,
                 'email' => $client->email,
+                'locale' => $client->locale ?? 'id',
+            ],
+        ], 200);
+    }
+
+    // PATCH /api/v1/clients/me
+    public function updateLocale(Request $request)
+    {
+        $client = $request->user('client_api');
+
+        if (!$client) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+
+        $data = $request->validate([
+            'locale' => ['required', 'string', Rule::in(['id', 'en'])],
+        ]);
+
+        if (Schema::hasColumn('clients', 'locale')) {
+            $client->locale = $data['locale'];
+            $client->save();
+        }
+
+        return response()->json([
+            'client' => [
+                'id'     => $client->client_id,
+                'name'   => $client->name,
+                'email'  => $client->email,
+                'locale' => $client->locale ?? 'id',
             ],
         ], 200);
     }

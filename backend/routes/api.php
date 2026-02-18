@@ -142,6 +142,7 @@ Route::prefix('v1')->group(function () {
     // Client profile & logout (client_api token)
     Route::middleware('auth:client_api')->group(function () {
         Route::get('clients/me', [ClientAuthController::class, 'me']);
+        Route::patch('clients/me', [ClientAuthController::class, 'updateLocale']);
         Route::post('clients/logout', [ClientAuthController::class, 'logout']);
     });
 
@@ -176,6 +177,7 @@ Route::prefix('v1')->group(function () {
         |----------------------------------------------------------------------
         */
         Route::get('auth/me', [AuthController::class, 'me']);
+        Route::patch('auth/me', [AuthController::class, 'updateLocale']);
         Route::post('auth/logout', [AuthController::class, 'logout']);
 
         /*

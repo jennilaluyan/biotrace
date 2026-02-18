@@ -1,5 +1,4 @@
-import { apiGet, apiPost } from "./api";
-import { setStaffAuthToken, setClientAuthToken } from "./api";
+import { apiGet, apiPost, apiPatch, setStaffAuthToken, setClientAuthToken } from "./api";
 
 type StaffLoginResponse = {
     user?: any;
@@ -12,15 +11,6 @@ type ClientLoginResponse = {
     token?: string;
     data?: any;
 };
-
-/**
- * CATATAN PENTING (biar stabil portal + backoffice):
- * Jangan pernah logout staff session ketika client login.
- *
- * Pemisahan yang benar harus dilakukan di layer API (services/api.ts):
- * - request client (/v1/clients/* dan /v1/client/*) harus withCredentials=false
- * - token client disimpan terpisah dari token staff
- */
 
 // =======================
 // STAFF / BACKOFFICE
@@ -94,4 +84,18 @@ export async function clientRegisterRequest(payload: any) {
 
 export async function registerStaffRequest(payload: any) {
     return apiPost<any>("/v1/staffs/register", payload);
+}
+
+export type LocaleCode = "id" | "en";
+
+// STAFF
+export async function updateStaffLocale(locale: LocaleCode) {
+    const res = await apiPatch<any>("/v1/auth/me", { locale });
+    return (res as any)?.user ?? (res as any)?.data?.user ?? res;
+}
+
+// CLIENT
+export async function updateClientLocale(locale: LocaleCode) {
+    const res = await apiPatch<any>("/v1/clients/me", { locale });
+    return (res as any)?.client ?? (res as any)?.data?.client ?? res;
 }
