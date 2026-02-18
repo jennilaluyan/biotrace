@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 import { useAuth } from "../../hooks/useAuth";
 import { useClientAuth } from "../../hooks/useClientAuth";
@@ -104,41 +105,35 @@ function extractApiMessage(err: any, fallback: string) {
 }
 
 export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
-    const t = tenant ?? getTenant();
-    const isPortal = t === "portal";
+    const { t, i18n } = useTranslation();
+
+    const tenantResolved = tenant ?? getTenant();
+    const isPortal = tenantResolved === "portal";
 
     const [mode, setMode] = useState<Mode>(initialMode);
     const [isMobile, setIsMobile] = useState(false);
 
     const [showLoginPassword, setShowLoginPassword] = useState(false);
     const [showRegPassword, setShowRegPassword] = useState(false);
-    const [showRegPasswordConfirmation, setShowRegPasswordConfirmation] =
-        useState(false);
+    const [showRegPasswordConfirmation, setShowRegPasswordConfirmation] = useState(false);
 
     const { login } = useAuth();
     const clientAuth = useClientAuth() as any;
 
     const navigate = useNavigate();
     const location = useLocation();
-    const redirectAfterStaffLogin =
-        (location.state as any)?.from?.pathname || "/samples";
-
-    const redirectAfterClientLogin =
-        (location.state as any)?.from?.pathname || "/portal";
+    const redirectAfterStaffLogin = (location.state as any)?.from?.pathname || "/samples";
+    const redirectAfterClientLogin = (location.state as any)?.from?.pathname || "/portal";
 
     // A1: scroll container refs (desktop has its own scroll container)
     const signUpContainerRef = useRef<HTMLDivElement | null>(null);
     const signInContainerRef = useRef<HTMLDivElement | null>(null);
 
-    const headingLogin = isPortal ? "Client sign in" : "Staff sign in";
-    const subtitleLogin = isPortal
-        ? "Use your client account to submit and track sample requests."
-        : "Use your registered staff account to access the LIMS dashboard.";
+    const headingLogin = isPortal ? t("auth.clientSignInTitle") : t("auth.staffSignInTitle");
+    const subtitleLogin = isPortal ? t("auth.clientSignInSubtitle") : t("auth.staffSignInSubtitle");
 
-    const headingRegister = isPortal ? "Create client account" : "Create staff account";
-    const subtitleRegister = isPortal
-        ? "Register as a client. Your account will be verified by admin."
-        : "Register as staff. Your account will be verified by Laboratory Head.";
+    const headingRegister = isPortal ? t("auth.clientSignUpTitle") : t("auth.staffSignUpTitle");
+    const subtitleRegister = isPortal ? t("auth.clientSignUpSubtitle") : t("auth.staffSignUpSubtitle");
 
     useEffect(() => {
         setMode(initialMode);
@@ -183,12 +178,14 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
 
     const STAFF_ROLE_OPTIONS = useMemo(
         () => [
-            { id: ROLE_ID.ADMIN, label: "Administrator" },
-            { id: ROLE_ID.SAMPLE_COLLECTOR, label: "Sample Collector" },
-            { id: ROLE_ID.ANALYST, label: "Analyst" },
-            { id: ROLE_ID.OPERATIONAL_MANAGER, label: "Operational Manager" },
+            { id: ROLE_ID.ADMIN, label: t("roles.administrator") },
+            { id: ROLE_ID.SAMPLE_COLLECTOR, label: t("roles.sampleCollector") },
+            { id: ROLE_ID.ANALYST, label: t("roles.analyst") },
+            { id: ROLE_ID.OPERATIONAL_MANAGER, label: t("roles.operationalManager") }
         ],
-        []
+        // re-render options when locale changes
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [i18n.resolvedLanguage, i18n.language]
     );
 
     // A1: scroll correct container to top so alert is visible (success or error)
@@ -245,7 +242,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         scrollLoginToTop();
 
         if (!loginEmail || !loginPassword) {
-            setLoginError("Email and password are required.");
+            setLoginError(t("auth.requiredEmailPassword"));
             setLoginPassword(""); // privacy
             return;
         }
@@ -253,7 +250,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         try {
             setLoginLoading(true);
 
-            const currentTenant = (tenant ?? getTenant()) as Tenant;
+            const currentTenant = (tenantResolved ?? getTenant()) as Tenant;
 
             if (currentTenant === "portal") {
                 // ✅ Client login only
@@ -265,10 +262,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             await login(loginEmail, loginPassword);
             navigate(redirectAfterStaffLogin, { replace: true });
         } catch (err: any) {
-            const msg = extractApiMessage(
-                err,
-                "Login failed. Please check your credentials."
-            );
+            const msg = extractApiMessage(err, t("auth.loginFailedFallback"));
             setLoginError(msg);
             setLoginPassword(""); // privacy
             scrollLoginToTop();
@@ -286,13 +280,13 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         scrollRegisterToTop();
 
         if (!regEmail || !regPassword || !regPasswordConfirmation) {
-            setRegError("Email and password are required.");
+            setRegError(t("auth.requiredEmailPassword"));
             clearRegisterPasswordsOnly(); // privacy on error
             return;
         }
 
         if (regPassword !== regPasswordConfirmation) {
-            setRegError("Password confirmation does not match.");
+            setRegError(t("auth.passwordMismatch"));
             clearRegisterPasswordsOnly();
             return;
         }
@@ -302,7 +296,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
 
             if (isPortal) {
                 if (!regClientType) {
-                    setRegError("Client type is required.");
+                    setRegError(t("auth.clientTypeRequired"));
                     clearRegisterPasswordsOnly();
                     return;
                 }
@@ -313,7 +307,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                     "";
 
                 if (!safeName) {
-                    setRegError("Name is required.");
+                    setRegError(t("auth.nameRequired"));
                     clearRegisterPasswordsOnly();
                     return;
                 }
@@ -321,9 +315,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                 // A3: validate phone display and send as E.164
                 const displayPhone = formatPhoneDisplayPlus62(regPhone);
                 if (!isValidPhonePlus62(displayPhone)) {
-                    setRegError(
-                        "Phone number is incomplete. Please enter at least 10 digits after +62."
-                    );
+                    setRegError(t("auth.phoneIncomplete"));
                     clearRegisterPasswordsOnly();
                     scrollRegisterToTop();
                     return;
@@ -333,7 +325,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                 // A2: NIK required for individual, exactly 16 digits
                 if (regClientType === "individual") {
                     if (!isValidNIK(regNationalId)) {
-                        setRegError("National ID (NIK) must be exactly 16 digits.");
+                        setRegError(t("auth.nikInvalid"));
                         clearRegisterPasswordsOnly();
                         scrollRegisterToTop();
                         return;
@@ -346,7 +338,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                     email: regEmail,
                     phone: normalizedPhone,
                     password: regPassword,
-                    password_confirmation: regPasswordConfirmation,
+                    password_confirmation: regPasswordConfirmation
                 };
 
                 if (regClientType === "individual") {
@@ -363,8 +355,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                     // contact person phone: send E.164 if filled beyond +62
                     const cpDisplay = formatPhoneDisplayPlus62(regContactPersonPhone);
                     const cpDigits = digitsOnly(cpDisplay);
-                    payload.contact_person_phone =
-                        cpDigits.length > 2 ? phoneE164Plus62(cpDisplay) : null;
+                    payload.contact_person_phone = cpDigits.length > 2 ? phoneE164Plus62(cpDisplay) : null;
 
                     payload.contact_person_email = regContactPersonEmail || null;
                 }
@@ -372,7 +363,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                 await clientRegisterRequest(payload);
 
                 // A1: success should be visible without manual scroll
-                setRegSuccess("Client registration submitted. Waiting for admin verification.");
+                setRegSuccess(t("auth.clientRegSubmitted"));
                 scrollRegisterToTop();
 
                 // A1 privacy rule: success => clear all register fields
@@ -383,7 +374,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             }
 
             if (!regName) {
-                setRegError("Full name is required.");
+                setRegError(t("auth.staffNameRequired"));
                 clearRegisterPasswordsOnly();
                 return;
             }
@@ -393,19 +384,16 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                 email: regEmail,
                 password: regPassword,
                 password_confirmation: regPasswordConfirmation,
-                role_id: regRoleId,
+                role_id: regRoleId
             });
 
-            setRegSuccess("Staff registration submitted. Waiting for Laboratory Head approval.");
+            setRegSuccess(t("auth.staffRegSubmitted"));
             scrollRegisterToTop();
             clearRegisterAllFields();
 
             setTimeout(() => navigate("/login"), 800);
         } catch (err: any) {
-            const msg = extractApiMessage(
-                err,
-                "Registration failed. Please review your data."
-            );
+            const msg = extractApiMessage(err, t("auth.registrationFailedFallback"));
             setRegError(msg);
 
             // A1 privacy rule: error => clear passwords only
@@ -433,32 +421,30 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             <p className="text-xs text-gray-500 mb-6">{subtitleLogin}</p>
 
             {loginError && (
-                <div className="mb-3 text-xs text-red-600 bg-red-100 px-3 py-2 rounded">
-                    {loginError}
-                </div>
+                <div className="mb-3 text-xs text-red-600 bg-red-100 px-3 py-2 rounded">{loginError}</div>
             )}
 
             <div className="space-y-3">
                 <div>
-                    <label className={labelClass}>Email</label>
+                    <label className={labelClass}>{t("auth.email")}</label>
                     <input
                         type="email"
                         value={loginEmail}
                         onChange={(e) => setLoginEmail(e.target.value)}
                         className={inputClass}
-                        placeholder="Enter your email"
+                        placeholder={t("auth.enterEmail")}
                         autoComplete="email"
                     />
                 </div>
 
                 <div className="relative">
-                    <label className={labelClass}>Password</label>
+                    <label className={labelClass}>{t("auth.password")}</label>
                     <input
                         type={showLoginPassword ? "text" : "password"}
                         value={loginPassword}
                         onChange={(e) => setLoginPassword(e.target.value)}
                         className={inputClass + " pr-12"}
-                        placeholder="Enter your password"
+                        placeholder={t("auth.enterPassword")}
                         autoComplete="current-password"
                     />
 
@@ -466,7 +452,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                         type="button"
                         onClick={() => setShowLoginPassword((v) => !v)}
                         className="absolute right-3 top-[34px] text-gray-500 hover:text-gray-700"
-                        aria-label={showLoginPassword ? "Hide password" : "Show password"}
+                        aria-label={showLoginPassword ? t("auth.hidePassword") : t("auth.showPassword")}
                     >
                         {showLoginPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
@@ -474,7 +460,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             </div>
 
             <button type="submit" disabled={loginLoading} className="mt-6 self-start lims-btn-primary">
-                {loginLoading ? "Signing in..." : "Sign in"}
+                {loginLoading ? t("auth.signingIn") : t("auth.signIn")}
             </button>
         </form>
     );
@@ -482,44 +468,42 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const portalClientFields = (
         <div className="space-y-3">
             <div>
-                <label className={labelClass}>Client type</label>
+                <label className={labelClass}>{t("auth.clientType")}</label>
                 <select
                     value={regClientType}
                     onChange={(e) => setRegClientType(e.target.value as ClientType)}
                     className={inputClass}
                 >
-                    <option value="individual">Individual</option>
-                    <option value="institution">Institution</option>
+                    <option value="individual">{t("auth.individual")}</option>
+                    <option value="institution">{t("auth.institution")}</option>
                 </select>
             </div>
 
             <div>
                 <label className={labelClass}>
-                    {regClientType === "institution" ? "Client/Institution name" : "Full name"}
+                    {regClientType === "institution" ? t("auth.clientOrInstitutionName") : t("auth.fullName")}
                 </label>
                 <input
                     type="text"
                     value={regName}
                     onChange={(e) => setRegName(e.target.value)}
                     className={inputClass}
-                    placeholder={regClientType === "institution" ? "e.g., Stark Industries" : "Your full name"}
+                    placeholder={regClientType === "institution" ? t("auth.institutionExample") : t("auth.yourFullName")}
                 />
                 {regClientType === "institution" && (
-                    <p className="mt-1 text-[11px] text-gray-500">
-                        Tip: you can leave this blank and we will use “Institution name”.
-                    </p>
+                    <p className="mt-1 text-[11px] text-gray-500">{t("auth.tipInstitutionFallback")}</p>
                 )}
             </div>
 
             <div>
-                <label className={labelClass}>Phone</label>
+                <label className={labelClass}>{t("auth.phone")}</label>
                 <input
                     type="tel"
                     value={regPhone}
                     onChange={(e) => setRegPhone(formatPhoneDisplayPlus62(e.target.value))}
                     onBlur={() => setRegPhone((v) => formatPhoneDisplayPlus62(v))}
                     className={inputClass}
-                    placeholder="e.g., +62 812 5555 1234"
+                    placeholder={t("auth.phoneExample")}
                     inputMode="tel"
                 />
             </div>
@@ -527,20 +511,20 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             {regClientType === "individual" ? (
                 <>
                     <div>
-                        <label className={labelClass}>National ID (NIK)</label>
+                        <label className={labelClass}>{t("auth.nationalId")}</label>
                         <input
                             type="text"
                             value={regNationalId}
                             onChange={(e) => setRegNationalId(formatNIK(e.target.value))}
                             className={inputClass}
-                            placeholder="3232 - 3232 - 3232 - 3232"
+                            placeholder={t("auth.nikExample")}
                             inputMode="numeric"
                         />
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
-                            <label className={labelClass}>Date of birth (optional)</label>
+                            <label className={labelClass}>{t("auth.dobOptional")}</label>
                             <input
                                 type="date"
                                 value={regDob}
@@ -550,89 +534,89 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                         </div>
 
                         <div>
-                            <label className={labelClass}>Gender (optional)</label>
+                            <label className={labelClass}>{t("auth.genderOptional")}</label>
                             <select
                                 value={regGender}
                                 onChange={(e) => setRegGender(e.target.value as Gender)}
                                 className={inputClass}
                             >
-                                <option value="female">Female</option>
-                                <option value="male">Male</option>
-                                <option value="other">Other</option>
+                                <option value="female">{t("auth.female")}</option>
+                                <option value="male">{t("auth.male")}</option>
+                                <option value="other">{t("auth.other")}</option>
                             </select>
                         </div>
                     </div>
 
                     <div>
-                        <label className={labelClass}>Address (KTP) (optional)</label>
+                        <label className={labelClass}>{t("auth.addressKtpOptional")}</label>
                         <input
                             type="text"
                             value={regAddressKtp}
                             onChange={(e) => setRegAddressKtp(e.target.value)}
                             className={inputClass}
-                            placeholder="As per identity card"
+                            placeholder={t("auth.asPerIdentityCard")}
                         />
                     </div>
 
                     <div>
-                        <label className={labelClass}>Address (domicile) (optional)</label>
+                        <label className={labelClass}>{t("auth.addressDomicileOptional")}</label>
                         <input
                             type="text"
                             value={regAddressDomicile}
                             onChange={(e) => setRegAddressDomicile(e.target.value)}
                             className={inputClass}
-                            placeholder="Current address"
+                            placeholder={t("auth.currentAddress")}
                         />
                     </div>
                 </>
             ) : (
                 <>
                     <div>
-                        <label className={labelClass}>Institution name</label>
+                        <label className={labelClass}>{t("auth.institutionName")}</label>
                         <input
                             type="text"
                             value={regInstitutionName}
                             onChange={(e) => setRegInstitutionName(e.target.value)}
                             className={inputClass}
-                            placeholder="Institution / company name"
+                            placeholder={t("auth.institutionCompanyName")}
                         />
                     </div>
 
                     <div>
-                        <label className={labelClass}>Institution address (optional)</label>
+                        <label className={labelClass}>{t("auth.institutionAddressOptional")}</label>
                         <input
                             type="text"
                             value={regInstitutionAddress}
                             onChange={(e) => setRegInstitutionAddress(e.target.value)}
                             className={inputClass}
-                            placeholder="Institution address"
+                            placeholder={t("auth.institutionAddressPlaceholder")}
                         />
                     </div>
 
                     <div className="pt-2">
-                        <p className="text-xs font-semibold text-gray-700 mb-2">Contact person (optional)</p>
+                        <p className="text-xs font-semibold text-gray-700 mb-2">{t("auth.contactPersonOptional")}</p>
 
                         <div className="space-y-3">
                             <div>
-                                <label className={labelClass}>Name</label>
+                                <label className={labelClass}>{t("auth.name")}</label>
                                 <input
                                     type="text"
                                     value={regContactPersonName}
                                     onChange={(e) => setRegContactPersonName(e.target.value)}
                                     className={inputClass}
-                                    placeholder="Contact person name"
+                                    placeholder={t("auth.contactPersonNamePlaceholder")}
                                 />
                             </div>
 
                             <div>
-                                <label className={labelClass}>Phone</label>
+                                <label className={labelClass}>{t("auth.phone")}</label>
                                 <input
                                     type="tel"
                                     value={regContactPersonPhone}
                                     onChange={(e) => setRegContactPersonPhone(formatPhoneDisplayPlus62(e.target.value))}
                                     onBlur={() => setRegContactPersonPhone((v) => formatPhoneDisplayPlus62(v))}
                                     className={inputClass}
-                                    placeholder="+62 812 5555 1234"
+                                    placeholder={t("auth.phoneExample")}
                                     inputMode="tel"
                                 />
                             </div>
@@ -650,16 +634,10 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             <h1 className="text-2xl font-semibold text-primary mb-2">{headingRegister}</h1>
             <p className="text-xs text-gray-500 mb-6">{subtitleRegister}</p>
 
-            {regError && (
-                <div className="mb-3 text-xs text-red-600 bg-red-100 px-3 py-2 rounded">
-                    {regError}
-                </div>
-            )}
+            {regError && <div className="mb-3 text-xs text-red-600 bg-red-100 px-3 py-2 rounded">{regError}</div>}
 
             {regSuccess && (
-                <div className="mb-3 text-xs text-green-700 bg-green-100 px-3 py-2 rounded">
-                    {regSuccess}
-                </div>
+                <div className="mb-3 text-xs text-green-700 bg-green-100 px-3 py-2 rounded">{regSuccess}</div>
             )}
 
             <div className="space-y-3">
@@ -668,45 +646,44 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                         {portalClientFields}
 
                         <div>
-                            <label className={labelClass}>Email</label>
+                            <label className={labelClass}>{t("auth.email")}</label>
                             <input
                                 type="email"
                                 value={regEmail}
                                 onChange={(e) => setRegEmail(e.target.value)}
                                 className={inputClass}
-                                placeholder="Enter your email"
+                                placeholder={t("auth.enterEmail")}
                             />
                         </div>
                     </>
                 ) : (
                     <>
                         <div>
-                            <label className={labelClass}>Full name</label>
+                            <label className={labelClass}>{t("auth.fullName")}</label>
                             <input
                                 type="text"
                                 value={regName}
                                 onChange={(e) => setRegName(e.target.value)}
                                 className={inputClass}
-                                placeholder="Your full name"
+                                placeholder={t("auth.yourFullName")}
                                 autoComplete="name"
                             />
                         </div>
 
-                        {/* ✅ FIX: staff register needs email field */}
                         <div>
-                            <label className={labelClass}>Email</label>
+                            <label className={labelClass}>{t("auth.email")}</label>
                             <input
                                 type="email"
                                 value={regEmail}
                                 onChange={(e) => setRegEmail(e.target.value)}
                                 className={inputClass}
-                                placeholder="Enter your email"
+                                placeholder={t("auth.enterEmail")}
                                 autoComplete="email"
                             />
                         </div>
 
                         <div>
-                            <label className={labelClass}>Role</label>
+                            <label className={labelClass}>{t("auth.role")}</label>
                             <select
                                 value={regRoleId}
                                 onChange={(e) => setRegRoleId(Number(e.target.value))}
@@ -719,48 +696,46 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                                 ))}
                             </select>
 
-                            <p className="mt-1 text-[11px] text-gray-500">
-                                Account will be inactive until Laboratory Head approval.
-                            </p>
+                            <p className="mt-1 text-[11px] text-gray-500">{t("auth.staffApprovalNote")}</p>
                         </div>
                     </>
                 )}
 
                 <div className="relative">
-                    <label className={labelClass}>Password</label>
+                    <label className={labelClass}>{t("auth.password")}</label>
                     <input
                         type={showRegPassword ? "text" : "password"}
                         value={regPassword}
                         onChange={(e) => setRegPassword(e.target.value)}
                         className={inputClass + " pr-12"}
-                        placeholder="Enter your password"
+                        placeholder={t("auth.enterPassword")}
                     />
 
                     <button
                         type="button"
                         onClick={() => setShowRegPassword((v) => !v)}
                         className="absolute right-3 top-[34px] text-gray-500 hover:text-gray-700"
-                        aria-label={showRegPassword ? "Hide password" : "Show password"}
+                        aria-label={showRegPassword ? t("auth.hidePassword") : t("auth.showPassword")}
                     >
                         {showRegPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
                 </div>
 
                 <div className="relative">
-                    <label className={labelClass}>Confirm password</label>
+                    <label className={labelClass}>{t("auth.confirmPassword")}</label>
                     <input
                         type={showRegPasswordConfirmation ? "text" : "password"}
                         value={regPasswordConfirmation}
                         onChange={(e) => setRegPasswordConfirmation(e.target.value)}
                         className={inputClass + " pr-12"}
-                        placeholder="Confirm your password"
+                        placeholder={t("auth.confirmYourPassword")}
                     />
 
                     <button
                         type="button"
                         onClick={() => setShowRegPasswordConfirmation((v) => !v)}
                         className="absolute right-3 top-[34px] text-gray-500 hover:text-gray-700"
-                        aria-label={showRegPasswordConfirmation ? "Hide password" : "Show password"}
+                        aria-label={showRegPasswordConfirmation ? t("auth.hidePassword") : t("auth.showPassword")}
                     >
                         {showRegPasswordConfirmation ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
@@ -768,7 +743,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             </div>
 
             <button type="submit" disabled={regLoading} className="mt-6 self-start lims-btn-primary">
-                {regLoading ? "Creating..." : "Sign up"}
+                {regLoading ? t("auth.creating") : t("auth.signUp")}
             </button>
         </form>
     );
@@ -783,24 +758,24 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
 
                     {isLoginPage ? (
                         <p className="mt-4 mb-2 text-xs text-center text-gray-600">
-                            Don&apos;t have an account?{" "}
+                            {t("auth.dontHaveAccount")}{" "}
                             <button
                                 type="button"
                                 className="text-primary font-semibold"
                                 onClick={() => navigate("/register")}
                             >
-                                Register here
+                                {t("auth.registerHere")}
                             </button>
                         </p>
                     ) : (
                         <p className="mt-4 mb-2 text-xs text-center text-gray-600">
-                            Already have an account?{" "}
+                            {t("auth.alreadyHaveAccount")}{" "}
                             <button
                                 type="button"
                                 className="text-primary font-semibold"
                                 onClick={() => navigate("/login")}
                             >
-                                Sign in here
+                                {t("auth.signInHere")}
                             </button>
                         </p>
                     )}
@@ -832,15 +807,13 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                         style={{
                             backgroundImage: `linear-gradient(to right, rgba(194,16,16,0.9), rgba(230,72,72,0.7)), url(${LabHero})`,
                             backgroundSize: "cover",
-                            backgroundPosition: "center",
+                            backgroundPosition: "center"
                         }}
                     >
                         <div className="lims-overlay-panel lims-overlay-left">
-                            <h2 className="text-3xl font-semibold mb-3">Welcome back!</h2>
+                            <h2 className="text-3xl font-semibold mb-3">{t("auth.welcomeBack")}</h2>
                             <p className="text-sm mb-5 max-w-xs">
-                                {isPortal
-                                    ? "Sign in to manage your sample requests and results."
-                                    : "To keep your lab records consistent, sign in with your registered staff account."}
+                                {isPortal ? t("auth.welcomeBackPortal") : t("auth.welcomeBackStaff")}
                             </p>
                             <button
                                 type="button"
@@ -850,18 +823,16 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                                 }}
                                 className="rounded-full border px-8 py-2 text-xs font-semibold tracking-[0.15em] uppercase bg-transparent text-white"
                             >
-                                Sign in
+                                {t("auth.signIn")}
                             </button>
                         </div>
 
                         <div className="lims-overlay-panel lims-overlay-right">
                             <h2 className="text-3xl font-semibold mb-3">
-                                {isPortal ? "Request Biomolecular Tests" : "Trace Every Sample"}
+                                {isPortal ? t("auth.rightPanelPortalTitle") : t("auth.rightPanelStaffTitle")}
                             </h2>
                             <p className="text-sm mb-5 max-w-xs">
-                                {isPortal
-                                    ? "Create a client account and submit sample requests in a structured ISO-aligned workflow."
-                                    : "Create a new user and begin your biomolecular workflow with ISO 17025–aligned records."}
+                                {isPortal ? t("auth.rightPanelPortalSubtitle") : t("auth.rightPanelStaffSubtitle")}
                             </p>
                             <button
                                 type="button"
@@ -871,7 +842,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                                 }}
                                 className="rounded-full border px-8 py-2 text-xs font-semibold tracking-[0.15em] uppercase bg-transparent text-white"
                             >
-                                Sign up
+                                {t("auth.signUp")}
                             </button>
                         </div>
                     </div>

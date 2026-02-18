@@ -6,7 +6,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { useClientAuth } from "../../hooks/useClientAuth";
 import { clientLogoutRequest, logoutRequest } from "../../services/auth";
 import { getTenant } from "../../utils/tenant";
-import { getUserRoleLabel } from "../../utils/roles";
+import { getUserRoleId, ROLE_ID } from "../../utils/roles";
 
 type TopbarProps = {
     onOpenNav?: () => void;
@@ -14,23 +14,34 @@ type TopbarProps = {
 
 export const Topbar = ({ onOpenNav }: TopbarProps) => {
     const navigate = useNavigate();
-    const { i18n } = useTranslation();
+    const { t, i18n } = useTranslation();
 
     const tenant = getTenant();
     const isPortal = tenant === "portal";
 
-    // Backoffice auth (staff)
     const staffAuth = useAuth() as any;
     const staffUser = staffAuth?.user;
 
-    // Portal auth (client)
     const clientAuth = useClientAuth() as any;
     const clientUser = clientAuth?.client;
 
-    // Labels
-    const roleLabel = isPortal ? "Client" : getUserRoleLabel(staffUser);
+    const staffRoleId = getUserRoleId(staffUser);
 
-    // Display name
+    const staffRoleLabel =
+        staffRoleId === ROLE_ID.ADMIN
+            ? t("roles.administrator")
+            : staffRoleId === ROLE_ID.SAMPLE_COLLECTOR
+                ? t("roles.sampleCollector")
+                : staffRoleId === ROLE_ID.ANALYST
+                    ? t("roles.analyst")
+                    : staffRoleId === ROLE_ID.OPERATIONAL_MANAGER
+                        ? t("roles.operationalManager")
+                        : staffRoleId === ROLE_ID.LAB_HEAD
+                            ? t("roles.laboratoryHead")
+                            : t("roles.unknown");
+
+    const roleLabel = isPortal ? t("roles.client") : staffRoleLabel;
+
     const displayName = isPortal
         ? clientUser?.name ||
         clientUser?.full_name ||
@@ -38,8 +49,8 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
         clientUser?.contact_name ||
         clientUser?.username ||
         clientUser?.email ||
-        "Client"
-        : staffUser?.name || staffUser?.full_name || staffUser?.username || staffUser?.email || "Lab User";
+        t("topbar.clientFallback")
+        : staffUser?.name || staffUser?.full_name || staffUser?.username || staffUser?.email || t("topbar.labUserFallback");
 
     const [menuOpen, setMenuOpen] = useState(false);
     const [loggingOut, setLoggingOut] = useState(false);
@@ -58,11 +69,9 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
 
     const currentLocale = (i18n.resolvedLanguage ?? i18n.language) === "en" ? "en" : "id";
 
-    // ✅ This now persists to DB through context.setLocale()
     const handleChangeLocale = async (next: "id" | "en") => {
         if (currentLocale === next) return;
 
-        // Prefer context methods (persist to backend)
         try {
             if (isPortal && typeof clientAuth?.setLocale === "function") {
                 await clientAuth.setLocale(next);
@@ -76,7 +85,6 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
             // fallback below
         }
 
-        // Fallback: local change only
         try {
             document.documentElement.lang = next;
         } catch { }
@@ -88,15 +96,12 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
             setLoggingOut(true);
 
             if (isPortal) {
-                // Prefer context logout
                 if (typeof clientAuth?.logoutClient === "function") {
                     await clientAuth.logoutClient();
                 } else {
-                    // fallback legacy
                     await clientLogoutRequest();
                     if (typeof clientAuth?.setClient === "function") clientAuth.setClient(null);
-                    if (typeof clientAuth?.setIsClientAuthenticated === "function")
-                        clientAuth.setIsClientAuthenticated(false);
+                    if (typeof clientAuth?.setIsClientAuthenticated === "function") clientAuth.setIsClientAuthenticated(false);
                 }
             } else {
                 if (typeof staffAuth?.logout === "function") {
@@ -126,10 +131,10 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
                 onClick={() => handleChangeLocale(code)}
                 className={[
                     "px-2.5 py-1 rounded-full text-xs font-semibold transition",
-                    active ? "bg-primary text-white" : "text-gray-700 hover:bg-black/5",
+                    active ? "bg-primary text-white" : "text-gray-700 hover:bg-black/5"
                 ].join(" ")}
                 aria-pressed={active}
-                aria-label={`Switch language to ${code === "id" ? "Indonesian" : "English"}`}
+                aria-label={code === "id" ? t("topbar.switchToIndonesian") : t("topbar.switchToEnglish")}
             >
                 {label}
             </button>
@@ -138,8 +143,12 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
 
     return (
         <header className="flex items-center justify-between px-4 md:px-6 py-6 border-b border-black/5 bg-cream">
-            {/* Hamburger left – muncul < lg */}
-            <button type="button" className="lg:hidden" onClick={onOpenNav} aria-label="Open navigation">
+            <button
+                type="button"
+                className="lg:hidden"
+                onClick={onOpenNav}
+                aria-label={t("nav.openNavigation")}
+            >
                 <div className="space-y-1.5">
                     <span className="block h-0.5 w-5 rounded-full bg-gray-900" />
                     <span className="block h-0.5 w-5 rounded-full bg-gray-900" />
@@ -150,19 +159,17 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
             <div className="hidden lg:block" />
 
             <div className="flex items-center gap-4 ml-auto">
-                {/* ✅ Language toggle (persist) */}
                 <div
                     className="flex items-center gap-1 rounded-full border border-black/10 bg-white px-1 py-1"
                     role="group"
-                    aria-label="Language toggle"
-                    title="Language"
+                    aria-label={t("topbar.languageToggle")}
+                    title={t("language")}
                 >
                     {langBtn("id", "ID")}
                     {langBtn("en", "EN")}
                 </div>
 
-                {/* Notifications (placeholder) */}
-                <button type="button" className="lims-icon-button text-gray-700" aria-label="Notifications">
+                <button type="button" className="lims-icon-button text-gray-700" aria-label={t("topbar.notifications")}>
                     <svg
                         viewBox="0 0 24 24"
                         className="h-5 w-5"
@@ -177,13 +184,12 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
                     </svg>
                 </button>
 
-                {/* Profile + dropdown */}
                 <div className="relative" ref={menuRef}>
                     <button
                         type="button"
                         className="flex items-center gap-2"
                         onClick={() => setMenuOpen((v) => !v)}
-                        aria-label="Open profile menu"
+                        aria-label={t("topbar.openProfileMenu")}
                     >
                         <div className="h-8 w-8 rounded-full bg-gray-300" />
                         <div className="hidden sm:flex flex-col items-start">
@@ -206,7 +212,7 @@ export const Topbar = ({ onOpenNav }: TopbarProps) => {
                                     disabled={loggingOut}
                                     className="w-full text-left px-3 py-2 rounded-lg text-sm text-red-600 hover:bg-red-50 disabled:opacity-60 disabled:cursor-not-allowed"
                                 >
-                                    {loggingOut ? "Logging out..." : "Logout"}
+                                    {loggingOut ? t("topbar.loggingOut") : t("topbar.logout")}
                                 </button>
                             </div>
                         </div>

@@ -1,6 +1,6 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\components\layout\AppLayout.tsx
 import { useMemo, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 import {
     BarChart3,
@@ -20,9 +20,6 @@ import { useAuth } from "../../hooks/useAuth";
 import { getUserRoleId, ROLE_ID } from "../../utils/roles";
 import { Topbar } from "./Topbar";
 
-/**
- * Navigation icon keys (rendered via lucide-react)
- */
 type NavIcon =
     | "users"
     | "samples"
@@ -42,14 +39,12 @@ type NavItem = {
 };
 
 export const AppLayout = () => {
+    const { t } = useTranslation();
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
     const { user } = useAuth();
     const roleId = getUserRoleId(user);
 
-    // =============================
-    // Role flags
-    // =============================
     const isClient = roleId === ROLE_ID.CLIENT;
     const isStaff = !!roleId && roleId !== ROLE_ID.CLIENT;
 
@@ -69,37 +64,34 @@ export const AppLayout = () => {
 
     const canSeeReports = isStaff;
 
-    // =============================
-    // Nav groups (by responsibility)
-    // =============================
     const portalItems: NavItem[] = isClient
-        ? [{ label: "My Requests", path: "/portal/requests", icon: "inbox" as const }]
+        ? [{ label: t("nav.myRequests"), path: "/portal/requests", icon: "inbox" as const }]
         : [];
 
     const staffBaseItems: NavItem[] = isStaff
         ? [
-            { label: "Clients", path: "/clients", icon: "users" as const },
-            { label: "Samples", path: "/samples", icon: "samples" as const },
+            { label: t("nav.clients"), path: "/clients", icon: "users" as const },
+            { label: t("nav.samples"), path: "/samples", icon: "samples" as const },
         ]
         : [];
 
     const scOnlyItems: NavItem[] = isSampleCollector
         ? [
-            { label: "Request Queue", path: "/samples/requests", icon: "inbox" as const },
-            { label: "Samples", path: "/samples", icon: "samples" as const },
+            { label: t("nav.requestQueue"), path: "/samples/requests", icon: "inbox" as const },
+            { label: t("nav.samples"), path: "/samples", icon: "samples" as const },
         ]
         : [];
 
     const omLhItems: NavItem[] = isOmOrLh
         ? [
-            { label: "Request Queue", path: "/samples/requests", icon: "inbox" as const },
-            { label: "LOO Workspace", path: "/loo", icon: "loo" as const },
-            { label: "Reagent Approvals", path: "/reagents/approvals", icon: "reagents" as const },
+            { label: t("nav.requestQueue"), path: "/samples/requests", icon: "inbox" as const },
+            { label: t("nav.looWorkspace"), path: "/loo", icon: "loo" as const },
+            { label: t("nav.reagentApprovals"), path: "/reagents/approvals", icon: "reagents" as const },
 
             ...(isOperationalManager
                 ? [
                     {
-                        label: "Quality Cover (Verify)",
+                        label: t("nav.qualityCoverVerify"),
                         path: "/quality-covers/inbox/om",
                         icon: "qc" as const,
                     },
@@ -109,7 +101,7 @@ export const AppLayout = () => {
             ...(isLabHead
                 ? [
                     {
-                        label: "Quality Cover (Validate)",
+                        label: t("nav.qualityCoverValidate"),
                         path: "/quality-covers/inbox/lh",
                         icon: "qc" as const,
                     },
@@ -120,36 +112,33 @@ export const AppLayout = () => {
 
     const archiveItems: NavItem[] =
         isAdmin || isOperationalManager || isLabHead
-            ? [{ label: "Samples Archive", path: "/samples/archive", icon: "reports" as const }]
+            ? [{ label: t("nav.samplesArchive"), path: "/samples/archive", icon: "reports" as const }]
             : [];
 
     const adminItems: NavItem[] = isAdmin
         ? [
-            { label: "Client Approvals", path: "/clients/approvals", icon: "approval" as const },
-            { label: "Request Queue", path: "/samples/requests", icon: "inbox" as const },
+            { label: t("nav.clientApprovals"), path: "/clients/approvals", icon: "approval" as const },
+            { label: t("nav.requestQueue"), path: "/samples/requests", icon: "inbox" as const },
         ]
         : [];
 
     const labHeadItems: NavItem[] = isLabHead
-        ? [{ label: "Staff Approvals", path: "/staff/approvals", icon: "approval" as const }]
+        ? [{ label: t("nav.staffApprovals"), path: "/staff/approvals", icon: "approval" as const }]
         : [];
 
     const reportItems: NavItem[] = canSeeReports
-        ? [{ label: "Reports", path: "/reports", icon: "reports" as const }]
+        ? [{ label: t("nav.reports"), path: "/reports", icon: "reports" as const }]
         : [];
 
     const auditItems: NavItem[] = canSeeAuditLogs
-        ? [{ label: "Audit Logs", path: "/audit-logs", icon: "audit" as const }]
+        ? [{ label: t("nav.auditLogs"), path: "/audit-logs", icon: "audit" as const }]
         : [];
 
     const settingsItems: NavItem[] =
         isAdmin || isLabHead
-            ? [{ label: "Document Templates", path: "/settings/docs/templates", icon: "docs" as const }]
+            ? [{ label: t("nav.documentTemplates"), path: "/settings/docs/templates", icon: "docs" as const }]
             : [];
 
-    // =============================
-    // Final nav items (by actor)
-    // =============================
     const navItems: NavItem[] = (() => {
         if (isClient) return portalItems;
         if (isSampleCollector) return [...scOnlyItems, ...auditItems];
@@ -170,9 +159,6 @@ export const AppLayout = () => {
         return [];
     })();
 
-    // =============================
-    // Icons
-    // =============================
     const iconClass = "h-4 w-4";
 
     const renderIcon = (icon?: NavIcon) => {
@@ -202,7 +188,6 @@ export const AppLayout = () => {
         }
     };
 
-    // Which routes should use exact match for active state
     const endPaths = useMemo(
         () =>
             new Set<string>([
@@ -277,8 +262,8 @@ export const AppLayout = () => {
                     <button
                         className="text-white text-xl leading-none"
                         onClick={() => setSidebarOpen(false)}
-                        aria-label="Close sidebar"
-                        title="Close"
+                        aria-label={t("nav.closeSidebar")}
+                        title={t("close")}
                     >
                         ✕
                     </button>

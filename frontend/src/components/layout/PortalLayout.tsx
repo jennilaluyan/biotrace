@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+
 import BiotraceLogo from "../../assets/biotrace-logo.png";
 import { useClientAuth } from "../../hooks/useClientAuth";
 import { clientLogoutRequest } from "../../services/auth";
@@ -12,21 +14,22 @@ type NavItem = {
 };
 
 export const PortalLayout = () => {
+    const { t } = useTranslation();
+
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [loggingOut, setLoggingOut] = useState(false);
 
     const navigate = useNavigate();
     const { loading, isClientAuthenticated } = useClientAuth() as any;
 
-    // Hard guard
     useEffect(() => {
         if (loading) return;
         if (!isClientAuthenticated) navigate("/login", { replace: true });
     }, [loading, isClientAuthenticated, navigate]);
 
     const navItems: NavItem[] = [
-        { label: "Dashboard", path: "/portal", icon: "home" },
-        { label: "Sample Requests", path: "/portal/requests", icon: "flask" },
+        { label: t("portal.dashboard"), path: "/portal", icon: "home" },
+        { label: t("portal.sampleRequests"), path: "/portal/requests", icon: "flask" }
     ];
 
     const renderIcon = (icon?: NavItem["icon"]) => {
@@ -75,7 +78,6 @@ export const PortalLayout = () => {
     };
 
     const renderNavItem = (item: NavItem, closeOnClick = false) => {
-        // ✅ Only dashboard should use "end". Requests should stay active for /portal/requests/:id
         const end = item.path === "/portal";
 
         return (
@@ -87,15 +89,11 @@ export const PortalLayout = () => {
                 className={({ isActive }) =>
                     [
                         "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition",
-                        isActive
-                            ? "bg-white/10 text-white"
-                            : "text-white/80 hover:bg-white/10 hover:text-white",
+                        isActive ? "bg-white/10 text-white" : "text-white/80 hover:bg-white/10 hover:text-white"
                     ].join(" ")
                 }
             >
-                <span className="inline-flex h-5 w-5 items-center justify-center">
-                    {renderIcon(item.icon)}
-                </span>
+                <span className="inline-flex h-5 w-5 items-center justify-center">{renderIcon(item.icon)}</span>
                 <span>{item.label}</span>
             </NavLink>
         );
@@ -110,7 +108,7 @@ export const PortalLayout = () => {
                 "w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition",
                 "text-white/80 hover:bg-white/10 hover:text-white",
                 loggingOut ? "opacity-60 cursor-not-allowed" : "",
-                compact ? "justify-center" : "",
+                compact ? "justify-center" : ""
             ].join(" ")}
         >
             <span className="inline-flex h-5 w-5 items-center justify-center">
@@ -128,7 +126,7 @@ export const PortalLayout = () => {
                     <path d="M21 21V3" />
                 </svg>
             </span>
-            <span>{loggingOut ? "Logging out..." : "Logout"}</span>
+            <span>{loggingOut ? t("topbar.loggingOut") : t("topbar.logout")}</span>
         </button>
     );
 
@@ -140,9 +138,7 @@ export const PortalLayout = () => {
                     <img src={BiotraceLogo} alt="Biotrace" className="h-10 w-auto" />
                 </div>
 
-                <nav className="flex-1 px-3 py-4 space-y-1">
-                    {navItems.map((i) => renderNavItem(i))}
-                </nav>
+                <nav className="flex-1 px-3 py-4 space-y-1">{navItems.map((i) => renderNavItem(i))}</nav>
 
                 <div className="px-3 pb-4">
                     <LogoutButton />
@@ -151,10 +147,7 @@ export const PortalLayout = () => {
 
             {/* Mobile overlay */}
             {sidebarOpen && (
-                <div
-                    className="fixed inset-0 z-30 bg-black/40 lg:hidden"
-                    onClick={() => setSidebarOpen(false)}
-                />
+                <div className="fixed inset-0 z-30 bg-black/40 lg:hidden" onClick={() => setSidebarOpen(false)} />
             )}
 
             {/* Mobile sidebar */}
@@ -167,14 +160,14 @@ export const PortalLayout = () => {
                     <button
                         className="text-white text-xl leading-none"
                         onClick={() => setSidebarOpen(false)}
+                        aria-label={t("nav.closeSidebar")}
+                        title={t("close")}
                     >
                         ✕
                     </button>
                 </div>
 
-                <nav className="px-3 py-4 space-y-1">
-                    {navItems.map((i) => renderNavItem(i, true))}
-                </nav>
+                <nav className="px-3 py-4 space-y-1">{navItems.map((i) => renderNavItem(i, true))}</nav>
 
                 <div className="px-3 pb-4">
                     <LogoutButton />
