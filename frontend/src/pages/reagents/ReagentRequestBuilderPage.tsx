@@ -15,6 +15,7 @@ import {
     TestTube2,
     Wrench,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import {
     getReagentRequestByLoo,
@@ -69,6 +70,8 @@ function statusTone(status: string) {
 }
 
 export default function ReagentRequestBuilderPage() {
+    const { t } = useTranslation();
+
     const params = useParams();
     const loId = Number(params.loId);
 
@@ -115,6 +118,18 @@ export default function ReagentRequestBuilderPage() {
     // Modal state
     const [cartOpen, setCartOpen] = useState(false);
 
+    const statusLabel = (status?: string | null) => {
+        const s = String(status ?? "").toLowerCase();
+        const map: Record<string, string> = {
+            draft: t("reagents.status.draft"),
+            submitted: t("reagents.status.submitted"),
+            approved: t("reagents.status.approved"),
+            rejected: t("reagents.status.rejected"),
+            denied: t("reagents.status.rejected"),
+        };
+        return map[s] ?? (status ? String(status) : t("reagents.status.draft"));
+    };
+
     const reload = async () => {
         if (!Number.isFinite(loId) || loId <= 0) return;
 
@@ -134,7 +149,7 @@ export default function ReagentRequestBuilderPage() {
             setItems(Array.isArray(it) ? it : []);
             setBookings(Array.isArray(bk) ? bk : []);
         } catch (e: any) {
-            setErrorText(e?.message ?? "Failed to load reagent request.");
+            setErrorText(e?.message ?? t("reagents.errors.loadRequestFailed"));
         } finally {
             setLoading(false);
         }
@@ -256,10 +271,11 @@ export default function ReagentRequestBuilderPage() {
 
     const hasContent = useMemo(() => items.length > 0 || bookings.length > 0, [items, bookings]);
 
-    const requestStatus = String(request?.status ?? "draft");
-    const isLocked = requestStatus === "submitted" || requestStatus === "approved";
+    const requestStatusRaw = String(request?.status ?? "draft");
+    const requestStatusLower = requestStatusRaw.toLowerCase();
+    const isLocked = requestStatusLower === "submitted" || requestStatusLower === "approved";
     const canEditDraft = !isLocked;
-    const canSubmit = hasContent && requestStatus === "draft";
+    const canSubmit = hasContent && requestStatusLower === "draft";
 
     const canLoadMoreCatalog = useMemo(() => {
         if (catalogLoading) return false;
@@ -288,7 +304,7 @@ export default function ReagentRequestBuilderPage() {
                 {
                     catalog_item_id: cat.catalog_id,
                     item_type: cat.type ?? null,
-                    item_name: cat.name ?? "(unnamed)",
+                    item_name: cat.name ?? t("reagents.request.unnamedItem"),
                     specification: cat.specification ?? null,
                     qty: 1,
                     unit_text: cat.default_unit_text ?? "",
@@ -337,7 +353,7 @@ export default function ReagentRequestBuilderPage() {
 
     async function onSaveDraft() {
         if (isLocked) {
-            setErrorText(`Request sudah ${requestStatus}. Tidak bisa edit / save draft.`);
+            setErrorText(t("reagents.request.errors.lockedEdit", { status: statusLabel(requestStatusLower) }));
             setCartOpen(true);
             return;
         }
@@ -372,9 +388,9 @@ export default function ReagentRequestBuilderPage() {
             setItems(payload2?.items ?? payload2?.data?.items ?? items);
             setBookings(payload2?.bookings ?? payload2?.data?.bookings ?? bookings);
 
-            flashSuccess("Draft berhasil disimpan.");
+            flashSuccess(t("reagents.request.flashDraftSaved"));
         } catch (e: any) {
-            setErrorText(e?.message ?? "Failed to save draft.");
+            setErrorText(e?.message ?? t("reagents.errors.saveDraftFailed"));
         } finally {
             setSaving(false);
         }
@@ -382,20 +398,20 @@ export default function ReagentRequestBuilderPage() {
 
     async function onSubmit() {
         if (!request?.reagent_request_id) {
-            setErrorText("Belum ada request. Save draft dulu.");
+            setErrorText(t("reagents.request.errors.noRequestYet"));
             setCartOpen(true);
             return;
         }
 
         // prevent resubmitting locked/non-draft requests
-        if (requestStatus !== "draft") {
-            setErrorText(`Tidak bisa submit. Status sekarang: ${requestStatus}.`);
+        if (requestStatusLower !== "draft") {
+            setErrorText(t("reagents.request.errors.notDraftCannotSubmit", { status: statusLabel(requestStatusLower) }));
             setCartOpen(true);
             return;
         }
 
         if (!hasContent) {
-            setErrorText("Tambahkan minimal 1 item atau 1 booking sebelum submit.");
+            setErrorText(t("reagents.request.errors.minContent"));
             setCartOpen(true);
             return;
         }
@@ -413,10 +429,10 @@ export default function ReagentRequestBuilderPage() {
             setItems(payload?.items ?? payload?.data?.items ?? items);
             setBookings(payload?.bookings ?? payload?.data?.bookings ?? bookings);
 
-            flashSuccess("Berhasil submit reagent request.");
+            flashSuccess(t("reagents.request.flashSubmitted"));
         } catch (e: any) {
             const resp = e?.response?.data ?? null;
-            const msg = resp?.message ?? e?.message ?? "Submit failed.";
+            const msg = resp?.message ?? e?.message ?? t("reagents.errors.submitFailed");
             setErrorText(msg);
 
             const detail = resp?.data ?? resp?.context ?? null;
@@ -434,11 +450,11 @@ export default function ReagentRequestBuilderPage() {
     const hasAnySelection = items.length > 0 || bookings.length > 0;
 
     if (loading) {
-        return <div className="min-h-[60vh] px-0 py-4 text-sm text-gray-600">Loading reagent request…</div>;
+        return <div className="min-h-[60vh] px-0 py-4 text-sm text-gray-600">{t("reagents.loading.request")}</div>;
     }
 
     if (!Number.isFinite(loId) || loId <= 0) {
-        return <div className="min-h-[60vh] px-0 py-4 text-sm text-rose-700">Invalid loId</div>;
+        return <div className="min-h-[60vh] px-0 py-4 text-sm text-rose-700">{t("reagents.errors.invalidLooId")}</div>;
     }
 
     return (
@@ -448,12 +464,12 @@ export default function ReagentRequestBuilderPage() {
                 <nav className="lims-breadcrumb">
                     <Link to="/samples" className="lims-breadcrumb-link inline-flex items-center gap-2">
                         <ArrowLeft size={16} />
-                        Samples
+                        {t("nav.samples")}
                     </Link>
                     <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">Reagent Request</span>
+                    <span className="lims-breadcrumb-current">{t("reagents.request.breadcrumb.title")}</span>
                     <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">LOO #{loId}</span>
+                    <span className="lims-breadcrumb-current">{t("reagents.request.breadcrumb.loo", { id: loId })}</span>
                 </nav>
             </div>
 
@@ -461,8 +477,8 @@ export default function ReagentRequestBuilderPage() {
                 {/* Header */}
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
-                        <h1 className="text-lg md:text-xl font-bold text-gray-900">Reagent Request</h1>
-                        <div className="mt-1 text-xs text-gray-600">Build request per LOO • LOO ID: {loId}</div>
+                        <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("reagents.request.title")}</h1>
+                        <div className="mt-1 text-xs text-gray-600">{t("reagents.request.subtitle", { id: loId })}</div>
 
                         {request && (
                             <div className="mt-2 flex items-center gap-2 flex-wrap">
@@ -473,27 +489,26 @@ export default function ReagentRequestBuilderPage() {
                                     )}
                                 >
                                     <ClipboardList size={16} />
-                                    {String(request.status)}
+                                    {statusLabel(String(request.status))}
                                 </span>
 
-                                <span className="text-xs text-gray-500">• Cycle {request.cycle_no}</span>
+                                {request.cycle_no ? (
+                                    <span className="text-xs text-gray-500">
+                                        • {t("reagents.request.cycle")} {request.cycle_no}
+                                    </span>
+                                ) : null}
+
                                 {isLocked ? (
-                                    <span className="text-xs text-gray-500">• editing locked</span>
+                                    <span className="text-xs text-gray-500">• {t("reagents.request.editLocked")}</span>
                                 ) : (
-                                    <span className="text-xs text-gray-500">• draft editable</span>
+                                    <span className="text-xs text-gray-500">• {t("reagents.request.editableDraft")}</span>
                                 )}
                             </div>
                         )}
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
-                        <button
-                            type="button"
-                            className="lims-icon-button"
-                            onClick={reload}
-                            aria-label="Refresh"
-                            title="Refresh"
-                        >
+                        <button type="button" className="lims-icon-button" onClick={reload} aria-label={t("refresh")} title={t("refresh")}>
                             <RefreshCw size={16} />
                         </button>
 
@@ -504,16 +519,16 @@ export default function ReagentRequestBuilderPage() {
                                 "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
                                 "border-gray-200 bg-white hover:bg-gray-50"
                             )}
-                            title="View & edit request items"
+                            title={t("reagents.request.viewCartHint")}
                         >
                             <ShoppingCart size={16} />
-                            Request
+                            {t("reagents.request.cartButton")}
                             {hasAnySelection ? (
                                 <span className="ml-1 inline-flex items-center rounded-full bg-gray-900 px-2 py-0.5 text-xs font-semibold text-white">
-                                    {items.length} item • {bookings.length} alat
+                                    {t("reagents.request.cartBadge", { items: items.length, bookings: bookings.length })}
                                 </span>
                             ) : (
-                                <span className="ml-1 text-xs text-gray-500">(empty)</span>
+                                <span className="ml-1 text-xs text-gray-500">{t("reagents.request.cartEmptyBadge")}</span>
                             )}
                         </button>
 
@@ -526,10 +541,10 @@ export default function ReagentRequestBuilderPage() {
                             disabled={saving || !canEditDraft}
                             onClick={onSaveDraft}
                             type="button"
-                            title={!canEditDraft ? `Request sudah ${requestStatus}. Edit dikunci.` : "Save draft"}
+                            title={!canEditDraft ? t("reagents.request.errors.lockedEditShort") : t("saveDraft")}
                         >
                             {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                            {saving ? "Saving…" : "Save Draft"}
+                            {saving ? t("saving") : t("saveDraft")}
                         </button>
 
                         <button
@@ -542,16 +557,16 @@ export default function ReagentRequestBuilderPage() {
                             disabled={!canSubmit || submitting}
                             onClick={onSubmit}
                             title={
-                                requestStatus !== "draft"
-                                    ? "Hanya status draft yang bisa submit."
+                                requestStatusLower !== "draft"
+                                    ? t("reagents.request.hints.onlyDraftCanSubmit")
                                     : !hasContent
-                                        ? "Tambahkan minimal 1 item atau 1 booking"
-                                        : "Submit request"
+                                        ? t("reagents.request.hints.minContentToSubmit")
+                                        : t("submit")
                             }
                             type="button"
                         >
                             {submitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                            {submitting ? "Submitting…" : requestStatus === "submitted" ? "Submitted" : "Submit"}
+                            {submitting ? t("submitting") : t("submit")}
                         </button>
                     </div>
                 </div>
@@ -559,7 +574,7 @@ export default function ReagentRequestBuilderPage() {
                 {isLocked ? (
                     <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 inline-flex items-center gap-2">
                         <AlertTriangle size={18} />
-                        Request is <b className="ml-1">{requestStatus}</b>. Editing is locked.
+                        {t("reagents.request.lockedBanner", { status: statusLabel(requestStatusLower) })}
                     </div>
                 ) : null}
 
@@ -581,16 +596,17 @@ export default function ReagentRequestBuilderPage() {
                     <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
                         <div className="font-semibold text-amber-900 inline-flex items-center gap-2">
                             <AlertTriangle size={18} />
-                            Crosscheck gate not passed
+                            {t("reagents.request.crosscheck.title")}
                         </div>
-                        <div className="mt-1 text-sm text-amber-900/80">
-                            Submit ditolak karena ada sample di LOO ini yang belum <b>passed</b>.
-                        </div>
+                        <div className="mt-1 text-sm text-amber-900/80">{t("reagents.request.crosscheck.body")}</div>
                         <ul className="mt-2 list-disc pl-5 text-sm text-amber-900/90">
                             {gateDetails.not_passed_samples.map((s: any) => (
                                 <li key={s.sample_id}>
-                                    Sample #{s.sample_id} • {s.lab_sample_code ?? "-"} •{" "}
-                                    <span className="font-semibold">{s.crosscheck_status ?? "pending"}</span>
+                                    {t("reagents.request.crosscheck.sampleLine", {
+                                        id: s.sample_id,
+                                        code: s.lab_sample_code ?? "-",
+                                        status: s.crosscheck_status ?? "pending",
+                                    })}
                                 </li>
                             ))}
                         </ul>
@@ -600,28 +616,32 @@ export default function ReagentRequestBuilderPage() {
                 {/* Content */}
                 <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {/* Catalog */}
-                    <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
+                    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
                         <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
                             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                                 <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
                                     <TestTube2 size={18} />
-                                    Catalog Items (BHP/Reagen)
+                                    {t("reagents.request.catalog.title")}
                                 </div>
 
                                 <div className="flex gap-2 flex-wrap">
-                                    {(["all", "bhp", "reagen"] as const).map((t) => (
+                                    {(["all", "bhp", "reagen"] as const).map((tt) => (
                                         <button
-                                            key={t}
+                                            key={tt}
                                             className={cx(
                                                 "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold border",
-                                                catalogType === t
+                                                catalogType === tt
                                                     ? "bg-gray-900 text-white border-gray-900"
                                                     : "bg-white hover:bg-gray-50 border-gray-200"
                                             )}
-                                            onClick={() => setCatalogType(t)}
+                                            onClick={() => setCatalogType(tt)}
                                             type="button"
                                         >
-                                            {t === "all" ? "All" : t.toUpperCase()}
+                                            {tt === "all"
+                                                ? t("reagents.request.catalog.tabs.all")
+                                                : tt === "bhp"
+                                                    ? t("reagents.request.catalog.tabs.bhp")
+                                                    : t("reagents.request.catalog.tabs.reagent")}
                                         </button>
                                     ))}
                                 </div>
@@ -634,15 +654,13 @@ export default function ReagentRequestBuilderPage() {
                                     </span>
                                     <input
                                         className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                        placeholder="Search catalog items…"
+                                        placeholder={t("reagents.request.catalog.searchPlaceholder")}
                                         value={catalogSearch}
                                         onChange={(e) => setCatalogSearch(e.target.value)}
                                     />
                                 </div>
 
-                                <div className="mt-2 text-xs text-gray-500">
-                                    Semua item tampil; search hanya untuk mempercepat. Klik item untuk masuk ke Request.
-                                </div>
+                                <div className="mt-2 text-xs text-gray-500">{t("reagents.request.catalog.tip")}</div>
                             </div>
                         </div>
 
@@ -650,10 +668,10 @@ export default function ReagentRequestBuilderPage() {
                             {catalogLoading && catalogResults.length === 0 ? (
                                 <div className="px-5 py-4 text-sm text-gray-600 inline-flex items-center gap-2">
                                     <Loader2 size={16} className="animate-spin" />
-                                    Loading catalog…
+                                    {t("reagents.loading.catalog")}
                                 </div>
                             ) : catalogResults.length === 0 ? (
-                                <div className="px-5 py-4 text-sm text-gray-600">No catalog items found.</div>
+                                <div className="px-5 py-4 text-sm text-gray-600">{t("reagents.request.catalog.empty")}</div>
                             ) : (
                                 <div className="divide-y divide-gray-100">
                                     {catalogResults.map((c) => (
@@ -663,14 +681,12 @@ export default function ReagentRequestBuilderPage() {
                                             onClick={() => addCatalogToItems(c)}
                                             type="button"
                                             disabled={isLocked}
-                                            title={isLocked ? "Request locked (submitted/approved)" : "Add to request"}
+                                            title={isLocked ? t("reagents.request.hints.requestLocked") : t("reagents.request.catalog.addHint")}
                                         >
                                             <div className="min-w-0">
-                                                <div className="font-semibold text-sm text-gray-900 truncate">
-                                                    {c.name ?? "-"}
-                                                </div>
+                                                <div className="font-semibold text-sm text-gray-900 truncate">{c.name ?? "-"}</div>
                                                 <div className="text-xs text-gray-500 truncate">
-                                                    #{c.catalog_id} • {String(c.type ?? "-").toUpperCase()} • unit:{" "}
+                                                    #{c.catalog_id} • {String(c.type ?? "-").toUpperCase()} • {t("reagents.request.catalog.unit")}{" "}
                                                     {c.default_unit_text ?? "-"}
                                                 </div>
                                                 {c.specification ? (
@@ -687,7 +703,7 @@ export default function ReagentRequestBuilderPage() {
                                                 )}
                                             >
                                                 <Plus size={14} />
-                                                Add
+                                                {t("reagents.request.catalog.add")}
                                             </span>
                                         </button>
                                     ))}
@@ -697,27 +713,30 @@ export default function ReagentRequestBuilderPage() {
 
                         <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between gap-3 flex-wrap">
                             <div className="text-xs text-gray-500">
-                                Showing {catalogResults.length} items{catalogMeta?.total ? ` • total ${catalogMeta.total}` : ""}
+                                {t("reagents.request.footer.showing", {
+                                    shown: catalogResults.length,
+                                    total: catalogMeta?.total ?? null,
+                                })}
                             </div>
                             <button
                                 type="button"
-                                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                className="btn-outline inline-flex items-center gap-2 text-xs"
                                 onClick={() => setCatalogPage((p) => p + 1)}
                                 disabled={!canLoadMoreCatalog}
-                                title={!canLoadMoreCatalog ? "No more pages" : "Load more"}
+                                title={!canLoadMoreCatalog ? t("reagents.request.footer.noMorePages") : t("reagents.request.footer.loadMore")}
                             >
                                 {catalogLoading ? <Loader2 size={14} className="animate-spin" /> : <ClipboardList size={14} />}
-                                {catalogLoading ? "Loading…" : "Load more"}
+                                {catalogLoading ? t("loading") : t("reagents.request.footer.loadMore")}
                             </button>
                         </div>
                     </div>
 
                     {/* Equipment */}
-                    <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
+                    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
                         <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
                             <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
                                 <Wrench size={18} />
-                                Equipment
+                                {t("reagents.request.equipment.title")}
                             </div>
 
                             <div className="mt-3">
@@ -727,12 +746,12 @@ export default function ReagentRequestBuilderPage() {
                                     </span>
                                     <input
                                         className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                        placeholder="Search equipment…"
+                                        placeholder={t("reagents.request.equipment.searchPlaceholder")}
                                         value={equipSearch}
                                         onChange={(e) => setEquipSearch(e.target.value)}
                                     />
                                 </div>
-                                <div className="mt-2 text-xs text-gray-500">Klik equipment untuk masuk ke booking di Request.</div>
+                                <div className="mt-2 text-xs text-gray-500">{t("reagents.request.equipment.tip")}</div>
                             </div>
                         </div>
 
@@ -740,10 +759,10 @@ export default function ReagentRequestBuilderPage() {
                             {equipLoading && equipResults.length === 0 ? (
                                 <div className="px-5 py-4 text-sm text-gray-600 inline-flex items-center gap-2">
                                     <Loader2 size={16} className="animate-spin" />
-                                    Loading equipment…
+                                    {t("reagents.loading.equipment")}
                                 </div>
                             ) : equipResults.length === 0 ? (
-                                <div className="px-5 py-4 text-sm text-gray-600">No equipment found.</div>
+                                <div className="px-5 py-4 text-sm text-gray-600">{t("reagents.request.equipment.empty")}</div>
                             ) : (
                                 <div className="divide-y divide-gray-100">
                                     {equipResults.map((eq) => (
@@ -753,13 +772,15 @@ export default function ReagentRequestBuilderPage() {
                                             onClick={() => addBooking(eq)}
                                             type="button"
                                             disabled={isLocked}
-                                            title={isLocked ? "Request locked (submitted/approved)" : "Add booking"}
+                                            title={isLocked ? t("reagents.request.hints.requestLocked") : t("reagents.request.equipment.addHint")}
                                         >
                                             <div className="min-w-0">
                                                 <div className="font-semibold text-sm text-gray-900 truncate">
-                                                    {(eq.code ? `${eq.code} • ` : "") + (eq.name ?? "Equipment")}
+                                                    {(eq.code ? `${eq.code} • ` : "") + (eq.name ?? t("reagents.request.equipment.fallback"))}
                                                 </div>
-                                                <div className="text-xs text-gray-500 truncate">equipment_id: {eq.equipment_id}</div>
+                                                <div className="text-xs text-gray-500 truncate">
+                                                    {t("reagents.request.equipment.idLabel")} {eq.equipment_id}
+                                                </div>
                                             </div>
 
                                             <span
@@ -771,7 +792,7 @@ export default function ReagentRequestBuilderPage() {
                                                 )}
                                             >
                                                 <Plus size={14} />
-                                                Add booking
+                                                {t("reagents.request.equipment.add")}
                                             </span>
                                         </button>
                                     ))}
@@ -781,17 +802,20 @@ export default function ReagentRequestBuilderPage() {
 
                         <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between gap-3 flex-wrap">
                             <div className="text-xs text-gray-500">
-                                Showing {equipResults.length} items{equipMeta?.total ? ` • total ${equipMeta.total}` : ""}
+                                {t("reagents.request.footer.showing", {
+                                    shown: equipResults.length,
+                                    total: equipMeta?.total ?? null,
+                                })}
                             </div>
                             <button
                                 type="button"
-                                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                className="btn-outline inline-flex items-center gap-2 text-xs"
                                 onClick={() => setEquipPage((p) => p + 1)}
                                 disabled={!canLoadMoreEquip}
-                                title={!canLoadMoreEquip ? "No more pages" : "Load more"}
+                                title={!canLoadMoreEquip ? t("reagents.request.footer.noMorePages") : t("reagents.request.footer.loadMore")}
                             >
                                 {equipLoading ? <Loader2 size={14} className="animate-spin" /> : <ClipboardList size={14} />}
-                                {equipLoading ? "Loading…" : "Load more"}
+                                {equipLoading ? t("loading") : t("reagents.request.footer.loadMore")}
                             </button>
                         </div>
                     </div>
@@ -800,11 +824,9 @@ export default function ReagentRequestBuilderPage() {
                     <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                         <div className="font-semibold inline-flex items-center gap-2">
                             <ClipboardList size={16} />
-                            Tips
+                            {t("tips")}
                         </div>
-                        <div className="mt-1">
-                            Klik item catalog / equipment untuk menambah ke request. Buka tombol <b>Request</b> (ikon cart) untuk edit qty, unit, note, dan booking time.
-                        </div>
+                        <div className="mt-1">{t("reagents.request.help")}</div>
                     </div>
                 </div>
 

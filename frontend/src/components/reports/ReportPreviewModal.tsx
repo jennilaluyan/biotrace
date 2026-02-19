@@ -194,7 +194,7 @@ export const ReportPreviewModal: React.FC<Props> = ({
                                 <div className="text-sm font-semibold text-red-700 mb-2">
                                     {t("reports.failedPreview", "Failed to preview PDF")}
                                 </div>
-                                <pre className="text-xs bg-white border rounded-lg p-3 overflow-auto max-h-[40vh] text-left whitespace-pre-wrap break-words">
+                                <pre className="text-xs bg-white border rounded-lg p-3 overflow-auto max-h-[40vh] text-left whitespace-pre-wrap wrap-break-word">
                                     {error}
                                 </pre>
                                 <button

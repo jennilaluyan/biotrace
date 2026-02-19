@@ -83,7 +83,9 @@ export default function ReagentApprovalDecisionModal(props: Props) {
 
                     <div className="min-w-0">
                         <div className="text-base font-semibold text-gray-900">{title}</div>
-                        <div className="text-xs text-gray-500 mt-0.5 truncate">{subtitle || t("reagents.approval.subtitleFallback")}</div>
+                        <div className="text-xs text-gray-500 mt-0.5 truncate">
+                            {subtitle || t("reagents.approval.subtitleFallback")}
+                        </div>
                     </div>
 
                     <button
@@ -159,12 +161,7 @@ export default function ReagentApprovalDecisionModal(props: Props) {
                 </div>
 
                 <div className="lims-modal-footer">
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        disabled={!!busy}
-                        className="btn-outline disabled:opacity-50"
-                    >
+                    <button type="button" onClick={onClose} disabled={!!busy} className="btn-outline disabled:opacity-50">
                         {t("cancel")}
                     </button>
 

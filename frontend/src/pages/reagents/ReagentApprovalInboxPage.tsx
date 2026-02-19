@@ -1,21 +1,37 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { CheckCircle2, ChevronLeft, ChevronRight, Eye, RefreshCw, Search, XCircle } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+    AlertTriangle,
+    ArrowLeft,
+    CheckCircle2,
+    ClipboardList,
+    Hash,
+    RefreshCw,
+    ShieldCheck,
+    User,
+    Wrench,
+    XCircle,
+} from "lucide-react";
+import { useTranslation } from "react-i18next";
 
-import ReagentApprovalDecisionModal from "../../components/reagents/ReagentApprovalDecisionModal";
 import {
     approveReagentRequest,
+    getReagentRequestByLoo,
     rejectReagentRequest,
-    getReagentApproverInbox,
-    type ApproverInboxRow,
+    type EquipmentBookingRow,
+    type ReagentRequestItemRow,
+    type ReagentRequestRow,
 } from "../../services/reagentRequests";
+import { apiGet } from "../../services/api";
 import { getErrorMessage } from "../../utils/errors";
 import { formatDateTimeLocal } from "../../utils/date";
+import ReagentApprovalDecisionModal from "../../components/reagents/ReagentApprovalDecisionModal";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
+// unwrap like other pages
 function unwrapApi(res: any) {
     let x = res?.data ?? res;
     for (let i = 0; i < 5; i++) {
@@ -28,420 +44,538 @@ function unwrapApi(res: any) {
     return x;
 }
 
-function statusTone(status?: string | null) {
-    const s = String(status ?? "").toLowerCase();
-    if (s === "submitted") return "bg-amber-100 text-amber-800";
-    if (s === "approved") return "bg-emerald-100 text-emerald-800";
-    if (s === "rejected") return "bg-rose-100 text-rose-800";
-    if (s === "draft") return "bg-slate-100 text-slate-800";
-    return "bg-gray-100 text-gray-700";
+function getHttpStatus(err: any): number | null {
+    const s = err?.response?.status ?? err?.status ?? null;
+    return typeof s === "number" ? s : null;
 }
 
-export default function ReagentApprovalInboxPage() {
+function statusBadgeTone(status?: string | null) {
+    const s = String(status ?? "").toLowerCase();
+    if (s === "submitted") return "bg-amber-50 text-amber-800 border-amber-200";
+    if (s === "approved") return "bg-emerald-50 text-emerald-800 border-emerald-200";
+    if (s === "rejected" || s === "denied") return "bg-rose-50 text-rose-800 border-rose-200";
+    if (s === "draft") return "bg-slate-50 text-slate-700 border-slate-200";
+    return "bg-gray-50 text-gray-700 border-gray-200";
+}
+
+type LooDetail = {
+    lo_id: number;
+    number?: string | null;
+    generated_at?: string | null;
+    client?: any;
+    items?: Array<{
+        sample_id?: number;
+        lab_sample_code?: string | null;
+        sample?: any;
+    }>;
+};
+
+async function fetchLooDetailBestEffort(loId: number): Promise<LooDetail | null> {
+    if (!Number.isFinite(loId) || loId <= 0) return null;
+
+    // Backend tiap project suka beda endpoint.
+    const candidates = [`/v1/letters-of-order/${loId}`, `/v1/letters-of-order/${loId}/detail`, `/v1/loo/${loId}`];
+
+    for (const url of candidates) {
+        try {
+            const res = await apiGet(url);
+            const payload = unwrapApi(res);
+            if (payload) return payload as LooDetail;
+        } catch (e: any) {
+            const status = getHttpStatus(e);
+            if (status === 404) continue;
+            continue;
+        }
+    }
+
+    return null;
+}
+
+export default function ReagentApprovalDetailPage() {
+    const { t } = useTranslation();
+
+    const params = useParams();
+    const nav = useNavigate();
+
+    // Route detail: /reagents/approvals/loo/:loId
+    const loId = Number((params as any).loId);
+
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
 
-    const [status, setStatus] = useState<"submitted" | "approved" | "rejected" | "draft" | "all">("submitted");
-    const [search, setSearch] = useState("");
-    const [page, setPage] = useState(1);
-    const [perPage] = useState(25);
+    const [request, setRequest] = useState<ReagentRequestRow | null>(null);
+    const [items, setItems] = useState<ReagentRequestItemRow[]>([]);
+    const [bookings, setBookings] = useState<EquipmentBookingRow[]>([]);
 
-    const [rows, setRows] = useState<ApproverInboxRow[]>([]);
-    const [meta, setMeta] = useState<{ page: number; per_page: number; total: number; total_pages: number } | null>(
-        null
-    );
+    const [loo, setLoo] = useState<LooDetail | null>(null);
+    const [looWarn, setLooWarn] = useState<string | null>(null);
 
-    const [busyId, setBusyId] = useState<number | null>(null);
-
+    // decision modal
     const [modalOpen, setModalOpen] = useState(false);
-    const [modalMode, setModalMode] = useState<"approve" | "reject">("approve");
-    const [activeRow, setActiveRow] = useState<ApproverInboxRow | null>(null);
+    const [decisionMode, setDecisionMode] = useState<"approve" | "reject">("approve");
+    const [busy, setBusy] = useState(false);
 
     function flash(msg: string) {
         setSuccess(msg);
         window.setTimeout(() => setSuccess(null), 2500);
     }
 
-    async function load(opts?: { resetPage?: boolean }) {
+    const statusLabel = (status?: string | null) => {
+        const s = String(status ?? "").toLowerCase();
+        const map: Record<string, string> = {
+            draft: t("reagents.status.draft"),
+            submitted: t("reagents.status.submitted"),
+            approved: t("reagents.status.approved"),
+            rejected: t("reagents.status.rejected"),
+            denied: t("reagents.status.rejected"),
+        };
+        return map[s] ?? (status ? String(status) : "—");
+    };
+
+    async function load() {
+        if (!Number.isFinite(loId) || loId <= 0) return;
+
+        setLoading(true);
         setErr(null);
         setSuccess(null);
-        setLoading(true);
+        setLooWarn(null);
 
-        const nextPage = opts?.resetPage ? 1 : page;
-
+        // 1) REQUIRED: reagent request detail
         try {
-            const res = await getReagentApproverInbox({
-                status,
-                search: search.trim() || undefined,
-                page: nextPage,
-                per_page: perPage,
-            });
-
+            const res = await getReagentRequestByLoo(loId);
             const payload = unwrapApi(res);
 
-            const data: ApproverInboxRow[] = Array.isArray(payload?.data)
-                ? payload.data
-                : Array.isArray(payload)
-                    ? payload
-                    : [];
+            const rr = payload?.request ?? null;
+            const it = payload?.items ?? [];
+            const bk = payload?.bookings ?? [];
 
-            setRows(data);
-            setMeta(payload?.meta ?? null);
-
-            if (opts?.resetPage) setPage(1);
+            setRequest(rr);
+            setItems(Array.isArray(it) ? it : []);
+            setBookings(Array.isArray(bk) ? bk : []);
         } catch (e: any) {
-            setErr(getErrorMessage(e, "Failed to load reagent approvals inbox."));
-            setRows([]);
-            setMeta(null);
+            setRequest(null);
+            setItems([]);
+            setBookings([]);
+            setErr(getErrorMessage(e, t("reagents.errors.loadApprovalDetailFailed")));
+            setLoading(false);
+            return;
+        }
+
+        // 2) OPTIONAL: LOO detail (fail => do not block page)
+        try {
+            const looPayload = await fetchLooDetailBestEffort(loId);
+            if (looPayload) {
+                setLoo(looPayload);
+                setLooWarn(null);
+            } else {
+                setLoo(null);
+                setLooWarn(t("reagents.approvals.detail.looWarnEndpoint"));
+            }
+        } catch {
+            setLoo(null);
+            setLooWarn(t("reagents.approvals.detail.looWarnFailed"));
         } finally {
             setLoading(false);
         }
     }
 
     useEffect(() => {
-        setPage(1);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [status]);
-
-    useEffect(() => {
         load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [status, page]);
+    }, [loId]);
 
-    const totalLabel = useMemo(() => {
-        const t = meta?.total ?? rows.length;
-        return String(t);
-    }, [meta, rows.length]);
+    const looNumber = useMemo(() => {
+        return (loo as any)?.number ?? (request as any)?.loo_number ?? (loId > 0 ? `LOO #${loId}` : "LOO");
+    }, [loo, request, loId]);
 
-    const canPrev = page > 1;
-    const canNext = meta?.total_pages ? page < meta.total_pages : rows.length === perPage;
+    const pageTitle = useMemo(() => {
+        return t("reagents.approvals.detail.pageTitle", { looNumber });
+    }, [t, looNumber]);
 
-    function openDecision(row: ApproverInboxRow, mode: "approve" | "reject") {
-        setActiveRow(row);
-        setModalMode(mode);
+    const requestStatusRaw = String(request?.status ?? "");
+    const canAct = requestStatusRaw.toLowerCase() === "submitted";
+
+    const clientName = useMemo(() => {
+        return (loo as any)?.client?.name ?? (request as any)?.client_name ?? null;
+    }, [loo, request]);
+
+    function openApprove() {
+        setDecisionMode("approve");
         setModalOpen(true);
     }
 
-    async function confirmDecision(note?: string) {
-        if (!activeRow?.reagent_request_id) return;
+    function openReject() {
+        setDecisionMode("reject");
+        setModalOpen(true);
+    }
 
-        setBusyId(activeRow.reagent_request_id);
+    async function confirmDecision(rejectNote?: string) {
+        if (!request?.reagent_request_id) return;
+
+        setBusy(true);
         setErr(null);
         setSuccess(null);
 
         try {
-            if (modalMode === "approve") {
-                await approveReagentRequest(activeRow.reagent_request_id);
-                flash("Approved.");
+            if (decisionMode === "approve") {
+                await approveReagentRequest(request.reagent_request_id);
+                flash(t("reagents.approvals.detail.flashApproved"));
             } else {
-                const n = String(note ?? "").trim();
-                if (n.length < 3) {
-                    setErr("Reject note wajib diisi (min 3 karakter).");
-                    setBusyId(null);
+                const note = String(rejectNote ?? "").trim();
+                if (note.length < 3) {
+                    setErr(t("reagents.errors.rejectNoteMin"));
+                    setBusy(false);
                     return;
                 }
-                await rejectReagentRequest(activeRow.reagent_request_id, n);
-                flash("Rejected.");
+                await rejectReagentRequest(request.reagent_request_id, note);
+                flash(t("reagents.approvals.detail.flashRejected"));
             }
 
             setModalOpen(false);
             await load();
         } catch (e: any) {
-            setErr(getErrorMessage(e, `Failed to ${modalMode}.`));
+            setErr(getErrorMessage(e, t("reagents.errors.actionFailed", { action: decisionMode })));
         } finally {
-            setBusyId(null);
+            setBusy(false);
         }
     }
 
-    function clearSearch() {
-        setSearch("");
-        load({ resetPage: true });
+    if (!Number.isFinite(loId) || loId <= 0) {
+        return (
+            <div className="min-h-[60vh] px-0 py-4">
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 inline-flex items-center gap-2">
+                    <AlertTriangle size={18} />
+                    {t("reagents.errors.invalidLooId")}
+                </div>
+            </div>
+        );
+    }
+
+    if (loading) {
+        return <div className="min-h-[60vh] px-0 py-4 text-sm text-gray-600">{t("reagents.loading.detail")}</div>;
     }
 
     return (
         <div className="min-h-[60vh]">
-            {/* Header */}
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
-                <div>
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">Reagent Approvals</h1>
-                    <p className="text-xs text-gray-500 mt-1">
-                        Review submitted reagent requests. Approve to proceed, reject with a clear note for revision.
-                    </p>
-                </div>
-
-                <button
-                    type="button"
-                    onClick={() => load()}
-                    className="lims-icon-button self-start md:self-auto"
-                    aria-label="Refresh"
-                    title="Refresh"
-                    disabled={loading}
-                >
-                    <RefreshCw size={16} />
-                </button>
+            {/* Breadcrumb */}
+            <div className="px-0 py-2">
+                <nav className="lims-breadcrumb">
+                    <Link to="/reagents/approvals" className="lims-breadcrumb-link inline-flex items-center gap-2">
+                        <ArrowLeft size={16} />
+                        {t("reagents.approvals.breadcrumb.inbox")}
+                    </Link>
+                    <span className="lims-breadcrumb-separator">›</span>
+                    <span className="lims-breadcrumb-current">{looNumber}</span>
+                </nav>
             </div>
 
-            {/* Feedback */}
-            {success && (
-                <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 inline-flex items-center gap-2">
-                    <CheckCircle2 size={18} />
-                    {success}
-                </div>
-            )}
-            {err && (
-                <div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-                    {err}
-                </div>
-            )}
+            <div className="lims-detail-shell">
+                {/* Header */}
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0">
+                        <h1 className="text-lg md:text-xl font-bold text-gray-900 truncate">{pageTitle}</h1>
 
-            <div className="mt-3 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Filter bar */}
-                <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
-                    <div className="w-full md:w-60">
-                        <label className="text-xs font-semibold text-gray-700" htmlFor="rr-status">
-                            Status
-                        </label>
-                        <select
-                            id="rr-status"
-                            className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                            value={status}
-                            onChange={(e) => setStatus(e.target.value as any)}
-                        >
-                            <option value="submitted">Submitted</option>
-                            <option value="approved">Approved</option>
-                            <option value="rejected">Rejected</option>
-                            <option value="draft">Draft</option>
-                            <option value="all">All</option>
-                        </select>
-                    </div>
-
-                    <div className="flex-1">
-                        <label className="text-xs font-semibold text-gray-700" htmlFor="rr-search">
-                            Search
-                        </label>
-
-                        <div className="mt-1 relative">
-                            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
-                                <Search size={16} />
+                        <div className="mt-1 text-xs text-gray-600 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="inline-flex items-center gap-1">
+                                <Hash size={14} />
+                                {t("reagents.approvals.detail.meta.looId")} <span className="font-semibold">{loId}</span>
                             </span>
 
-                            <input
-                                id="rr-search"
-                                className="w-full rounded-xl border border-gray-300 pl-9 pr-10 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                placeholder="Search by LOO number / client name…"
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (e.key === "Enter") load({ resetPage: true });
-                                }}
-                            />
+                            {request?.reagent_request_id ? (
+                                <span className="text-gray-500">
+                                    • {t("reagents.approvals.detail.meta.requestId")} {request.reagent_request_id}
+                                </span>
+                            ) : null}
 
-                            {search.trim() ? (
-                                <button
-                                    type="button"
-                                    className="absolute inset-y-0 right-2 inline-flex items-center justify-center rounded-lg px-2 text-gray-500 hover:text-gray-700"
-                                    onClick={clearSearch}
-                                    aria-label="Clear search"
-                                    title="Clear search"
-                                >
-                                    <XCircle size={16} />
-                                </button>
+                            {request?.cycle_no ? (
+                                <span className="text-gray-500">
+                                    • {t("reagents.approvals.detail.meta.cycle")} {request.cycle_no}
+                                </span>
+                            ) : null}
+
+                            {clientName ? (
+                                <span className="text-gray-500 inline-flex items-center gap-1">
+                                    • <User size={14} /> {clientName}
+                                </span>
                             ) : null}
                         </div>
 
-                        <div className="mt-2 text-xs text-gray-500">
-                            Tip: tekan <span className="font-semibold">Enter</span> untuk apply search.
+                        <div className="mt-2 flex items-center gap-2 flex-wrap">
+                            <span
+                                className={cx(
+                                    "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold border",
+                                    statusBadgeTone(request?.status)
+                                )}
+                            >
+                                <ClipboardList size={16} />
+                                {statusLabel(request?.status)}
+                            </span>
+
+                            {!canAct && requestStatusRaw ? (
+                                <span className="text-xs text-gray-500">
+                                    • {t("reagents.approvals.detail.actionsOnlyWhenSubmitted")}
+                                </span>
+                            ) : null}
                         </div>
                     </div>
 
-                    <div className="w-full md:w-auto flex items-center justify-between md:justify-end gap-3">
-                        <div className="text-xs text-gray-500">
-                            Total: <span className="font-semibold">{totalLabel}</span>
-                        </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                            type="button"
+                            onClick={() => nav(-1)}
+                            className="btn-outline inline-flex items-center gap-2"
+                            title={t("back")}
+                        >
+                            <ArrowLeft size={16} />
+                            {t("back")}
+                        </button>
 
                         <button
                             type="button"
-                            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                            onClick={() => load({ resetPage: true })}
-                            disabled={loading}
-                            aria-label="Apply search"
-                            title="Apply search"
+                            onClick={load}
+                            className={cx("lims-icon-button", busy ? "opacity-60 cursor-not-allowed" : "")}
+                            aria-label={t("refresh")}
+                            title={t("refresh")}
+                            disabled={busy}
                         >
-                            <Search size={16} />
-                            Apply
+                            <RefreshCw size={16} />
+                        </button>
+
+                        <button
+                            type="button"
+                            className={cx(
+                                "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                                !canAct || busy
+                                    ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                                    : "bg-emerald-600 text-white hover:opacity-95"
+                            )}
+                            disabled={!canAct || busy}
+                            onClick={openApprove}
+                            title={!canAct ? t("reagents.approvals.detail.onlySubmittedCanApprove") : t("approve")}
+                        >
+                            <ShieldCheck size={16} />
+                            {t("approve")}
+                        </button>
+
+                        <button
+                            type="button"
+                            className={cx(
+                                "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                                !canAct || busy
+                                    ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                                    : "bg-rose-600 text-white hover:opacity-95"
+                            )}
+                            disabled={!canAct || busy}
+                            onClick={openReject}
+                            title={!canAct ? t("reagents.approvals.detail.onlySubmittedCanReject") : t("reject")}
+                        >
+                            <XCircle size={16} />
+                            {t("reject")}
                         </button>
                     </div>
                 </div>
 
-                <div className="px-4 md:px-6 py-4">
-                    {loading ? (
-                        <div className="text-sm text-gray-600">Loading approvals…</div>
-                    ) : rows.length === 0 ? (
-                        <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
-                            No approvals found for the current filters.
+                {/* Feedback */}
+                {success && (
+                    <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 inline-flex items-center gap-2">
+                        <CheckCircle2 size={18} />
+                        {success}
+                    </div>
+                )}
+
+                {err && (
+                    <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 inline-flex items-center gap-2">
+                        <AlertTriangle size={18} />
+                        {err}
+                    </div>
+                )}
+
+                {/* Content */}
+                <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* LOO summary + samples */}
+                    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                        <div className="border-b border-gray-100 px-5 py-4 bg-gray-50">
+                            <div className="font-bold text-gray-900">{t("reagents.approvals.detail.cards.looOverview")}</div>
+                            <div className="mt-1 text-xs text-gray-600">
+                                {loo?.number ? (
+                                    <>
+                                        {t("reagents.approvals.detail.looNumberLabel")}:{" "}
+                                        <span className="font-semibold">{loo.number}</span>
+                                    </>
+                                ) : (
+                                    t("reagents.approvals.detail.looNotAvailable")
+                                )}
+                                {loo?.generated_at ? (
+                                    <span className="text-gray-500">
+                                        {" "}
+                                        • {t("reagents.approvals.detail.generatedAt")} {formatDateTimeLocal(loo.generated_at)}
+                                    </span>
+                                ) : null}
+                            </div>
                         </div>
-                    ) : (
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full text-sm">
-                                <thead className="bg-white text-gray-700 border-b border-gray-100">
-                                    <tr>
-                                        <th className="text-left font-semibold px-4 py-3">LOO</th>
-                                        <th className="text-left font-semibold px-4 py-3">Status</th>
-                                        <th className="text-left font-semibold px-4 py-3">Items</th>
-                                        <th className="text-left font-semibold px-4 py-3">Bookings</th>
-                                        <th className="text-left font-semibold px-4 py-3">Submitted</th>
-                                        <th className="text-right font-semibold px-4 py-3">Actions</th>
-                                    </tr>
-                                </thead>
 
-                                <tbody className="divide-y divide-gray-100">
-                                    {rows.map((r) => {
-                                        const busy = busyId === r.reagent_request_id;
-                                        const st = String(r.status ?? "");
-                                        const canAct = st === "submitted";
-
-                                        const loId = Number((r as any).lo_id ?? 0);
-
-                                        return (
-                                            <tr key={r.reagent_request_id} className="hover:bg-gray-50">
-                                                <td className="px-4 py-3">
-                                                    <div className="font-medium text-gray-900">
-                                                        {r.loo_number ?? (loId > 0 ? `LOO #${loId}` : "LOO")}
-                                                    </div>
-                                                    <div className="text-[11px] text-gray-500">
-                                                        req_id: {r.reagent_request_id} • cycle {r.cycle_no}
-                                                        {(r as any)?.client_name ? ` • ${(r as any).client_name}` : ""}
-                                                    </div>
-                                                </td>
-
-                                                <td className="px-4 py-3">
-                                                    <span
-                                                        className={cx(
-                                                            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold",
-                                                            statusTone(st)
-                                                        )}
-                                                    >
-                                                        {st || "—"}
-                                                    </span>
-                                                </td>
-
-                                                <td className="px-4 py-3 text-gray-700">{r.items_count ?? 0}</td>
-                                                <td className="px-4 py-3 text-gray-700">{r.bookings_count ?? 0}</td>
-
-                                                <td className="px-4 py-3 text-gray-700">
-                                                    {r.submitted_at ? formatDateTimeLocal(r.submitted_at) : "—"}
-                                                </td>
-
-                                                <td className="px-4 py-3">
-                                                    <div className="flex items-center justify-end gap-2">
-                                                        <Link
-                                                            to={`/reagents/approvals/loo/${loId}`}
-                                                            className={cx("lims-icon-button", loId > 0 ? "" : "opacity-40 cursor-not-allowed")}
-                                                            aria-label="View detail"
-                                                            title={loId > 0 ? "View detail" : "Missing LOO id"}
-                                                            onClick={(e) => {
-                                                                if (!(loId > 0)) e.preventDefault();
-                                                            }}
-                                                        >
-                                                            <Eye size={16} />
-                                                        </Link>
-
-                                                        {canAct ? (
-                                                            <>
-                                                                <button
-                                                                    type="button"
-                                                                    disabled={busy}
-                                                                    className={cx(
-                                                                        "lims-icon-button",
-                                                                        busy && "opacity-40 cursor-not-allowed"
-                                                                    )}
-                                                                    onClick={() => openDecision(r, "approve")}
-                                                                    aria-label="Approve"
-                                                                    title="Approve"
-                                                                >
-                                                                    <CheckCircle2 size={16} />
-                                                                </button>
-
-                                                                <button
-                                                                    type="button"
-                                                                    disabled={busy}
-                                                                    className={cx(
-                                                                        "lims-icon-button lims-icon-button--danger",
-                                                                        busy && "opacity-40 cursor-not-allowed"
-                                                                    )}
-                                                                    onClick={() => openDecision(r, "reject")}
-                                                                    aria-label="Reject"
-                                                                    title="Reject"
-                                                                >
-                                                                    <XCircle size={16} />
-                                                                </button>
-                                                            </>
-                                                        ) : (
-                                                            <span className="text-xs text-gray-400">—</span>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-
-                    {/* Pagination */}
-                    <div className="mt-4 flex items-center justify-between">
-                        <div className="text-xs text-gray-500">
-                            Page <span className="font-semibold">{page}</span>
-                            {meta?.total_pages ? (
-                                <>
-                                    {" "}
-                                    / <span className="font-semibold">{meta.total_pages}</span>
-                                </>
+                        <div className="p-5">
+                            {looWarn ? (
+                                <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 inline-flex items-center gap-2">
+                                    <AlertTriangle size={16} />
+                                    {looWarn}
+                                </div>
                             ) : null}
+
+                            <div className="text-sm font-semibold text-gray-900 mb-2">
+                                {t("reagents.approvals.detail.samplesTitle")}
+                            </div>
+
+                            {loo?.items?.length ? (
+                                <div className="space-y-2">
+                                    {loo.items.map((it: any, idx: number) => (
+                                        <div key={`${it.sample_id ?? idx}`} className="rounded-xl border border-gray-200 px-3 py-2">
+                                            <div className="text-sm font-semibold text-gray-900">
+                                                {it.lab_sample_code ?? it.sample?.lab_sample_code ?? "—"}
+                                            </div>
+                                            <div className="text-xs text-gray-600">
+                                                sample_id:{" "}
+                                                <span className="font-semibold">
+                                                    {it.sample_id ?? it.sample?.sample_id ?? "—"}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-sm text-gray-600">{t("reagents.approvals.detail.samplesNotFound")}</div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Request content */}
+                    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                        <div className="border-b border-gray-100 px-5 py-4 bg-gray-50">
+                            <div className="font-bold text-gray-900">{t("reagents.approvals.detail.cards.requestContent")}</div>
+                            <div className="mt-1 text-xs text-gray-600">
+                                {t("reagents.approvals.detail.itemsCount")}:{" "}
+                                <span className="font-semibold">{items.length}</span> •{" "}
+                                {t("reagents.approvals.detail.bookingsCount")}:{" "}
+                                <span className="font-semibold">{bookings.length}</span>
+                            </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            <button
-                                type="button"
-                                className={cx("lims-icon-button", (!canPrev || loading) && "opacity-40 cursor-not-allowed")}
-                                disabled={!canPrev || loading}
-                                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                                aria-label="Prev"
-                                title="Prev"
-                            >
-                                <ChevronLeft size={16} />
-                            </button>
+                        <div className="p-5 space-y-6">
+                            {/* Items */}
+                            <div>
+                                <div className="text-sm font-semibold text-gray-900 mb-2">
+                                    {t("reagents.approvals.detail.sections.items")}
+                                </div>
 
-                            <button
-                                type="button"
-                                className={cx("lims-icon-button", (!canNext || loading) && "opacity-40 cursor-not-allowed")}
-                                disabled={!canNext || loading}
-                                onClick={() => setPage((p) => p + 1)}
-                                aria-label="Next"
-                                title="Next"
-                            >
-                                <ChevronRight size={16} />
-                            </button>
+                                {items.length ? (
+                                    <div className="overflow-x-auto rounded-xl border border-gray-200">
+                                        <table className="min-w-full text-sm">
+                                            <thead className="bg-white text-gray-700 border-b border-gray-100">
+                                                <tr>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableItems.name")}
+                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableItems.type")}
+                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableItems.qty")}
+                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableItems.unit")}
+                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableItems.note")}
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {items.map((it: any, idx: number) => (
+                                                    <tr key={it.reagent_request_item_id ?? `${it.catalog_item_id}-${idx}`} className="hover:bg-gray-50">
+                                                        <td className="px-4 py-3 font-medium text-gray-900">{it.item_name ?? "—"}</td>
+                                                        <td className="px-4 py-3 text-gray-700">{it.item_type ?? "—"}</td>
+                                                        <td className="px-4 py-3 text-gray-700">{Number(it.qty ?? 0)}</td>
+                                                        <td className="px-4 py-3 text-gray-700">{it.unit_text ?? "—"}</td>
+                                                        <td className="px-4 py-3 text-gray-700">{it.note ? String(it.note) : "—"}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : (
+                                    <div className="text-sm text-gray-600">{t("reagents.approvals.detail.emptyItems")}</div>
+                                )}
+                            </div>
+
+                            {/* Bookings */}
+                            <div>
+                                <div className="text-sm font-semibold text-gray-900 mb-2 inline-flex items-center gap-2">
+                                    <Wrench size={16} />
+                                    {t("reagents.approvals.detail.sections.bookings")}
+                                </div>
+
+                                {bookings.length ? (
+                                    <div className="overflow-x-auto rounded-xl border border-gray-200">
+                                        <table className="min-w-full text-sm">
+                                            <thead className="bg-white text-gray-700 border-b border-gray-100">
+                                                <tr>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableBookings.equipment")}
+                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableBookings.start")}
+                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableBookings.end")}
+                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableBookings.note")}
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {bookings.map((b: any, idx: number) => (
+                                                    <tr key={b.booking_id ?? `${b.equipment_id}-${idx}`} className="hover:bg-gray-50">
+                                                        <td className="px-4 py-3 font-medium text-gray-900">
+                                                            {(b.equipment_code ? `${b.equipment_code} • ` : "") +
+                                                                (b.equipment_name ?? t("reagents.approvals.detail.equipmentFallback"))}
+                                                            <span className="text-gray-500"> (#{b.equipment_id})</span>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-gray-700">
+                                                            {b.planned_start_at ? formatDateTimeLocal(b.planned_start_at) : "—"}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-gray-700">
+                                                            {b.planned_end_at ? formatDateTimeLocal(b.planned_end_at) : "—"}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-gray-700">{b.note ? String(b.note) : "—"}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : (
+                                    <div className="text-sm text-gray-600">{t("reagents.approvals.detail.emptyBookings")}</div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            {/* Modal */}
-            <ReagentApprovalDecisionModal
-                open={modalOpen}
-                mode={modalMode}
-                busy={busyId != null}
-                request={activeRow as any}
-                looNumber={(activeRow as any)?.loo_number ?? null}
-                clientName={(activeRow as any)?.client_name ?? null}
-                itemsCount={(activeRow as any)?.items_count ?? 0}
-                bookingsCount={(activeRow as any)?.bookings_count ?? 0}
-                onClose={() => (busyId != null ? null : setModalOpen(false))}
-                onConfirm={confirmDecision}
-            />
+                {/* Modal */}
+                <ReagentApprovalDecisionModal
+                    open={modalOpen}
+                    mode={decisionMode}
+                    busy={busy}
+                    request={request}
+                    looNumber={(loo as any)?.number ?? (request as any)?.loo_number ?? null}
+                    clientName={(loo as any)?.client?.name ?? (request as any)?.client_name ?? null}
+                    itemsCount={items.length}
+                    bookingsCount={bookings.length}
+                    onClose={() => (busy ? null : setModalOpen(false))}
+                    onConfirm={confirmDecision}
+                />
+            </div>
         </div>
     );
 }

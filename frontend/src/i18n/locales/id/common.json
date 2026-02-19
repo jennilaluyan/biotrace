@@ -636,154 +636,228 @@
         }
     },
     "reagents": {
+        "status": {
+            "draft": "Draft",
+            "submitted": "Diajukan",
+            "approved": "Disetujui",
+            "rejected": "Ditolak"
+        },
+        "loading": {
+            "inbox": "Memuat daftar persetujuan…",
+            "detail": "Memuat detail persetujuan…",
+            "request": "Memuat reagent request…",
+            "catalog": "Memuat katalog…",
+            "equipment": "Memuat equipment…"
+        },
+        "errors": {
+            "invalidLooId": "ID LOO tidak valid.",
+            "missingLooId": "ID LOO tidak ditemukan.",
+            "rejectNoteMin": "Catatan penolakan wajib diisi (min 3 karakter).",
+            "loadInboxFailed": "Gagal memuat inbox persetujuan reagen.",
+            "loadApprovalDetailFailed": "Gagal memuat detail persetujuan reagen.",
+            "loadRequestFailed": "Gagal memuat reagent request.",
+            "saveDraftFailed": "Gagal menyimpan draft.",
+            "submitFailed": "Gagal submit.",
+            "actionFailed": "Gagal melakukan aksi {{action}}."
+        },
+        "approvals": {
+            "title": "Persetujuan reagen",
+            "subtitle": "Review request yang diajukan. Setujui untuk lanjut proses, atau tolak dengan catatan revisi yang jelas.",
+            "breadcrumb": {
+                "inbox": "Persetujuan reagen"
+            },
+            "filters": {
+                "status": "Status",
+                "all": "Semua",
+                "searchPlaceholder": "Cari berdasarkan nomor LOO / nama klien…",
+                "clearSearch": "Hapus pencarian",
+                "enterTip": "Tips: tekan Enter untuk menerapkan pencarian.",
+                "total": "Total",
+                "apply": "Terapkan"
+            },
+            "empty": "Tidak ada data persetujuan untuk filter saat ini.",
+            "table": {
+                "loo": "LOO",
+                "items": "Item",
+                "bookings": "Booking",
+                "submitted": "Diajukan",
+                "cycle": "siklus"
+            },
+            "pagination": {
+                "page": "Halaman"
+            },
+            "actions": {
+                "viewDetail": "Lihat detail"
+            },
+            "flashApprovedShort": "Disetujui.",
+            "flashRejectedShort": "Ditolak.",
+            "detail": {
+                "pageTitle": "Persetujuan reagen • {{looNumber}}",
+                "meta": {
+                    "looId": "LOO ID",
+                    "requestId": "Request ID",
+                    "cycle": "Siklus"
+                },
+                "actionsOnlyWhenSubmitted": "Aksi hanya tersedia saat status masih Diajukan.",
+                "onlySubmittedCanApprove": "Hanya request berstatus Diajukan yang bisa disetujui.",
+                "onlySubmittedCanReject": "Hanya request berstatus Diajukan yang bisa ditolak.",
+                "flashApproved": "Disetujui. Dokumen Reagent Request bisa digenerate pada langkah berikutnya.",
+                "flashRejected": "Ditolak. Analyst perlu revisi dan submit ulang.",
+                "cards": {
+                    "looOverview": "Ringkasan LOO",
+                    "requestContent": "Isi request"
+                },
+                "looNumberLabel": "Nomor LOO",
+                "generatedAt": "dibuat",
+                "looNotAvailable": "Detail LOO tidak tersedia",
+                "looWarnEndpoint": "Detail LOO tidak tersedia (endpoint tidak cocok). Daftar sampel mungkin tidak tampil.",
+                "looWarnFailed": "Detail LOO gagal dimuat. Daftar sampel mungkin tidak tampil.",
+                "samplesTitle": "Daftar sampel pada LOO ini",
+                "samplesNotFound": "Daftar sampel untuk LOO ini tidak ditemukan.",
+                "itemsCount": "Item",
+                "bookingsCount": "Booking",
+                "sections": {
+                    "items": "Item",
+                    "bookings": "Booking equipment"
+                },
+                "tableItems": {
+                    "name": "Nama",
+                    "type": "Tipe",
+                    "qty": "Qty",
+                    "unit": "Satuan",
+                    "note": "Catatan"
+                },
+                "tableBookings": {
+                    "equipment": "Equipment",
+                    "start": "Mulai (rencana)",
+                    "end": "Selesai (rencana)",
+                    "note": "Catatan"
+                },
+                "emptyItems": "Belum ada item.",
+                "emptyBookings": "Belum ada booking.",
+                "equipmentFallback": "Equipment"
+            }
+        },
         "approval": {
-            "approveTitle": "Setujui permintaan reagen",
-            "rejectTitle": "Tolak permintaan reagen",
-            "subtitleFallback": "—",
-            "rejectNoteRequired": "Catatan penolakan (wajib)",
-            "rejectNotePlaceholder": "Tuliskan alasan penolakan… (min 3 karakter)",
-            "rejectNoteHelp": "Catatan ini akan dikirim ke Analis untuk revisi draft.",
-            "approveHint": "Setelah disetujui, dokumen Reagent Request akan digenerate.",
+            "approveTitle": "Setujui reagent request",
+            "rejectTitle": "Tolak reagent request",
+            "subtitleFallback": "Keputusan persetujuan reagen",
             "summaryStatus": "Status",
             "summaryItems": "Item",
             "summaryBookings": "Booking",
-            "summaryRequestId": "ID Permintaan",
-            "summaryLoId": "ID LOO",
-            "summaryCycle": "Siklus"
+            "summaryRequestId": "Request ID",
+            "summaryLoId": "LOO ID",
+            "summaryCycle": "Siklus",
+            "rejectNoteRequired": "Catatan penolakan (wajib)",
+            "rejectNotePlaceholder": "Tulis alasan revisi yang singkat dan jelas…",
+            "rejectNoteHelp": "Buat spesifik: apa yang harus diperbaiki dan apa yang perlu disubmit ulang.",
+            "approveHint": "Setujui request ini untuk membuka langkah generate dokumen berikutnya."
+        },
+        "request": {
+            "title": "Reagent request",
+            "subtitle": "Susun request per LOO • LOO ID: {{id}}",
+            "breadcrumb": {
+                "title": "Reagent request",
+                "loo": "LOO #{{id}}"
+            },
+            "cycle": "Siklus",
+            "editLocked": "edit terkunci",
+            "editableDraft": "draft bisa diedit",
+            "viewCartHint": "Lihat & edit isi request",
+            "cartButton": "Request",
+            "cartBadge": "{{items}} item • {{bookings}} alat",
+            "cartEmptyBadge": "(kosong)",
+            "unnamedItem": "(tanpa nama)",
+            "flashDraftSaved": "Draft berhasil disimpan.",
+            "flashSubmitted": "Reagent request berhasil disubmit.",
+            "lockedBanner": "Request berstatus {{status}}. Edit terkunci.",
+            "errors": {
+                "lockedEdit": "Request sudah {{status}}. Tidak bisa edit / simpan draft.",
+                "lockedEditShort": "Request terkunci (diajukan/disetujui).",
+                "noRequestYet": "Belum ada request. Simpan draft dulu.",
+                "notDraftCannotSubmit": "Tidak bisa submit. Status sekarang: {{status}}.",
+                "minContent": "Tambahkan minimal 1 item atau 1 booking sebelum submit."
+            },
+            "hints": {
+                "onlyDraftCanSubmit": "Hanya status Draft yang bisa disubmit.",
+                "minContentToSubmit": "Tambahkan minimal 1 item atau 1 booking.",
+                "requestLocked": "Request terkunci (diajukan/disetujui)."
+            },
+            "crosscheck": {
+                "title": "Crosscheck belum lolos",
+                "body": "Submit ditolak karena ada sampel dalam LOO ini yang belum berstatus passed.",
+                "sampleLine": "Sample #{{id}} • {{code}} • {{status}}"
+            },
+            "catalog": {
+                "title": "Katalog item (BHP/Reagen)",
+                "tabs": {
+                    "all": "Semua",
+                    "bhp": "BHP",
+                    "reagent": "Reagen"
+                },
+                "searchPlaceholder": "Cari item katalog…",
+                "tip": "Semua item ditampilkan; pencarian hanya mempercepat. Klik item untuk menambah ke Request.",
+                "empty": "Item katalog tidak ditemukan.",
+                "unit": "satuan:",
+                "add": "Tambah",
+                "addHint": "Tambah ke request"
+            },
+            "equipment": {
+                "title": "Equipment",
+                "searchPlaceholder": "Cari equipment…",
+                "tip": "Klik equipment untuk menambah booking ke Request.",
+                "empty": "Equipment tidak ditemukan.",
+                "add": "Tambah booking",
+                "addHint": "Tambah booking",
+                "idLabel": "equipment_id:",
+                "fallback": "Equipment"
+            },
+            "footer": {
+                "showing": "Menampilkan {{shown}} item{{total, string}}",
+                "loadMore": "Muat lagi",
+                "noMorePages": "Tidak ada halaman berikutnya"
+            },
+            "help": "Klik item katalog / equipment untuk menambah ke request. Buka tombol Request (ikon cart) untuk mengubah qty, satuan, catatan, dan waktu booking."
         },
         "cart": {
-            "ariaLabel": "Keranjang permintaan reagen",
-            "title": "Permintaan reagen",
+            "ariaLabel": "Keranjang reagent request",
+            "title": "Keranjang request",
             "looNumber": "LOO #{{id}}",
             "statusLabel": "Status: {{status}}",
             "cycleLabel": "Siklus {{cycle}}",
-            "itemsCount": "{{count}} item",
-            "bookingsCount": "{{count}} booking",
-            "totalQty": "Total qty {{qty}}",
-            "lockedBanner": "Edit dikunci (submitted/approved)",
-            "lockedHint": "Permintaan ini sudah {{status}}. Edit dikunci.",
-            "minSubmitHint": "Tambahkan minimal 1 item atau 1 booking.",
-            "itemsTitle": "Item permintaan",
-            "itemsSubtitle": "Nama • Qty • Unit • Catatan",
-            "equipmentTitle": "Booking alat",
-            "equipmentSubtitle": "Alat • Mulai • Selesai • Catatan",
+            "lockedBanner": "Request ini terkunci. Item dan booking tidak bisa diedit.",
+            "lockedHint": "Request terkunci ({{status}}).",
+            "itemsCount_one": "{{count}} item",
+            "itemsCount_other": "{{count}} item",
+            "bookingsCount_one": "{{count}} booking",
+            "bookingsCount_other": "{{count}} booking",
+            "totalQty": "Total qty: {{qty}}",
+            "itemsTitle": "Item",
+            "itemsSubtitle": "Atur qty, satuan, dan catatan bila perlu.",
+            "equipmentTitle": "Booking equipment",
+            "equipmentSubtitle": "Atur jadwal rencana untuk setiap booking.",
             "emptyItemsTitle": "Belum ada item",
-            "emptyItemsBody": "Pilih item dari katalog di halaman utama.",
-            "emptyBookingsTitle": "Belum ada booking",
-            "emptyBookingsBody": "Pilih alat dari daftar di halaman utama.",
-            "unitPlaceholder": "(pilih unit)",
-            "notePlaceholder": "Opsional…",
-            "tipsBody": "Pilih item/alat dari halaman utama → atur jumlah/unit/waktu → simpan draf → kirim.",
-            "decrease": "Kurangi",
-            "increase": "Tambah",
-            "equipmentId": "equipment_id",
-            "bookingId": "booking_id",
-            "newBooking": "booking baru",
+            "emptyItemsBody": "Tambahkan item dari katalog, lalu kembali ke sini untuk merapikan.",
+            "emptyBookingsTitle": "Belum ada booking equipment",
+            "emptyBookingsBody": "Tambahkan equipment dari daftar, lalu atur jadwal di sini.",
             "table": {
                 "name": "Nama",
                 "qty": "Qty",
-                "unit": "Unit",
+                "unit": "Satuan",
                 "note": "Catatan",
-                "equipment": "Alat",
-                "start": "Mulai",
-                "end": "Selesai"
-            }
-        },
-        "pages": {
-            "approvalsInbox": {
-                "title": "Persetujuan reagen",
-                "subtitle": "Tinjau permintaan reagen yang diajukan. Setujui untuk lanjut, atau tolak dengan catatan yang jelas.",
-                "loading": "Memuat daftar persetujuan…",
-                "empty": "Tidak ada permintaan yang cocok.",
-                "filters": {
-                    "statusLabel": "Status",
-                    "searchPlaceholder": "Cari nomor LOO / nama klien…",
-                    "searchHint": "Tekan Enter untuk menerapkan pencarian."
-                },
-                "table": {
-                    "loo": "LOO",
-                    "status": "Status",
-                    "items": "Item",
-                    "bookings": "Booking",
-                    "submittedAt": "Diajukan",
-                    "actions": "Aksi",
-                    "reqId": "req_id",
-                    "cycle": "cycle"
-                },
-                "pagination": {
-                    "page": "Halaman",
-                    "noAction": "—"
-                },
-                "statusOptions": {
-                    "submitted": "Diajukan",
-                    "approved": "Disetujui",
-                    "rejected": "Ditolak",
-                    "draft": "Draf",
-                    "all": "Semua"
-                }
+                "equipment": "Equipment",
+                "start": "Mulai (rencana)",
+                "end": "Selesai (rencana)"
             },
-            "approvalDetail": {
-                "title": "Detail persetujuan reagen",
-                "loading": "Memuat detail persetujuan…",
-                "invalidId": "ID LOO tidak valid.",
-                "meta": {
-                    "loId": "lo_id",
-                    "requestId": "request_id",
-                    "cycle": "cycle"
-                },
-                "sections": {
-                    "looSamples": "Sampel pada LOO",
-                    "requestContent": "Isi permintaan",
-                    "items": "Item",
-                    "equipmentBookings": "Booking alat"
-                },
-                "loo": {
-                    "detailNotAvailable": "Detail LOO tidak tersedia.",
-                    "warnNoEndpoint": "Detail LOO tidak tersedia (endpoint tidak cocok). Daftar sampel mungkin tidak tampil.",
-                    "warnLoadFailed": "Gagal memuat detail LOO. Daftar sampel mungkin tidak tampil.",
-                    "noSamples": "Daftar sampel tidak ditemukan untuk LOO ini."
-                }
-            },
-            "requestBuilder": {
-                "title": "Permintaan reagen",
-                "subtitle": "Susun permintaan untuk LOO ini • LOO ID: {{loId}}",
-                "badges": {
-                    "cycle": "Siklus {{cycle}}",
-                    "locked": "edit dikunci",
-                    "editable": "draf bisa diedit"
-                },
-                "catalog": {
-                    "title": "Item katalog (BHP/Reagen)",
-                    "tabs": {
-                        "all": "Semua",
-                        "bhp": "BHP",
-                        "reagen": "REAGEN"
-                    },
-                    "searchPlaceholder": "Cari item katalog…",
-                    "hint": "Semua item ditampilkan; pencarian hanya untuk mempercepat. Klik item untuk menambah ke permintaan.",
-                    "loading": "Memuat katalog…",
-                    "empty": "Item katalog tidak ditemukan.",
-                    "loadMore": "Muat lebih banyak",
-                    "add": "Tambah"
-                },
-                "equipment": {
-                    "title": "Peralatan",
-                    "searchPlaceholder": "Cari peralatan…",
-                    "hint": "Klik peralatan untuk menambah booking ke permintaan.",
-                    "loading": "Memuat peralatan…",
-                    "empty": "Peralatan tidak ditemukan.",
-                    "loadMore": "Muat lebih banyak",
-                    "addBooking": "Tambah booking"
-                },
-                "tips": {
-                    "title": "Tips",
-                    "body": "Pilih item/peralatan dari daftar → atur qty/unit/waktu di Permintaan (cart) → simpan draf → kirim."
-                }
-            },
-            "gate": {
-                "crosscheckNotPassedTitle": "Crosscheck gate belum lolos",
-                "crosscheckNotPassedDesc": "Pengajuan diblok karena setidaknya ada 1 sampel pada LOO ini yang belum berstatus passed."
-            }
+            "unitPlaceholder": "Pilih satuan…",
+            "notePlaceholder": "Catatan (opsional)…",
+            "decrease": "Kurangi",
+            "increase": "Tambah",
+            "equipmentId": "Equipment ID",
+            "bookingId": "Booking ID",
+            "newBooking": "Booking baru",
+            "minSubmitHint": "Tambahkan minimal 1 item atau 1 booking sebelum submit.",
+            "tipsBody": "Simpan Draft untuk menyimpan perubahan. Submit jika sudah siap. Setelah submit, edit akan terkunci."
         }
     },
     "reports": {
@@ -1475,5 +1549,86 @@
         "somethingWentWrong": "Terjadi kesalahan.",
         "accessDeniedTitle": "403 – Akses ditolak",
         "accessDeniedBodyWithRole": "Peran Anda ({{role}}) tidak diizinkan mengakses halaman ini."
+    },
+    "loo": {
+        "generator": {
+            "title": "Workspace LOO",
+            "subtitle": "Pilih sampel kandidat, lengkapi approval, lalu generate Letter of Order (LOO).",
+            "roleLabel": "Role",
+            "searchPlaceholder": "Cari berdasarkan kode sampel / klien / jenis sampel…",
+            "filters": {
+                "statusLabel": "Filter status",
+                "statusAll": "Semua",
+                "statusReady": "Hanya yang siap",
+                "statusNeedsApproval": "Butuh approval"
+            },
+            "guidance": "Tips: Pilih parameter dulu, lalu approval. Hanya sampel berstatus “Ready” yang bisa digenerate.",
+            "summary": {
+                "visible": "Ditampilkan",
+                "selected": "Dipilih",
+                "readySelected": "Siap & dipilih",
+                "readyInList": "Siap di daftar"
+            },
+            "emptyTitle": "Tidak ada kandidat.",
+            "emptyBody": "Coba ubah kata kunci atau filter status, lalu refresh.",
+            "timestamps": {
+                "verified": "Terverifikasi",
+                "received": "Diterima"
+            },
+            "approval": {
+                "om": "OM",
+                "lh": "LH",
+                "approved": "Disetujui",
+                "pending": "Menunggu",
+                "toggleOm": "Ubah approval OM",
+                "toggleLh": "Ubah approval LH",
+                "onlyOm": "Hanya OM yang bisa mengubah",
+                "onlyLh": "Hanya LH yang bisa mengubah",
+                "readyStatus": "Ready",
+                "notReadyStatus": "Belum siap",
+                "readyHint": "Sampel ini siap untuk digenerate.",
+                "notReadyHint": "Butuh approval OM & LH."
+            },
+            "params": {
+                "title": "Parameter",
+                "minOne": "(minimal pilih 1)",
+                "fallback": "Parameter #{{id}}",
+                "none": "Tidak ada parameter.",
+                "notReadyNote": "Parameter bisa dipilih sekarang, tapi generate baru bisa setelah approval OM & LH lengkap."
+            },
+            "selectAll": "Pilih semua",
+            "selectAllHint": "Pilih semua item yang terlihat",
+            "clearSelection": "Batal pilih",
+            "clearSelectionHint": "Batal pilih untuk item yang terlihat",
+            "footerHint": "Generate hanya memakai sampel terpilih yang berstatus Ready.",
+            "reset": "Reset hasil",
+            "resetHint": "Bersihkan kartu hasil generate",
+            "generate": "Buat LOO",
+            "generating": "Sedang membuat LOO…",
+            "disabled": {
+                "noCandidates": "Tidak ada kandidat.",
+                "noneReadyInList": "Tidak ada sampel Ready di daftar.",
+                "pickReady": "Pilih minimal 1 sampel yang Ready."
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat kandidat.",
+                "approvalFailed": "Gagal memperbarui approval.",
+                "selectAtLeastOne": "Pilih minimal 1 sampel.",
+                "noneReadySelected": "Tidak ada sampel terpilih yang Ready.",
+                "paramRequiredForSample": "Pilih minimal 1 parameter untuk sampel #{{id}}.",
+                "missingPreviewUrl": "URL preview tidak ditemukan.",
+                "generateFailed": "Gagal generate LOO."
+            },
+            "result": {
+                "title": "LOO berhasil dibuat",
+                "number": "Nomor",
+                "recordNo": "Nomor rekaman",
+                "formCode": "Kode formulir",
+                "openPreview": "Buka pratinjau",
+                "downloadHint": "Gunakan jendela pratinjau untuk download/print PDF."
+            },
+            "previewTitle": "LOO {{number}}",
+            "previewTitleFallback": "Pratinjau LOO"
+        }
     }
 }

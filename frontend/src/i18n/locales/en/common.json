@@ -636,154 +636,228 @@
         }
     },
     "reagents": {
+        "status": {
+            "draft": "Draft",
+            "submitted": "Submitted",
+            "approved": "Approved",
+            "rejected": "Rejected"
+        },
+        "loading": {
+            "inbox": "Loading approvals…",
+            "detail": "Loading approval detail…",
+            "request": "Loading reagent request…",
+            "catalog": "Loading catalog…",
+            "equipment": "Loading equipment…"
+        },
+        "errors": {
+            "invalidLooId": "Invalid LOO id.",
+            "missingLooId": "Missing LOO id.",
+            "rejectNoteMin": "Reject note is required (min 3 characters).",
+            "loadInboxFailed": "Failed to load reagent approvals inbox.",
+            "loadApprovalDetailFailed": "Failed to load reagent approval detail.",
+            "loadRequestFailed": "Failed to load reagent request.",
+            "saveDraftFailed": "Failed to save draft.",
+            "submitFailed": "Submit failed.",
+            "actionFailed": "Failed to {{action}}."
+        },
+        "approvals": {
+            "title": "Reagent approvals",
+            "subtitle": "Review submitted reagent requests. Approve to proceed, or reject with a clear revision note.",
+            "breadcrumb": {
+                "inbox": "Reagent approvals"
+            },
+            "filters": {
+                "status": "Status",
+                "all": "All",
+                "searchPlaceholder": "Search by LOO number / client name…",
+                "clearSearch": "Clear search",
+                "enterTip": "Tip: press Enter to apply search.",
+                "total": "Total",
+                "apply": "Apply"
+            },
+            "empty": "No approvals found for the current filters.",
+            "table": {
+                "loo": "LOO",
+                "items": "Items",
+                "bookings": "Bookings",
+                "submitted": "Submitted",
+                "cycle": "cycle"
+            },
+            "pagination": {
+                "page": "Page"
+            },
+            "actions": {
+                "viewDetail": "View detail"
+            },
+            "flashApprovedShort": "Approved.",
+            "flashRejectedShort": "Rejected.",
+            "detail": {
+                "pageTitle": "Reagent approval • {{looNumber}}",
+                "meta": {
+                    "looId": "LOO ID",
+                    "requestId": "Request ID",
+                    "cycle": "Cycle"
+                },
+                "actionsOnlyWhenSubmitted": "Actions are only available when status is submitted.",
+                "onlySubmittedCanApprove": "Only submitted requests can be approved.",
+                "onlySubmittedCanReject": "Only submitted requests can be rejected.",
+                "flashApproved": "Approved. Reagent Request document can be generated next.",
+                "flashRejected": "Rejected. The analyst needs to revise and resubmit.",
+                "cards": {
+                    "looOverview": "LOO overview",
+                    "requestContent": "Request content"
+                },
+                "looNumberLabel": "LOO number",
+                "generatedAt": "generated",
+                "looNotAvailable": "LOO detail not available",
+                "looWarnEndpoint": "LOO detail is not available (endpoint mismatch). Sample list may not appear.",
+                "looWarnFailed": "LOO detail failed to load. Sample list may not appear.",
+                "samplesTitle": "Samples in this LOO",
+                "samplesNotFound": "No sample list found for this LOO.",
+                "itemsCount": "Items",
+                "bookingsCount": "Bookings",
+                "sections": {
+                    "items": "Items",
+                    "bookings": "Equipment bookings"
+                },
+                "tableItems": {
+                    "name": "Name",
+                    "type": "Type",
+                    "qty": "Qty",
+                    "unit": "Unit",
+                    "note": "Note"
+                },
+                "tableBookings": {
+                    "equipment": "Equipment",
+                    "start": "Planned start",
+                    "end": "Planned end",
+                    "note": "Note"
+                },
+                "emptyItems": "No items.",
+                "emptyBookings": "No bookings.",
+                "equipmentFallback": "Equipment"
+            }
+        },
         "approval": {
             "approveTitle": "Approve reagent request",
             "rejectTitle": "Reject reagent request",
-            "subtitleFallback": "—",
-            "rejectNoteRequired": "Rejection note (required)",
-            "rejectNotePlaceholder": "Write the reason for rejection… (min 3 characters)",
-            "rejectNoteHelp": "This note will be sent back to the analyst for revision.",
-            "approveHint": "After approval, the Reagent Request document will be generated.",
+            "subtitleFallback": "Reagent request decision",
             "summaryStatus": "Status",
             "summaryItems": "Items",
             "summaryBookings": "Bookings",
             "summaryRequestId": "Request ID",
             "summaryLoId": "LOO ID",
-            "summaryCycle": "Cycle"
+            "summaryCycle": "Cycle",
+            "rejectNoteRequired": "Rejection note (required)",
+            "rejectNotePlaceholder": "Write a short, actionable reason for revision…",
+            "rejectNoteHelp": "Keep it specific: what to fix, and what to submit again.",
+            "approveHint": "Approve this request to allow document generation in the next step."
+        },
+        "request": {
+            "title": "Reagent request",
+            "subtitle": "Build request per LOO • LOO ID: {{id}}",
+            "breadcrumb": {
+                "title": "Reagent request",
+                "loo": "LOO #{{id}}"
+            },
+            "cycle": "Cycle",
+            "editLocked": "editing locked",
+            "editableDraft": "draft editable",
+            "viewCartHint": "View & edit request items",
+            "cartButton": "Request",
+            "cartBadge": "{{items}} item • {{bookings}} equipment",
+            "cartEmptyBadge": "(empty)",
+            "unnamedItem": "(unnamed)",
+            "flashDraftSaved": "Draft saved.",
+            "flashSubmitted": "Request submitted.",
+            "lockedBanner": "Request is {{status}}. Editing is locked.",
+            "errors": {
+                "lockedEdit": "Request is already {{status}}. You can’t edit or save draft.",
+                "lockedEditShort": "Request is locked (submitted/approved).",
+                "noRequestYet": "No request yet. Save draft first.",
+                "notDraftCannotSubmit": "Can’t submit. Current status: {{status}}.",
+                "minContent": "Add at least 1 item or 1 booking before submitting."
+            },
+            "hints": {
+                "onlyDraftCanSubmit": "Only draft requests can be submitted.",
+                "minContentToSubmit": "Add at least 1 item or 1 booking.",
+                "requestLocked": "Request locked (submitted/approved)."
+            },
+            "crosscheck": {
+                "title": "Crosscheck gate not passed",
+                "body": "Submit was blocked because one or more samples in this LOO haven’t passed crosscheck.",
+                "sampleLine": "Sample #{{id}} • {{code}} • {{status}}"
+            },
+            "catalog": {
+                "title": "Catalog items (BHP/Reagent)",
+                "tabs": {
+                    "all": "All",
+                    "bhp": "BHP",
+                    "reagent": "Reagent"
+                },
+                "searchPlaceholder": "Search catalog items…",
+                "tip": "All items are shown; search just helps you find faster. Click an item to add to the request.",
+                "empty": "No catalog items found.",
+                "unit": "unit:",
+                "add": "Add",
+                "addHint": "Add to request"
+            },
+            "equipment": {
+                "title": "Equipment",
+                "searchPlaceholder": "Search equipment…",
+                "tip": "Click equipment to add a booking to the request.",
+                "empty": "No equipment found.",
+                "add": "Add booking",
+                "addHint": "Add booking",
+                "idLabel": "equipment_id:",
+                "fallback": "Equipment"
+            },
+            "footer": {
+                "showing": "Showing {{shown}} items{{total, string}}",
+                "loadMore": "Load more",
+                "noMorePages": "No more pages"
+            },
+            "help": "Click a catalog item / equipment to add it to the request. Use the Request (cart) button to edit qty, unit, notes, and booking time."
         },
         "cart": {
             "ariaLabel": "Reagent request cart",
-            "title": "Reagent request",
+            "title": "Request cart",
             "looNumber": "LOO #{{id}}",
             "statusLabel": "Status: {{status}}",
             "cycleLabel": "Cycle {{cycle}}",
-            "itemsCount": "{{count}} item(s)",
-            "bookingsCount": "{{count}} booking(s)",
-            "totalQty": "Total qty {{qty}}",
-            "lockedBanner": "Editing locked (submitted/approved)",
-            "lockedHint": "This request is {{status}}. Editing is locked.",
-            "minSubmitHint": "Add at least 1 item or 1 booking.",
-            "itemsTitle": "Request items",
-            "itemsSubtitle": "Name • Qty • Unit • Note",
+            "lockedBanner": "This request is locked. You can’t edit items or bookings.",
+            "lockedHint": "Request locked ({{status}}).",
+            "itemsCount_one": "{{count}} item",
+            "itemsCount_other": "{{count}} items",
+            "bookingsCount_one": "{{count}} booking",
+            "bookingsCount_other": "{{count}} bookings",
+            "totalQty": "Total qty: {{qty}}",
+            "itemsTitle": "Items",
+            "itemsSubtitle": "Adjust qty, unit, and add notes if needed.",
             "equipmentTitle": "Equipment bookings",
-            "equipmentSubtitle": "Equipment • Start • End • Note",
+            "equipmentSubtitle": "Set the planned schedule for each equipment booking.",
             "emptyItemsTitle": "No items yet",
-            "emptyItemsBody": "Select items from the catalog on the main page.",
-            "emptyBookingsTitle": "No bookings yet",
-            "emptyBookingsBody": "Select equipment from the list on the main page.",
-            "unitPlaceholder": "(choose unit)",
-            "notePlaceholder": "Optional…",
-            "tipsBody": "Pick items/equipment from the main page → adjust quantity/unit/time → save draft → submit.",
-            "decrease": "Decrease",
-            "increase": "Increase",
-            "equipmentId": "equipment_id",
-            "bookingId": "booking_id",
-            "newBooking": "new booking",
+            "emptyItemsBody": "Add items from the catalog, then come back here to fine-tune.",
+            "emptyBookingsTitle": "No equipment bookings yet",
+            "emptyBookingsBody": "Add equipment from the list, then set schedule here.",
             "table": {
                 "name": "Name",
                 "qty": "Qty",
                 "unit": "Unit",
                 "note": "Note",
                 "equipment": "Equipment",
-                "start": "Start",
-                "end": "End"
-            }
-        },
-        "pages": {
-            "approvalsInbox": {
-                "title": "Reagent approvals",
-                "subtitle": "Review submitted reagent requests. Approve to proceed, or reject with a clear note.",
-                "loading": "Loading approvals…",
-                "empty": "No requests found.",
-                "filters": {
-                    "statusLabel": "Status",
-                    "searchPlaceholder": "Search by LOO number / client name…",
-                    "searchHint": "Press Enter to apply search."
-                },
-                "table": {
-                    "loo": "LOO",
-                    "status": "Status",
-                    "items": "Items",
-                    "bookings": "Bookings",
-                    "submittedAt": "Submitted",
-                    "actions": "Actions",
-                    "reqId": "req_id",
-                    "cycle": "cycle"
-                },
-                "pagination": {
-                    "page": "Page",
-                    "noAction": "—"
-                },
-                "statusOptions": {
-                    "submitted": "Submitted",
-                    "approved": "Approved",
-                    "rejected": "Rejected",
-                    "draft": "Draft",
-                    "all": "All"
-                }
+                "start": "Planned start",
+                "end": "Planned end"
             },
-            "approvalDetail": {
-                "title": "Reagent approval detail",
-                "loading": "Loading approval detail…",
-                "invalidId": "Invalid LOO id.",
-                "meta": {
-                    "loId": "lo_id",
-                    "requestId": "request_id",
-                    "cycle": "cycle"
-                },
-                "sections": {
-                    "looSamples": "LOO samples",
-                    "requestContent": "Request content",
-                    "items": "Items",
-                    "equipmentBookings": "Equipment bookings"
-                },
-                "loo": {
-                    "detailNotAvailable": "LOO detail not available.",
-                    "warnNoEndpoint": "LOO detail is not available (endpoint mismatch). Sample list may not be shown.",
-                    "warnLoadFailed": "Failed to load LOO detail. Sample list may not be shown.",
-                    "noSamples": "No sample list found for this LOO."
-                }
-            },
-            "requestBuilder": {
-                "title": "Reagent request",
-                "subtitle": "Build a request for this LOO • LOO ID: {{loId}}",
-                "badges": {
-                    "cycle": "Cycle {{cycle}}",
-                    "locked": "editing locked",
-                    "editable": "draft editable"
-                },
-                "catalog": {
-                    "title": "Catalog items (BHP/Reagent)",
-                    "tabs": {
-                        "all": "All",
-                        "bhp": "BHP",
-                        "reagen": "REAGENT"
-                    },
-                    "searchPlaceholder": "Search catalog items…",
-                    "hint": "All items are shown; search is only to narrow down. Click an item to add it to the request.",
-                    "loading": "Loading catalog…",
-                    "empty": "No catalog items found.",
-                    "loadMore": "Load more",
-                    "add": "Add"
-                },
-                "equipment": {
-                    "title": "Equipment",
-                    "searchPlaceholder": "Search equipment…",
-                    "hint": "Click equipment to add it as a booking in the request.",
-                    "loading": "Loading equipment…",
-                    "empty": "No equipment found.",
-                    "loadMore": "Load more",
-                    "addBooking": "Add booking"
-                },
-                "tips": {
-                    "title": "Tips",
-                    "body": "Pick items/equipment from the list → adjust qty/unit/time in Request (cart) → save draft → submit."
-                }
-            },
-            "gate": {
-                "crosscheckNotPassedTitle": "Crosscheck gate not passed",
-                "crosscheckNotPassedDesc": "Submit is blocked because at least one sample in this LOO is not passed yet."
-            }
+            "unitPlaceholder": "Select unit…",
+            "notePlaceholder": "Optional note…",
+            "decrease": "Decrease",
+            "increase": "Increase",
+            "equipmentId": "Equipment ID",
+            "bookingId": "Booking ID",
+            "newBooking": "New booking",
+            "minSubmitHint": "Add at least 1 item or 1 booking before submitting.",
+            "tipsBody": "Save Draft to keep changes. Submit when everything is ready. After submit, editing is locked."
         }
     },
     "reports": {
@@ -1556,127 +1630,82 @@
     "loo": {
         "generator": {
             "title": "LOO Workspace",
-            "subtitle": "Select candidates, confirm approvals (OM + LH), then generate the LOO PDF.",
-            "roleLabel": "Role:",
-            "searchPlaceholder": "Search client, lab code, or sample type…",
-            "refreshHint": "Reload candidates",
-            "selectAll": "Select all",
-            "selectAllHint": "Select all candidates",
-            "clearSelection": "Clear",
-            "clearSelectionHint": "Clear selection",
-            "guidance": "A sample is Ready when OM and LH are both approved. Only Ready samples can be generated into an LOO.",
-            "loading": "Loading candidates…",
-            "emptyTitle": "No candidates yet",
-            "emptyBody": "Candidates appear after verification and once they enter the LOO waiting room.",
-            "summary": {
-                "selected": "Selected:",
-                "readySelected": "Ready (selected):",
-                "readyInList": "Ready (in list):"
+            "subtitle": "Pick eligible samples, collect approvals, then generate the Letter of Order (LOO).",
+            "roleLabel": "Role",
+            "searchPlaceholder": "Search by sample code / client / sample type…",
+            "filters": {
+                "statusLabel": "Status filter",
+                "statusAll": "All",
+                "statusReady": "Ready only",
+                "statusNeedsApproval": "Needs approval"
             },
+            "guidance": "Tip: Choose the parameters first, then approvals. Only “Ready” samples can be generated.",
+            "summary": {
+                "visible": "Visible",
+                "selected": "Selected",
+                "readySelected": "Ready selected",
+                "readyInList": "Ready in list"
+            },
+            "emptyTitle": "No candidates found.",
+            "emptyBody": "Try adjusting your search or status filter, then refresh.",
             "timestamps": {
-                "verified": "Verified:",
-                "received": "Received:"
+                "verified": "Verified",
+                "received": "Received"
             },
             "approval": {
                 "om": "OM",
                 "lh": "LH",
-                "ready": "ready",
-                "notReady": "not ready",
-                "readyStatus": "Ready",
-                "notReadyStatus": "Not ready",
-                "readyHint": "Ready: OM & LH approved",
-                "notReadyHint": "Not ready yet",
+                "approved": "Approved",
+                "pending": "Pending",
                 "toggleOm": "Toggle OM approval",
                 "toggleLh": "Toggle LH approval",
                 "onlyOm": "Only OM can change this",
-                "onlyLh": "Only LH can change this"
+                "onlyLh": "Only LH can change this",
+                "readyStatus": "Ready",
+                "notReadyStatus": "Not ready",
+                "readyHint": "This sample is ready to generate.",
+                "notReadyHint": "Needs both OM & LH approvals."
             },
             "params": {
-                "title": "Parameters to test",
-                "minOne": "(min 1)",
+                "title": "Parameters",
+                "minOne": "(pick at least one)",
                 "fallback": "Parameter #{{id}}",
-                "none": "No requested parameters.",
-                "notReadyNote": "You can pre-select parameters, but LOO can only be generated once the sample is Ready."
+                "none": "No parameters found.",
+                "notReadyNote": "You can choose parameters now, but generating is only possible after OM & LH approvals."
             },
-            "footerHint": "Generate is available only for samples marked Ready.",
+            "selectAll": "Select all",
+            "selectAllHint": "Select all visible items",
+            "clearSelection": "Clear selection",
+            "clearSelectionHint": "Clear selection for visible items",
+            "footerHint": "Generate uses only selected samples that are marked as Ready.",
             "reset": "Reset result",
-            "resetHint": "Clear the result (does not delete anything in backend).",
-            "generate": "Generate LOO PDF",
+            "resetHint": "Clear the generated result card",
+            "generate": "Generate LOO",
             "generating": "Generating…",
-            "previewTitleFallback": "LOO PDF Preview",
             "disabled": {
                 "noCandidates": "No candidates available.",
-                "noneReadyInList": "No Ready samples (needs OM + LH).",
-                "pickReady": "Select at least 1 Ready sample."
+                "noneReadyInList": "No ready samples in the list.",
+                "pickReady": "Select at least one ready sample."
+            },
+            "errors": {
+                "loadFailed": "Failed to load candidates.",
+                "approvalFailed": "Failed to update approval.",
+                "selectAtLeastOne": "Select at least 1 sample.",
+                "noneReadySelected": "None of the selected samples are ready.",
+                "paramRequiredForSample": "Select at least one parameter for sample #{{id}}.",
+                "missingPreviewUrl": "Preview URL is missing.",
+                "generateFailed": "Failed to generate LOO."
             },
             "result": {
                 "title": "LOO generated",
-                "number": "Number:",
-                "recordNo": "Record no:",
-                "formCode": "Form code:",
+                "number": "Number",
+                "recordNo": "Record No.",
+                "formCode": "Form code",
                 "openPreview": "Open preview",
-                "downloadHint": "(Download is available in the viewer)"
+                "downloadHint": "Use the preview window to download/print the PDF."
             },
-            "errors": {
-                "loadFailed": "Failed to load LOO candidates.",
-                "approvalFailed": "Failed to update approval.",
-                "generateFailed": "Failed to generate LOO.",
-                "selectAtLeastOne": "Select at least 1 sample.",
-                "noneReadySelected": "No Ready samples selected (needs OM + LH).",
-                "paramRequiredForSample": "Please select at least 1 parameter for sample #{{id}}.",
-                "missingPreviewUrl": "LOO created, but preview/download URL is missing (need download_url / pdf_file_id / pdf_url / lo_id)."
-            },
-            "audit": {
-                "logs": {
-                    "title": "Audit logs",
-                    "subtitle": "A chronological record of actions in the system.",
-                    "count": "{{count}} log(s)",
-                    "forbiddenTitle": "403 – Access denied",
-                    "forbiddenBody": "Your role ({{role}}) is not allowed to access audit logs.",
-                    "backToDashboard": "Back to dashboard",
-                    "filters": {
-                        "title": "Filters",
-                        "hint": "Tip: use at least one filter to narrow results.",
-                        "sampleId": "sample_id",
-                        "sampleTestId": "sample_test_id",
-                        "staffId": "staff_id",
-                        "action": "action",
-                        "perPage": "per_page",
-                        "sampleIdPlaceholder": "e.g. 35",
-                        "sampleTestIdPlaceholder": "e.g. 22",
-                        "staffIdPlaceholder": "e.g. 4",
-                        "actionPlaceholder": "e.g. SAMPLE_TEST_OM_VERIFIED"
-                    },
-                    "table": {
-                        "title": "Logs",
-                        "pageOf": "Page {{page}} / {{totalPages}}",
-                        "time": "Time",
-                        "action": "Action",
-                        "entity": "Entity",
-                        "staff": "Staff",
-                        "ip": "IP",
-                        "old": "Old",
-                        "new": "New",
-                        "empty": "No audit logs found."
-                    },
-                    "pagination": {
-                        "pageOf": "Page {{page}} / {{totalPages}}",
-                        "total": "Total {{total}}"
-                    },
-                    "errors": {
-                        "loadFailed": "Failed to load audit logs."
-                    }
-                }
-            },
-            "notFound": {
-                "title": "404 – Page not found",
-                "message": "The page you are looking for does not exist."
-            }
-        },
-        "errors": {
-            "somethingWentWrong": "Something went wrong.",
-            "accessDeniedTitle": "403 – Access denied",
-            "accessDeniedBodyWithRole": "Your role ({{role}}) is not allowed to access this page."
+            "previewTitle": "LOO {{number}}",
+            "previewTitleFallback": "LOO Preview"
         }
     }
 }

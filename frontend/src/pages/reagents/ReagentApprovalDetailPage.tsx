@@ -12,6 +12,7 @@ import {
     Wrench,
     XCircle,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import {
     approveReagentRequest,
@@ -52,7 +53,7 @@ function statusBadgeTone(status?: string | null) {
     const s = String(status ?? "").toLowerCase();
     if (s === "submitted") return "bg-amber-50 text-amber-800 border-amber-200";
     if (s === "approved") return "bg-emerald-50 text-emerald-800 border-emerald-200";
-    if (s === "rejected") return "bg-rose-50 text-rose-800 border-rose-200";
+    if (s === "rejected" || s === "denied") return "bg-rose-50 text-rose-800 border-rose-200";
     if (s === "draft") return "bg-slate-50 text-slate-700 border-slate-200";
     return "bg-gray-50 text-gray-700 border-gray-200";
 }
@@ -73,12 +74,7 @@ async function fetchLooDetailBestEffort(loId: number): Promise<LooDetail | null>
     if (!Number.isFinite(loId) || loId <= 0) return null;
 
     // Backend tiap project suka beda endpoint.
-    // Coba beberapa kandidat umum.
-    const candidates = [
-        `/v1/letters-of-order/${loId}`,
-        `/v1/letters-of-order/${loId}/detail`,
-        `/v1/loo/${loId}`,
-    ];
+    const candidates = [`/v1/letters-of-order/${loId}`, `/v1/letters-of-order/${loId}/detail`, `/v1/loo/${loId}`];
 
     for (const url of candidates) {
         try {
@@ -88,7 +84,6 @@ async function fetchLooDetailBestEffort(loId: number): Promise<LooDetail | null>
         } catch (e: any) {
             const status = getHttpStatus(e);
             if (status === 404) continue;
-            // selain 404: anggap endpoint tidak cocok / server error, coba kandidat lain
             continue;
         }
     }
@@ -97,6 +92,8 @@ async function fetchLooDetailBestEffort(loId: number): Promise<LooDetail | null>
 }
 
 export default function ReagentApprovalDetailPage() {
+    const { t } = useTranslation();
+
     const params = useParams();
     const nav = useNavigate();
 
@@ -124,6 +121,18 @@ export default function ReagentApprovalDetailPage() {
         window.setTimeout(() => setSuccess(null), 2500);
     }
 
+    const statusLabel = (status?: string | null) => {
+        const s = String(status ?? "").toLowerCase();
+        const map: Record<string, string> = {
+            draft: t("reagents.status.draft"),
+            submitted: t("reagents.status.submitted"),
+            approved: t("reagents.status.approved"),
+            rejected: t("reagents.status.rejected"),
+            denied: t("reagents.status.rejected"),
+        };
+        return map[s] ?? (status ? String(status) : "—");
+    };
+
     async function load() {
         if (!Number.isFinite(loId) || loId <= 0) return;
 
@@ -132,7 +141,7 @@ export default function ReagentApprovalDetailPage() {
         setSuccess(null);
         setLooWarn(null);
 
-        // 1) WAJIB: reagent request detail
+        // 1) REQUIRED: reagent request detail
         try {
             const res = await getReagentRequestByLoo(loId);
             const payload = unwrapApi(res);
@@ -148,12 +157,12 @@ export default function ReagentApprovalDetailPage() {
             setRequest(null);
             setItems([]);
             setBookings([]);
-            setErr(getErrorMessage(e, "Failed to load reagent approval detail."));
+            setErr(getErrorMessage(e, t("reagents.errors.loadApprovalDetailFailed")));
             setLoading(false);
             return;
         }
 
-        // 2) OPTIONAL: LOO detail (fail => jangan bikin page error)
+        // 2) OPTIONAL: LOO detail (fail => do not block page)
         try {
             const looPayload = await fetchLooDetailBestEffort(loId);
             if (looPayload) {
@@ -161,11 +170,11 @@ export default function ReagentApprovalDetailPage() {
                 setLooWarn(null);
             } else {
                 setLoo(null);
-                setLooWarn("LOO detail tidak tersedia (endpoint tidak cocok). Daftar sampel mungkin tidak tampil.");
+                setLooWarn(t("reagents.approvals.detail.looWarnEndpoint"));
             }
         } catch {
             setLoo(null);
-            setLooWarn("LOO detail gagal dimuat. Daftar sampel mungkin tidak tampil.");
+            setLooWarn(t("reagents.approvals.detail.looWarnFailed"));
         } finally {
             setLoading(false);
         }
@@ -181,11 +190,11 @@ export default function ReagentApprovalDetailPage() {
     }, [loo, request, loId]);
 
     const pageTitle = useMemo(() => {
-        return `Reagent Approval • ${looNumber}`;
-    }, [looNumber]);
+        return t("reagents.approvals.detail.pageTitle", { looNumber });
+    }, [t, looNumber]);
 
-    const requestStatus = String(request?.status ?? "");
-    const canAct = requestStatus === "submitted";
+    const requestStatusRaw = String(request?.status ?? "");
+    const canAct = requestStatusRaw.toLowerCase() === "submitted";
 
     const clientName = useMemo(() => {
         return (loo as any)?.client?.name ?? (request as any)?.client_name ?? null;
@@ -211,22 +220,22 @@ export default function ReagentApprovalDetailPage() {
         try {
             if (decisionMode === "approve") {
                 await approveReagentRequest(request.reagent_request_id);
-                flash("Approved. Reagent Request document can be generated next.");
+                flash(t("reagents.approvals.detail.flashApproved"));
             } else {
                 const note = String(rejectNote ?? "").trim();
                 if (note.length < 3) {
-                    setErr("Reject note wajib diisi (min 3 karakter).");
+                    setErr(t("reagents.errors.rejectNoteMin"));
                     setBusy(false);
                     return;
                 }
                 await rejectReagentRequest(request.reagent_request_id, note);
-                flash("Rejected. The analyst needs to revise and resubmit.");
+                flash(t("reagents.approvals.detail.flashRejected"));
             }
 
             setModalOpen(false);
             await load();
         } catch (e: any) {
-            setErr(getErrorMessage(e, `Failed to ${decisionMode}.`));
+            setErr(getErrorMessage(e, t("reagents.errors.actionFailed", { action: decisionMode })));
         } finally {
             setBusy(false);
         }
@@ -237,14 +246,14 @@ export default function ReagentApprovalDetailPage() {
             <div className="min-h-[60vh] px-0 py-4">
                 <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 inline-flex items-center gap-2">
                     <AlertTriangle size={18} />
-                    Invalid LOO id.
+                    {t("reagents.errors.invalidLooId")}
                 </div>
             </div>
         );
     }
 
     if (loading) {
-        return <div className="min-h-[60vh] px-0 py-4 text-sm text-gray-600">Loading approval detail…</div>;
+        return <div className="min-h-[60vh] px-0 py-4 text-sm text-gray-600">{t("reagents.loading.detail")}</div>;
     }
 
     return (
@@ -254,7 +263,7 @@ export default function ReagentApprovalDetailPage() {
                 <nav className="lims-breadcrumb">
                     <Link to="/reagents/approvals" className="lims-breadcrumb-link inline-flex items-center gap-2">
                         <ArrowLeft size={16} />
-                        Reagent Approvals
+                        {t("reagents.approvals.breadcrumb.inbox")}
                     </Link>
                     <span className="lims-breadcrumb-separator">›</span>
                     <span className="lims-breadcrumb-current">{looNumber}</span>
@@ -266,15 +275,25 @@ export default function ReagentApprovalDetailPage() {
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div className="min-w-0">
                         <h1 className="text-lg md:text-xl font-bold text-gray-900 truncate">{pageTitle}</h1>
+
                         <div className="mt-1 text-xs text-gray-600 flex flex-wrap items-center gap-x-2 gap-y-1">
                             <span className="inline-flex items-center gap-1">
                                 <Hash size={14} />
-                                lo_id <span className="font-semibold">{loId}</span>
+                                {t("reagents.approvals.detail.meta.looId")} <span className="font-semibold">{loId}</span>
                             </span>
+
                             {request?.reagent_request_id ? (
-                                <span className="text-gray-500">• request_id {request.reagent_request_id}</span>
+                                <span className="text-gray-500">
+                                    • {t("reagents.approvals.detail.meta.requestId")} {request.reagent_request_id}
+                                </span>
                             ) : null}
-                            {request?.cycle_no ? <span className="text-gray-500">• cycle {request.cycle_no}</span> : null}
+
+                            {request?.cycle_no ? (
+                                <span className="text-gray-500">
+                                    • {t("reagents.approvals.detail.meta.cycle")} {request.cycle_no}
+                                </span>
+                            ) : null}
+
                             {clientName ? (
                                 <span className="text-gray-500 inline-flex items-center gap-1">
                                     • <User size={14} /> {clientName}
@@ -290,12 +309,12 @@ export default function ReagentApprovalDetailPage() {
                                 )}
                             >
                                 <ClipboardList size={16} />
-                                {request?.status ?? "—"}
+                                {statusLabel(request?.status)}
                             </span>
 
-                            {!canAct && requestStatus ? (
+                            {!canAct && requestStatusRaw ? (
                                 <span className="text-xs text-gray-500">
-                                    • Actions only available when status is <span className="font-semibold">submitted</span>
+                                    • {t("reagents.approvals.detail.actionsOnlyWhenSubmitted")}
                                 </span>
                             ) : null}
                         </div>
@@ -305,19 +324,19 @@ export default function ReagentApprovalDetailPage() {
                         <button
                             type="button"
                             onClick={() => nav(-1)}
-                            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-gray-50"
-                            title="Back"
+                            className="btn-outline inline-flex items-center gap-2"
+                            title={t("back")}
                         >
                             <ArrowLeft size={16} />
-                            Back
+                            {t("back")}
                         </button>
 
                         <button
                             type="button"
                             onClick={load}
                             className={cx("lims-icon-button", busy ? "opacity-60 cursor-not-allowed" : "")}
-                            aria-label="Refresh"
-                            title="Refresh"
+                            aria-label={t("refresh")}
+                            title={t("refresh")}
                             disabled={busy}
                         >
                             <RefreshCw size={16} />
@@ -333,10 +352,10 @@ export default function ReagentApprovalDetailPage() {
                             )}
                             disabled={!canAct || busy}
                             onClick={openApprove}
-                            title={!canAct ? "Only submitted requests can be approved" : "Approve"}
+                            title={!canAct ? t("reagents.approvals.detail.onlySubmittedCanApprove") : t("approve")}
                         >
                             <ShieldCheck size={16} />
-                            Approve
+                            {t("approve")}
                         </button>
 
                         <button
@@ -349,10 +368,10 @@ export default function ReagentApprovalDetailPage() {
                             )}
                             disabled={!canAct || busy}
                             onClick={openReject}
-                            title={!canAct ? "Only submitted requests can be rejected" : "Reject"}
+                            title={!canAct ? t("reagents.approvals.detail.onlySubmittedCanReject") : t("reject")}
                         >
                             <XCircle size={16} />
-                            Reject
+                            {t("reject")}
                         </button>
                     </div>
                 </div>
@@ -377,17 +396,21 @@ export default function ReagentApprovalDetailPage() {
                     {/* LOO summary + samples */}
                     <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
                         <div className="border-b border-gray-100 px-5 py-4 bg-gray-50">
-                            <div className="font-bold text-gray-900">LOO overview</div>
+                            <div className="font-bold text-gray-900">{t("reagents.approvals.detail.cards.looOverview")}</div>
                             <div className="mt-1 text-xs text-gray-600">
                                 {loo?.number ? (
                                     <>
-                                        LOO number: <span className="font-semibold">{loo.number}</span>
+                                        {t("reagents.approvals.detail.looNumberLabel")}:{" "}
+                                        <span className="font-semibold">{loo.number}</span>
                                     </>
                                 ) : (
-                                    "LOO detail not available"
+                                    t("reagents.approvals.detail.looNotAvailable")
                                 )}
                                 {loo?.generated_at ? (
-                                    <span className="text-gray-500"> • generated {formatDateTimeLocal(loo.generated_at)}</span>
+                                    <span className="text-gray-500">
+                                        {" "}
+                                        • {t("reagents.approvals.detail.generatedAt")} {formatDateTimeLocal(loo.generated_at)}
+                                    </span>
                                 ) : null}
                             </div>
                         </div>
@@ -400,7 +423,9 @@ export default function ReagentApprovalDetailPage() {
                                 </div>
                             ) : null}
 
-                            <div className="text-sm font-semibold text-gray-900 mb-2">Samples in this LOO</div>
+                            <div className="text-sm font-semibold text-gray-900 mb-2">
+                                {t("reagents.approvals.detail.samplesTitle")}
+                            </div>
 
                             {loo?.items?.length ? (
                                 <div className="space-y-2">
@@ -410,13 +435,16 @@ export default function ReagentApprovalDetailPage() {
                                                 {it.lab_sample_code ?? it.sample?.lab_sample_code ?? "—"}
                                             </div>
                                             <div className="text-xs text-gray-600">
-                                                sample_id: <span className="font-semibold">{it.sample_id ?? it.sample?.sample_id ?? "—"}</span>
+                                                sample_id:{" "}
+                                                <span className="font-semibold">
+                                                    {it.sample_id ?? it.sample?.sample_id ?? "—"}
+                                                </span>
                                             </div>
                                         </div>
                                     ))}
                                 </div>
                             ) : (
-                                <div className="text-sm text-gray-600">No sample list found for this LOO.</div>
+                                <div className="text-sm text-gray-600">{t("reagents.approvals.detail.samplesNotFound")}</div>
                             )}
                         </div>
                     </div>
@@ -424,9 +452,11 @@ export default function ReagentApprovalDetailPage() {
                     {/* Request content */}
                     <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
                         <div className="border-b border-gray-100 px-5 py-4 bg-gray-50">
-                            <div className="font-bold text-gray-900">Request content</div>
+                            <div className="font-bold text-gray-900">{t("reagents.approvals.detail.cards.requestContent")}</div>
                             <div className="mt-1 text-xs text-gray-600">
-                                Items: <span className="font-semibold">{items.length}</span> • Bookings:{" "}
+                                {t("reagents.approvals.detail.itemsCount")}:{" "}
+                                <span className="font-semibold">{items.length}</span> •{" "}
+                                {t("reagents.approvals.detail.bookingsCount")}:{" "}
                                 <span className="font-semibold">{bookings.length}</span>
                             </div>
                         </div>
@@ -434,18 +464,30 @@ export default function ReagentApprovalDetailPage() {
                         <div className="p-5 space-y-6">
                             {/* Items */}
                             <div>
-                                <div className="text-sm font-semibold text-gray-900 mb-2">Items</div>
+                                <div className="text-sm font-semibold text-gray-900 mb-2">
+                                    {t("reagents.approvals.detail.sections.items")}
+                                </div>
 
                                 {items.length ? (
                                     <div className="overflow-x-auto rounded-xl border border-gray-200">
                                         <table className="min-w-full text-sm">
                                             <thead className="bg-white text-gray-700 border-b border-gray-100">
                                                 <tr>
-                                                    <th className="text-left font-semibold px-4 py-3">Name</th>
-                                                    <th className="text-left font-semibold px-4 py-3">Type</th>
-                                                    <th className="text-left font-semibold px-4 py-3">Qty</th>
-                                                    <th className="text-left font-semibold px-4 py-3">Unit</th>
-                                                    <th className="text-left font-semibold px-4 py-3">Note</th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableItems.name")}
+                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableItems.type")}
+                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableItems.qty")}
+                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableItems.unit")}
+                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableItems.note")}
+                                                    </th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-100">
@@ -462,7 +504,7 @@ export default function ReagentApprovalDetailPage() {
                                         </table>
                                     </div>
                                 ) : (
-                                    <div className="text-sm text-gray-600">No items.</div>
+                                    <div className="text-sm text-gray-600">{t("reagents.approvals.detail.emptyItems")}</div>
                                 )}
                             </div>
 
@@ -470,7 +512,7 @@ export default function ReagentApprovalDetailPage() {
                             <div>
                                 <div className="text-sm font-semibold text-gray-900 mb-2 inline-flex items-center gap-2">
                                     <Wrench size={16} />
-                                    Equipment bookings
+                                    {t("reagents.approvals.detail.sections.bookings")}
                                 </div>
 
                                 {bookings.length ? (
@@ -478,17 +520,26 @@ export default function ReagentApprovalDetailPage() {
                                         <table className="min-w-full text-sm">
                                             <thead className="bg-white text-gray-700 border-b border-gray-100">
                                                 <tr>
-                                                    <th className="text-left font-semibold px-4 py-3">Equipment</th>
-                                                    <th className="text-left font-semibold px-4 py-3">Planned start</th>
-                                                    <th className="text-left font-semibold px-4 py-3">Planned end</th>
-                                                    <th className="text-left font-semibold px-4 py-3">Note</th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableBookings.equipment")}
+                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableBookings.start")}
+                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableBookings.end")}
+                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">
+                                                        {t("reagents.approvals.detail.tableBookings.note")}
+                                                    </th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-100">
                                                 {bookings.map((b: any, idx: number) => (
                                                     <tr key={b.booking_id ?? `${b.equipment_id}-${idx}`} className="hover:bg-gray-50">
                                                         <td className="px-4 py-3 font-medium text-gray-900">
-                                                            {(b.equipment_code ? `${b.equipment_code} • ` : "") + (b.equipment_name ?? "Equipment")}
+                                                            {(b.equipment_code ? `${b.equipment_code} • ` : "") +
+                                                                (b.equipment_name ?? t("reagents.approvals.detail.equipmentFallback"))}
                                                             <span className="text-gray-500"> (#{b.equipment_id})</span>
                                                         </td>
                                                         <td className="px-4 py-3 text-gray-700">
@@ -504,7 +555,7 @@ export default function ReagentApprovalDetailPage() {
                                         </table>
                                     </div>
                                 ) : (
-                                    <div className="text-sm text-gray-600">No bookings.</div>
+                                    <div className="text-sm text-gray-600">{t("reagents.approvals.detail.emptyBookings")}</div>
                                 )}
                             </div>
                         </div>
