@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X, Check } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { clientSampleRequestService, type ClientSampleDraftPayload } from "../../services/sampleRequests";
 import type { Sample } from "../../services/samples";
 import { listParameters, type ParameterRow } from "../../services/parameters";
@@ -81,6 +82,8 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
 
     const boxRef = useRef<HTMLDivElement | null>(null);
 
+    const { t } = useTranslation();
+
     const canSubmit = useMemo(() => {
         return (
             !!sampleType.trim() &&
@@ -108,7 +111,7 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
             setParamItems(rows);
         } catch (err: any) {
             setParamItems([]);
-            setParamError(getErrorMessage(err, "Gagal memuat daftar parameter."));
+            setParamError(getErrorMessage(err, t("portalRequestForm.errors.loadParams")));
         } finally {
             setParamLoading(false);
         }
@@ -221,7 +224,7 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
             onClose();
             onCreated(created);
         } catch (err: unknown) {
-            setError(getErrorMessage(err, "Gagal membuat request."));
+            setError(getErrorMessage(err, t("portalRequestForm.errors.createFailed")));
         } finally {
             setSubmitting(false);
         }
@@ -239,19 +242,17 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
             >
                 <div className="shrink-0 flex items-start justify-between px-6 py-5 border-b border-gray-100 bg-gray-50">
                     <div className="min-w-0">
-                        <h2 className="text-sm font-bold text-gray-900">Buat Sample Request</h2>
-                        <p className="text-xs text-gray-600 mt-1">
-                            Isi data wajib → simpan sebagai draft. Admin akan review sebelum diproses.
-                        </p>
+                        <h2 className="text-sm font-bold text-gray-900">{t("portalRequestForm.title")}</h2>
+                        <p className="text-xs text-gray-600 mt-1">{t("portalRequestForm.subtitle")}</p>
                     </div>
 
                     <button
                         type="button"
                         className={cx("lims-icon-button", submitting && "opacity-60 cursor-not-allowed")}
                         onClick={onClose}
-                        aria-label="Tutup"
+                        aria-label={t("close")}
+                        title={t("close")}
                         disabled={submitting}
-                        title="Tutup"
                     >
                         <X size={16} />
                     </button>
@@ -267,19 +268,19 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="md:col-span-2">
                             <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                Jenis sampel <span className="text-red-600">*</span>
+                                {t("portalRequestForm.fields.sampleType")} <span className="text-red-600">*</span>
                             </label>
                             <input
                                 value={sampleType}
                                 onChange={(e) => setSampleType(e.target.value)}
-                                placeholder="contoh: Swab, Blood, Water…"
+                                placeholder={t("portalRequestForm.placeholders.sampleType")}
                                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
 
                         <div className="md:col-span-2">
                             <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                Jadwal pengantaran ke lab <span className="text-red-600">*</span>
+                                {t("portalRequestForm.fields.scheduledDelivery")} <span className="text-red-600">*</span>
                             </label>
                             <input
                                 type="datetime-local"
@@ -288,14 +289,14 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                             <div className="mt-1 text-[11px] text-gray-500">
-                                Ini waktu rencana kamu antar sampel (bukan waktu lab menerima).
+                                {t("portalRequestForm.helpers.scheduledDelivery")}
                             </div>
                         </div>
 
                         {/* PARAMETERS (single searchable dropdown) */}
                         <div className="md:col-span-2" ref={boxRef}>
                             <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                Parameter uji <span className="text-red-600">*</span>
+                                {t("portalRequestForm.fields.parameter")} <span className="text-red-600">*</span>
                             </label>
 
                             <div className="relative">
@@ -310,7 +311,7 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                                         setParamOpen(true);
                                         if (paramItems.length === 0) loadParams(paramQuery);
                                     }}
-                                    placeholder="Cari dan pilih parameter…"
+                                    placeholder={t("portalRequestForm.placeholders.parameter")}
                                     className="w-full rounded-xl border border-gray-300 px-3 py-2 pr-24 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                                 />
 
@@ -321,7 +322,7 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                                         disabled={submitting}
                                         className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                                     >
-                                        Clear
+                                        {t("clear")}
                                     </button>
                                 ) : (
                                     <button
@@ -331,20 +332,20 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                                         className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                                     >
                                         <Search size={14} />
-                                        {paramLoading ? "..." : "Search"}
+                                        {paramLoading ? t("loading") : t("search")}
                                     </button>
                                 )}
 
                                 {paramOpen ? (
                                     <div className="absolute z-20 mt-2 w-full rounded-2xl border border-gray-200 bg-white shadow-lg overflow-hidden">
                                         {paramLoading ? (
-                                            <div className="p-3 text-sm text-gray-600">Memuat…</div>
+                                            <div className="p-3 text-sm text-gray-600">{t("portalRequestForm.states.loadingParams")}</div>
                                         ) : paramError ? (
                                             <div className="p-3 text-sm text-red-800 bg-red-50 border-t border-red-100">
                                                 {paramError}
                                             </div>
                                         ) : paramItems.length === 0 ? (
-                                            <div className="p-3 text-sm text-gray-600">Parameter tidak ditemukan.</div>
+                                            <div className="p-3 text-sm text-gray-600">{t("portalRequestForm.states.noParams")}</div>
                                         ) : (
                                             <ul className="max-h-56 overflow-auto divide-y divide-gray-100">
                                                 {paramItems.map((p) => {
@@ -374,7 +375,7 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                                                                 {isSelected ? (
                                                                     <span className="text-emerald-700 inline-flex items-center gap-1 text-xs font-semibold">
                                                                         <Check size={14} />
-                                                                        Selected
+                                                                        {t("portalRequestForm.parameter.selected")}
                                                                     </span>
                                                                 ) : null}
                                                             </div>
@@ -424,7 +425,7 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
 
                 <div className="shrink-0 px-6 py-5 border-t border-gray-100 flex items-center justify-end gap-3 bg-white">
                     <button type="button" className="btn-outline" onClick={onClose} disabled={submitting}>
-                        Batal
+                        {t("cancel")}
                     </button>
                     <button
                         type="button"
@@ -432,7 +433,7 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                         onClick={submit}
                         disabled={!canSubmit || submitting}
                     >
-                        {submitting ? "Membuat..." : "Buat request"}
+                        {submitting ? t("submitting") : t("portalRequestForm.actions.create")}
                     </button>
                 </div>
             </div>

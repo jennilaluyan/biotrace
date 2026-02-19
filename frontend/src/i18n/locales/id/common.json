@@ -2,6 +2,7 @@
     "appName": "BioTrace",
     "language": "Bahasa",
     "save": "Simpan",
+    "open": "Buka",
     "saveDraft": "Simpan draf",
     "saving": "Menyimpan…",
     "cancel": "Batal",
@@ -25,6 +26,7 @@
     "validate": "Validasi",
     "dismiss": "Tutup",
     "retry": "Coba lagi",
+    "clear": "Bersihkan",
     "submitting": "Mengirim…",
     "processing": "Memproses…",
     "preview": "Pratinjau",
@@ -34,6 +36,7 @@
     "optional": "Opsional",
     "tips": "Tips",
     "summary": "Ringkasan",
+    "actions": "Aksi",
     "nav": {
         "clients": "Klien",
         "samples": "Sampel",
@@ -52,6 +55,116 @@
         "openNavigation": "Buka navigasi",
         "closeSidebar": "Tutup sidebar"
     },
+    "portalRequestsPage": {
+        "title": "Permintaan Sampel",
+        "subtitle": "Buat request, lengkapi data wajib, lalu kirim untuk ditinjau admin.",
+        "newRequest": "Buat request",
+        "loading": "Memuat request…",
+        "errors": {
+            "loadFailed": "Gagal memuat daftar request."
+        },
+        "flash": {
+            "created": "Request berhasil dibuat. Lengkapi data wajib, lalu kirim."
+        },
+        "filters": {
+            "searchLabel": "Cari request",
+            "searchPlaceholder": "Cari berdasarkan ID request, jenis sampel, status, catatan…",
+            "allStatus": "Semua status"
+        },
+        "table": {
+            "request": "Request",
+            "sampleType": "Jenis sampel",
+            "scheduledDelivery": "Jadwal pengantaran",
+            "status": "Status",
+            "updated": "Diperbarui"
+        },
+        "actions": {
+            "open": "Buka request"
+        },
+        "empty": {
+            "title": "Tidak ada request",
+            "body": "Coba hapus filter, atau buat request baru.",
+            "cta": "Buat request"
+        },
+        "status": {
+            "draft": "Draft",
+            "submitted": "Dikirim",
+            "needsRevision": "Perlu revisi",
+            "readyForDelivery": "Siap diantar",
+            "physicallyReceived": "Diterima fisik",
+            "pickupRequired": "Perlu diambil",
+            "pickedUp": "Sudah diambil",
+            "unknown": "Tidak diketahui"
+        },
+        "sub": {
+            "pickedUpAt": "Diambil pada {{date}}",
+            "waitingSince": "Menunggu sejak {{date}}"
+        },
+        "meta": {
+            "showing": "Menampilkan {{shown}} dari {{total}}"
+        }
+    },
+    "portalRequestDetail": {
+        "title": "Permintaan #{{id}}",
+        "errors": {
+            "invalidId": "ID permintaan tidak valid.",
+            "loadFailed": "Gagal memuat detail permintaan.",
+            "sampleTypeRequired": "Jenis sampel wajib diisi.",
+            "scheduledDeliveryRequired": "Jadwal pengantaran wajib diisi.",
+            "parameterRequired": "Wajib memilih satu parameter.",
+            "saveFailed": "Gagal menyimpan draf.",
+            "submitFailed": "Gagal mengirim permintaan."
+        },
+        "info": {
+            "draftSaved": "Draf tersimpan."
+        },
+        "flash": {
+            "submitted": "Permintaan #{{id}} berhasil dikirim."
+        },
+        "helpers": {
+            "readyTitle": "Siap mengirim?",
+            "readyBody": "Isi jenis sampel, jadwal pengantaran, dan pilih satu parameter, lalu kirim untuk tinjauan admin.",
+            "submittedBody": "Permintaan ini sudah dikirim dan sedang menunggu tinjauan admin. Pengeditan dinonaktifkan.",
+            "deliveryHint": "Gunakan waktu yang realistis untuk Anda mengantar sampel. Ini membantu penjadwalan."
+        },
+        "parameterFallback": "Parameter #{{id}}"
+    },
+    "portalRequestForm": {
+        "title": "Buat Sample Request",
+        "subtitle": "Isi data wajib → simpan sebagai draft. Admin akan review sebelum diproses.",
+        "fields": {
+            "sampleType": "Jenis sampel",
+            "scheduledDelivery": "Jadwal pengantaran ke lab",
+            "parameter": "Parameter uji",
+            "examinationPurpose": "Tujuan pemeriksaan",
+            "additionalNotes": "Catatan tambahan"
+        },
+        "placeholders": {
+            "sampleType": "contoh: Swab, Blood, Water…",
+            "parameter": "Cari dan pilih parameter…",
+            "examinationPurpose": "Tulis tujuan pemeriksaan…",
+            "additionalNotes": "Opsional…"
+        },
+        "helpers": {
+            "scheduledDelivery": "Ini waktu rencana kamu antar sampel (bukan waktu lab menerima).",
+            "selected": "Terpilih:"
+        },
+        "parameter": {
+            "selected": "Terpilih",
+            "unit": "Unit: {{unit}}"
+        },
+        "states": {
+            "loadingParams": "Memuat…",
+            "noParams": "Parameter tidak ditemukan."
+        },
+        "actions": {
+            "create": "Buat request"
+        },
+        "errors": {
+            "loadParams": "Gagal memuat daftar parameter.",
+            "createFailed": "Gagal membuat request."
+        }
+    },
     "portal": {
         "dashboard": "Beranda",
         "sampleRequests": "Permintaan Sampel",
@@ -69,10 +182,11 @@
         },
         "dashboardPage": {
             "title": "Beranda",
-            "subtitle": "Selamat datang, {{name}}. Buat dan lacak permintaan sampel Anda di sini.",
+            "subtitle": "Selamat datang{{name}}. Buat dan lacak permintaan sampel Anda di sini.",
             "cta": {
                 "openRequests": "Buka permintaan",
-                "createRequest": "Permintaan baru"
+                "createRequest": "Permintaan baru",
+                "viewAll": "Lihat semua"
             },
             "stats": {
                 "totalTitle": "Total permintaan",
@@ -82,13 +196,37 @@
                 "submittedTitle": "Terkirim",
                 "submittedSub": "Menunggu review admin.",
                 "returnedTitle": "Dikembalikan",
-                "returnedSub": "Perlu revisi sebelum kirim ulang."
+                "returnedSub": "Perlu revisi sebelum kirim ulang.",
+                "needsActionTitle": "Perlu tindakan",
+                "needsActionSub": "Dikembalikan untuk revisi."
             },
             "cards": {
                 "nextTitle": "Langkah berikutnya",
                 "nextBody": "Buat draf → lengkapi data wajib → kirim → review admin → jadwalkan pengantaran → penerimaan fisik.",
                 "reviseTitle": "Perlu revisi?",
                 "reviseBody": "Jika admin mengembalikan permintaan, Anda bisa edit lalu kirim ulang."
+            },
+            "flowTitle": "Ringkasan alur",
+            "flowHint": "Draf → Terkirim → Review admin → Jadwal pengantaran → Penerimaan fisik.",
+            "recent": {
+                "title": "Permintaan terbaru",
+                "subtitle": "Lanjutkan dari yang terakhir Anda kerjakan.",
+                "updated": "Diperbarui",
+                "openAria": "Buka permintaan",
+                "emptyTitle": "Belum ada permintaan",
+                "emptyBody": "Buat permintaan pertama untuk memulai alur kerja."
+            },
+            "tips": {
+                "title": "Tips agar tidak terlambat",
+                "subtitle": "Kebiasaan kecil yang bikin proses lancar.",
+                "items": {
+                    "requiredFields": "Isi kolom wajib (jenis sampel, jadwal pengantaran, dan parameter) sebelum mengirim.",
+                    "revise": "Jika permintaan dikembalikan, buka permintaan, perbaiki catatan, simpan draf, lalu kirim ulang.",
+                    "timezone": "Gunakan jadwal pengantaran sebagai rencana drop-off. Waktu ditampilkan sesuai zona waktu lokal Anda."
+                }
+            },
+            "errors": {
+                "loadFailed": "Kami tidak bisa memuat permintaan Anda. Silakan coba lagi."
             }
         },
         "requestsPage": {

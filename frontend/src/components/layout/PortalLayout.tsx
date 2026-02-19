@@ -99,37 +99,6 @@ export const PortalLayout = () => {
         );
     };
 
-    const LogoutButton = ({ compact }: { compact?: boolean }) => (
-        <button
-            type="button"
-            onClick={handlePortalLogout}
-            disabled={loggingOut}
-            className={[
-                "w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition",
-                "text-white/80 hover:bg-white/10 hover:text-white",
-                loggingOut ? "opacity-60 cursor-not-allowed" : "",
-                compact ? "justify-center" : ""
-            ].join(" ")}
-        >
-            <span className="inline-flex h-5 w-5 items-center justify-center">
-                <svg
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                >
-                    <path d="M10 17l5-5-5-5" />
-                    <path d="M15 12H3" />
-                    <path d="M21 21V3" />
-                </svg>
-            </span>
-            <span>{loggingOut ? t("topbar.loggingOut") : t("topbar.logout")}</span>
-        </button>
-    );
-
     return (
         <div className="h-screen bg-cream flex overflow-hidden">
             {/* Desktop sidebar */}
@@ -139,10 +108,6 @@ export const PortalLayout = () => {
                 </div>
 
                 <nav className="flex-1 px-3 py-4 space-y-1">{navItems.map((i) => renderNavItem(i))}</nav>
-
-                <div className="px-3 pb-4">
-                    <LogoutButton />
-                </div>
             </aside>
 
             {/* Mobile overlay */}
@@ -168,10 +133,6 @@ export const PortalLayout = () => {
                 </div>
 
                 <nav className="px-3 py-4 space-y-1">{navItems.map((i) => renderNavItem(i, true))}</nav>
-
-                <div className="px-3 pb-4">
-                    <LogoutButton />
-                </div>
             </aside>
 
             {/* Main */}

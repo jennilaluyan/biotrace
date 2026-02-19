@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\portal\ClientRequestsPage.tsx
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Eye, FilePlus2, RefreshCw, Search, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import type { Sample } from "../../services/samples";
 import { clientSampleRequestService } from "../../services/sampleRequests";
@@ -11,8 +13,6 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
-type StatusTone = { label: string; cls: string; sub?: string };
-
 type ClientRequestItem = Sample & {
     admin_received_from_collector_at?: string | null;
     collector_returned_to_admin_at?: string | null;
@@ -21,15 +21,11 @@ type ClientRequestItem = Sample & {
 
 type FlashPayload = { type: "success" | "warning" | "error"; message: string };
 
-const statusTone = (raw?: string | null): StatusTone => {
-    const s = (raw ?? "").toLowerCase();
-    if (s === "draft") return { label: raw ?? "Draft", cls: "bg-gray-100 text-gray-700" };
-    if (s === "submitted") return { label: raw ?? "Submitted", cls: "bg-primary-soft/10 text-primary-soft" };
-    if (s === "returned" || s === "needs_revision")
-        return { label: "Needs revision", cls: "bg-amber-100 text-amber-900" };
-    if (s === "ready_for_delivery") return { label: "Ready for delivery", cls: "bg-indigo-50 text-indigo-700" };
-    if (s === "physically_received") return { label: "Physically received", cls: "bg-emerald-100 text-emerald-900" };
-    return { label: raw ?? "Unknown", cls: "bg-gray-100 text-gray-700" };
+type StatusTone = {
+    label: string;
+    cls: string;
+    sub?: string;
+    raw?: string | null;
 };
 
 const fmtDate = (iso?: string | null) => {
@@ -38,12 +34,6 @@ const fmtDate = (iso?: string | null) => {
     if (Number.isNaN(d.getTime())) return String(iso);
     return d.toLocaleString();
 };
-
-const getErrMsg = (e: any) =>
-    e?.data?.message ??
-    e?.data?.error ??
-    (typeof e?.message === "string" ? e.message : null) ??
-    "Failed to load sample requests.";
 
 function getRequestId(it: any): number | null {
     const raw = it?.sample_id ?? it?.id ?? it?.request_id;
@@ -55,39 +45,33 @@ function stableKey(it: any, idx: number) {
     return String(it?.sample_id ?? it?.id ?? it?.lab_sample_code ?? idx);
 }
 
-/**
- * ✅ Client-visible status:
- * - Picked Up when client_picked_up_at exists
- * - Pickup Required when returned/needs_revision AND admin has received it back AND not picked up yet
- * - Otherwise fallback to request_status mapping
- */
-function deriveClientStatus(it: ClientRequestItem): StatusTone {
-    const pickedAt = it.client_picked_up_at ?? null;
-    const waitingSince = it.admin_received_from_collector_at ?? it.collector_returned_to_admin_at ?? null;
+function humanizeToken(raw?: string | null) {
+    const s = String(raw ?? "").trim();
+    if (!s) return "";
+    return s
+        .replace(/_/g, " ")
+        .replace(/\s+/g, " ")
+        .toLowerCase()
+        .replace(/(^\w)|(\s+\w)/g, (m) => m.toUpperCase());
+}
 
-    const rs = String((it as any).request_status ?? "").toLowerCase();
-
-    if (pickedAt) {
-        return {
-            label: "Picked up",
-            cls: "bg-emerald-100 text-emerald-900",
-            sub: `Picked up at ${fmtDate(pickedAt)}`,
-        };
+function statusChipClass(kind: "gray" | "primary" | "amber" | "indigo" | "emerald") {
+    switch (kind) {
+        case "primary":
+            return "bg-primary-soft/10 text-primary-soft";
+        case "amber":
+            return "bg-amber-50 text-amber-800";
+        case "indigo":
+            return "bg-indigo-50 text-indigo-700";
+        case "emerald":
+            return "bg-emerald-50 text-emerald-700";
+        default:
+            return "bg-gray-100 text-gray-700";
     }
-
-    const isReturnedFamily = rs === "returned" || rs === "needs_revision";
-    if (isReturnedFamily && waitingSince) {
-        return {
-            label: "Pickup required",
-            cls: "bg-amber-100 text-amber-900",
-            sub: `Waiting since ${fmtDate(waitingSince)}`,
-        };
-    }
-
-    return statusTone((it as any).request_status ?? null);
 }
 
 export default function ClientRequestsPage() {
+    const { t } = useTranslation();
     const navigate = useNavigate();
     const location = useLocation();
     const { loading: authLoading, isClientAuthenticated } = useClientAuth() as any;
@@ -116,9 +100,140 @@ export default function ClientRequestsPage() {
     // auto dismiss flash
     useEffect(() => {
         if (!flash) return;
-        const t = window.setTimeout(() => setFlash(null), 8000);
-        return () => window.clearTimeout(t);
+        const timer = window.setTimeout(() => setFlash(null), 8000);
+        return () => window.clearTimeout(timer);
     }, [flash]);
+
+    const getErrMsg = useCallback(
+        (e: any) =>
+            e?.data?.message ??
+            e?.data?.error ??
+            (typeof e?.message === "string" ? e.message : null) ??
+            t("portalRequestsPage.errors.loadFailed"),
+        [t]
+    );
+
+    const mapRequestStatus = useCallback(
+        (raw?: string | null): { label: string; cls: string } => {
+            const s = String(raw ?? "").trim().toLowerCase();
+
+            if (!s) {
+                return {
+                    label: t("portalRequestsPage.status.unknown"),
+                    cls: statusChipClass("gray"),
+                };
+            }
+
+            // known client-facing statuses
+            if (s === "draft")
+                return { label: t("portalRequestsPage.status.draft"), cls: statusChipClass("gray") };
+
+            if (s === "submitted")
+                return { label: t("portalRequestsPage.status.submitted"), cls: statusChipClass("primary") };
+
+            if (s === "returned" || s === "needs_revision")
+                return { label: t("portalRequestsPage.status.needsRevision"), cls: statusChipClass("amber") };
+
+            if (s === "ready_for_delivery")
+                return { label: t("portalRequestsPage.status.readyForDelivery"), cls: statusChipClass("indigo") };
+
+            if (s === "physically_received")
+                return { label: t("portalRequestsPage.status.physicallyReceived"), cls: statusChipClass("emerald") };
+
+            // fallback for internal-ish tokens that sometimes leak into portal list
+            const nice = humanizeToken(s);
+
+            // heuristic tone
+            const isBad = /(reject|deny|fail|return|revision)/i.test(s);
+            const isGood = /(approve|validated|received|completed|done)/i.test(s);
+            const isWaiting = /(submit|await|pending|review|queue|intake|assign)/i.test(s);
+
+            const cls = isBad
+                ? statusChipClass("amber")
+                : isGood
+                    ? statusChipClass("emerald")
+                    : isWaiting
+                        ? statusChipClass("indigo")
+                        : statusChipClass("gray");
+
+            return { label: nice || String(raw), cls };
+        },
+        [t]
+    );
+
+    /**
+     * ✅ Client-visible status:
+     * - Picked Up when client_picked_up_at exists
+     * - Pickup Required when returned/needs_revision AND admin has received it back AND not picked up yet
+     * - Otherwise fallback to request_status mapping
+     */
+    const deriveClientStatus = useCallback(
+        (it: ClientRequestItem): StatusTone => {
+            const pickedAt = it.client_picked_up_at ?? null;
+            const waitingSince = it.admin_received_from_collector_at ?? it.collector_returned_to_admin_at ?? null;
+
+            const rs = String((it as any).request_status ?? "").toLowerCase();
+
+            if (pickedAt) {
+                return {
+                    label: t("portalRequestsPage.status.pickedUp"),
+                    cls: statusChipClass("emerald"),
+                    sub: t("portalRequestsPage.sub.pickedUpAt", { date: fmtDate(pickedAt) }),
+                    raw: rs,
+                };
+            }
+
+            const isReturnedFamily = rs === "returned" || rs === "needs_revision";
+            if (isReturnedFamily && waitingSince) {
+                return {
+                    label: t("portalRequestsPage.status.pickupRequired"),
+                    cls: statusChipClass("amber"),
+                    sub: t("portalRequestsPage.sub.waitingSince", { date: fmtDate(waitingSince) }),
+                    raw: rs,
+                };
+            }
+
+            const mapped = mapRequestStatus((it as any).request_status ?? null);
+            return { label: mapped.label, cls: mapped.cls, raw: rs };
+        },
+        [t, mapRequestStatus]
+    );
+
+    const load = useCallback(async () => {
+        try {
+            setError(null);
+            setLoading(true);
+
+            const res = await clientSampleRequestService.list({ page: 1, per_page: 100 });
+            setItems((res.data ?? []) as ClientRequestItem[]);
+        } catch (e: any) {
+            setError(getErrMsg(e));
+            setItems([]);
+        } finally {
+            setLoading(false);
+        }
+    }, [getErrMsg]);
+
+    useEffect(() => {
+        let cancelled = false;
+        if (authLoading) return;
+
+        if (!isClientAuthenticated) {
+            navigate("/login", { replace: true });
+            return;
+        }
+
+        const run = async () => {
+            if (cancelled) return;
+            await load();
+        };
+
+        run();
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [authLoading, isClientAuthenticated, navigate, load]);
 
     const filtered = useMemo(() => {
         let list = items;
@@ -127,9 +242,15 @@ export default function ClientRequestsPage() {
 
         if (sf !== "all") {
             if (sf === "pickup_required") {
-                list = list.filter((it) => deriveClientStatus(it).label.toLowerCase() === "pickup required");
+                list = list.filter((it) => deriveClientStatus(it).label.toLowerCase() === t("portalRequestsPage.status.pickupRequired").toLowerCase());
             } else if (sf === "picked_up") {
-                list = list.filter((it) => deriveClientStatus(it).label.toLowerCase() === "picked up");
+                list = list.filter((it) => deriveClientStatus(it).label.toLowerCase() === t("portalRequestsPage.status.pickedUp").toLowerCase());
+            } else if (sf === "needs_revision") {
+                // unify returned + needs_revision
+                list = list.filter((it) => {
+                    const rs = String((it as any).request_status ?? "").toLowerCase();
+                    return rs === "needs_revision" || rs === "returned";
+                });
             } else {
                 list = list.filter((it) => String((it as any).request_status ?? "").toLowerCase() === sf);
             }
@@ -155,66 +276,35 @@ export default function ClientRequestsPage() {
 
             return hay.includes(term);
         });
-    }, [items, searchTerm, statusFilter]);
+    }, [items, searchTerm, statusFilter, deriveClientStatus, t]);
 
-    const load = async () => {
-        try {
-            setError(null);
-            setLoading(true);
-
-            const res = await clientSampleRequestService.list({
-                page: 1,
-                per_page: 100,
-            });
-
-            setItems((res.data ?? []) as ClientRequestItem[]);
-        } catch (e: any) {
-            const msg = getErrMsg(e);
-            setError(msg);
-            setItems([]);
-        } finally {
-            setLoading(false);
-        }
+    const clearFilters = () => {
+        setSearchTerm("");
+        setStatusFilter("all");
     };
 
-    useEffect(() => {
-        let cancelled = false;
-        if (authLoading) return;
-
-        if (!isClientAuthenticated) {
-            navigate("/login", { replace: true });
-            return;
-        }
-
-        const run = async () => {
-            if (cancelled) return;
-            await load();
-        };
-
-        run();
-
-        return () => {
-            cancelled = true;
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [authLoading, isClientAuthenticated, navigate]);
+    const resultMeta = useMemo(() => {
+        const total = items.length;
+        const shown = filtered.length;
+        return { total, shown };
+    }, [items.length, filtered.length]);
 
     return (
         <div className="min-h-[60vh]">
+            {/* Header */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">Sample Requests</h1>
-                    <p className="text-sm text-gray-600 mt-1">
-                        Create a request, complete required fields, then submit for admin review.
-                    </p>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("portalRequestsPage.title")}</h1>
+                    <p className="text-sm text-gray-600 mt-1">{t("portalRequestsPage.subtitle")}</p>
                 </div>
+
                 <button
                     type="button"
                     onClick={() => setCreateOpen(true)}
                     className="lims-btn-primary self-start md:self-auto inline-flex items-center gap-2"
                 >
                     <FilePlus2 size={16} />
-                    New request
+                    {t("portalRequestsPage.newRequest")}
                 </button>
             </div>
 
@@ -233,8 +323,8 @@ export default function ClientRequestsPage() {
                         type="button"
                         onClick={() => setFlash(null)}
                         className="lims-icon-button"
-                        aria-label="Dismiss"
-                        title="Dismiss"
+                        aria-label={t("close")}
+                        title={t("close")}
                     >
                         <X size={16} />
                     </button>
@@ -242,14 +332,16 @@ export default function ClientRequestsPage() {
             ) : null}
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                {/* Filter bar (match SamplesPage style) */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="request-search">
-                            Search requests
+                            {t("portalRequestsPage.filters.searchLabel")}
                         </label>
+
                         <div className="relative">
-                            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
-                                <Search size={16} />
+                            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500" aria-hidden="true">
+                                <Search className="h-4 w-4" />
                             </span>
 
                             <input
@@ -257,7 +349,7 @@ export default function ClientRequestsPage() {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="Search by request ID, sample type, status, notes…"
+                                placeholder={t("portalRequestsPage.filters.searchPlaceholder")}
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
@@ -265,44 +357,53 @@ export default function ClientRequestsPage() {
 
                     <div className="w-full md:w-60">
                         <label className="sr-only" htmlFor="request-status-filter">
-                            Status
+                            {t("status")}
                         </label>
+
                         <select
                             id="request-status-filter"
                             value={statusFilter}
                             onChange={(e) => setStatusFilter(e.target.value)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
-                            <option value="all">All status</option>
-                            <option value="draft">Draft</option>
-                            <option value="submitted">Submitted</option>
-                            <option value="needs_revision">Needs revision</option>
-                            <option value="ready_for_delivery">Ready for delivery</option>
-                            <option value="physically_received">Physically received</option>
-                            <option value="pickup_required">Pickup required</option>
-                            <option value="picked_up">Picked up</option>
+                            <option value="all">{t("portalRequestsPage.filters.allStatus")}</option>
+                            <option value="draft">{t("portalRequestsPage.status.draft")}</option>
+                            <option value="submitted">{t("portalRequestsPage.status.submitted")}</option>
+                            <option value="needs_revision">{t("portalRequestsPage.status.needsRevision")}</option>
+                            <option value="ready_for_delivery">{t("portalRequestsPage.status.readyForDelivery")}</option>
+                            <option value="physically_received">{t("portalRequestsPage.status.physicallyReceived")}</option>
+                            <option value="pickup_required">{t("portalRequestsPage.status.pickupRequired")}</option>
+                            <option value="picked_up">{t("portalRequestsPage.status.pickedUp")}</option>
                         </select>
                     </div>
 
-                    <button type="button" onClick={load} className="lims-btn w-full md:w-auto inline-flex items-center gap-2">
-                        <RefreshCw size={16} />
-                        Refresh
-                    </button>
+                    <div className="w-full md:w-auto flex items-center justify-start md:justify-end gap-2">
+                        <button
+                            type="button"
+                            className="lims-icon-button"
+                            onClick={load}
+                            aria-label={t("refresh")}
+                            title={t("refresh")}
+                            disabled={loading}
+                        >
+                            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+                        </button>
 
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setSearchTerm("");
-                            setStatusFilter("all");
-                        }}
-                        className="lims-btn w-full md:w-auto"
-                    >
-                        Clear
-                    </button>
+                        <button
+                            type="button"
+                            className="lims-icon-button"
+                            onClick={clearFilters}
+                            aria-label={t("clearFilters")}
+                            title={t("clearFilters")}
+                            disabled={loading && !searchTerm && statusFilter === "all"}
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
                 </div>
 
                 <div className="px-4 md:px-6 py-4">
-                    {loading ? <div className="text-sm text-gray-600">Loading requests…</div> : null}
+                    {loading ? <div className="text-sm text-gray-600">{t("portalRequestsPage.loading")}</div> : null}
 
                     {error && !loading ? (
                         <div className="text-sm text-rose-900 bg-rose-50 border border-rose-200 px-4 py-3 rounded-2xl mb-4">
@@ -312,36 +413,39 @@ export default function ClientRequestsPage() {
 
                     {!loading && !error ? (
                         <>
+                            <div className="text-xs text-gray-600 mb-3">
+                                {t("portalRequestsPage.meta.showing", { shown: resultMeta.shown, total: resultMeta.total })}
+                            </div>
+
                             {filtered.length === 0 ? (
                                 <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-5 text-sm text-gray-700">
-                                    <div className="font-semibold text-gray-900">No requests found</div>
-                                    <div className="text-sm text-gray-600 mt-1">
-                                        Try clearing filters, or create a new request.
-                                    </div>
+                                    <div className="font-semibold text-gray-900">{t("portalRequestsPage.empty.title")}</div>
+                                    <div className="text-sm text-gray-600 mt-1">{t("portalRequestsPage.empty.body")}</div>
+
                                     <button
                                         type="button"
                                         className="lims-btn-primary mt-4 inline-flex items-center gap-2"
                                         onClick={() => setCreateOpen(true)}
                                     >
                                         <FilePlus2 size={16} />
-                                        Create request
+                                        {t("portalRequestsPage.empty.cta")}
                                     </button>
                                 </div>
                             ) : (
                                 <div className="overflow-x-auto">
                                     <table className="min-w-full text-sm">
-                                        <thead className="bg-gray-50">
-                                            <tr className="text-xs text-gray-500 uppercase tracking-wide">
-                                                <th className="px-4 py-3 text-left">Request</th>
-                                                <th className="px-4 py-3 text-left">Sample type</th>
-                                                <th className="px-4 py-3 text-left">Scheduled delivery</th>
-                                                <th className="px-4 py-3 text-left">Status</th>
-                                                <th className="px-4 py-3 text-left">Updated</th>
-                                                <th className="px-4 py-3 text-right">Actions</th>
+                                        <thead className="bg-white text-gray-700 border-b border-gray-100">
+                                            <tr>
+                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.request")}</th>
+                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.sampleType")}</th>
+                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.scheduledDelivery")}</th>
+                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.status")}</th>
+                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.updated")}</th>
+                                                <th className="text-right font-semibold px-4 py-3">{t("actions")}</th>
                                             </tr>
                                         </thead>
 
-                                        <tbody>
+                                        <tbody className="divide-y divide-gray-100">
                                             {filtered.map((it: any, idx: number) => {
                                                 const rid = getRequestId(it);
                                                 const updated = fmtDate(it.updated_at ?? it.created_at);
@@ -349,17 +453,10 @@ export default function ClientRequestsPage() {
                                                 const st = deriveClientStatus(it as ClientRequestItem);
 
                                                 return (
-                                                    <tr
-                                                        key={stableKey(it, idx)}
-                                                        className="border-t border-gray-100 hover:bg-gray-50/60"
-                                                    >
+                                                    <tr key={stableKey(it, idx)} className="hover:bg-gray-50">
                                                         <td className="px-4 py-3">
                                                             <div className="font-medium text-gray-900">#{rid ?? "-"}</div>
-                                                            <div className="text-[11px] text-gray-500">
-                                                                {(it.requested_parameters?.length ?? 0) > 0
-                                                                    ? `${it.requested_parameters.length} parameter(s)`
-                                                                    : "No parameters"}
-                                                            </div>
+                                                            {/* NOTE: "1 parameter(s)" removed per request */}
                                                         </td>
 
                                                         <td className="px-4 py-3 text-gray-700">{it.sample_type ?? "-"}</td>
@@ -369,34 +466,32 @@ export default function ClientRequestsPage() {
                                                             <div className="flex flex-col gap-1">
                                                                 <span
                                                                     className={cx(
-                                                                        "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
+                                                                        "inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold",
                                                                         st.cls
                                                                     )}
+                                                                    title={st.raw ? String(st.raw) : undefined}
                                                                 >
                                                                     {st.label}
                                                                 </span>
-                                                                {st.sub ? (
-                                                                    <span className="text-[11px] text-gray-500">{st.sub}</span>
-                                                                ) : null}
+                                                                {st.sub ? <span className="text-[11px] text-gray-500">{st.sub}</span> : null}
                                                             </div>
                                                         </td>
 
                                                         <td className="px-4 py-3 text-gray-700">{updated}</td>
 
-                                                        <td className="px-4 py-3 text-right">
-                                                            <button
-                                                                type="button"
-                                                                className={cx(
-                                                                    "lims-icon-button text-gray-700",
-                                                                    !rid && "opacity-40 cursor-not-allowed"
-                                                                )}
-                                                                aria-label="Open request"
-                                                                title="Open request"
-                                                                disabled={!rid}
-                                                                onClick={() => rid && navigate(`/portal/requests/${rid}`)}
-                                                            >
-                                                                <Eye size={16} />
-                                                            </button>
+                                                        <td className="px-4 py-3">
+                                                            <div className="flex items-center justify-end">
+                                                                <button
+                                                                    type="button"
+                                                                    className={cx("lims-icon-button", !rid && "opacity-40 cursor-not-allowed")}
+                                                                    aria-label={t("portalRequestsPage.actions.open")}
+                                                                    title={t("portalRequestsPage.actions.open")}
+                                                                    disabled={!rid}
+                                                                    onClick={() => rid && navigate(`/portal/requests/${rid}`)}
+                                                                >
+                                                                    <Eye size={16} />
+                                                                </button>
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 );
@@ -415,7 +510,7 @@ export default function ClientRequestsPage() {
                 onClose={() => setCreateOpen(false)}
                 onCreated={async () => {
                     setCreateOpen(false);
-                    setFlash({ type: "success", message: "Request created. Complete the required fields, then submit." });
+                    setFlash({ type: "success", message: t("portalRequestsPage.flash.created") });
                     await load();
                 }}
             />

@@ -1,30 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
     ArrowLeft,
+    Calendar,
     Check,
     ChevronDown,
+    FileText,
+    Info,
     Loader2,
     RefreshCw,
     Save,
     Search,
     Send,
+    TestTube,
 } from "lucide-react";
 
 import type { Sample } from "../../services/samples";
 import { clientSampleRequestService } from "../../services/sampleRequests";
 import { listParameters, type ParameterRow } from "../../services/parameters";
+import { formatDateTimeLocal } from "../../utils/date";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
-
-const fmtDate = (iso?: string | null) => {
-    if (!iso) return "-";
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return String(iso);
-    return d.toLocaleString();
-};
 
 const getValidationMessage = (e: any, fallback: string) => {
     const details = e?.data?.details;
@@ -37,21 +36,25 @@ const getValidationMessage = (e: any, fallback: string) => {
     return e?.data?.message ?? e?.data?.error ?? fallback;
 };
 
+// Helper untuk status warna badge
 const statusTone = (raw?: string | null) => {
     const s = (raw ?? "").toLowerCase();
-    if (s === "draft") return "bg-gray-100 text-gray-700";
-    if (s === "submitted") return "bg-primary-soft/10 text-primary-soft";
-    if (s === "needs_revision" || s === "returned") return "bg-amber-100 text-amber-900";
-    if (s === "returned_to_admin") return "bg-amber-100 text-amber-900"; // pickup required (client-facing)
-    if (s === "ready_for_delivery") return "bg-indigo-50 text-indigo-700";
-    if (s === "physically_received") return "bg-emerald-100 text-emerald-900";
-    return "bg-gray-100 text-gray-700";
+    if (s === "draft") return "bg-gray-100 text-gray-700 border-gray-200";
+    if (s === "submitted") return "bg-blue-50 text-blue-700 border-blue-100";
+    if (s === "needs_revision" || s === "returned") return "bg-amber-50 text-amber-700 border-amber-200";
+    if (s === "returned_to_admin") return "bg-amber-50 text-amber-700 border-amber-200";
+    if (s === "ready_for_delivery") return "bg-indigo-50 text-indigo-700 border-indigo-200";
+    if (s === "physically_received") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    return "bg-gray-100 text-gray-700 border-gray-200";
 };
 
+// Helper untuk input datetime-local HTML5
 function datetimeLocalFromIso(iso?: string | null): string {
     if (!iso) return "";
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "";
+
+    // Format YYYY-MM-DDTHH:mm manually to avoid timezone shifts from toISOString()
     const pad = (n: number) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -59,14 +62,11 @@ function datetimeLocalFromIso(iso?: string | null): string {
 function extractPaginatedRows<T>(res: any): T[] {
     const root = res?.data ?? res;
     const d = root?.data ?? root;
-
     if (Array.isArray(d)) return d as T[];
     if (Array.isArray(d?.data)) return d.data as T[];
-
     const d2 = d?.data ?? null;
     if (Array.isArray(d2)) return d2 as T[];
     if (Array.isArray(d2?.data)) return d2.data as T[];
-
     return [];
 }
 
@@ -78,6 +78,7 @@ function parameterLabel(p: any) {
 }
 
 export default function ClientRequestDetailPage() {
+    const { t } = useTranslation();
     const { id } = useParams();
     const navigate = useNavigate();
 
@@ -96,21 +97,17 @@ export default function ClientRequestDetailPage() {
     const [error, setError] = useState<string | null>(null);
     const [info, setInfo] = useState<string | null>(null);
 
-    // form
+    // form state
     const [sampleType, setSampleType] = useState("");
     const [scheduledDeliveryAt, setScheduledDeliveryAt] = useState("");
     const [examinationPurpose, setExaminationPurpose] = useState("");
     const [additionalNotes, setAdditionalNotes] = useState("");
 
-    // parameters
+    // parameters state
     const [paramQuery, setParamQuery] = useState("");
     const [paramLoading, setParamLoading] = useState(false);
     const [paramItems, setParamItems] = useState<ParameterRow[]>([]);
-
-    // ✅ ONLY ONE selection
     const [selectedParamId, setSelectedParamId] = useState<number | null>(null);
-
-    // ✅ picker UI show/hide
     const [paramPickerOpen, setParamPickerOpen] = useState(true);
 
     const effectiveStatus = useMemo(() => String((data as any)?.request_status ?? ""), [data]);
@@ -130,17 +127,16 @@ export default function ClientRequestDetailPage() {
         return note || null;
     }, [data]);
 
+    // Load parameters list
     const loadParams = async (q?: string) => {
         try {
             setParamLoading(true);
-
             const res = await listParameters({
                 scope: "client",
                 page: 1,
                 per_page: 20,
                 q: (q ?? "").trim() || undefined,
             });
-
             const rows = extractPaginatedRows<ParameterRow>(res);
             setParamItems(Array.isArray(rows) ? rows : []);
         } catch {
@@ -150,6 +146,7 @@ export default function ClientRequestDetailPage() {
         }
     };
 
+    // Hydrate form data from API response
     const hydrateForm = (s: Sample) => {
         setSampleType(String((s as any).sample_type ?? ""));
         setScheduledDeliveryAt(datetimeLocalFromIso((s as any).scheduled_delivery_at ?? null));
@@ -170,7 +167,7 @@ export default function ClientRequestDetailPage() {
         const silent = !!opts?.silent;
 
         if (!Number.isFinite(numericId) || Number.isNaN(numericId)) {
-            setError("Invalid request id.");
+            setError(t("portalRequestDetail.errors.invalidId", "Invalid request id."));
             setLoading(false);
             return;
         }
@@ -188,7 +185,7 @@ export default function ClientRequestDetailPage() {
             // keep params list warm for search UX
             if (!silent) await loadParams("");
         } catch (e: any) {
-            setError(getValidationMessage(e, "Failed to load request detail."));
+            setError(getValidationMessage(e, t("portalRequestDetail.errors.loadFailed", "Failed to load request detail.")));
             setData(null);
         } finally {
             if (!silent) setLoading(false);
@@ -211,15 +208,12 @@ export default function ClientRequestDetailPage() {
 
     const selectedParamLabel = useMemo(() => {
         if (!selectedParamId) return null;
-
         const fromList = paramItems.find((p) => Number(p.parameter_id) === selectedParamId);
         if (fromList) return parameterLabel(fromList);
-
         const fromPayload = requestedParameterRows.find((p: any) => Number(p?.parameter_id) === selectedParamId);
         if (fromPayload) return parameterLabel(fromPayload);
-
-        return `Parameter #${selectedParamId}`;
-    }, [selectedParamId, paramItems, requestedParameterRows]);
+        return t("portalRequestDetail.parameterFallback", "Parameter #{{id}}", { id: selectedParamId });
+    }, [selectedParamId, paramItems, requestedParameterRows, t]);
 
     const buildPayload = () => {
         return {
@@ -236,9 +230,9 @@ export default function ClientRequestDetailPage() {
     }, [canEdit, sampleType, scheduledDeliveryAt, selectedParamId, submitting]);
 
     const saveDraft = async () => {
-        if (!Number.isFinite(numericId) || Number.isNaN(numericId)) return;
+        if (!Number.isFinite(numericId)) return;
         if (!sampleType.trim()) {
-            setError("Sample type is required.");
+            setError(t("portalRequestDetail.errors.sampleTypeRequired", "Sample type is required."));
             return;
         }
         try {
@@ -248,27 +242,27 @@ export default function ClientRequestDetailPage() {
             const updated = await clientSampleRequestService.updateDraft(numericId, buildPayload());
             setData(updated);
             hydrateForm(updated);
-            setInfo("Draft saved.");
+            setInfo(t("portalRequestDetail.info.draftSaved", "Draft saved."));
         } catch (e: any) {
-            setError(getValidationMessage(e, "Failed to save draft."));
+            setError(getValidationMessage(e, t("portalRequestDetail.errors.saveFailed", "Failed to save draft.")));
         } finally {
             setSaving(false);
         }
     };
 
     const submit = async () => {
-        if (!Number.isFinite(numericId) || Number.isNaN(numericId)) return;
+        if (!Number.isFinite(numericId)) return;
 
         if (!sampleType.trim()) {
-            setError("Sample type is required.");
+            setError(t("portalRequestDetail.errors.sampleTypeRequired", "Sample type is required."));
             return;
         }
         if (!scheduledDeliveryAt.trim()) {
-            setError("Scheduled delivery time is required.");
+            setError(t("portalRequestDetail.errors.scheduledDeliveryRequired", "Scheduled delivery time is required."));
             return;
         }
         if (!selectedParamId) {
-            setError("Please select one parameter.");
+            setError(t("portalRequestDetail.errors.parameterRequired", "Please select one parameter."));
             return;
         }
 
@@ -284,23 +278,25 @@ export default function ClientRequestDetailPage() {
                 state: {
                     flash: {
                         type: "success",
-                        message: `Request #${(data as any)?.sample_id ?? numericId} submitted. Admin will review it next.`,
+                        message: t("portalRequestDetail.flash.submitted", "Request #{{id}} submitted successfully.", { id: (data as any)?.sample_id ?? numericId }),
                     },
                 },
             });
         } catch (e: any) {
-            setError(getValidationMessage(e, "Failed to submit request."));
+            setError(getValidationMessage(e, t("portalRequestDetail.errors.submitFailed", "Failed to submit request.")));
         } finally {
             setSubmitting(false);
         }
     };
 
+    // --- RENDERERS ---
+
     if (loading) {
         return (
             <div className="min-h-[60vh] flex items-center justify-center">
                 <div className="text-sm text-gray-600 flex items-center gap-2">
-                    <Loader2 size={16} className="animate-spin" />
-                    Loading…
+                    <Loader2 size={16} className="animate-spin text-primary" />
+                    {t("loading", "Loading…")}
                 </div>
             </div>
         );
@@ -317,21 +313,20 @@ export default function ClientRequestDetailPage() {
                             onClick={() => navigate("/portal/requests")}
                         >
                             <ArrowLeft size={16} />
-                            Sample Requests
+                            {t("portal.requestDetail.breadcrumbRequests", "Sample Requests")}
                         </button>
                         <span className="lims-breadcrumb-separator">›</span>
-                        <span className="lims-breadcrumb-current">Request detail</span>
+                        <span className="lims-breadcrumb-current">{t("portal.requestDetail.breadcrumbCurrent", "Request detail")}</span>
                     </nav>
                 </div>
-
                 <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-                    <div className="text-sm text-rose-700">{error ?? "Request not found."}</div>
+                    <div className="text-sm text-rose-700">{error ?? t("portal.requestDetail.states.notFound", "Request not found.")}</div>
                 </div>
             </div>
         );
     }
 
-    const updatedAt = fmtDate((data as any).updated_at ?? (data as any).created_at);
+    const updatedAt = (data as any).updated_at ?? (data as any).created_at;
     const statusLabel = effectiveStatus || "Unknown";
     const statusLower = statusLabel.toLowerCase();
     const requestIdLabel = (data as any).sample_id ?? numericId;
@@ -340,7 +335,8 @@ export default function ClientRequestDetailPage() {
     const showHelpSubmitted = !canEdit && statusLower === "submitted";
 
     return (
-        <div className="min-h-[60vh]">
+        <div className="min-h-[60vh] pb-20">
+            {/* Breadcrumb */}
             <div className="px-0 py-2">
                 <nav className="lims-breadcrumb">
                     <button
@@ -349,48 +345,55 @@ export default function ClientRequestDetailPage() {
                         onClick={() => navigate("/portal/requests")}
                     >
                         <ArrowLeft size={16} />
-                        Sample Requests
+                        {t("portal.requestDetail.breadcrumbRequests", "Sample Requests")}
                     </button>
                     <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">Request detail</span>
+                    <span className="lims-breadcrumb-current">{t("portal.requestDetail.breadcrumbCurrent", "Request detail")}</span>
                 </nav>
             </div>
 
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between px-0 py-2">
+            {/* Header Area */}
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between px-0 py-2 mb-2">
                 <div>
-                    <div className="mt-1 flex items-center gap-2 flex-wrap">
-                        <h1 className="text-lg md:text-xl font-bold text-gray-900">Request #{requestIdLabel}</h1>
-                        <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", statusTone(statusLabel))}>
-                            {statusLabel}
+                    <div className="mt-1 flex items-center gap-3 flex-wrap">
+                        <h1 className="text-xl md:text-2xl font-bold text-gray-900">
+                            {t("portalRequestDetail.title", "Request #{{id}}", { id: requestIdLabel })}
+                        </h1>
+                        <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border", statusTone(statusLabel))}>
+                            {t(`portal.status.${statusLower}`, statusLabel)}
                         </span>
 
                         <button
                             type="button"
-                            className={cx("lims-icon-button", refreshing && "opacity-60 cursor-not-allowed")}
+                            className={cx("lims-icon-button bg-transparent border-transparent hover:bg-gray-100", refreshing && "opacity-60 cursor-not-allowed")}
                             onClick={() => load({ silent: true })}
                             disabled={refreshing || submitting || saving}
-                            aria-label="Refresh request"
-                            title="Refresh"
+                            aria-label={t("refresh", "Refresh")}
+                            title={t("refresh", "Refresh")}
                         >
-                            <RefreshCw size={16} className={cx(refreshing && "animate-spin")} />
+                            <RefreshCw size={16} className={cx(refreshing && "animate-spin text-primary")} />
                         </button>
                     </div>
 
-                    <div className="text-sm text-gray-600 mt-1">
-                        Last updated <span className="font-semibold text-gray-900">{updatedAt}</span>
+                    <div className="text-xs text-gray-500 mt-1.5 flex items-center gap-1">
+                        {t("portal.requestDetail.lastUpdated", "Last updated {{at}}", { at: formatDateTimeLocal(updatedAt) })}
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
+                {/* Actions */}
+                <div className="flex items-center gap-3 flex-wrap">
                     {canEdit ? (
                         <button
                             type="button"
                             onClick={saveDraft}
                             disabled={saving}
-                            className={cx("lims-btn inline-flex items-center gap-2", saving && "opacity-60 cursor-not-allowed")}
+                            className={cx(
+                                "btn-outline inline-flex items-center gap-2 min-w-[120px]",
+                                saving && "opacity-60 cursor-not-allowed"
+                            )}
                         >
                             {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                            {saving ? "Saving…" : "Save draft"}
+                            {saving ? t("saving", "Saving…") : t("saveDraft", "Save draft")}
                         </button>
                     ) : null}
 
@@ -399,237 +402,246 @@ export default function ClientRequestDetailPage() {
                         onClick={submit}
                         disabled={!canSubmit}
                         className={cx(
-                            "lims-btn-primary inline-flex items-center gap-2",
-                            (!canSubmit || submitting) && "opacity-60 cursor-not-allowed"
+                            "lims-btn-primary inline-flex items-center gap-2 min-w-[120px] shadow-sm",
+                            (!canSubmit || submitting) && "opacity-60 cursor-not-allowed bg-gray-400 border-gray-400 text-white"
                         )}
                         aria-disabled={!canSubmit || submitting}
                     >
                         {submitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                        {submitting ? "Submitting…" : "Submit"}
+                        {submitting ? t("submitting", "Submitting…") : t("submit", "Submit")}
                     </button>
                 </div>
             </div>
 
+            {/* Global Alerts */}
             {error ? (
-                <div className="mt-2 text-sm text-rose-900 bg-rose-50 border border-rose-200 px-4 py-3 rounded-2xl">
+                <div className="mb-4 text-sm text-rose-900 bg-rose-50 border border-rose-200 px-4 py-3 rounded-2xl flex items-start gap-2">
+                    <Info size={18} className="shrink-0 mt-0.5" />
                     {error}
                 </div>
             ) : null}
 
             {info ? (
-                <div className="mt-2 text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl">
+                <div className="mb-4 text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl flex items-start gap-2">
+                    <Check size={18} className="shrink-0 mt-0.5" />
                     {info}
                 </div>
             ) : null}
 
             {requestReturnNote && (statusLower === "returned" || statusLower === "needs_revision") ? (
-                <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-                    <div className="text-sm font-semibold text-amber-900">Revision requested</div>
-                    <div className="text-sm text-amber-900 mt-1 whitespace-pre-wrap">{requestReturnNote}</div>
+                <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 shadow-sm">
+                    <div className="flex items-center gap-2 text-amber-900 font-semibold mb-1">
+                        <Info size={18} />
+                        {t("portal.requestDetail.alerts.revisionTitle", "Revision requested")}
+                    </div>
+                    <div className="text-sm text-amber-800 pl-7 whitespace-pre-wrap">{requestReturnNote}</div>
                 </div>
             ) : null}
 
             {showHelpDraft ? (
-                <div className="mt-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
-                    <div className="font-medium text-gray-900">Ready to submit?</div>
-                    <div className="mt-1 text-gray-600">
-                        Fill <span className="font-medium">sample type</span>, <span className="font-medium">scheduled delivery</span>, and pick{" "}
-                        <span className="font-medium">one parameter</span>, then submit for admin review.
+                <div className="mb-6 rounded-2xl border border-gray-200 bg-linear-to-r from-gray-50 to-white px-5 py-4 text-sm text-gray-700 shadow-sm">
+                    <div className="font-semibold text-gray-900 mb-1">{t("portalRequestDetail.helpers.readyTitle", "Ready to submit?")}</div>
+                    <div className="text-gray-600">
+                        {t("portalRequestDetail.helpers.readyBody", "Fill sample type, scheduled delivery, and pick one parameter, then submit for admin review.")}
                     </div>
                 </div>
             ) : null}
 
             {showHelpSubmitted ? (
-                <div className="mt-3 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
-                    This request is submitted and waiting for admin review. Editing is disabled to prevent conflicting changes.
+                <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4 text-sm text-blue-900 flex items-start gap-3">
+                    <Info size={18} className="shrink-0 mt-0.5" />
+                    <div>
+                        {t("portalRequestDetail.helpers.submittedBody", "This request is submitted and waiting for admin review. Editing is disabled to prevent conflicting changes.")}
+                    </div>
                 </div>
             ) : null}
 
-            <div className="mt-4 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white">
-                    <div className="text-sm font-semibold text-gray-900">Request details</div>
-                    <div className="text-xs text-gray-500 mt-1">
-                        Editable while <span className="font-medium">Draft</span> / <span className="font-medium">Needs revision</span>.
-                    </div>
+            {/* Main Form Card */}
+            <div className="lims-detail-shell">
+                <div className="border-b border-gray-100 pb-4 mb-6">
+                    <h2 className="text-base font-semibold text-gray-900">{t("portal.requestDetail.sections.detailsTitle", "Request details")}</h2>
+                    <p className="text-xs text-gray-500 mt-1">
+                        {t("portal.requestDetail.sections.detailsSub", "Editable while Draft / Returned.")}
+                    </p>
                 </div>
 
-                <div className="px-4 md:px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="md:col-span-2">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Sample type <span className="text-rose-600">*</span>
-                        </label>
-                        <input
-                            value={sampleType}
-                            onChange={(e) => setSampleType(e.target.value)}
-                            disabled={!canEdit}
-                            placeholder="e.g., Swab, Blood, Tissue…"
-                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
-                        />
-                    </div>
-
-                    <div className="md:col-span-2">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Scheduled delivery <span className="text-rose-600">*</span>
-                        </label>
-                        <input
-                            type="datetime-local"
-                            value={scheduledDeliveryAt}
-                            onChange={(e) => setScheduledDeliveryAt(e.target.value)}
-                            disabled={!canEdit}
-                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
-                        />
-                        <div className="mt-1 text-[11px] text-gray-500">
-                            Use a realistic time you can deliver the sample. This helps scheduling.
-                        </div>
-                    </div>
-
-                    <div className="md:col-span-2">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Parameter <span className="text-rose-600">*</span>
-                        </label>
-
-                        {selectedParamLabel ? (
-                            <div className="mb-2 flex items-center justify-between gap-2 flex-wrap">
-                                <span className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 text-gray-900 px-3 py-1 text-xs font-semibold">
-                                    <Check size={14} />
-                                    {selectedParamLabel}
-                                </span>
-                            </div>
-                        ) : null}
-
-                        <div className="flex gap-2">
-                            <div className="flex-1 relative">
-                                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
-                                    <Search size={16} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Left Column: Basic Info */}
+                    <div className="space-y-6">
+                        {/* Sample Type */}
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                                {t("portal.requestDetail.fields.sampleType", "Sample type")} <span className="text-rose-600">*</span>
+                            </label>
+                            <div className="relative">
+                                <span className="absolute inset-y-0 left-3 flex items-center text-gray-400 pointer-events-none">
+                                    <TestTube size={16} />
                                 </span>
                                 <input
-                                    value={paramQuery}
-                                    onChange={(e) => setParamQuery(e.target.value)}
-                                    onFocus={() => {
-                                        if (!canEdit) return;
-                                        setParamPickerOpen(true);
-                                        if (paramItems.length === 0 && !paramLoading) {
-                                            void loadParams(paramQuery);
-                                        }
-                                    }}
-                                    onMouseDown={() => {
-                                        if (!canEdit) return;
-                                        setParamPickerOpen(true);
-                                    }}
-                                    placeholder="Search parameter…"
+                                    value={sampleType}
+                                    onChange={(e) => setSampleType(e.target.value)}
                                     disabled={!canEdit}
-                                    className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
+                                    placeholder={t("portalRequestForm.placeholders.sampleType", "e.g., Swab, Blood, Tissue…")}
+                                    className="w-full rounded-xl border border-gray-300 pl-10 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 transition-all"
                                 />
                             </div>
-
-                            <button
-                                type="button"
-                                className="lims-btn inline-flex items-center gap-2"
-                                onClick={async () => {
-                                    setParamPickerOpen(true);
-                                    await loadParams(paramQuery);
-                                }}
-                                disabled={!canEdit || paramLoading}
-                            >
-                                {paramLoading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
-                                Search
-                            </button>
-
-                            {canEdit ? (
-                                <button
-                                    type="button"
-                                    className="lims-btn inline-flex items-center gap-2"
-                                    onClick={() => setParamPickerOpen((v) => !v)}
-                                >
-                                    <ChevronDown size={16} className={cx(paramPickerOpen && "rotate-180 transition-transform")} />
-                                    {paramPickerOpen ? "Hide" : "Show"}
-                                </button>
-                            ) : null}
                         </div>
 
-                        {paramPickerOpen ? (
-                            <div className="mt-3 rounded-2xl border border-gray-200 bg-white max-h-56 overflow-auto">
-                                {paramLoading ? (
-                                    <div className="p-3 text-sm text-gray-600 flex items-center gap-2">
-                                        <Loader2 size={16} className="animate-spin" />
-                                        Loading…
+                        {/* Scheduled Delivery */}
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                                {t("portal.requestDetail.fields.scheduledDelivery", "Scheduled delivery")} <span className="text-rose-600">*</span>
+                            </label>
+                            <div className="relative">
+                                <span className="absolute inset-y-0 left-3 flex items-center text-gray-400 pointer-events-none">
+                                    <Calendar size={16} />
+                                </span>
+                                <input
+                                    type="datetime-local"
+                                    value={scheduledDeliveryAt}
+                                    onChange={(e) => setScheduledDeliveryAt(e.target.value)}
+                                    disabled={!canEdit}
+                                    className="w-full rounded-xl border border-gray-300 pl-10 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 transition-all"
+                                />
+                            </div>
+                            <p className="mt-1.5 text-[11px] text-gray-500">
+                                {t("portalRequestDetail.helpers.deliveryHint", "Use a realistic time you can deliver the sample.")}
+                            </p>
+                        </div>
+
+                        {/* Notes */}
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                                {t("portal.requestDetail.fields.additionalNotes", "Additional notes")}
+                            </label>
+                            <div className="relative">
+                                <span className="absolute top-3 left-3 flex items-start text-gray-400 pointer-events-none">
+                                    <FileText size={16} />
+                                </span>
+                                <textarea
+                                    value={additionalNotes}
+                                    onChange={(e) => setAdditionalNotes(e.target.value)}
+                                    disabled={!canEdit}
+                                    rows={3}
+                                    placeholder={t("portalRequestForm.placeholders.additionalNotes", "Optional...")}
+                                    className="w-full rounded-xl border border-gray-300 pl-10 pr-3 py-2.5 text-sm min-h-[100px] focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 transition-all"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Right Column: Parameters & Purpose */}
+                    <div className="space-y-6">
+                        {/* Parameter Picker */}
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                                {t("portal.requestDetail.fields.parameter", "Parameter")} <span className="text-rose-600">*</span>
+                            </label>
+
+                            {selectedParamLabel ? (
+                                <div className="mb-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                                    <div className="inline-flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 text-primary-dark px-3 py-2 text-sm font-medium w-full">
+                                        <Check size={16} className="text-primary" />
+                                        <span className="truncate flex-1">{selectedParamLabel}</span>
                                     </div>
-                                ) : paramItems.length === 0 ? (
-                                    <div className="p-3 text-sm text-gray-600">No parameters found.</div>
-                                ) : (
-                                    <ul className="divide-y divide-gray-100">
-                                        {paramItems.map((p) => {
-                                            const pid = Number(p.parameter_id);
-                                            const checked = selectedParamId === pid;
+                                </div>
+                            ) : null}
 
-                                            return (
-                                                <li key={pid} className="p-3 flex items-center justify-between gap-3">
-                                                    <div className="min-w-0">
-                                                        <div className="text-sm font-medium text-gray-900 truncate">{parameterLabel(p)}</div>
-                                                        <div className="text-xs text-gray-500 truncate">
-                                                            {p.unit ? `Unit: ${p.unit}` : "—"}
-                                                        </div>
-                                                    </div>
+                            <div className="bg-gray-50 rounded-2xl p-3 border border-gray-200">
+                                <div className="flex gap-2 mb-3">
+                                    <div className="flex-1 relative">
+                                        <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-400">
+                                            <Search size={16} />
+                                        </span>
+                                        <input
+                                            value={paramQuery}
+                                            onChange={(e) => setParamQuery(e.target.value)}
+                                            onFocus={() => {
+                                                if (!canEdit) return;
+                                                setParamPickerOpen(true);
+                                                if (paramItems.length === 0 && !paramLoading) {
+                                                    void loadParams(paramQuery);
+                                                }
+                                            }}
+                                            placeholder={t("portal.requestDetail.fields.parameterSearchPlaceholder", "Search parameter...")}
+                                            disabled={!canEdit}
+                                            className="w-full rounded-xl border border-gray-200 pl-9 pr-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100 bg-white"
+                                        />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="lims-icon-button bg-white border border-gray-200 h-9 w-9"
+                                        onClick={() => setParamPickerOpen((v) => !v)}
+                                        disabled={!canEdit}
+                                    >
+                                        <ChevronDown size={16} className={cx(paramPickerOpen && "rotate-180 transition-transform")} />
+                                    </button>
+                                </div>
 
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setSelectedParamId(pid)}
-                                                        disabled={!canEdit}
-                                                        className={cx(
-                                                            "px-3 py-1 rounded-full text-xs border inline-flex items-center gap-2",
-                                                            checked
-                                                                ? "bg-primary text-white border-primary"
-                                                                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50",
-                                                            !canEdit ? "opacity-50 cursor-not-allowed" : ""
-                                                        )}
-                                                    >
-                                                        {checked ? <Check size={14} /> : null}
-                                                        {checked ? "Selected" : "Select"}
-                                                    </button>
-                                                </li>
-                                            );
-                                        })}
-                                    </ul>
+                                {paramPickerOpen && (
+                                    <div className="max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                                        {paramLoading ? (
+                                            <div className="py-4 text-xs text-gray-500 flex items-center justify-center gap-2">
+                                                <Loader2 size={14} className="animate-spin" />
+                                                {t("loading", "Loading...")}
+                                            </div>
+                                        ) : paramItems.length === 0 ? (
+                                            <div className="py-4 text-xs text-gray-500 text-center italic">
+                                                {t("portal.requestDetail.parameterPicker.empty", "No parameters found.")}
+                                            </div>
+                                        ) : (
+                                            <ul className="space-y-1">
+                                                {paramItems.map((p) => {
+                                                    const pid = Number(p.parameter_id);
+                                                    const checked = selectedParamId === pid;
+                                                    return (
+                                                        <li key={pid}>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setSelectedParamId(pid)}
+                                                                disabled={!canEdit}
+                                                                className={cx(
+                                                                    "w-full text-left px-3 py-2 rounded-lg text-xs transition-colors flex items-center justify-between group",
+                                                                    checked
+                                                                        ? "bg-white border border-primary/30 shadow-sm ring-1 ring-primary/10"
+                                                                        : "hover:bg-white border border-transparent hover:border-gray-200 text-gray-600 hover:text-gray-900"
+                                                                )}
+                                                            >
+                                                                <div className="min-w-0 flex-1">
+                                                                    <div className={cx("font-medium truncate", checked ? "text-primary-dark" : "")}>
+                                                                        {parameterLabel(p)}
+                                                                    </div>
+                                                                    <div className="text-[10px] text-gray-400 truncate">
+                                                                        {p.unit ? t("portal.requestDetail.parameterPicker.unit", "Unit: {{unit}}", { unit: p.unit }) : "—"}
+                                                                    </div>
+                                                                </div>
+                                                                {checked && <Check size={14} className="text-primary shrink-0" />}
+                                                            </button>
+                                                        </li>
+                                                    );
+                                                })}
+                                            </ul>
+                                        )}
+                                    </div>
                                 )}
                             </div>
-                        ) : null}
+                        </div>
 
-                        <div className="mt-2 text-[11px] text-gray-500">
-                            Selected: <span className="font-semibold text-gray-800">{selectedParamId ? 1 : 0}</span> (currently limited to one)
+                        {/* Purpose */}
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                                {t("portal.requestDetail.fields.examinationPurpose", "Examination purpose")}
+                            </label>
+                            <textarea
+                                value={examinationPurpose}
+                                onChange={(e) => setExaminationPurpose(e.target.value)}
+                                disabled={!canEdit}
+                                rows={2}
+                                placeholder={t("portalRequestForm.placeholders.examinationPurpose", "Optional: what is this test for?")}
+                                className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 transition-all"
+                            />
                         </div>
                     </div>
-
-                    <div className="md:col-span-2">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Examination purpose</label>
-                        <textarea
-                            value={examinationPurpose}
-                            onChange={(e) => setExaminationPurpose(e.target.value)}
-                            disabled={!canEdit}
-                            rows={2}
-                            placeholder="Optional: what is this test for?"
-                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
-                        />
-                    </div>
-
-                    <div className="md:col-span-2">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Additional notes</label>
-                        <textarea
-                            value={additionalNotes}
-                            onChange={(e) => setAdditionalNotes(e.target.value)}
-                            disabled={!canEdit}
-                            rows={3}
-                            placeholder="Optional: anything the lab should know (handling, constraints, etc.)"
-                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm min-h-[120px] focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
-                        />
-                    </div>
-
-                    {!canEdit ? (
-                        <div className="md:col-span-2">
-                            <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                                Editing is disabled for this status to protect data integrity.
-                            </div>
-                        </div>
-                    ) : null}
                 </div>
             </div>
         </div>

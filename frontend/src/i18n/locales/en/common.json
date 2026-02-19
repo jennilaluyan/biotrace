@@ -2,6 +2,7 @@
     "appName": "BioTrace",
     "language": "Language",
     "save": "Save",
+    "open": "Open",
     "saveDraft": "Save draft",
     "saving": "Saving…",
     "cancel": "Cancel",
@@ -25,6 +26,7 @@
     "validate": "Validate",
     "dismiss": "Dismiss",
     "retry": "Retry",
+    "clear": "Clear",
     "submitting": "Submitting…",
     "processing": "Processing…",
     "preview": "Preview",
@@ -52,6 +54,116 @@
         "openNavigation": "Open navigation",
         "closeSidebar": "Close sidebar"
     },
+    "portalRequestsPage": {
+        "title": "Sample Requests",
+        "subtitle": "Create a request, complete required fields, then submit for admin review.",
+        "newRequest": "New request",
+        "loading": "Loading requests…",
+        "errors": {
+            "loadFailed": "Failed to load sample requests."
+        },
+        "flash": {
+            "created": "Request created. Complete the required fields, then submit."
+        },
+        "filters": {
+            "searchLabel": "Search requests",
+            "searchPlaceholder": "Search by request ID, sample type, status, notes…",
+            "allStatus": "All status"
+        },
+        "table": {
+            "request": "Request",
+            "sampleType": "Sample type",
+            "scheduledDelivery": "Scheduled delivery",
+            "status": "Status",
+            "updated": "Updated"
+        },
+        "actions": {
+            "open": "Open request"
+        },
+        "empty": {
+            "title": "No requests found",
+            "body": "Try clearing filters, or create a new request.",
+            "cta": "Create request"
+        },
+        "status": {
+            "draft": "Draft",
+            "submitted": "Submitted",
+            "needsRevision": "Needs revision",
+            "readyForDelivery": "Ready for delivery",
+            "physicallyReceived": "Physically received",
+            "pickupRequired": "Pickup required",
+            "pickedUp": "Picked up",
+            "unknown": "Unknown"
+        },
+        "sub": {
+            "pickedUpAt": "Picked up at {{date}}",
+            "waitingSince": "Waiting since {{date}}"
+        },
+        "meta": {
+            "showing": "Showing {{shown}} of {{total}}"
+        }
+    },
+    "portalRequestDetail": {
+        "title": "Request #{{id}}",
+        "errors": {
+            "invalidId": "Invalid request id.",
+            "loadFailed": "Failed to load request detail.",
+            "sampleTypeRequired": "Sample type is required.",
+            "scheduledDeliveryRequired": "Scheduled delivery is required.",
+            "parameterRequired": "One parameter is required.",
+            "saveFailed": "Failed to save draft.",
+            "submitFailed": "Failed to submit request."
+        },
+        "info": {
+            "draftSaved": "Draft saved."
+        },
+        "flash": {
+            "submitted": "Request #{{id}} submitted successfully."
+        },
+        "helpers": {
+            "readyTitle": "Ready to submit?",
+            "readyBody": "Fill sample type, scheduled delivery, and pick one parameter, then submit for admin review.",
+            "submittedBody": "This request is submitted and waiting for admin review. Editing is disabled to prevent conflicting changes.",
+            "deliveryHint": "Use a realistic time you can deliver the sample. This helps scheduling."
+        },
+        "parameterFallback": "Parameter #{{id}}"
+    },
+    "portalRequestForm": {
+        "title": "Create Sample Request",
+        "subtitle": "Fill required fields → save as draft. Admin will review before processing.",
+        "fields": {
+            "sampleType": "Sample type",
+            "scheduledDelivery": "Scheduled delivery to lab",
+            "parameter": "Test parameter",
+            "examinationPurpose": "Examination purpose",
+            "additionalNotes": "Additional notes"
+        },
+        "placeholders": {
+            "sampleType": "e.g. Swab, Blood, Water…",
+            "parameter": "Search and select a parameter…",
+            "examinationPurpose": "Write the examination purpose…",
+            "additionalNotes": "Optional…"
+        },
+        "helpers": {
+            "scheduledDelivery": "This is your planned drop-off time (not the lab receiving time).",
+            "selected": "Selected:"
+        },
+        "parameter": {
+            "selected": "Selected",
+            "unit": "Unit: {{unit}}"
+        },
+        "states": {
+            "loadingParams": "Loading…",
+            "noParams": "No parameters found."
+        },
+        "actions": {
+            "create": "Create request"
+        },
+        "errors": {
+            "loadParams": "Failed to load parameters.",
+            "createFailed": "Failed to create request."
+        }
+    },
     "portal": {
         "dashboard": "Dashboard",
         "sampleRequests": "Sample Requests",
@@ -69,10 +181,11 @@
         },
         "dashboardPage": {
             "title": "Dashboard",
-            "subtitle": "Welcome, {{name}}. Create and track your sample requests here.",
+            "subtitle": "Welcome{{name}}. Create and track your sample requests here.",
             "cta": {
                 "openRequests": "Open requests",
-                "createRequest": "New request"
+                "createRequest": "New request",
+                "viewAll": "View all"
             },
             "stats": {
                 "totalTitle": "Total requests",
@@ -82,13 +195,37 @@
                 "submittedTitle": "Submitted",
                 "submittedSub": "Waiting for admin review.",
                 "returnedTitle": "Returned",
-                "returnedSub": "Requires revision before resubmitting."
+                "returnedSub": "Requires revision before resubmitting.",
+                "needsActionTitle": "Needs action",
+                "needsActionSub": "Returned for revision."
             },
             "cards": {
                 "nextTitle": "What happens next?",
                 "nextBody": "Create draft → complete required fields → submit → admin review → schedule delivery → physical receive.",
                 "reviseTitle": "Need to revise?",
                 "reviseBody": "If admin returns your request, update it and submit again."
+            },
+            "flowTitle": "Workflow at a glance",
+            "flowHint": "Draft → Submitted → Admin review → Delivery schedule → Physical receive.",
+            "recent": {
+                "title": "Recent requests",
+                "subtitle": "Jump back into what you worked on recently.",
+                "updated": "Updated",
+                "openAria": "Open request",
+                "emptyTitle": "No requests yet",
+                "emptyBody": "Create your first request to start the workflow."
+            },
+            "tips": {
+                "title": "Tips to avoid delays",
+                "subtitle": "Small habits that keep your request moving.",
+                "items": {
+                    "requiredFields": "Fill the required fields (sample type, scheduled delivery, and parameter) before submitting.",
+                    "revise": "If your request is returned, open it, address the note, save draft, then submit again.",
+                    "timezone": "Use the scheduled delivery time to plan your drop-off. Times are shown in your local timezone."
+                }
+            },
+            "errors": {
+                "loadFailed": "We couldn’t load your requests. Please try again."
             }
         },
         "requestsPage": {
