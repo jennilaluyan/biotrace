@@ -45,7 +45,8 @@
         "refresh": "Muat ulang",
         "approve": "Setujui",
         "reject": "Tolak",
-        "processing": "Memproses…"
+        "processing": "Memproses…",
+        "view": "Lihat"
     },
     "staffApprovals": {
         "title": "Persetujuan staf",
@@ -1534,39 +1535,40 @@
     "audit": {
         "logs": {
             "title": "Log audit",
-            "subtitle": "Catatan kronologis aktivitas di sistem.",
-            "count": "{{count}} log",
-            "forbiddenTitle": "403 – Akses ditolak",
-            "forbiddenBody": "Peran Anda ({{role}}) tidak diizinkan mengakses log audit.",
+            "subtitle": "Jejak aktivitas penting yang bersifat read-only untuk keterlacakan dan akuntabilitas.",
+            "count": "{{count}} data",
+            "loading": "Memuat log audit…",
+            "forbiddenTitle": "Akses ditolak",
+            "forbiddenBody": "Peran kamu saat ini ({{role}}) tidak memiliki akses ke log audit.",
             "backToDashboard": "Kembali ke dashboard",
             "filters": {
                 "title": "Filter",
-                "hint": "Tip: isi minimal satu filter untuk memperkecil hasil.",
-                "sampleId": "sample_id",
-                "sampleTestId": "sample_test_id",
-                "staffId": "staff_id",
-                "action": "action",
-                "perPage": "per_page",
-                "sampleIdPlaceholder": "mis. 35",
-                "sampleTestIdPlaceholder": "mis. 22",
-                "staffIdPlaceholder": "mis. 4",
-                "actionPlaceholder": "mis. SAMPLE_TEST_OM_VERIFIED"
+                "hint": "Tips: gunakan ID agar hasil lebih cepat mengerucut.",
+                "sampleId": "ID Sampel",
+                "sampleIdPlaceholder": "contoh 123",
+                "sampleTestId": "ID Uji Sampel",
+                "sampleTestIdPlaceholder": "contoh 456",
+                "staffId": "ID Staf",
+                "staffIdPlaceholder": "contoh 7",
+                "action": "Aksi",
+                "actionPlaceholder": "contoh sample.created",
+                "perPage": "Baris"
             },
             "table": {
-                "title": "Logs",
-                "pageOf": "Halaman {{page}} / {{totalPages}}",
+                "title": "Aktivitas",
+                "pageOf": "Halaman {{page}} dari {{totalPages}}",
                 "time": "Waktu",
                 "action": "Aksi",
                 "entity": "Entitas",
                 "staff": "Staf",
-                "ip": "IP",
-                "old": "Lama",
-                "new": "Baru",
-                "empty": "Tidak ada log audit."
+                "ip": "Alamat IP",
+                "old": "Nilai lama",
+                "new": "Nilai baru",
+                "empty": "Tidak ada log audit untuk filter saat ini."
             },
             "pagination": {
                 "pageOf": "Halaman {{page}} / {{totalPages}}",
-                "total": "Total {{total}}"
+                "total": "Total: {{total}}"
             },
             "errors": {
                 "loadFailed": "Gagal memuat log audit."

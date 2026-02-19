@@ -45,7 +45,8 @@
         "refresh": "Refresh",
         "approve": "Approve",
         "reject": "Reject",
-        "processing": "Processing…"
+        "processing": "Processing…",
+        "view": "View"
     },
     "staffApprovals": {
         "title": "Staff approvals",
@@ -1537,39 +1538,40 @@
     "audit": {
         "logs": {
             "title": "Audit logs",
-            "subtitle": "A chronological record of actions in the system.",
-            "count": "{{count}} log(s)",
-            "forbiddenTitle": "403 – Access denied",
-            "forbiddenBody": "Your role ({{role}}) is not allowed to access audit logs.",
+            "subtitle": "A read-only trail of important actions for traceability and accountability.",
+            "count": "{{count}} record(s)",
+            "loading": "Loading audit logs…",
+            "forbiddenTitle": "Access denied",
+            "forbiddenBody": "Your current role ({{role}}) doesn’t have access to audit logs.",
             "backToDashboard": "Back to dashboard",
             "filters": {
                 "title": "Filters",
-                "hint": "Tip: use at least one filter to narrow results.",
-                "sampleId": "sample_id",
-                "sampleTestId": "sample_test_id",
-                "staffId": "staff_id",
-                "action": "action",
-                "perPage": "per_page",
-                "sampleIdPlaceholder": "e.g. 35",
-                "sampleTestIdPlaceholder": "e.g. 22",
-                "staffIdPlaceholder": "e.g. 4",
-                "actionPlaceholder": "e.g. SAMPLE_TEST_OM_VERIFIED"
+                "hint": "Tip: use an ID to narrow results quickly.",
+                "sampleId": "Sample ID",
+                "sampleIdPlaceholder": "e.g. 123",
+                "sampleTestId": "Sample test ID",
+                "sampleTestIdPlaceholder": "e.g. 456",
+                "staffId": "Staff ID",
+                "staffIdPlaceholder": "e.g. 7",
+                "action": "Action",
+                "actionPlaceholder": "e.g. sample.created",
+                "perPage": "Rows"
             },
             "table": {
-                "title": "Logs",
-                "pageOf": "Page {{page}} / {{totalPages}}",
+                "title": "Activity",
+                "pageOf": "Page {{page}} of {{totalPages}}",
                 "time": "Time",
                 "action": "Action",
                 "entity": "Entity",
                 "staff": "Staff",
-                "ip": "IP",
-                "old": "Old",
-                "new": "New",
-                "empty": "No audit logs found."
+                "ip": "IP address",
+                "old": "Old values",
+                "new": "New values",
+                "empty": "No audit logs found for the current filters."
             },
             "pagination": {
                 "pageOf": "Page {{page}} / {{totalPages}}",
-                "total": "Total {{total}}"
+                "total": "Total: {{total}}"
             },
             "errors": {
                 "loadFailed": "Failed to load audit logs."
