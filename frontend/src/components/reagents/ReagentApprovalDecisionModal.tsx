@@ -11,15 +11,13 @@ type Props = {
     open: boolean;
     mode: "approve" | "reject";
     busy?: boolean;
-
     request: ReagentRequestRow | null;
     looNumber?: string | null;
     clientName?: string | null;
     itemsCount?: number;
     bookingsCount?: number;
-
     onClose: () => void;
-    onConfirm: (rejectNote?: string) => void;
+    onConfirm: (rejectNote?: string) => void | Promise<void>;
 };
 
 export default function ReagentApprovalDecisionModal(props: Props) {

@@ -181,10 +181,26 @@ class LetterOfOrderService
         $prevTplVer = (int) ($payload['template_version'] ?? 0);
         $prevTplFileId = (int) ($payload['template_file_id'] ?? 0);
 
-        $numbers = $this->docNumber->generate(self::DOC_CODE_LOO, now());
+        $generatedAt = now();
+
+        $numbers = $this->docNumber->generate(self::DOC_CODE_LOO, $generatedAt);
         $recordNo = (string) ($numbers['record_no'] ?? '');
-        $formCode = (string) ($numbers['form_code'] ?? '');
+
+        // ✅ simpan FULL untuk metadata/payload
+        $formCodeFull = (string) ($numbers['form_code'] ?? '');
+
+        // ✅ tapi untuk DOCX footer kamu, isi ${form_code} HARUS tanggal saja
+        $formCodeDate = $generatedAt->format('d-m-y'); // contoh: 19-02-26
+
         $revisionNo = (int) ($numbers['revision_no'] ?? 0);
+
+        $client = (array) ($payload['client'] ?? []);
+
+        // ambil semua sample_id dari itemsSnapshot
+        $sampleIds = array_values(array_unique(array_filter(array_map(
+            fn($it) => (int) ($it['sample_id'] ?? 0),
+            $itemsSnapshot
+        ))));
 
         $prevRevision = (int) ($payload['revision_no'] ?? -1);
 
@@ -197,7 +213,7 @@ class LetterOfOrderService
         if (!$shouldGenerate) {
             // still normalize numbering snapshot if missing (without regenerating)
             if (empty($payload['record_no'])) $payload['record_no'] = $recordNo;
-            if (empty($payload['form_code'])) $payload['form_code'] = $formCode;
+            if (empty($payload['form_code'])) $payload['form_code'] = $formCodeFull;
 
             $loa->payload = $payload;
             if (empty($loa->generated_at)) $loa->generated_at = now();
@@ -255,12 +271,17 @@ class LetterOfOrderService
         $vars = [
             // numbering
             'record_no' => $recordNo,
-            'form_code' => $formCode,
+
+            // ✅ untuk footer prefix statis: FORM/...Rev00.${form_code}
+            'form_code' => $formCodeDate,
+
+            // opsional kalau suatu saat butuh full code di docx
+            'form_code_full' => $formCodeFull,
 
             // identifiers
             'loo_number' => $number,
-            'loa_number' => $number, // backward compat placeholders
-            'generated_date' => now()->format('d/m/Y'),
+            'loa_number' => $number,
+            'generated_date' => $generatedAt->format('d/m/Y'),
 
             // client
             'client_name' => (string) ($client['name'] ?? ''),
@@ -268,6 +289,9 @@ class LetterOfOrderService
             'client_email' => (string) ($client['email'] ?? ''),
             'client_phone' => (string) ($client['phone'] ?? ''),
         ];
+
+        // ✅ tambahkan vars baru untuk Metode Uji, Jenis Sampel, dst
+        $vars = array_merge($vars, $this->buildLooDocMetaVars($itemsSnapshot, $sampleIds));
 
         // Signature placeholders (optional)
         try {
@@ -341,7 +365,7 @@ class LetterOfOrderService
         $payload['docx_file_id'] = $docxFileId;
 
         $payload['record_no'] = $recordNo;
-        $payload['form_code'] = $formCode;
+        $payload['form_code'] = $formCodeFull;
         $payload['revision_no'] = $revisionNo;
 
         $payload['template_version'] = $templateVersion;
@@ -368,7 +392,7 @@ class LetterOfOrderService
                     'entity_type' => 'loo',
                     'entity_id' => (int) $loa->lo_id,
                     'record_no' => $recordNo,
-                    'form_code' => $formCode,
+                    'form_code' => $formCodeFull,
                     'revision_no' => $revisionNo,
                     'template_version' => $templateVersion,
                     'file_pdf_id' => $newPdfFileId,
@@ -412,6 +436,94 @@ class LetterOfOrderService
 
         // Newlines usually render as line breaks in PhpWord TemplateProcessor
         return implode("\n", $lines);
+    }
+
+    private function buildLooDocMetaVars(array $itemsSnapshot, array $sampleIds): array
+    {
+        // ✅ jumlah sampel: selalu bisa dihitung dari items
+        $qty = count($itemsSnapshot);
+
+        // ✅ jenis sampel: ambil unik dari itemsSnapshot
+        $types = [];
+        foreach ($itemsSnapshot as $it) {
+            $t = trim((string) ($it['sample_type'] ?? ''));
+            if ($t !== '') $types[$t] = true;
+        }
+        $sampleType = implode(', ', array_keys($types));
+
+        // ✅ metode uji: best-effort (kalau nggak ketemu, tetap replace jadi kosong)
+        $method = $this->inferTestMethodFromSamples($sampleIds);
+
+        // ✅ tanggal: best-effort dari samples.created_at (paling aman karena hampir pasti ada)
+        $received = $this->pickMinDateFromSamples($sampleIds, ['received_at', 'verified_at', 'created_at']);
+        $testingStart = $this->pickMinDateFromSamples($sampleIds, ['testing_started_at', 'analysis_started_at']);
+
+        return [
+            'test_method' => $method,
+            'sample_type' => $sampleType,
+            'sample_qty' => (string) $qty,
+            'received_date' => $received ? $received->format('d/m/Y') : '',
+            'testing_start_date' => $testingStart ? $testingStart->format('d/m/Y') : '',
+        ];
+    }
+
+    private function pickMinDateFromSamples(array $sampleIds, array $preferredCols): ?\Illuminate\Support\Carbon
+    {
+        if (count($sampleIds) === 0) return null;
+        if (!\Illuminate\Support\Facades\Schema::hasTable('samples')) return null;
+
+        foreach ($preferredCols as $col) {
+            if (!\Illuminate\Support\Facades\Schema::hasColumn('samples', $col)) continue;
+
+            $min = \Illuminate\Support\Facades\DB::table('samples')
+                ->whereIn('sample_id', $sampleIds)
+                ->whereNotNull($col)
+                ->min($col);
+
+            if ($min) {
+                try {
+                    return \Illuminate\Support\Carbon::parse($min);
+                } catch (\Throwable) {
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function inferTestMethodFromSamples(array $sampleIds): string
+    {
+        if (count($sampleIds) === 0) return '';
+        if (!\Illuminate\Support\Facades\Schema::hasTable('samples')) return '';
+
+        // kalau ada kolom workflow_group, pakai itu
+        if (\Illuminate\Support\Facades\Schema::hasColumn('samples', 'workflow_group')) {
+            $groups = \Illuminate\Support\Facades\DB::table('samples')
+                ->whereIn('sample_id', $sampleIds)
+                ->whereNotNull('workflow_group')
+                ->distinct()
+                ->pluck('workflow_group')
+                ->map(fn($x) => (string) $x)
+                ->filter()
+                ->values()
+                ->all();
+
+            if (count($groups) > 0) {
+                $map = [
+                    'pcr_sars_cov_2' => 'PCR SARS-CoV-2',
+                    'pcr' => 'PCR',
+                    'wgs' => 'Whole Genome Sequencing (WGS)',
+                    'elisa' => 'ELISA',
+                    'default' => 'General',
+                ];
+
+                $labels = [];
+                foreach ($groups as $g) $labels[] = $map[$g] ?? strtoupper(str_replace('_', ' ', $g));
+                return implode(', ', array_values(array_unique($labels)));
+            }
+        }
+
+        return '';
     }
 
     public function ensureDraftForSamples(array $sampleIds, int $actorStaffId): LetterOfOrder
