@@ -140,11 +140,11 @@ export const ClientDetailPage = () => {
                         <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 items-start">
                             {/* Left: Identity Card */}
                             <div className="w-full lg:w-1/3 bg-gray-50/50 rounded-2xl p-5 border border-gray-100 flex flex-col items-center text-center">
-                                <div className="h-20 w-20 rounded-full bg-gradient-to-br from-primary to-primary-soft flex items-center justify-center text-white text-2xl font-bold shadow-md mb-3">
+                                <div className="h-20 w-20 rounded-full bg-linear-to-br from-primary to-primary-soft flex items-center justify-center text-white text-2xl font-bold shadow-md mb-3">
                                     {initials}
                                 </div>
 
-                                <h2 className="text-xl font-bold text-gray-900 break-words w-full px-2">{client.name}</h2>
+                                <h2 className="text-xl font-bold text-gray-900 wrap-break-word w-full px-2">{client.name}</h2>
                                 <p className="text-xs text-gray-500 mb-3">
                                     {client.type === "institution" ? t("clients.detail.type.institutionalClient", "Institutional client") : t("clients.detail.type.individualClient", "Individual client")}
                                 </p>

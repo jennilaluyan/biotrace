@@ -1166,6 +1166,26 @@
                 "actions": {
                     "backToQueue": "Kembali ke antrian"
                 }
+            },
+            "detail": {
+                "title": "Detail Sampel",
+                "loading": "Memuat sampel…",
+                "invalidUrl": "URL sampel tidak valid.",
+                "loadFailed": "Gagal memuat detail sampel.",
+                "loadDocsError": "Gagal memuat dokumen.",
+                "backToSamples": "Kembali ke sampel",
+                "tabs": {
+                    "summary": "Ringkasan",
+                    "sample": "Info sampel",
+                    "workflow": "Workflow",
+                    "tests": "Uji Lab",
+                    "qualityCover": "Quality cover"
+                },
+                "hints": {
+                    "testsLocked": "Terkunci sampai Permintaan Reagen disetujui.",
+                    "qualityCoverLocked": "Terbuka setelah pengujian selesai.",
+                    "qualityCoverReadOnly": "Hanya lihat (sesuai peran Anda)."
+                }
             }
         }
     },

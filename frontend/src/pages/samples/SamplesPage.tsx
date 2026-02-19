@@ -1,3 +1,4 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SamplesPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, RefreshCw, Search } from "lucide-react";
@@ -14,8 +15,16 @@ import type { Sample, SampleStatusEnum } from "../../services/samples";
 
 type StatusFilter = "all" | SampleStatusEnum;
 
-type ReagentReqStatus = "draft" | "submitted" | "approved" | "rejected" | "denied" | "cancelled" | string;
+type ReagentReqStatus =
+    | "draft"
+    | "submitted"
+    | "approved"
+    | "rejected"
+    | "denied"
+    | "cancelled"
+    | string;
 
+// Helper to safely extract Reagent Request Status
 const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
     const direct = s?.reagent_request_status ?? s?.reagentRequestStatus ?? null;
     if (direct) return String(direct).toLowerCase();
@@ -27,6 +36,7 @@ const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
     return null;
 };
 
+// Helper to determine if sample is archived/completed
 const isArchivedSample = (s: any) => {
     return Boolean(
         s?.archived_at ||
@@ -40,6 +50,7 @@ const isArchivedSample = (s: any) => {
     );
 };
 
+// Helper to normalize backend status strings to consistent keys
 const normalizeStatusLabel = (label: string) => {
     const s = String(label || "")
         .trim()
@@ -47,49 +58,46 @@ const normalizeStatusLabel = (label: string) => {
         .replace(/_/g, " ")
         .replace(/\s+/g, " ");
 
-    // cleanups to consistent “token-ish” english (used for mapping)
-    if (s === "in progress") return "in progress";
-    if (s === "testing completed") return "testing done";
-    if (s === "ready for reagent request") return "ready for reagent";
-    if (s === "awaiting analyst intake") return "awaiting intake";
-    if (s === "in transit to analyst") return "in transit to analyst";
-    if (s === "received by analyst") return "received";
-    if (s === "received_by_analyst") return "received";
-    if (s === "in_transit_to_analyst") return "in transit to analyst";
-    if (s === "awaiting lab promotion") return "awaiting promotion";
-    if (s === "awaiting crosscheck") return "awaiting crosscheck";
-    if (s === "crosscheck passed") return "crosscheck passed";
-    if (s === "crosscheck failed") return "crosscheck failed";
-    if (s === "reagent request (submitted)") return "reagent submitted";
-    if (s === "reagent request (draft)") return "reagent draft";
-    if (s === "reagent request (approved)") return "reagent approved";
-    if (s === "reagent request (denied)") return "reagent denied";
+    const mappings: Record<string, string> = {
+        "testing completed": "testing done",
+        "ready for reagent request": "ready for reagent",
+        "awaiting analyst intake": "awaiting intake",
+        "received by analyst": "received",
+        "received_by_analyst": "received",
+        "in_transit_to_analyst": "in transit to analyst",
+        "awaiting lab promotion": "awaiting promotion",
+        "reagent request (submitted)": "reagent submitted",
+        "reagent request (draft)": "reagent draft",
+        "reagent request (approved)": "reagent approved",
+        "reagent request (denied)": "reagent denied",
+    };
 
+    if (mappings[s]) return mappings[s];
+
+    // Regex fallback for generic reagent requests
     const m = s.match(/^reagent request \((.+)\)$/);
     if (m?.[1]) {
-        const inner = m[1].trim();
-        return `reagent ${inner}`;
+        return `reagent ${m[1].trim()}`;
     }
 
     return s;
 };
 
-function cx(...arr: Array<string | false | null | undefined>) {
-    return arr.filter(Boolean).join(" ");
-}
-
 export const SamplesPage = () => {
     const { t } = useTranslation();
-
-    const [dateFrom, setDateFrom] = useState<string>("");
-    const [dateTo, setDateTo] = useState<string>("");
-
     const navigate = useNavigate();
 
     const { user } = useAuth();
     const roleId = getUserRoleId(user) ?? ROLE_ID.CLIENT;
     const roleLabel = getUserRoleLabel(user);
 
+    // UI filters
+    const [dateFrom, setDateFrom] = useState<string>(""); // YYYY-MM-DD
+    const [dateTo, setDateTo] = useState<string>(""); // YYYY-MM-DD
+    const [searchTerm, setSearchTerm] = useState("");
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+    const [clientFilter, setClientFilter] = useState<string>("all");
+    const [page, setPage] = useState(1);
     const [reloadTick, setReloadTick] = useState(0);
 
     const canViewSamples = useMemo(() => {
@@ -103,11 +111,6 @@ export const SamplesPage = () => {
     }, [roleId]);
 
     const canCreateSample = roleId === ROLE_ID.ADMIN;
-
-    const [searchTerm, setSearchTerm] = useState("");
-    const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-    const [clientFilter, setClientFilter] = useState<string>("all");
-    const [page, setPage] = useState(1);
 
     const { clients, loading: clientsLoading } = useClients();
 
@@ -123,12 +126,18 @@ export const SamplesPage = () => {
         reloadTick,
     });
 
+    // Reset page saat filter/search berubah
     useEffect(() => {
         setPage(1);
-    }, [clientFilter, statusFilter, dateFrom, dateTo]);
+    }, [clientFilter, statusFilter, dateFrom, dateTo, searchTerm]);
 
+    /**
+     * SamplesPage = hanya "Lab Samples" (yang SUDAH punya lab_sample_code) & belum archived/finished.
+     */
     const labOnlyItems = useMemo(() => {
-        return (items ?? []).filter((s: Sample) => !!s.lab_sample_code).filter((s: Sample) => !isArchivedSample(s as any));
+        return (items ?? [])
+            .filter((s: Sample) => !!s.lab_sample_code)
+            .filter((s: Sample) => !isArchivedSample(s as any));
     }, [items]);
 
     const visibleItems = useMemo(() => {
@@ -160,9 +169,9 @@ export const SamplesPage = () => {
         }
     };
 
+    // i18n status translation (keep from new)
     const translateStatus = (rawLabel: string) => {
         const k = normalizeStatusLabel(rawLabel);
-
         const map: Record<string, string> = {
             "in progress": "sampleStatus.inProgress",
             "testing done": "sampleStatus.testingDone",
@@ -177,7 +186,7 @@ export const SamplesPage = () => {
             verified: "sampleStatus.verified",
             validated: "sampleStatus.validated",
             reported: "sampleStatus.reported",
-
+            // Reagents
             "reagent draft": "reagentStatus.draft",
             "reagent submitted": "reagentStatus.submitted",
             "reagent approved": "reagentStatus.approved",
@@ -185,27 +194,39 @@ export const SamplesPage = () => {
         };
 
         const key = map[k];
-        if (!key) return rawLabel; // fallback
-        const out = t(key);
-        return out === key ? rawLabel : out;
+        return key ? t(key) : rawLabel;
     };
 
     const getSamplesListStatusChip = (s: Sample): { label: string; className: string } => {
         const anyS = s as any;
 
+        // 0) Reagent request stage has highest priority once it exists
         const rrStatus = getReagentRequestStatus(anyS);
         if (rrStatus) {
-            if (rrStatus === "draft") return { label: "reagent draft", className: statusChipClass("gray") };
-            if (rrStatus === "submitted") return { label: "reagent submitted", className: statusChipClass("yellow") };
-            if (rrStatus === "approved") return { label: "reagent approved", className: statusChipClass("green") };
-            if (rrStatus === "rejected" || rrStatus === "denied") return { label: "reagent denied", className: statusChipClass("red") };
-            return { label: `reagent ${rrStatus}`, className: statusChipClass("gray") };
+            if (rrStatus === "draft") {
+                return { label: "reagent draft", className: statusChipClass("gray") };
+            }
+            if (rrStatus === "submitted") {
+                return { label: "reagent submitted", className: statusChipClass("yellow") };
+            }
+            if (rrStatus === "approved") {
+                return { label: "reagent approved", className: statusChipClass("green") };
+            }
+            if (rrStatus === "rejected" || rrStatus === "denied") {
+                return { label: "reagent denied", className: statusChipClass("red") };
+            }
+            return { label: normalizeStatusLabel(`reagent request (${rrStatus})`), className: statusChipClass("gray") };
         }
 
+        // 1) Request/Intake workflow status (includes SC→Analyst handoff)
         const rs = String(anyS?.request_status ?? "").trim().toLowerCase();
         if (rs) {
-            if (rs === "in_transit_to_analyst") return { label: "in transit to analyst", className: statusChipClass("yellow") };
-            if (rs === "received_by_analyst") return { label: "received", className: statusChipClass("blue") };
+            if (rs === "in_transit_to_analyst") {
+                return { label: "in transit to analyst", className: statusChipClass("yellow") };
+            }
+            if (rs === "received_by_analyst") {
+                return { label: "received", className: statusChipClass("blue") };
+            }
 
             const label = normalizeStatusLabel(rs);
             const tone =
@@ -220,13 +241,22 @@ export const SamplesPage = () => {
             return { label, className: statusChipClass(tone as any) };
         }
 
+        // 2) Crosscheck status (analyst gate)
         const cs = String(anyS?.crosscheck_status ?? "pending").toLowerCase();
-        if (cs === "failed") return { label: "crosscheck failed", className: statusChipClass("red") };
-        if (cs === "passed") return { label: "crosscheck passed", className: statusChipClass("green") };
+        if (cs === "failed") {
+            return { label: "crosscheck failed", className: statusChipClass("red") };
+        }
+        if (cs === "passed") {
+            return { label: "crosscheck passed", className: statusChipClass("green") };
+        }
 
+        // 3) Lab code existence fallback
         const hasLabCode = !!s.lab_sample_code;
-        if (!hasLabCode) return { label: "awaiting promotion", className: statusChipClass("gray") };
+        if (!hasLabCode) {
+            return { label: "awaiting promotion", className: statusChipClass("gray") };
+        }
 
+        // 4) current_status fallback (lab workflow)
         const current = String(s.current_status ?? "").toLowerCase().replace(/_/g, " ");
         if (current === "received") return { label: "received", className: statusChipClass("blue") };
         if (current === "in progress") return { label: "in progress", className: statusChipClass("blue") };
@@ -235,9 +265,13 @@ export const SamplesPage = () => {
         if (current === "validated") return { label: "validated", className: statusChipClass("green") };
         if (current === "reported") return { label: "reported", className: statusChipClass("green") };
 
+        // 5) Default
         return { label: "awaiting crosscheck", className: statusChipClass("yellow") };
     };
 
+    /**
+     * Group samples per LOO.
+     */
     const groups = useMemo(() => {
         type Group = {
             key: string;
@@ -282,6 +316,7 @@ export const SamplesPage = () => {
 
         const arr = Array.from(map.values());
 
+        // sort: LOO groups first (desc by loId), then "no-loo"
         arr.sort((a, b) => {
             if (a.loId == null && b.loId != null) return 1;
             if (a.loId != null && b.loId == null) return -1;
@@ -310,7 +345,7 @@ export const SamplesPage = () => {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
                 <h1 className="text-2xl font-semibold text-primary mb-2">{t("errors.accessDeniedTitle")}</h1>
-                <p className="text-sm text-gray-600 text-center max-w-xl">
+                <p className="text-sm text-gray-600 text-center max-w-md">
                     {t("errors.accessDeniedBodyWithRole", { role: roleLabel })}
                 </p>
             </div>
@@ -319,26 +354,31 @@ export const SamplesPage = () => {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Header */}
+            {/* Header (old design) */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("samplesPage.title")}</h1>
 
                 {canCreateSample && (
-                    <button type="button" onClick={() => navigate("/samples/new")} className="lims-btn-primary self-start md:self-auto">
+                    <button
+                        type="button"
+                        onClick={() => navigate("/samples/new")}
+                        className="lims-btn-primary self-start md:self-auto"
+                    >
                         {t("samplesPage.newSample")}
                     </button>
                 )}
             </div>
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Filter bar */}
+                {/* Filter bar (old design) */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="sample-search">
-                            {t("samplesPage.filters.searchLabel")}
+                            {t("search")}
                         </label>
+
                         <div className="relative">
-                            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500" aria-hidden="true">
+                            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
                                 <Search className="h-4 w-4" />
                             </span>
 
@@ -355,7 +395,7 @@ export const SamplesPage = () => {
 
                     <div className="w-full md:w-56">
                         <label className="sr-only" htmlFor="sample-client-filter">
-                            {t("samplesPage.filters.client")}
+                            {t("samplesPage.filters.clientLabel")}
                         </label>
                         <select
                             id="sample-client-filter"
@@ -380,7 +420,7 @@ export const SamplesPage = () => {
 
                     <div className="w-full md:w-52">
                         <label className="sr-only" htmlFor="sample-status-filter">
-                            {t("common.status")}
+                            {t("samplesPage.filters.statusLabel")}
                         </label>
                         <select
                             id="sample-status-filter"
@@ -427,8 +467,8 @@ export const SamplesPage = () => {
                             type="button"
                             className="lims-icon-button"
                             onClick={() => setReloadTick((x) => x + 1)}
-                            aria-label={t("common.refresh")}
-                            title={t("common.refresh")}
+                            aria-label={t("refresh")}
+                            title={t("refresh")}
                         >
                             <RefreshCw size={16} />
                         </button>
@@ -439,7 +479,10 @@ export const SamplesPage = () => {
                     {error && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
 
                     {loading ? (
-                        <div className="text-sm text-gray-600">{t("samplesPage.loading")}</div>
+                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+                            <span>{t("samplesPage.loading")}</span>
+                        </div>
                     ) : visibleItems.length === 0 ? (
                         <div className="text-sm text-gray-600">{t("samplesPage.empty")}</div>
                     ) : (
@@ -448,24 +491,23 @@ export const SamplesPage = () => {
                                 {t("samplesPage.showing", { from, to, total })}
                             </div>
 
+                            {/* GROUPED BY LOO */}
                             <div className="space-y-4">
                                 {groups.map((g) => {
                                     const allPassed = g.samples.every(
                                         (s) => String((s as any)?.crosscheck_status ?? "pending").toLowerCase() === "passed"
                                     );
+
                                     const rr = (g.reagentRequestStatus ?? null) as string | null;
 
-                                    const rrLabel =
-                                        rr === "draft"
-                                            ? t("samplesPage.reagent.continue")
-                                            : rr === "submitted"
-                                                ? t("samplesPage.reagent.viewSubmitted")
-                                                : rr === "approved"
-                                                    ? t("samplesPage.reagent.viewApproved")
-                                                    : rr
-                                                        ? t("samplesPage.reagent.viewOther", { status: rr })
-                                                        : t("samplesPage.reagent.create");
+                                    // Reagent labels (new copy + i18n)
+                                    let rrLabel = t("samplesPage.reagent.create");
+                                    if (rr === "draft") rrLabel = t("samplesPage.reagent.continue");
+                                    else if (rr === "submitted") rrLabel = t("samplesPage.reagent.viewSubmitted");
+                                    else if (rr === "approved") rrLabel = t("samplesPage.reagent.viewApproved");
+                                    else if (rr) rrLabel = t("samplesPage.reagent.viewGeneric", { status: rr });
 
+                                    // Old design tone mapping
                                     const rrTone =
                                         rr === "approved"
                                             ? "bg-emerald-50 text-emerald-700 border-emerald-200"
@@ -475,29 +517,34 @@ export const SamplesPage = () => {
                                                     ? "bg-slate-50 text-slate-700 border-slate-200"
                                                     : "bg-white text-primary border-primary/30";
 
-                                    const groupTitle = g.loId
-                                        ? t("samplesPage.group.titleWithNumber", { number: g.loNumber ?? `#${g.loId}` })
-                                        : t("samplesPage.group.noLooTitle");
-
-                                    const groupMeta = g.loId
-                                        ? t("samplesPage.group.metaWithCrosscheck", {
-                                            count: g.samples.length,
-                                            crosscheck: allPassed ? t("samplesPage.group.crosscheckPassed") : t("samplesPage.group.crosscheckNotReady"),
-                                        })
-                                        : t("samplesPage.group.meta", { count: g.samples.length });
-
                                     return (
                                         <div key={g.key} className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
                                             <div className="px-4 md:px-6 py-4 bg-gray-50 border-b border-gray-100 flex items-start justify-between gap-3 flex-wrap">
                                                 <div>
-                                                    <div className="text-sm font-extrabold text-gray-900">{groupTitle}</div>
-                                                    <div className="text-xs text-gray-600 mt-1">{groupMeta}</div>
+                                                    <div className="text-sm font-extrabold text-gray-900">
+                                                        {g.loId
+                                                            ? t("samplesPage.group.titleWithNumber", {
+                                                                number: g.loNumber ?? `#${g.loId}`,
+                                                            })
+                                                            : t("samplesPage.group.noLooTitle")}
+                                                    </div>
+                                                    <div className="text-xs text-gray-600 mt-1">
+                                                        {g.loId
+                                                            ? t("samplesPage.group.metaWithCrosscheck", {
+                                                                count: g.samples.length,
+                                                                crosscheck: allPassed
+                                                                    ? t("samplesPage.group.crosscheckPassed")
+                                                                    : t("samplesPage.group.crosscheckNotReady"),
+                                                            })
+                                                            : t("samplesPage.group.meta", { count: g.samples.length })}
+                                                    </div>
                                                 </div>
 
                                                 {g.loId ? (
                                                     <button
                                                         type="button"
-                                                        className={cx("px-3 py-2 rounded-xl border text-xs font-bold", rrTone, !allPassed && "opacity-50 cursor-not-allowed")}
+                                                        className={`px-3 py-2 rounded-xl border text-xs font-bold ${rrTone} ${!allPassed ? "opacity-50 cursor-not-allowed" : "hover:bg-white/60"
+                                                            }`}
                                                         disabled={!allPassed}
                                                         title={!allPassed ? t("samplesPage.reagent.blockedTitle") : undefined}
                                                         onClick={() => navigate(`/reagents/requests/loo/${g.loId}`)}
@@ -511,18 +558,26 @@ export const SamplesPage = () => {
                                                 <table className="min-w-full text-sm">
                                                     <thead className="bg-white text-gray-700 border-b border-gray-100">
                                                         <tr>
-                                                            <th className="text-left font-semibold px-4 py-3">{t("samplesPage.table.labCode")}</th>
-                                                            <th className="text-left font-semibold px-4 py-3">{t("samplesPage.table.sampleType")}</th>
-                                                            <th className="text-left font-semibold px-4 py-3">{t("samplesPage.table.status")}</th>
-                                                            <th className="text-left font-semibold px-4 py-3">{t("samplesPage.table.received")}</th>
-                                                            <th className="text-right font-semibold px-4 py-3">{t("common.actions")}</th>
+                                                            <th className="text-left font-semibold px-4 py-3">
+                                                                {t("samplesPage.table.labCode")}
+                                                            </th>
+                                                            <th className="text-left font-semibold px-4 py-3">
+                                                                {t("samplesPage.table.sampleType")}
+                                                            </th>
+                                                            <th className="text-left font-semibold px-4 py-3">
+                                                                {t("samplesPage.table.status")}
+                                                            </th>
+                                                            <th className="text-left font-semibold px-4 py-3">
+                                                                {t("samplesPage.table.received")}
+                                                            </th>
+                                                            <th className="text-right font-semibold px-4 py-3">{t("actions")}</th>
                                                         </tr>
                                                     </thead>
 
                                                     <tbody className="divide-y divide-gray-100">
                                                         {g.samples.map((s) => {
                                                             const chip = getSamplesListStatusChip(s);
-                                                            const displayLabel = translateStatus(chip.label);
+                                                            const translatedLabel = translateStatus(chip.label);
 
                                                             return (
                                                                 <tr key={s.sample_id} className="hover:bg-gray-50">
@@ -535,20 +590,25 @@ export const SamplesPage = () => {
                                                                     <td className="px-4 py-3 text-gray-700">{s.sample_type ?? "-"}</td>
 
                                                                     <td className="px-4 py-3">
-                                                                        <span className={cx("inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold", chip.className)} title={displayLabel}>
-                                                                            {displayLabel}
+                                                                        <span
+                                                                            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${chip.className}`}
+                                                                            title={chip.label}
+                                                                        >
+                                                                            {translatedLabel}
                                                                         </span>
                                                                     </td>
 
-                                                                    <td className="px-4 py-3 text-gray-700">{s.received_at ? formatDate(s.received_at) : "-"}</td>
+                                                                    <td className="px-4 py-3 text-gray-700">
+                                                                        {s.received_at ? formatDate(s.received_at) : "-"}
+                                                                    </td>
 
                                                                     <td className="px-4 py-3">
                                                                         <div className="flex items-center justify-end gap-2">
                                                                             <button
                                                                                 type="button"
                                                                                 className="lims-icon-button"
-                                                                                aria-label={t("common.view")}
-                                                                                title={t("common.view")}
+                                                                                aria-label={t("view")}
+                                                                                title={t("view")}
                                                                                 onClick={() =>
                                                                                     navigate(`/samples/${s.sample_id}`, {
                                                                                         state: {
@@ -574,9 +634,10 @@ export const SamplesPage = () => {
                                 })}
                             </div>
 
+                            {/* Pagination (old design) */}
                             <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
                                 <div className="text-xs text-gray-600">
-                                    {t("common.pageOf", { page: meta?.current_page ?? 1, totalPages })}
+                                    {t("pageOf", { page: meta?.current_page ?? 1, totalPages })}
                                 </div>
 
                                 <div className="flex items-center gap-2">
@@ -586,7 +647,7 @@ export const SamplesPage = () => {
                                         disabled={(meta?.current_page ?? 1) <= 1}
                                         className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
                                     >
-                                        {t("common.prev")}
+                                        {t("prev")}
                                     </button>
 
                                     <button
@@ -595,15 +656,16 @@ export const SamplesPage = () => {
                                         disabled={(meta?.current_page ?? 1) >= totalPages}
                                         className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
                                     >
-                                        {t("common.next")}
+                                        {t("next")}
                                     </button>
                                 </div>
                             </div>
 
-                            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                            {/* Help box (old design, new i18n copy) */}
+                            <div className="mb-4 mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                                 <div className="font-semibold">{t("samplesPage.help.title")}</div>
                                 <div className="mt-1">{t("samplesPage.help.body")}</div>
-                                <div className="mt-2 text-xs text-slate-600">{t("samplesPage.help.hint")}</div>
+                                <div className="mt-2 text-xs text-slate-600 italic">{t("samplesPage.help.hint")}</div>
                             </div>
                         </>
                     )}
@@ -612,3 +674,5 @@ export const SamplesPage = () => {
         </div>
     );
 };
+
+export default SamplesPage;

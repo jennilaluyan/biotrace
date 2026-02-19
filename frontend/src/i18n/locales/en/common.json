@@ -1169,6 +1169,26 @@
                 "actions": {
                     "backToQueue": "Back to queue"
                 }
+            },
+            "detail": {
+                "title": "Sample Detail",
+                "loading": "Loading sample…",
+                "invalidUrl": "Invalid sample URL.",
+                "loadFailed": "Failed to load sample detail.",
+                "loadDocsError": "Failed to load documents.",
+                "backToSamples": "Back to samples",
+                "tabs": {
+                    "summary": "Summary",
+                    "sample": "Sample info",
+                    "workflow": "Workflow",
+                    "tests": "Tests",
+                    "qualityCover": "Quality cover"
+                },
+                "hints": {
+                    "testsLocked": "Locked until Reagent Request is approved.",
+                    "qualityCoverLocked": "Unlocks after testing is completed.",
+                    "qualityCoverReadOnly": "Read-only for your role."
+                }
             }
         }
     },

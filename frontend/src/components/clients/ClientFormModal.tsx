@@ -181,7 +181,7 @@ export const ClientFormModal = ({ open, mode, initialClient, onClose, onSubmit }
     const typeIcon = type === "institution" ? <Building2 size={18} /> : <User size={18} />;
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-9999 flex items-center justify-center p-4" role="dialog" aria-modal="true">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity" onClick={submitting ? undefined : onClose} aria-hidden="true" />
 
             <div

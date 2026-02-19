@@ -479,7 +479,7 @@ export const ClientsPage = () => {
                                             type="button"
                                             onClick={() => handlePageChange(it)}
                                             className={cx(
-                                                "min-w-[28px] h-7 rounded-lg text-xs font-medium border transition-colors",
+                                                "min-w-7 h-7 rounded-lg text-xs font-medium border transition-colors",
                                                 it === currentPage
                                                     ? "bg-primary text-white border-primary"
                                                     : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"

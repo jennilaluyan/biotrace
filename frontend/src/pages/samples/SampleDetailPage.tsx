@@ -1,6 +1,7 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useParams, useLocation } from "react-router-dom";
+import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { Lock, RefreshCw } from "lucide-react";
 
 import { useAuth } from "../../hooks/useAuth";
@@ -19,6 +20,7 @@ import { SampleDocumentsCard } from "../../components/samples/detail/SampleDocum
 import { SampleInfoTab } from "../../components/samples/detail/SampleInfoTab";
 import { SampleWorkflowTab } from "../../components/samples/detail/SampleWorkflowTab";
 
+/* ----------------------------- Local Types ----------------------------- */
 type ReagentReqStatus =
     | "draft"
     | "submitted"
@@ -28,6 +30,7 @@ type ReagentReqStatus =
     | "cancelled"
     | string;
 
+// unwrap like other pages (handles {data: ...} nesting)
 function unwrapApi(res: any) {
     let x = res?.data ?? res;
     for (let i = 0; i < 5; i++) {
@@ -40,10 +43,12 @@ function unwrapApi(res: any) {
     return x;
 }
 
+// local UI helpers (no external ./ui import)
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
+// robust extractor (same as SamplesPage)
 const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
     const direct = s?.reagent_request_status ?? s?.reagentRequestStatus ?? null;
     if (direct) return String(direct).toLowerCase();
@@ -57,7 +62,9 @@ const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
 
 export const SampleDetailPage = () => {
     const { t } = useTranslation();
+
     const { id } = useParams<{ id: string }>();
+    const navigate = useNavigate();
     const location = useLocation();
     const { user } = useAuth();
 
@@ -66,6 +73,7 @@ export const SampleDetailPage = () => {
 
     const sampleId = Number(id);
 
+    /* ----------------------------- Derived auth ----------------------------- */
     const navReagentStatus = useMemo(() => {
         const st = (location.state as any)?.reagent_request_status ?? null;
         return st ? String(st).toLowerCase() : null;
@@ -89,17 +97,22 @@ export const SampleDetailPage = () => {
 
     const isAnalyst = roleId === ROLE_ID.ANALYST;
 
+    /* ----------------------------- Page State ----------------------------- */
     const [sample, setSample] = useState<Sample | null>(null);
+
+    // Tabs
     const [tab, setTab] = useState<"summary" | "sample" | "workflow" | "tests" | "quality_cover">("summary");
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [pageRefreshing, setPageRefreshing] = useState(false);
 
+    /* ----------------------------- Documents State ----------------------------- */
     const [docsLoading, setDocsLoading] = useState(false);
     const [docsError, setDocsError] = useState<string | null>(null);
     const [docs, setDocs] = useState<any[]>([]);
 
+    /* ----------------------------- Derived fields ----------------------------- */
     const reagentRequestStatus = useMemo(() => {
         const fromSample = getReagentRequestStatus(sample as any);
         return (fromSample ?? navReagentStatus ?? "") as string;
@@ -112,6 +125,7 @@ export const SampleDetailPage = () => {
 
     const canDoCrosscheck = isAnalyst && !!analystReceivedAt && !!expectedLabCode;
 
+    // ✅ Tests tab appears ONLY after reagent request is approved (and lab code exists)
     const canSeeTestsTab = useMemo(() => {
         if (!sample) return false;
         if (!labSampleCode) return false;
@@ -120,6 +134,9 @@ export const SampleDetailPage = () => {
         return rr === "approved";
     }, [sample, labSampleCode, reagentRequestStatus]);
 
+    /**
+     * ✅ Quality Cover gate: open ONLY after DONE flags OR explicit unlock timestamp
+     */
     const canSeeQualityCoverTab = useMemo(() => {
         if (!sample) return false;
 
@@ -139,12 +156,14 @@ export const SampleDetailPage = () => {
 
     const qualityCoverDisabled = !isAnalyst;
 
+    // Keep user from landing on tab they can't access
     useEffect(() => {
         if (tab === "tests" && !canSeeTestsTab) setTab("summary");
         if (tab === "quality_cover" && !canSeeQualityCoverTab) setTab("summary");
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tab, canSeeTestsTab, canSeeQualityCoverTab]);
 
+    /* ----------------------------- Data Loaders ----------------------------- */
     const tryFetchReagentStatusByLoo = async (loId: number) => {
         try {
             const res = await apiGet<any>(`/v1/reagents/requests/loo/${loId}`);
@@ -168,7 +187,7 @@ export const SampleDetailPage = () => {
             return;
         }
         if (!sampleId || Number.isNaN(sampleId)) {
-            setError(t("samples.invalidUrl", "Invalid sample URL."));
+            setError(t("samples.pages.detail.invalidUrl", "Invalid sample URL."));
             setLoading(false);
             return;
         }
@@ -196,7 +215,7 @@ export const SampleDetailPage = () => {
 
             setSample(merged as Sample);
         } catch (err: any) {
-            setError(getErrorMessage(err) || t("samples.loadDetailError", "Failed to load sample detail."));
+            setError(getErrorMessage(err) || t("samples.pages.detail.loadFailed", "Failed to load sample detail."));
         } finally {
             if (!silent) setLoading(false);
         }
@@ -214,7 +233,7 @@ export const SampleDetailPage = () => {
 
             setDocs(Array.isArray(payload) ? payload : []);
         } catch (err: any) {
-            setDocsError(getErrorMessage(err) || t("samples.loadDocsError", "Failed to load documents."));
+            setDocsError(getErrorMessage(err) || t("samples.pages.detail.loadDocsError", "Failed to load documents."));
             setDocs([]);
         } finally {
             setDocsLoading(false);
@@ -232,6 +251,7 @@ export const SampleDetailPage = () => {
         }
     };
 
+    /* ----------------------------- Effects ----------------------------- */
     useEffect(() => {
         loadSample();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -244,65 +264,72 @@ export const SampleDetailPage = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sampleId, loading, error, sample]);
 
+    /* ----------------------------- Guard ----------------------------- */
     if (!canViewSamples) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
-                <h1 className="text-2xl font-semibold text-primary mb-2">
-                    {t("common.accessDeniedTitle", "403 – Access denied")}
-                </h1>
-                <p className="text-sm text-gray-600">
-                    {t("samples.accessDenied", "Your role ({{role}}) is not allowed to access the samples module.", {
-                        role: roleLabel,
-                    })}
+                <h1 className="text-2xl font-semibold text-primary mb-2">{t("errors.accessDeniedTitle")}</h1>
+                <p className="text-sm text-gray-600 text-center max-w-md">
+                    {t("errors.accessDeniedBodyWithRole", { role: roleLabel })}
                 </p>
                 <Link to="/samples" className="mt-4 lims-btn-primary">
-                    {t("common.backToSamples", "Back to samples")}
+                    {t("samples.pages.detail.backToSamples", "Back to samples")}
                 </Link>
             </div>
         );
     }
 
+    /* ----------------------------- Render ----------------------------- */
     const headerCode = labSampleCode || t("common.na", "—");
 
     return (
         <div className="min-h-[60vh]">
+            {/* Breadcrumb (old design) */}
             <div className="px-0 py-2">
                 <nav className="lims-breadcrumb">
                     <Link to="/samples" className="lims-breadcrumb-link">
-                        {t("samples.title", "Samples")}
+                        {t("samplesPage.title")}
                     </Link>
                     <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">{t("common.detail", "Detail")}</span>
+                    <span className="lims-breadcrumb-current">{t("samples.pages.detail.title")}</span>
                 </nav>
             </div>
 
             <div className="lims-detail-shell">
+                {/* Loading (old layout, new spinner) */}
                 {loading && (
-                    <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 flex items-center gap-2">
-                        <RefreshCw size={16} className="animate-spin" />
-                        {t("common.loading", "Loading…")}
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <RefreshCw size={16} className="animate-spin text-primary" />
+                        <span>{t("samples.pages.detail.loading", "Loading sample…")}</span>
                     </div>
                 )}
 
+                {/* Error */}
                 {error && !loading && (
-                    <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-4">
-                        {error}
-                    </div>
+                    <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
                 )}
 
                 {!loading && !error && sample && (
                     <div className="space-y-6">
+                        {/* Header (old design, new copy) */}
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                             <div>
-                                <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("samples.detailTitle", "Sample")}</h1>
+                                <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                                    {t("samples.pages.detail.title")}
+                                </h1>
+
                                 <div className="mt-1 flex items-center gap-2 flex-wrap">
-                                    <span className="text-xs text-gray-500">{t("samples.labCode", "Lab code")}</span>
+                                    <span className="text-xs text-gray-500">{t("samples.info.labCode")}</span>
+
                                     <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
                                         {headerCode}
                                     </span>
+
                                     {(sample as any)?.updated_at ? (
                                         <span className="text-[11px] text-gray-500">
-                                            {t("common.updatedAt", "updated {{at}}", { at: formatDateTimeLocal((sample as any)?.updated_at) })}
+                                            {t("common.updatedAt", "updated {{at}}", {
+                                                at: formatDateTimeLocal((sample as any)?.updated_at),
+                                            })}
                                         </span>
                                     ) : null}
                                 </div>
@@ -314,14 +341,15 @@ export const SampleDetailPage = () => {
                                     className="lims-icon-button"
                                     onClick={refreshAll}
                                     disabled={pageRefreshing}
-                                    aria-label={t("common.refresh", "Refresh")}
-                                    title={t("common.refresh", "Refresh")}
+                                    aria-label={t("refresh")}
+                                    title={t("refresh")}
                                 >
                                     <RefreshCw size={16} className={cx(pageRefreshing && "animate-spin")} />
                                 </button>
                             </div>
                         </div>
 
+                        {/* Tabs (old design) */}
                         <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                             <div className="px-5 pt-5">
                                 <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-2xl p-1 flex-wrap">
@@ -329,80 +357,101 @@ export const SampleDetailPage = () => {
                                         type="button"
                                         className={cx(
                                             "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                            tab === "summary" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
+                                            tab === "summary"
+                                                ? "bg-white shadow-sm text-gray-900"
+                                                : "text-gray-600 hover:text-gray-800"
                                         )}
                                         onClick={() => setTab("summary")}
                                     >
-                                        {t("samples.tabs.summary", "Summary")}
+                                        {t("samples.pages.detail.tabs.summary")}
                                     </button>
 
                                     <button
                                         type="button"
                                         className={cx(
                                             "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                            tab === "sample" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
+                                            tab === "sample"
+                                                ? "bg-white shadow-sm text-gray-900"
+                                                : "text-gray-600 hover:text-gray-800"
                                         )}
                                         onClick={() => setTab("sample")}
                                     >
-                                        {t("samples.tabs.sample", "Sample")}
+                                        {t("samples.pages.detail.tabs.sample")}
                                     </button>
 
                                     <button
                                         type="button"
                                         className={cx(
                                             "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                            tab === "workflow" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
+                                            tab === "workflow"
+                                                ? "bg-white shadow-sm text-gray-900"
+                                                : "text-gray-600 hover:text-gray-800"
                                         )}
                                         onClick={() => setTab("workflow")}
                                     >
-                                        {t("samples.tabs.workflow", "Workflow")}
+                                        {t("samples.pages.detail.tabs.workflow")}
                                     </button>
 
+                                    {/* Tests */}
                                     {canSeeTestsTab ? (
                                         <button
                                             type="button"
                                             className={cx(
                                                 "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                                tab === "tests" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
+                                                tab === "tests"
+                                                    ? "bg-white shadow-sm text-gray-900"
+                                                    : "text-gray-600 hover:text-gray-800"
                                             )}
                                             onClick={() => setTab("tests")}
-                                            title={t("samples.tabs.testsTitle", "Testing board")}
+                                            title={t("samples.pages.detail.tabs.tests")}
                                         >
-                                            {t("samples.tabs.tests", "Tests")}
+                                            {t("samples.pages.detail.tabs.tests")}
                                         </button>
                                     ) : (
                                         <span
-                                            className="px-4 py-2 text-xs font-semibold rounded-xl border border-gray-200 bg-gray-50 text-gray-600 inline-flex items-center gap-2"
-                                            title={t("samples.testsLockedHint", "Locked until the Reagent Request is approved")}
+                                            className="px-4 py-2 text-xs font-semibold rounded-xl border border-red-200 bg-red-50 text-red-700 inline-flex items-center gap-2"
+                                            title={t(
+                                                "samples.pages.detail.hints.testsLocked",
+                                                "Locked until Reagent Request is approved."
+                                            )}
                                         >
                                             <Lock size={14} />
-                                            {t("samples.tabs.tests", "Tests")}
+                                            {t("samples.pages.detail.tabs.tests")}
                                         </span>
                                     )}
 
+                                    {/* Quality cover */}
                                     {canSeeQualityCoverTab ? (
                                         <button
                                             type="button"
                                             className={cx(
                                                 "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                                tab === "quality_cover" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
+                                                tab === "quality_cover"
+                                                    ? "bg-white shadow-sm text-gray-900"
+                                                    : "text-gray-600 hover:text-gray-800"
                                             )}
                                             onClick={() => setTab("quality_cover")}
                                             title={
                                                 qualityCoverDisabled
-                                                    ? t("samples.qualityCoverReadOnlyHint", "Read-only for your role")
-                                                    : t("samples.tabs.qualityCoverTitle", "Quality cover")
+                                                    ? t(
+                                                        "samples.pages.detail.hints.qualityCoverReadOnly",
+                                                        "Read-only for your role."
+                                                    )
+                                                    : t("samples.pages.detail.tabs.qualityCover")
                                             }
                                         >
-                                            {t("samples.tabs.qualityCover", "Quality cover")}
+                                            {t("samples.pages.detail.tabs.qualityCover")}
                                         </button>
                                     ) : (
                                         <span
-                                            className="px-4 py-2 text-xs font-semibold rounded-xl border border-gray-200 bg-gray-50 text-gray-600 inline-flex items-center gap-2"
-                                            title={t("samples.qualityCoverLockedHint", "Unlocks after the final testing stage is completed")}
+                                            className="px-4 py-2 text-xs font-semibold rounded-xl border border-red-200 bg-red-50 text-red-700 inline-flex items-center gap-2"
+                                            title={t(
+                                                "samples.pages.detail.hints.qualityCoverLocked",
+                                                "Unlocks after final testing stage."
+                                            )}
                                         >
                                             <Lock size={14} />
-                                            {t("samples.tabs.qualityCover", "Quality cover")}
+                                            {t("samples.pages.detail.tabs.qualityCover")}
                                         </span>
                                     )}
                                 </div>
@@ -412,6 +461,7 @@ export const SampleDetailPage = () => {
                                 {tab === "summary" && (
                                     <div className="space-y-6">
                                         <SampleStatusCard sample={sample} reagentRequestStatus={reagentRequestStatus} />
+
                                         <SampleDocumentsCard docs={docs} loading={docsLoading} error={docsError} />
                                     </div>
                                 )}
@@ -421,7 +471,7 @@ export const SampleDetailPage = () => {
                                 {tab === "workflow" && (
                                     <SampleWorkflowTab
                                         sample={sample}
-                                        roleId={roleId}
+                                        roleId={roleId ?? 0}
                                         canDoCrosscheck={canDoCrosscheck}
                                         onWorkflowChanged={refreshAll}
                                         apiPatch={apiPatch}
@@ -433,8 +483,8 @@ export const SampleDetailPage = () => {
                                         sampleId={sampleId}
                                         sample={sample}
                                         onQualityCoverUnlocked={async () => {
-                                            await refreshAll();
-                                            setTab("quality_cover");
+                                            await refreshAll(); // ✅ ensure gate fields updated
+                                            setTab("quality_cover"); // ✅ then open QC tab
                                         }}
                                     />
                                 )}
@@ -455,3 +505,5 @@ export const SampleDetailPage = () => {
         </div>
     );
 };
+
+export default SampleDetailPage;
