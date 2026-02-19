@@ -254,9 +254,17 @@
             }
         },
         "requestDetail": {
-            "breadcrumbRequests": "Permintaan Sampel",
-            "breadcrumbCurrent": "Detail permintaan",
             "title": "Permintaan #{{id}}",
+            "requestId": "ID Permintaan",
+            "status": "Status",
+            "verified": "Terverifikasi",
+            "labCode": "Kode Lab",
+            "loading": "Memuat detail permintaan…",
+            "breadcrumbList": "Antrian Permintaan",
+            "breadcrumbCurrent": "Detail permintaan",
+            "breadcrumbDetail": "Detail",
+            "backToList": "Kembali ke antrian",
+            "requestLabel": "Permintaan #{{id}}",
             "lastUpdated": "Terakhir diperbarui {{at}}",
             "alerts": {
                 "revisionTitle": "Diminta revisi",
@@ -284,11 +292,22 @@
                 "selected": "Terpilih",
                 "selectedCount": "Terpilih: {{count}}"
             },
+            "sidVerify": {
+                "title": "Verifikasi Perubahan ID Sampel",
+                "subtitle": "Admin mengajukan perubahan pada Kode Lab Sampel."
+            },
             "errors": {
+                "invalidUrl": "URL permintaan tidak valid.",
                 "invalidId": "ID permintaan tidak valid.",
                 "loadFailed": "Gagal memuat detail permintaan.",
                 "saveFailed": "Gagal menyimpan draf.",
                 "submitFailed": "Gagal mengirim permintaan.",
+                "approveFailed": "Gagal menyetujui permintaan.",
+                "updateStatusFailed": "Gagal memperbarui status.",
+                "updateWorkflowFailed": "Gagal memperbarui workflow.",
+                "verifyFailed": "Gagal memverifikasi intake.",
+                "sampleIdChangeMissing": "Pengajuan perubahan ID sampel tidak ditemukan.",
+                "sidDecisionFailed": "Gagal memproses keputusan.",
                 "sampleTypeRequired": "Jenis sampel wajib diisi.",
                 "scheduledDeliveryRequired": "Jadwal pengantaran wajib diisi.",
                 "parameterRequired": "Wajib memilih 1 parameter."

@@ -1,3 +1,4 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleRequestsQueuePage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, RefreshCw, Search } from "lucide-react";
@@ -36,7 +37,7 @@ const requestStatusChipLabel = (t: TFunction, raw?: string | null) => {
     const k = normalizeToken(raw);
     if (!k) return "-";
 
-    // Shorter “chip” labels (queue list needs scan-friendly text)
+    // short “chip” labels (queue list needs scan-friendly text)
     const map: Record<string, string> = {
         ready_for_delivery: "requestStatus.readyForDelivery",
         physically_received: "requestStatus.receivedShort",
@@ -55,6 +56,7 @@ const requestStatusChipLabel = (t: TFunction, raw?: string | null) => {
     return out === key ? (raw ?? "-") : out;
 };
 
+// OLD design tone (no border)
 const statusTone = (raw?: string | null) => {
     const s = String(raw ?? "").toLowerCase();
     const k = s.replace(/_/g, " ").replace(/\s+/g, " ").trim();
@@ -90,6 +92,7 @@ export default function SampleRequestsQueuePage() {
         [roleId]
     );
 
+    // ---- state ----
     const [pager, setPager] = useState<Paginator<SampleRequestQueueRow> | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -121,22 +124,25 @@ export default function SampleRequestsQueuePage() {
             setPager(data);
             if (!opts?.keepPage) setCurrentPage(1);
         } catch (err: any) {
-            setError(safeApiMessage(err, t("sampleRequestsQueue.errors.loadFailed")));
+            setError(safeApiMessage(err, t("samples.pages.queue.errors.loadFailed", { defaultValue: "Failed to load queue." })));
         } finally {
             setLoading(false);
         }
     };
 
+    // first load
     useEffect(() => {
         loadQueue();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // reload when filters change
     useEffect(() => {
         loadQueue();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchTerm, statusFilter, dateFilter]);
 
+    // reload when page changes
     useEffect(() => {
         loadQueue({ keepPage: true });
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -144,7 +150,11 @@ export default function SampleRequestsQueuePage() {
 
     const rawItems = useMemo(() => pager?.data ?? [], [pager]);
 
-    // Queue = request yang belum punya lab_sample_code dan bukan draft
+    /**
+     * ✅ Queue = request yang:
+     * - belum punya lab_sample_code
+     * - bukan draft (draft hanya client)
+     */
     const items = useMemo(() => {
         return rawItems.filter((r) => {
             const st = String(r.request_status ?? "").toLowerCase();
@@ -163,7 +173,7 @@ export default function SampleRequestsQueuePage() {
 
     const openModal = (row: SampleRequestQueueRow, action: "return" | "approve" | "received") => {
         if (row.sample_id == null) {
-            setError(t("sampleRequestsQueue.errors.missingSampleId"));
+            setError(t("samples.pages.queue.errors.missingSampleId", { defaultValue: "Cannot open request: missing sample_id." }));
             return;
         }
         setModalSampleId(row.sample_id);
@@ -178,6 +188,7 @@ export default function SampleRequestsQueuePage() {
         setModalCurrentStatus(null);
     };
 
+    // default filter for OM/LH
     const isOperationalManager = roleId === ROLE_ID.OPERATIONAL_MANAGER;
     const isLabHead = roleId === ROLE_ID.LAB_HEAD;
 
@@ -189,9 +200,9 @@ export default function SampleRequestsQueuePage() {
 
     if (!canView) {
         return (
-            <div className="min-h-[60vh] flex flex-col items-center justify-center">
-                <h1 className="text-2xl font-semibold text-primary mb-2">{t("errors.accessDeniedTitle")}</h1>
-                <p className="text-sm text-gray-600 text-center max-w-xl">
+            <div className="min-h-[60vh] flex flex-col items-center justify-center p-4">
+                <h1 className="text-2xl font-semibold text-gray-900 mb-2">{t("errors.accessDeniedTitle")}</h1>
+                <p className="text-sm text-gray-600 text-center max-w-md">
                     {t("errors.accessDeniedBodyWithRole", { role: roleLabel })}
                 </p>
             </div>
@@ -200,11 +211,17 @@ export default function SampleRequestsQueuePage() {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Header */}
+            {/* Header (OLD design) */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div className="flex flex-col">
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("sampleRequestsQueue.title")}</h1>
-                    <p className="text-sm text-gray-600">{t("sampleRequestsQueue.subtitle")}</p>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                        {t("samples.pages.queue.title", { defaultValue: "Sample Requests Queue" })}
+                    </h1>
+                    <p className="text-sm text-gray-600">
+                        {t("samples.pages.queue.subtitle", {
+                            defaultValue: "Requests here are not lab samples yet (no lab code).",
+                        })}
+                    </p>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -212,25 +229,26 @@ export default function SampleRequestsQueuePage() {
                         type="button"
                         className="lims-icon-button"
                         onClick={() => loadQueue({ keepPage: true })}
-                        aria-label={t("common.refresh")}
-                        title={t("common.refresh")}
+                        aria-label={t("refresh", { defaultValue: "Refresh" })}
+                        title={t("refresh", { defaultValue: "Refresh" })}
                         disabled={loading}
                     >
-                        <RefreshCw size={16} />
+                        <RefreshCw size={16} className={cx(loading && "animate-spin")} />
                     </button>
                 </div>
             </div>
 
+            {/* Card (OLD design) */}
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Filters */}
+                {/* Filters (OLD design) */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     {/* Search */}
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="rq-search">
-                            {t("sampleRequestsQueue.filters.searchLabel")}
+                            {t("search", { defaultValue: "Search" })}
                         </label>
                         <div className="relative">
-                            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500" aria-hidden="true">
+                            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
                                 <Search className="h-4 w-4" />
                             </span>
                             <input
@@ -238,7 +256,9 @@ export default function SampleRequestsQueuePage() {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder={t("sampleRequestsQueue.filters.searchPlaceholder")}
+                                placeholder={t("samples.pages.queue.filters.searchPlaceholder", {
+                                    defaultValue: "Search by sample type, status, client…",
+                                })}
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
@@ -247,7 +267,7 @@ export default function SampleRequestsQueuePage() {
                     {/* Status */}
                     <div className="w-full md:w-56">
                         <label className="sr-only" htmlFor="rq-status">
-                            {t("common.status")}
+                            {t("samples.pages.queue.filters.status", { defaultValue: "Status" })}
                         </label>
                         <select
                             id="rq-status"
@@ -255,27 +275,40 @@ export default function SampleRequestsQueuePage() {
                             onChange={(e) => setStatusFilter(e.target.value)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
-                            <option value="">{t("common.allStatuses")}</option>
+                            <option value="">{t("samples.pages.queue.filters.all", { defaultValue: "All statuses" })}</option>
 
-                            <option value="submitted">{t("requestStatus.submitted")}</option>
-                            <option value="ready_for_delivery">{t("requestStatus.readyForDelivery")}</option>
-                            <option value="physically_received">{t("requestStatus.physicallyReceived")}</option>
-                            <option value="returned">{t("requestStatus.returned")}</option>
-                            <option value="needs_revision">{t("requestStatus.needsRevision")}</option>
+                            <option value="submitted">{t("requestStatus.submitted", { defaultValue: "submitted" })}</option>
+                            <option value="ready_for_delivery">
+                                {t("requestStatus.readyForDelivery", { defaultValue: "ready for delivery" })}
+                            </option>
+                            <option value="physically_received">
+                                {t("requestStatus.physicallyReceived", { defaultValue: "physically received" })}
+                            </option>
+                            <option value="returned">{t("requestStatus.returned", { defaultValue: "returned" })}</option>
+                            <option value="needs_revision">{t("requestStatus.needsRevision", { defaultValue: "needs revision" })}</option>
 
-                            <option value="in_transit_to_collector">{t("requestStatus.inTransitToCollector")}</option>
-                            <option value="under_inspection">{t("requestStatus.underInspection")}</option>
-                            <option value="returned_to_admin">{t("requestStatus.returnedToAdmin")}</option>
-                            <option value="intake_checklist_passed">{t("requestStatus.intakeChecklistPassed")}</option>
-
-                            <option value="awaiting_verification">{t("requestStatus.awaitingVerification")}</option>
+                            <option value="in_transit_to_collector">
+                                {t("requestStatus.inTransitToCollector", { defaultValue: "in transit to collector" })}
+                            </option>
+                            <option value="under_inspection">
+                                {t("requestStatus.underInspection", { defaultValue: "under inspection" })}
+                            </option>
+                            <option value="returned_to_admin">
+                                {t("requestStatus.returnedToAdmin", { defaultValue: "returned to admin" })}
+                            </option>
+                            <option value="intake_checklist_passed">
+                                {t("requestStatus.intakeChecklistPassed", { defaultValue: "intake checklist passed" })}
+                            </option>
+                            <option value="awaiting_verification">
+                                {t("requestStatus.awaitingVerification", { defaultValue: "awaiting verification" })}
+                            </option>
                         </select>
                     </div>
 
-                    {/* Date */}
+                    {/* Date filter */}
                     <div className="w-full md:w-44">
                         <label className="sr-only" htmlFor="rq-date">
-                            {t("common.date")}
+                            {t("date", { defaultValue: "Date" })}
                         </label>
                         <select
                             id="rq-date"
@@ -283,33 +316,48 @@ export default function SampleRequestsQueuePage() {
                             onChange={(e) => setDateFilter(e.target.value as DateFilter)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
-                            <option value="all">{t("common.dateAll")}</option>
-                            <option value="today">{t("common.dateToday")}</option>
-                            <option value="7d">{t("common.dateLast7Days")}</option>
-                            <option value="30d">{t("common.dateLast30Days")}</option>
+                            <option value="all">{t("dateAll", { defaultValue: "All" })}</option>
+                            <option value="today">{t("dateToday", { defaultValue: "Today" })}</option>
+                            <option value="7d">{t("dateLast7Days", { defaultValue: "Last 7 days" })}</option>
+                            <option value="30d">{t("dateLast30Days", { defaultValue: "Last 30 days" })}</option>
                         </select>
                     </div>
                 </div>
 
-                {/* Body */}
+                {/* Body (OLD design) */}
                 <div className="px-4 md:px-6 py-4">
                     {error && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
 
                     {loading ? (
-                        <div className="text-sm text-gray-600">{t("sampleRequestsQueue.loading")}</div>
+                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <RefreshCw size={16} className="animate-spin text-primary" />
+                            <span>{t("samples.pages.queue.loading", { defaultValue: "Loading queue…" })}</span>
+                        </div>
                     ) : items.length === 0 ? (
-                        <div className="text-sm text-gray-600">{t("sampleRequestsQueue.empty")}</div>
+                        <div className="text-sm text-gray-600">
+                            {t("samples.pages.queue.empty.body", { defaultValue: "No pending sample requests found." })}
+                        </div>
                     ) : (
                         <>
                             <div className="overflow-x-auto">
                                 <table className="min-w-full text-sm">
                                     <thead className="bg-white text-gray-700 border-b border-gray-100">
                                         <tr>
-                                            <th className="text-left font-semibold px-4 py-3">{t("sampleRequestsQueue.table.requestId")}</th>
-                                            <th className="text-left font-semibold px-4 py-3">{t("sampleRequestsQueue.table.sampleType")}</th>
-                                            <th className="text-left font-semibold px-4 py-3">{t("sampleRequestsQueue.table.client")}</th>
-                                            <th className="text-left font-semibold px-4 py-3">{t("sampleRequestsQueue.table.status")}</th>
-                                            <th className="text-right font-semibold px-4 py-3">{t("common.actions")}</th>
+                                            <th className="text-left font-semibold px-4 py-3">
+                                                {t("samples.pages.queue.table.request", { defaultValue: "Request ID" })}
+                                            </th>
+                                            <th className="text-left font-semibold px-4 py-3">
+                                                {t("samples.pages.queue.table.sampleType", { defaultValue: "Sample Type" })}
+                                            </th>
+                                            <th className="text-left font-semibold px-4 py-3">
+                                                {t("samples.pages.queue.table.client", { defaultValue: "Client" })}
+                                            </th>
+                                            <th className="text-left font-semibold px-4 py-3">
+                                                {t("samples.pages.queue.table.status", { defaultValue: "Status" })}
+                                            </th>
+                                            <th className="text-right font-semibold px-4 py-3">
+                                                {t("actions", { defaultValue: "Actions" })}
+                                            </th>
                                         </tr>
                                     </thead>
 
@@ -327,7 +375,9 @@ export default function SampleRequestsQueuePage() {
 
                                             return (
                                                 <tr key={rowId ?? `row-${idx}`} className="hover:bg-gray-50">
-                                                    <td className="px-4 py-3 text-gray-900 font-semibold">{rowId ?? "-"}</td>
+                                                    <td className="px-4 py-3 text-gray-900 font-semibold">
+                                                        {rowId != null ? `#${rowId}` : "-"}
+                                                    </td>
 
                                                     <td className="px-4 py-3 text-gray-700">{r.sample_type ?? "-"}</td>
 
@@ -352,17 +402,19 @@ export default function SampleRequestsQueuePage() {
 
                                                     <td className="px-4 py-3">
                                                         <div className="flex items-center justify-end gap-2">
+                                                            {/* View icon */}
                                                             <button
                                                                 type="button"
                                                                 className="lims-icon-button"
                                                                 onClick={() => navigate(`/samples/requests/${rowId}`)}
-                                                                aria-label={t("common.view")}
-                                                                title={t("common.view")}
+                                                                aria-label={t("view", { defaultValue: "View" })}
+                                                                title={t("view", { defaultValue: "View" })}
                                                                 disabled={!canAct}
                                                             >
                                                                 <Eye size={16} />
                                                             </button>
 
+                                                            {/* Admin-only actions */}
                                                             {roleId === ROLE_ID.ADMIN ? (
                                                                 <>
                                                                     <button
@@ -374,9 +426,9 @@ export default function SampleRequestsQueuePage() {
                                                                         )}
                                                                         disabled={!canApprove}
                                                                         onClick={() => openModal(r, "approve")}
-                                                                        title={t("sampleRequestsQueue.actions.approveTitle")}
+                                                                        title={t("samples.pages.queue.actions.accept", { defaultValue: "Approve request" })}
                                                                     >
-                                                                        {t("common.approve")}
+                                                                        {t("approve", { defaultValue: "Approve" })}
                                                                     </button>
 
                                                                     <button
@@ -388,9 +440,9 @@ export default function SampleRequestsQueuePage() {
                                                                         )}
                                                                         disabled={!canReturn}
                                                                         onClick={() => openModal(r, "return")}
-                                                                        title={t("sampleRequestsQueue.actions.returnTitle")}
+                                                                        title={t("samples.pages.queue.actions.return", { defaultValue: "Return request to client" })}
                                                                     >
-                                                                        {t("common.return")}
+                                                                        {t("samples.pages.queue.actions.returnBtn", { defaultValue: "Return" })}
                                                                     </button>
 
                                                                     <button
@@ -402,9 +454,9 @@ export default function SampleRequestsQueuePage() {
                                                                         )}
                                                                         disabled={!canReceived}
                                                                         onClick={() => openModal(r, "received")}
-                                                                        title={t("sampleRequestsQueue.actions.receivedTitle")}
+                                                                        title={t("samples.pages.queue.actions.received", { defaultValue: "Mark physically received" })}
                                                                     >
-                                                                        {t("common.received")}
+                                                                        {t("samples.pages.queue.actions.receivedBtn", { defaultValue: "Received" })}
                                                                     </button>
                                                                 </>
                                                             ) : null}
@@ -417,12 +469,14 @@ export default function SampleRequestsQueuePage() {
                                 </table>
                             </div>
 
+                            {/* Pagination (OLD design) */}
                             <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
                                 <div className="text-xs text-gray-600">
-                                    {t("common.pageOfTotal", {
+                                    {t("pageOfTotal", {
                                         page: pager?.current_page ?? 1,
                                         totalPages,
                                         total,
+                                        defaultValue: `Page ${pager?.current_page ?? 1} of ${totalPages} — ${total} total`,
                                     })}
                                 </div>
 
@@ -433,7 +487,7 @@ export default function SampleRequestsQueuePage() {
                                         disabled={currentPage <= 1}
                                         className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
                                     >
-                                        {t("common.prev")}
+                                        {t("prev", { defaultValue: "Prev" })}
                                     </button>
                                     <button
                                         type="button"
@@ -441,7 +495,7 @@ export default function SampleRequestsQueuePage() {
                                         disabled={currentPage >= totalPages}
                                         className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
                                     >
-                                        {t("common.next")}
+                                        {t("next", { defaultValue: "Next" })}
                                     </button>
                                 </div>
                             </div>
@@ -449,6 +503,7 @@ export default function SampleRequestsQueuePage() {
                     )}
                 </div>
 
+                {/* Modal */}
                 <UpdateRequestStatusModal
                     open={modalOpen}
                     sampleId={modalSampleId}

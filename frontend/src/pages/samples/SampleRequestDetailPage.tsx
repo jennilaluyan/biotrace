@@ -1,9 +1,10 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleRequestDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { ArrowLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { ArrowLeft, RefreshCw } from "lucide-react";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
@@ -87,7 +88,7 @@ function StatusPill({ value, t }: { value?: string | null; t: TFunction }) {
     const token = normalizeStatusToken(value);
 
     const tones: Record<string, string> = {
-        draft: "bg-slate-100 text-slate-700 border-slate-200",
+        draft: "bg-slate-50 text-slate-700 border-slate-200",
         submitted: "bg-blue-50 text-blue-700 border-blue-200",
         returned: "bg-red-50 text-red-700 border-red-200",
         needs_revision: "bg-red-50 text-red-700 border-red-200",
@@ -96,7 +97,7 @@ function StatusPill({ value, t }: { value?: string | null; t: TFunction }) {
         in_transit_to_collector: "bg-amber-50 text-amber-800 border-amber-200",
         under_inspection: "bg-amber-50 text-amber-800 border-amber-200",
         inspection_failed: "bg-red-50 text-red-700 border-red-200",
-        returned_to_admin: "bg-slate-100 text-slate-700 border-slate-200",
+        returned_to_admin: "bg-slate-50 text-slate-700 border-slate-200",
         intake_checklist_passed: "bg-emerald-50 text-emerald-700 border-emerald-200",
         awaiting_verification: "bg-violet-50 text-violet-700 border-violet-200",
         intake_validated: "bg-indigo-50 text-indigo-700 border-indigo-200",
@@ -123,7 +124,7 @@ function SmallButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
             {...rest}
             className={cx(
                 "lims-btn",
-                "px-3 py-1.5 text-xs rounded-xl whitespace-nowrap inline-flex items-center gap-2",
+                "px-3 py-1.5 text-xs rounded-xl whitespace-nowrap",
                 rest.disabled ? "opacity-60 cursor-not-allowed" : "",
                 className
             )}
@@ -171,7 +172,8 @@ function toSidRow(root: any, sidRaw: any): SampleIdChangeRow | null {
     const suggested = sidRaw?.suggested_lab_sample_code ?? sidRaw?.suggested_sample_id ?? sidRaw?.suggested ?? null;
     const proposed = sidRaw?.proposed_lab_sample_code ?? sidRaw?.proposed_sample_id ?? sidRaw?.proposed ?? null;
 
-    const clientName = root?.client?.name ?? root?.client_name ?? (root?.client_id ? `Client #${root?.client_id}` : null);
+    const clientName =
+        root?.client?.name ?? root?.client_name ?? (root?.client_id ? `Client #${root?.client_id}` : null);
     const clientEmail = root?.client?.email ?? root?.client_email ?? null;
 
     return {
@@ -270,7 +272,9 @@ export default function SampleRequestDetailPage() {
 
     const [assignOpen, setAssignOpen] = useState(false);
     const [finalizeApprovedOpen, setFinalizeApprovedOpen] = useState(false);
-    const [assignFlash, setAssignFlash] = useState<{ type: "success" | "warning" | "error"; message: string } | null>(null);
+    const [assignFlash, setAssignFlash] = useState<{ type: "success" | "warning" | "error"; message: string } | null>(
+        null
+    );
 
     const [wfBusy, setWfBusy] = useState(false);
     const [wfError, setWfError] = useState<string | null>(null);
@@ -317,7 +321,11 @@ export default function SampleRequestDetailPage() {
         }
 
         if (!row) {
-            setWfError(t("sampleRequestDetail.sampleIdChangeMissing"));
+            setWfError(
+                t("samples.pages.requestDetail.errors.sampleIdChangeMissing", {
+                    defaultValue: "Sample ID change detail is missing.",
+                })
+            );
             return;
         }
 
@@ -331,7 +339,7 @@ export default function SampleRequestDetailPage() {
             return;
         }
         if (!requestId || Number.isNaN(requestId)) {
-            setError(t("errors.invalidRequestUrl"));
+            setError(t("samples.pages.requestDetail.errors.invalidUrl", { defaultValue: "Invalid request URL." }));
             setLoading(false);
             return;
         }
@@ -351,7 +359,11 @@ export default function SampleRequestDetailPage() {
                     if (Array.isArray(x)) return x;
                     if (x && typeof x === "object") {
                         if (Array.isArray((x as any).data)) return (x as any).data;
-                        if ((x as any).data && typeof (x as any).data === "object" && Array.isArray((x as any).data.data)) {
+                        if (
+                            (x as any).data &&
+                            typeof (x as any).data === "object" &&
+                            Array.isArray((x as any).data.data)
+                        ) {
                             return (x as any).data.data;
                         }
                         if (Array.isArray((x as any).items)) return (x as any).items;
@@ -365,7 +377,12 @@ export default function SampleRequestDetailPage() {
                 setWorkflowLogs(null);
             }
         } catch (err: any) {
-            setError(safeApiMessage(err, t("errors.failedToLoad")));
+            setError(
+                safeApiMessage(
+                    err,
+                    t("samples.pages.requestDetail.errors.loadFailed", { defaultValue: "Failed to load request detail." })
+                )
+            );
         } finally {
             if (!silent) setLoading(false);
         }
@@ -394,7 +411,12 @@ export default function SampleRequestDetailPage() {
             await load({ silent: true });
             setTab("workflow");
         } catch (err: any) {
-            setWfError(safeApiMessage(err, t("sampleRequestDetail.errors.approveFailed")));
+            setWfError(
+                safeApiMessage(
+                    err,
+                    t("samples.pages.requestDetail.errors.approveFailed", { defaultValue: "Failed to approve request." })
+                )
+            );
         } finally {
             setWfBusy(false);
         }
@@ -414,7 +436,12 @@ export default function SampleRequestDetailPage() {
             await load({ silent: true });
             setTab("workflow");
         } catch (err: any) {
-            setWfError(safeApiMessage(err, t("sampleRequestDetail.errors.updateStatusFailed")));
+            setWfError(
+                safeApiMessage(
+                    err,
+                    t("samples.pages.requestDetail.errors.updateStatusFailed", { defaultValue: "Failed to update status." })
+                )
+            );
         } finally {
             setWfBusy(false);
         }
@@ -429,7 +456,14 @@ export default function SampleRequestDetailPage() {
             await load({ silent: true });
             setTab("workflow");
         } catch (err: any) {
-            setWfError(safeApiMessage(err, t("sampleRequestDetail.errors.updateWorkflowFailed")));
+            setWfError(
+                safeApiMessage(
+                    err,
+                    t("samples.pages.requestDetail.errors.updateWorkflowFailed", {
+                        defaultValue: "Failed to update workflow.",
+                    })
+                )
+            );
         } finally {
             setWfBusy(false);
         }
@@ -447,7 +481,9 @@ export default function SampleRequestDetailPage() {
             await load({ silent: true });
             setTab("workflow");
         } catch (err: any) {
-            setWfError(safeApiMessage(err, t("sampleRequestDetail.errors.verifyFailed")));
+            setWfError(
+                safeApiMessage(err, t("samples.pages.requestDetail.errors.verifyFailed", { defaultValue: "Failed to verify." }))
+            );
         } finally {
             setVerifyBusy(false);
         }
@@ -455,13 +491,13 @@ export default function SampleRequestDetailPage() {
 
     if (!canView) {
         return (
-            <div className="min-h-[60vh] flex flex-col items-center justify-center">
-                <h1 className="text-2xl font-semibold text-primary mb-2">{t("errors.accessDeniedTitle")}</h1>
-                <p className="text-sm text-gray-600 text-center max-w-xl">
+            <div className="min-h-[60vh] flex flex-col items-center justify-center p-4">
+                <h1 className="text-2xl font-semibold text-gray-900 mb-2">{t("errors.accessDeniedTitle")}</h1>
+                <p className="text-sm text-gray-600 mb-6 text-center max-w-md">
                     {t("errors.accessDeniedBodyWithRole", { role: roleLabel })}
                 </p>
                 <Link to="/samples/requests" className="mt-4 lims-btn-primary">
-                    {t("sampleRequestDetail.backToList")}
+                    {t("samples.pages.requestDetail.backToList", { defaultValue: "Back to Sample Requests" })}
                 </Link>
             </div>
         );
@@ -469,59 +505,73 @@ export default function SampleRequestDetailPage() {
 
     return (
         <div className="min-h-[60vh]">
+            {/* Breadcrumb (OLD shell) */}
             <div className="px-0 py-2">
                 <nav className="lims-breadcrumb">
-                    <span className="lims-breadcrumb-icon" aria-hidden="true">
+                    <span className="lims-breadcrumb-icon">
                         <ArrowLeft className="h-4 w-4" />
                     </span>
-
                     <Link to="/samples/requests" className="lims-breadcrumb-link">
-                        {t("sampleRequestDetail.breadcrumbList")}
+                        {t("samples.pages.requestDetail.breadcrumbList", { defaultValue: "Sample Requests" })}
                     </Link>
-
-                    <span className="lims-breadcrumb-separator" aria-hidden="true">
-                        <ChevronRight className="h-4 w-4" />
+                    <span className="lims-breadcrumb-separator">›</span>
+                    <span className="lims-breadcrumb-current">
+                        {t("samples.pages.requestDetail.breadcrumbDetail", { defaultValue: "Detail" })}
                     </span>
-
-                    <span className="lims-breadcrumb-current">{t("sampleRequestDetail.breadcrumbDetail")}</span>
                 </nav>
             </div>
 
             <div className="lims-detail-shell">
-                {loading && <div className="text-sm text-gray-600">{t("sampleRequestDetail.loading")}</div>}
+                {loading && (
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <RefreshCw size={16} className="animate-spin text-primary" />
+                        <span>{t("samples.pages.requestDetail.loading", { defaultValue: "Loading request detail..." })}</span>
+                    </div>
+                )}
 
-                {error && !loading && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
+                {error && !loading && (
+                    <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
+                )}
 
                 {!loading && !error && sample && (
                     <div className="space-y-6">
+                        {/* Header (OLD style) */}
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                             <div>
                                 <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                                    {t("sampleRequestDetail.title")}
+                                    {t("samples.pages.requestDetail.title", { defaultValue: "Sample Request Detail" })}
                                 </h1>
 
                                 <div className="text-sm text-gray-600 mt-1 flex items-center gap-2 flex-wrap">
                                     <span>
-                                        {t("sampleRequestDetail.requestId")}{" "}
+                                        {t("samples.pages.requestDetail.requestId", { defaultValue: "Request ID" })}{" "}
                                         <span className="font-semibold">#{(sample as any)?.sample_id ?? requestId}</span>
                                     </span>
 
                                     <span className="text-gray-400">·</span>
-                                    <span className="text-xs text-gray-500">{t("sampleRequestDetail.status")}</span>
+                                    <span className="text-xs text-gray-500">
+                                        {t("samples.pages.requestDetail.status", { defaultValue: "status" })}
+                                    </span>
                                     <StatusPill value={(sample as any)?.request_status ?? "-"} t={t} />
 
                                     {verifiedAt ? (
                                         <>
                                             <span className="text-gray-400">·</span>
-                                            <span className="text-xs text-gray-500">{t("sampleRequestDetail.verified")}</span>
-                                            <span className="text-xs font-semibold text-emerald-700">{formatDateTimeLocal(verifiedAt)}</span>
+                                            <span className="text-xs text-gray-500">
+                                                {t("samples.pages.requestDetail.verified", { defaultValue: "verified" })}
+                                            </span>
+                                            <span className="text-xs font-semibold text-emerald-700">
+                                                {formatDateTimeLocal(verifiedAt)}
+                                            </span>
                                         </>
                                     ) : null}
 
                                     {labSampleCode ? (
                                         <>
                                             <span className="text-gray-400">·</span>
-                                            <span className="text-xs text-gray-500">{t("sampleRequestDetail.labCode")}</span>
+                                            <span className="text-xs text-gray-500">
+                                                {t("samples.pages.requestDetail.labCode", { defaultValue: "BML" })}
+                                            </span>
                                             <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
                                                 {labSampleCode}
                                             </span>
@@ -532,20 +582,23 @@ export default function SampleRequestDetailPage() {
 
                             <div className="flex items-center gap-2">
                                 <SmallButton type="button" onClick={refresh} disabled={pageRefreshing} className="flex items-center gap-2">
-                                    <RefreshCw className="h-4 w-4" />
-                                    {pageRefreshing ? t("common.refreshing") : t("common.refresh")}
+                                    <RefreshCw size={16} className={cx(pageRefreshing && "animate-spin")} />
+                                    {pageRefreshing
+                                        ? t("refreshing", { defaultValue: "Refreshing..." })
+                                        : t("refresh", { defaultValue: "Refresh" })}
                                 </SmallButton>
                             </div>
                         </div>
 
+                        {/* Tabs (OLD container) */}
                         <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                             <div className="px-5 pt-5">
                                 <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-2xl p-1 flex-wrap">
                                     <TabButton active={tab === "info"} onClick={() => setTab("info")}>
-                                        {t("common.info")}
+                                        {t("info", { defaultValue: "Info" })}
                                     </TabButton>
                                     <TabButton active={tab === "workflow"} onClick={() => setTab("workflow")}>
-                                        {t("common.workflow")}
+                                        {t("workflow", { defaultValue: "Workflow" })}
                                     </TabButton>
                                 </div>
                             </div>
@@ -586,45 +639,44 @@ export default function SampleRequestDetailPage() {
                                             }}
                                         />
 
+                                        {/* SID verify pick (OLD modal style, but i18n + better content) */}
                                         {sidPickOpen ? (
                                             <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-                                                <div className="absolute inset-0 bg-black/40" onClick={() => (sidBusy ? null : setSidPickOpen(false))} />
+                                                <div
+                                                    className="absolute inset-0 bg-black/40"
+                                                    onClick={() => (sidBusy ? null : setSidPickOpen(false))}
+                                                />
 
                                                 <div className="relative w-full max-w-sm rounded-2xl bg-white shadow-xl border">
                                                     <div className="px-5 py-4 border-b">
                                                         <div className="text-sm font-bold text-gray-900">
-                                                            {t("sampleRequestDetail.sidVerify.title")}
+                                                            {t("samples.pages.requestDetail.sidVerify.title", {
+                                                                defaultValue: "Verify Sample ID change",
+                                                            })}
                                                         </div>
                                                         <div className="text-xs text-gray-500 mt-1">
-                                                            {t("sampleRequestDetail.sidVerify.subtitle")}
+                                                            {t("samples.pages.requestDetail.sidVerify.subtitle", {
+                                                                defaultValue: "Review suggested vs proposed and choose an action.",
+                                                            })}
                                                         </div>
                                                     </div>
 
-                                                    <div className="px-5 py-4 grid grid-cols-1 gap-2">
-                                                        <div className="text-xs text-gray-500">
-                                                            {sidActiveRow?.suggested_lab_sample_code || sidActiveRow?.suggested_sample_id ? (
-                                                                <>
-                                                                    {t("common.suggested")}:{" "}
-                                                                    <span className="font-mono text-gray-800">
-                                                                        {sidActiveRow?.suggested_lab_sample_code ?? sidActiveRow?.suggested_sample_id}
-                                                                    </span>
-                                                                </>
-                                                            ) : (
-                                                                " "
-                                                            )}
+                                                    <div className="px-5 py-4 space-y-3">
+                                                        <div className="text-xs text-gray-600">
+                                                            {t("suggested", { defaultValue: "Suggested" })}:{" "}
+                                                            <span className="font-mono text-gray-900">
+                                                                {sidActiveRow?.suggested_lab_sample_code ||
+                                                                    sidActiveRow?.suggested_sample_id ||
+                                                                    "—"}
+                                                            </span>
                                                         </div>
-
-                                                        <div className="text-xs text-gray-500">
-                                                            {sidActiveRow?.proposed_lab_sample_code || sidActiveRow?.proposed_sample_id ? (
-                                                                <>
-                                                                    {t("common.proposed")}:{" "}
-                                                                    <span className="font-mono text-gray-800">
-                                                                        {sidActiveRow?.proposed_lab_sample_code ?? sidActiveRow?.proposed_sample_id}
-                                                                    </span>
-                                                                </>
-                                                            ) : (
-                                                                " "
-                                                            )}
+                                                        <div className="text-xs text-gray-600">
+                                                            {t("proposed", { defaultValue: "Proposed" })}:{" "}
+                                                            <span className="font-mono text-gray-900">
+                                                                {sidActiveRow?.proposed_lab_sample_code ||
+                                                                    sidActiveRow?.proposed_sample_id ||
+                                                                    "—"}
+                                                            </span>
                                                         </div>
                                                     </div>
 
@@ -635,7 +687,7 @@ export default function SampleRequestDetailPage() {
                                                             disabled={sidBusy}
                                                             className={cx("btn-outline", sidBusy && "opacity-60 cursor-not-allowed")}
                                                         >
-                                                            {t("common.cancel")}
+                                                            {t("cancel", { defaultValue: "Cancel" })}
                                                         </button>
 
                                                         <button
@@ -646,9 +698,12 @@ export default function SampleRequestDetailPage() {
                                                                 setSidModalOpen(true);
                                                             }}
                                                             disabled={sidBusy || !sidActiveRow}
-                                                            className={cx("btn-outline", (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed")}
+                                                            className={cx(
+                                                                "btn-outline",
+                                                                (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed"
+                                                            )}
                                                         >
-                                                            {t("common.reject")}
+                                                            {t("reject", { defaultValue: "Reject" })}
                                                         </button>
 
                                                         <button
@@ -659,9 +714,12 @@ export default function SampleRequestDetailPage() {
                                                                 setSidModalOpen(true);
                                                             }}
                                                             disabled={sidBusy || !sidActiveRow}
-                                                            className={cx("lims-btn-primary", (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed")}
+                                                            className={cx(
+                                                                "lims-btn-primary",
+                                                                (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed"
+                                                            )}
                                                         >
-                                                            {t("common.approve")}
+                                                            {t("approve", { defaultValue: "Approve" })}
                                                         </button>
                                                     </div>
                                                 </div>
@@ -678,7 +736,10 @@ export default function SampleRequestDetailPage() {
                                                 if (!sidActiveRow) return;
 
                                                 const changeId = Number(
-                                                    sidActiveRow.change_request_id ?? sidActiveRow.id ?? sidActiveRow.sample_id_change_id ?? 0
+                                                    sidActiveRow.change_request_id ??
+                                                    sidActiveRow.id ??
+                                                    sidActiveRow.sample_id_change_id ??
+                                                    0
                                                 );
                                                 if (!Number.isFinite(changeId) || changeId <= 0) return;
 
@@ -703,7 +764,14 @@ export default function SampleRequestDetailPage() {
                                                 } catch (e: any) {
                                                     setSidModalOpen(false);
                                                     setSidPickOpen(false);
-                                                    setWfError(safeApiMessage(e, t("sampleRequestDetail.errors.sidDecisionFailed")));
+                                                    setWfError(
+                                                        safeApiMessage(
+                                                            e,
+                                                            t("samples.pages.requestDetail.errors.sidDecisionFailed", {
+                                                                defaultValue: "Failed to process decision.",
+                                                            })
+                                                        )
+                                                    );
                                                 } finally {
                                                     setSidBusy(false);
                                                 }
@@ -761,7 +829,10 @@ export default function SampleRequestDetailPage() {
                                 open={intakeOpen}
                                 onClose={() => setIntakeOpen(false)}
                                 sampleId={requestId}
-                                requestLabel={t("sampleRequestDetail.requestLabel", { id: requestId })}
+                                requestLabel={t("samples.pages.requestDetail.requestLabel", {
+                                    id: requestId,
+                                    defaultValue: `Request #${requestId}`,
+                                })}
                                 onSubmitted={async () => {
                                     await load({ silent: true });
                                     setTab("workflow");

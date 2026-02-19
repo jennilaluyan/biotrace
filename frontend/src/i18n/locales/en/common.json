@@ -254,9 +254,17 @@
             }
         },
         "requestDetail": {
-            "breadcrumbRequests": "Sample Requests",
-            "breadcrumbCurrent": "Request detail",
             "title": "Request #{{id}}",
+            "requestId": "Request ID",
+            "status": "Status",
+            "verified": "Verified",
+            "labCode": "Lab Code",
+            "loading": "Loading request details…",
+            "breadcrumbList": "Request Queue",
+            "breadcrumbCurrent": "Request detail",
+            "breadcrumbDetail": "Detail",
+            "backToList": "Back to queue",
+            "requestLabel": "Request #{{id}}",
             "lastUpdated": "Last updated {{at}}",
             "alerts": {
                 "revisionTitle": "Revision requested",
@@ -284,11 +292,22 @@
                 "selected": "Selected",
                 "selectedCount": "Selected: {{count}}"
             },
+            "sidVerify": {
+                "title": "Verify Sample ID Change",
+                "subtitle": "Admin proposed a change to the Lab Sample ID."
+            },
             "errors": {
+                "invalidUrl": "Invalid request URL.",
                 "invalidId": "Invalid request id.",
                 "loadFailed": "Failed to load request detail.",
                 "saveFailed": "Failed to save draft.",
                 "submitFailed": "Failed to submit request.",
+                "approveFailed": "Failed to approve request.",
+                "updateStatusFailed": "Failed to update status.",
+                "updateWorkflowFailed": "Failed to update workflow.",
+                "verifyFailed": "Failed to verify intake.",
+                "sampleIdChangeMissing": "Sample ID change request not found.",
+                "sidDecisionFailed": "Failed to process decision.",
                 "sampleTypeRequired": "Sample type is required.",
                 "scheduledDeliveryRequired": "Scheduled delivery is required.",
                 "parameterRequired": "One parameter is required."
