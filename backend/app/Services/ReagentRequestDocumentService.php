@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use RuntimeException;
+use ZipArchive;
 
 class ReagentRequestDocumentService
 {
@@ -74,7 +75,8 @@ class ReagentRequestDocumentService
             }
 
             $loId = (int) ($rr->lo_id ?? 0);
-            $cycleNo = (int) ($rr->cycle_no ?? 0);
+            $cycleNo = (int) ($rr->cycle_no ?? 1);
+            if ($cycleNo <= 0) $cycleNo = 1;
 
             // 2) Load template bytes for doc_code REAGENT_REQUEST
             $tpl = $this->loadActiveTemplateOrFail('REAGENT_REQUEST');
@@ -91,7 +93,11 @@ class ReagentRequestDocumentService
                 $looNumber = (string) ($loo->number ?? '');
             }
 
-            $requester = $this->loadStaffMini((int) ($rr->created_by_staff_id ?? 0));
+            // requester = submitter (preferred) else creator
+            $requesterStaffId = (int) (($rr->submitted_by_staff_id ?? 0) ?: ($rr->created_by_staff_id ?? 0));
+            $requester = $this->loadStaffMini($requesterStaffId);
+            $requesterRole = $this->loadStaffRoleLabel($requesterStaffId);
+
             $approver = $this->loadStaffMini((int) ($rr->approved_by_staff_id ?? 0));
 
             // 5) Load items + equipment bookings (best-effort, schema-safe)
@@ -99,6 +105,8 @@ class ReagentRequestDocumentService
             $bookings = $this->loadBookings($reagentRequestId);
 
             // 6) Build DOCX variables + rows
+            // NOTE: "Hari/Tanggal" diminta pakai tanggal saat dokumen di-generate:
+            // format: Senin,17 Februari 2026 (hari bahasa Indonesia).
             $vars = [
                 // numbering
                 'record_no' => (string) ($nums['record_no'] ?? ''),
@@ -110,32 +118,42 @@ class ReagentRequestDocumentService
                 'loo_number' => $looNumber,
                 'cycle_no' => (string) $cycleNo,
 
-                // dates
+                // dates (raw / legacy)
                 'generated_at' => $generatedAt->format('d-m-Y H:i'),
                 'approved_at' => $this->formatDateTime($rr->approved_at ?? null),
                 'submitted_at' => $this->formatDateTime($rr->submitted_at ?? null),
                 'created_at' => $this->formatDateTime($rr->created_at ?? null),
 
-                // people
+                // dates (form fields)
+                'request_date_long' => $this->formatDateLongId($generatedAt), // Senin,17 Februari 2026
+
+                // people (form fields)
                 'requester_name' => $requester['name'],
                 'requester_nip' => $requester['nip'],
+                'requester_role' => $requesterRole, // "Analyst", dll
+
                 'approver_name' => $approver['name'],
                 'approver_nip' => $approver['nip'],
             ];
 
+            // Table rows for reagents:
+            // Template kolom: NO | NAMA REAGEN | JUMLAH | KETERANGAN
             $itemRows = [];
             foreach ($items as $idx => $it) {
+                $qty = (string) ($it['qty'] ?? '');
+                $unit = trim((string) ($it['unit_text'] ?? ''));
+
+                $qtyText = trim($qty . ($unit !== '' ? ' ' . $unit : ''));
+
                 $itemRows[] = [
                     'item_no' => (string) ($idx + 1),
                     'item_name' => (string) ($it['item_name'] ?? ''),
-                    'specification' => (string) ($it['specification'] ?? ''),
-                    'qty' => (string) ($it['qty'] ?? ''),
-                    'unit' => (string) ($it['unit_text'] ?? ''),
+                    'qty' => $qtyText,
                     'note' => (string) ($it['note'] ?? ''),
-                    'item_type' => (string) ($it['item_type'] ?? ''),
                 ];
             }
 
+            // Optional equipment booking rows (HANYA diproses kalau template memang punya placeholder ${booking_no})
             $bookingRows = [];
             foreach ($bookings as $idx => $b) {
                 $bookingRows[] = [
@@ -147,11 +165,15 @@ class ReagentRequestDocumentService
                 ];
             }
 
-            $rows = [
-                // ✅ DOCX table clone keys (template must contain ${item_no} / ${booking_no})
-                'item_no' => $itemRows,
-                'booking_no' => $bookingRows,
-            ];
+            $rows = [];
+
+            // ✅ DOCX table clone keys: template harus punya placeholder PLAIN TEXT ${item_no} dalam 1 row tabel
+            $rows['item_no'] = $itemRows;
+
+            // ✅ Jangan bikin dokumen gagal kalau template belum punya table bookings
+            if ($this->docxBytesContainsPlaceholder($templateBytes, 'booking_no')) {
+                $rows['booking_no'] = $bookingRows;
+            }
 
             // 7) Render merged DOCX + convert to PDF
             $mergedDocx = $this->docx->renderBytes($templateBytes, $vars, $rows);
@@ -204,21 +226,30 @@ class ReagentRequestDocumentService
             throw new RuntimeException('Document template tables are missing.');
         }
 
+        // schema-safe: beberapa env pakai current_version_id, sebagian (typo lama) pakai version_current_id
+        $select = ['doc_id', 'doc_code'];
+        if (Schema::hasColumn('documents', 'current_version_id')) $select[] = 'current_version_id';
+        if (Schema::hasColumn('documents', 'version_current_id')) $select[] = 'version_current_id';
+        if (Schema::hasColumn('documents', 'is_active')) $select[] = 'is_active';
+
         $doc = DB::table('documents')
             ->where('doc_code', $docCode)
             ->where('is_active', true)
-            ->first(['doc_id', 'doc_code', 'current_version_id']);
+            ->first($select);
 
         if (!$doc) {
             throw new RuntimeException("Template {$docCode} is not configured or not active.");
         }
 
-        $verId = (int) ($doc->current_version_id ?? 0);
+        $verId = (int) ($doc->current_version_id ?? $doc->version_current_id ?? 0);
         if ($verId <= 0) {
             throw new RuntimeException("Template {$docCode} has no uploaded version yet.");
         }
 
-        $ver = DB::table('document_versions')->where('doc_version_id', $verId)->first(['doc_version_id', 'file_id', 'version_no']);
+        $ver = DB::table('document_versions')
+            ->where('doc_version_id', $verId)
+            ->first(['doc_version_id', 'file_id', 'version_no']);
+
         if (!$ver) {
             throw new RuntimeException("Template {$docCode} version not found.");
         }
@@ -261,6 +292,51 @@ class ReagentRequestDocumentService
             'name' => $name,
             'nip' => (string) ($row->nip ?? ''),
         ];
+    }
+
+    private function loadStaffRoleLabel(int $staffId): string
+    {
+        if ($staffId <= 0 || !Schema::hasTable('staffs')) return '';
+
+        $cols = ['staff_id'];
+        if (Schema::hasColumn('staffs', 'role_name')) $cols[] = 'role_name';
+        if (Schema::hasColumn('staffs', 'role_id')) $cols[] = 'role_id';
+
+        $row = DB::table('staffs')->where('staff_id', $staffId)->first($cols);
+        if (!$row) return '';
+
+        $roleName = trim((string) ($row->role_name ?? ''));
+        if ($roleName !== '') {
+            return $this->prettyRoleName($roleName);
+        }
+
+        $roleId = (int) ($row->role_id ?? 0);
+        if ($roleId <= 0 || !Schema::hasTable('roles')) return '';
+
+        $rCols = ['role_id'];
+        if (Schema::hasColumn('roles', 'label')) $rCols[] = 'label';
+        if (Schema::hasColumn('roles', 'name')) $rCols[] = 'name';
+
+        $r = DB::table('roles')->where('role_id', $roleId)->first($rCols);
+        $label = trim((string) ($r->label ?? $r->name ?? ''));
+
+        return $label !== '' ? $this->prettyRoleName($label) : '';
+    }
+
+    private function prettyRoleName(string $s): string
+    {
+        $s = trim($s);
+        if ($s === '') return '';
+
+        // normalize separators -> space
+        $s = str_replace(['_', '-'], ' ', $s);
+        $s = preg_replace('/\s+/', ' ', $s) ?: $s;
+
+        // Title Case (simple)
+        $s = mb_strtolower($s);
+        $s = mb_convert_case($s, MB_CASE_TITLE);
+
+        return $s;
     }
 
     private function loadItems(int $reagentRequestId): array
@@ -312,16 +388,20 @@ class ReagentRequestDocumentService
             if (Schema::hasColumn('equipment_bookings', $c)) $select[] = $c;
         }
 
-        // Try to join equipment name if possible
-        $canJoinEquipment = Schema::hasTable('equipments') &&
-            Schema::hasColumn('equipments', 'equipment_id') &&
-            (Schema::hasColumn('equipments', 'name') || Schema::hasColumn('equipments', 'equipment_name'));
+        // Prefer equipment_catalog (sesuai validator/controller), fallback to equipments (kalau ada env lama)
+        $equipTable = null;
+        if (Schema::hasTable('equipment_catalog')) $equipTable = 'equipment_catalog';
+        if (!$equipTable && Schema::hasTable('equipments')) $equipTable = 'equipments';
+
+        $canJoinEquipment = $equipTable &&
+            Schema::hasColumn($equipTable, 'equipment_id') &&
+            (Schema::hasColumn($equipTable, 'name') || Schema::hasColumn($equipTable, 'equipment_name'));
 
         $q = DB::table('equipment_bookings as eb')->where('eb.reagent_request_id', $reagentRequestId);
 
         if ($canJoinEquipment) {
-            $q->leftJoin('equipments as e', 'e.equipment_id', '=', 'eb.equipment_id');
-            $nameCol = Schema::hasColumn('equipments', 'name') ? 'e.name' : 'e.equipment_name';
+            $q->leftJoin($equipTable . ' as e', 'e.equipment_id', '=', 'eb.equipment_id');
+            $nameCol = Schema::hasColumn($equipTable, 'name') ? 'e.name' : 'e.equipment_name';
             $select[] = DB::raw("{$nameCol} as equipment_name");
         }
 
@@ -352,6 +432,96 @@ class ReagentRequestDocumentService
         } catch (\Throwable $e) {
             return (string) $value;
         }
+    }
+
+    /**
+     * Format: Senin,17 Februari 2026
+     * (tanpa spasi setelah koma, sesuai contoh user)
+     */
+    private function formatDateLongId($value): string
+    {
+        if (!$value) return '';
+
+        try {
+            $dt = $value instanceof Carbon ? $value : Carbon::parse($value);
+        } catch (\Throwable) {
+            return (string) $value;
+        }
+
+        $days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+        $months = [
+            1 => 'Januari',
+            2 => 'Februari',
+            3 => 'Maret',
+            4 => 'April',
+            5 => 'Mei',
+            6 => 'Juni',
+            7 => 'Juli',
+            8 => 'Agustus',
+            9 => 'September',
+            10 => 'Oktober',
+            11 => 'November',
+            12 => 'Desember',
+        ];
+
+        $dayName = $days[(int) $dt->dayOfWeek] ?? '';
+        $monthName = $months[(int) $dt->format('n')] ?? $dt->format('m');
+
+        return $dayName . ',' . $dt->format('d') . ' ' . $monthName . ' ' . $dt->format('Y');
+    }
+
+    /**
+     * Quick check if DOCX bytes contains placeholder ${key} or ${key#...}
+     * (dipakai untuk skip table rows yang tidak ada di template).
+     */
+    private function docxBytesContainsPlaceholder(string $docxBytes, string $key): bool
+    {
+        $key = $this->sanitizeKey($key);
+        if ($key === '') return false;
+
+        $needle1 = '${' . $key . '}';
+        $needle2 = '${' . $key . '#';
+
+        $tmpDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'biotrace_docx_check_' . bin2hex(random_bytes(6));
+        @mkdir($tmpDir, 0775, true);
+        $path = $tmpDir . DIRECTORY_SEPARATOR . 't.docx';
+        file_put_contents($path, $docxBytes);
+
+        $zip = new ZipArchive();
+        $ok = $zip->open($path);
+
+        try {
+            if ($ok !== true) return false;
+
+            $parts = ['word/document.xml'];
+            for ($i = 1; $i <= 3; $i++) {
+                $parts[] = "word/header{$i}.xml";
+                $parts[] = "word/footer{$i}.xml";
+            }
+
+            foreach ($parts as $p) {
+                $xml = $zip->getFromName($p);
+                if (!is_string($xml) || $xml === '') continue;
+
+                if (strpos($xml, $needle1) !== false) return true;
+                if (strpos($xml, $needle2) !== false) return true;
+            }
+
+            return false;
+        } finally {
+            try {
+                $zip->close();
+            } catch (\Throwable) {
+            }
+            @unlink($path);
+            @rmdir($tmpDir);
+        }
+    }
+
+    private function sanitizeKey(string $key): string
+    {
+        $key = preg_replace('/[^A-Za-z0-9_]/', '_', $key) ?: '';
+        return trim($key, '_');
     }
 
     private function safeFileStem(string $s): string

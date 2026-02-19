@@ -39,6 +39,38 @@
     "tips": "Tips",
     "summary": "Ringkasan",
     "actions": "Aksi",
+    "common": {
+        "actions": "Aksi",
+        "totalCount": "Total: {{count}}",
+        "refresh": "Muat ulang",
+        "approve": "Setujui",
+        "reject": "Tolak",
+        "processing": "Memproses…"
+    },
+    "staffApprovals": {
+        "title": "Persetujuan staf",
+        "subtitle": "Tinjau dan setujui akun staf baru yang meminta akses.",
+        "cardTitle": "Permintaan tertunda",
+        "loading": "Memuat daftar persetujuan…",
+        "emptyTitle": "Belum ada yang perlu disetujui",
+        "emptyHint": "Permintaan staf baru akan muncul di sini saat diajukan.",
+        "statusPending": "Menunggu persetujuan",
+        "table": {
+            "staff": "Staf",
+            "role": "Peran",
+            "requestedAt": "Diajukan"
+        },
+        "confirm": {
+            "approve": "Setujui akun staf ini?",
+            "reject": "Tolak akun staf ini?",
+            "rejectNotePrompt": "Catatan opsional untuk penolakan (akan terlihat oleh pemohon):"
+        },
+        "errors": {
+            "loadFailed": "Gagal memuat daftar persetujuan staf.",
+            "approveFailed": "Gagal menyetujui akun staf.",
+            "rejectFailed": "Gagal menolak akun staf."
+        }
+    },
     "nav": {
         "clients": "Klien",
         "samples": "Sampel",
@@ -1549,6 +1581,82 @@
         "somethingWentWrong": "Terjadi kesalahan.",
         "accessDeniedTitle": "403 – Akses ditolak",
         "accessDeniedBodyWithRole": "Peran Anda ({{role}}) tidak diizinkan mengakses halaman ini."
+    },
+    "docs": {
+        "templates": {
+            "title": "Template dokumen",
+            "subtitle": "Kelola template DOCX: unggah versi baru, atur prefix nomor rekaman/form, dan jaga nomor revisi tetap konsisten.",
+            "searchPlaceholder": "Cari berdasarkan kode dokumen, judul, atau jenis…",
+            "activeFilterLabel": "Filter aktif",
+            "activeFilter": {
+                "all": "Semua",
+                "active": "Aktif",
+                "inactive": "Nonaktif"
+            },
+            "loading": "Memuat template…",
+            "emptyTitle": "Template tidak ditemukan",
+            "emptyBody": "Coba hapus filter atau muat ulang untuk mengambil daftar terbaru.",
+            "kindValue": "jenis: {{kind}}",
+            "kindEmpty": "jenis: —",
+            "status": {
+                "active": "Aktif",
+                "inactive": "Nonaktif"
+            },
+            "actions": {
+                "uploadDocx": "Unggah DOCX",
+                "editMetadata": "Edit metadata"
+            },
+            "table": {
+                "template": "Template",
+                "docCode": "Kode dokumen",
+                "revision": "Revisi",
+                "currentVersion": "Versi saat ini",
+                "updated": "Diperbarui",
+                "active": "Aktif",
+                "actions": "Aksi"
+            },
+            "pagination": {
+                "showing": "Menampilkan {{from}}–{{to}} dari {{total}} template",
+                "pageOf": "Halaman {{page}} / {{totalPages}}"
+            },
+            "quickAccess": "Akses cepat:",
+            "upload": {
+                "title": "Unggah template DOCX",
+                "hint": "Unggah file .docx. Setelah unggah, sistem akan membuat versi baru (vN).",
+                "dropzoneAria": "Area unggah",
+                "dropzoneTitle": "Seret & lepas file .docx atau klik untuk memilih",
+                "dropzoneHeadline": "Seret & lepas file di sini",
+                "dropzoneSub": "atau",
+                "dropzoneBrowse": "klik untuk memilih",
+                "supported": "Didukung:",
+                "action": "Unggah",
+                "uploading": "Mengunggah…"
+            },
+            "edit": {
+                "title": "Edit metadata template",
+                "fields": {
+                    "title": "Judul",
+                    "recordPrefix": "Prefix nomor rekaman",
+                    "formPrefix": "Prefix kode formulir",
+                    "revisionNo": "No. revisi"
+                },
+                "placeholders": {
+                    "title": "Judul dokumen…",
+                    "recordPrefix": "REK/LAB-BM/…/",
+                    "formPrefix": "FORM/LAB-BM/…RevXX."
+                },
+                "hints": {
+                    "recordPrefix": "Output: prefix + DDMMYY",
+                    "formPrefix": "Output: prefix + DD-MM-YY",
+                    "revisionNo": "Ditampilkan sebagai RevXX (pad 2)."
+                },
+                "footerTip": "Tip: jika prefix form sudah memuat RevXX, pastikan konsisten dengan revision_no."
+            },
+            "errors": {
+                "docxOnly": "File harus berformat .docx",
+                "pickDocxFirst": "Silakan pilih file .docx terlebih dulu."
+            }
+        }
     },
     "loo": {
         "generator": {

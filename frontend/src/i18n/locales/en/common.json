@@ -39,6 +39,38 @@
     "tips": "Tips",
     "summary": "Summary",
     "actions": "Actions",
+    "common": {
+        "actions": "Actions",
+        "totalCount": "Total: {{count}}",
+        "refresh": "Refresh",
+        "approve": "Approve",
+        "reject": "Reject",
+        "processing": "Processing…"
+    },
+    "staffApprovals": {
+        "title": "Staff approvals",
+        "subtitle": "Review and approve new staff accounts requesting access.",
+        "cardTitle": "Pending requests",
+        "loading": "Loading pending approvals…",
+        "emptyTitle": "Nothing to approve right now",
+        "emptyHint": "New staff requests will appear here when submitted.",
+        "statusPending": "Pending approval",
+        "table": {
+            "staff": "Staff",
+            "role": "Role",
+            "requestedAt": "Requested"
+        },
+        "confirm": {
+            "approve": "Approve this staff account?",
+            "reject": "Reject this staff account?",
+            "rejectNotePrompt": "Optional note for rejection (visible to requester):"
+        },
+        "errors": {
+            "loadFailed": "Failed to load pending staff approvals.",
+            "approveFailed": "Failed to approve the staff account.",
+            "rejectFailed": "Failed to reject the staff account."
+        }
+    },
     "nav": {
         "clients": "Clients",
         "samples": "Samples",

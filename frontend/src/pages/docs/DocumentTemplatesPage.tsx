@@ -1,3 +1,4 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\docs\DocumentTemplatesPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Pencil, RefreshCw, Search, Upload, X } from "lucide-react";
@@ -24,7 +25,7 @@ type DocTemplateRow = {
     title?: string | null;
 
     kind?: string | null;
-    is_active?: boolean | number | null;
+    is_active?: boolean | number | string | null;
 
     record_no_prefix?: string | null;
     form_code_prefix?: string | null;
@@ -60,12 +61,20 @@ const PAGE_SIZE = 12;
 
 function toBool(v: unknown, fallback = false) {
     if (v === null || v === undefined) return fallback;
+    if (typeof v === "boolean") return v;
+    if (typeof v === "number") return v !== 0;
+    if (typeof v === "string") {
+        const s = v.trim().toLowerCase();
+        if (s === "0" || s === "false" || s === "no") return false;
+        if (s === "1" || s === "true" || s === "yes") return true;
+        return Boolean(s);
+    }
     return Boolean(v);
 }
 
 function formatRevisionNo(n: unknown) {
     const rev = Number(n ?? 0) || 0;
-    return `Rev${String(rev).padStart(2, "0")}`;
+    return `Rev${String(Math.max(0, rev)).padStart(2, "0")}`;
 }
 
 function pickCurrentVersionNo(r: DocTemplateRow): number | null {
@@ -96,7 +105,8 @@ function formatBytes(bytes: number): string {
 }
 
 export function DocumentTemplatesPage() {
-    const { t } = useTranslation();
+    // IMPORTANT: force common namespace so keys like "search", "loading", "actions" always resolve.
+    const { t } = useTranslation("common");
 
     // =============================
     // State
@@ -391,7 +401,7 @@ export function DocumentTemplatesPage() {
                     onClick={load}
                     aria-label={t("refresh")}
                     title={t("refresh")}
-                    disabled={loading}
+                    disabled={loading || saving}
                 >
                     <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
                 </button>
@@ -527,9 +537,7 @@ export function DocumentTemplatesPage() {
 
                                                     <td className="px-4 py-3 text-gray-700">{ver === null ? "—" : `v${ver}`}</td>
 
-                                                    <td className="px-4 py-3 text-gray-700">
-                                                        {updated ? formatDateTimeLocal(updated) : "—"}
-                                                    </td>
+                                                    <td className="px-4 py-3 text-gray-700">{updated ? formatDateTimeLocal(updated) : "—"}</td>
 
                                                     <td className="px-4 py-3 text-gray-700">
                                                         <label className="inline-flex items-center gap-2">
@@ -538,6 +546,8 @@ export function DocumentTemplatesPage() {
                                                                 checked={active}
                                                                 disabled={saving}
                                                                 onChange={(e) => toggleActive(r, e.target.checked)}
+                                                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary-soft"
+                                                                aria-label={`${r.doc_code} ${active ? t("docs.templates.status.active") : t("docs.templates.status.inactive")}`}
                                                             />
                                                             <span className="text-xs text-gray-600">
                                                                 {active ? t("docs.templates.status.active") : t("docs.templates.status.inactive")}
@@ -599,9 +609,7 @@ export function DocumentTemplatesPage() {
                                         <ChevronLeft size={16} />
                                     </button>
 
-                                    <div className="text-xs text-gray-600">
-                                        {t("docs.templates.pagination.pageOf", { page: clampedPage, totalPages })}
-                                    </div>
+                                    <div className="text-xs text-gray-600">{t("docs.templates.pagination.pageOf", { page: clampedPage, totalPages })}</div>
 
                                     <button
                                         type="button"
@@ -653,11 +661,7 @@ export function DocumentTemplatesPage() {
 
                         <div className="lims-modal-body">
                             {/* Modal-specific error */}
-                            {err && (
-                                <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-lg">
-                                    {err}
-                                </div>
-                            )}
+                            {err && <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-lg">{err}</div>}
 
                             <div className="text-sm text-gray-600">{t("docs.templates.upload.hint")}</div>
 
@@ -676,9 +680,7 @@ export function DocumentTemplatesPage() {
                                     "mt-2 rounded-2xl border-2 border-dashed p-5 transition",
                                     "cursor-pointer select-none",
                                     saving && "opacity-70 cursor-not-allowed pointer-events-none",
-                                    dragActive
-                                        ? "border-primary-soft bg-primary-soft/10"
-                                        : "border-gray-300 bg-gray-50 hover:bg-gray-100/70"
+                                    dragActive ? "border-primary-soft bg-primary-soft/10" : "border-gray-300 bg-gray-50 hover:bg-gray-100/70"
                                 )}
                                 aria-label={t("docs.templates.upload.dropzoneAria")}
                                 title={t("docs.templates.upload.dropzoneTitle")}
@@ -782,11 +784,7 @@ export function DocumentTemplatesPage() {
                         </div>
 
                         <div className="px-5 py-4">
-                            {err && (
-                                <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-4">
-                                    {err}
-                                </div>
-                            )}
+                            {err && <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-4">{err}</div>}
 
                             <div className="grid gap-4 md:grid-cols-2">
                                 <div className="md:col-span-2">
@@ -844,6 +842,7 @@ export function DocumentTemplatesPage() {
                                             checked={editIsActive}
                                             onChange={(e) => setEditIsActive(e.target.checked)}
                                             disabled={saving}
+                                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary-soft"
                                         />
                                         {t("docs.templates.status.active")}
                                     </label>
