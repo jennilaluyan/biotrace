@@ -787,11 +787,115 @@
         }
     },
     "reports": {
+        "title": "Laporan",
+        "subtitle": "Semua dokumen PDF (LOO, Permintaan Reagen, COA, dll.).",
+        "filters": {
+            "searchPlaceholder": "Cari berdasarkan nama dokumen / kode / status…",
+            "allDates": "Semua tanggal",
+            "searchLabel": "Cari dokumen",
+            "dateFilterLabel": "Filter tanggal",
+            "today": "Hari ini",
+            "last7d": "7 hari terakhir",
+            "last30d": "30 hari terakhir"
+        },
+        "table": {
+            "document": "Dokumen",
+            "codeNumber": "Kode / Nomor",
+            "generated": "Dibuat",
+            "status": "Status",
+            "actions": "Aksi"
+        },
+        "pagination": {
+            "showing": "Menampilkan {{from}} sampai {{to}} dari {{total}}",
+            "page": "Halaman {{page}} / {{totalPages}}"
+        },
+        "coaName": "Certificate of Analysis (COA)",
+        "previewDocTitle": "{{name}} — Pratinjau",
+        "loadError": "Gagal memuat laporan.",
+        "emptyTitle": "Tidak ada dokumen.",
+        "status": {
+            "locked": "Terkunci",
+            "draft": "Draf",
+            "generated": "Digenerate",
+            "approved": "Disetujui",
+            "rejected": "Ditolak"
+        },
         "pdfPreviewTitle": "Pratinjau PDF",
         "loadingPdf": "Memuat PDF…",
         "failedPreview": "Gagal menampilkan pratinjau PDF",
         "failedToLoadPdf": "Gagal memuat PDF.",
         "noPdf": "Tidak ada PDF untuk ditampilkan."
+    },
+    "reportsPage": {
+        "title": "Laporan",
+        "subtitle": "Telusuri PDF yang sudah digenerate dan unduh saat diperlukan.",
+        "loading": "Memuat laporan…",
+        "filters": {
+            "searchLabel": "Cari laporan",
+            "searchPlaceholder": "Cari berdasarkan ID sampel, kode lab, klien, jenis dokumen…",
+            "typeLabel": "Jenis dokumen",
+            "typeAll": "Semua jenis",
+            "fromDate": "Tanggal dari",
+            "toDate": "Tanggal sampai"
+        },
+        "table": {
+            "document": "Dokumen",
+            "sample": "Sampel",
+            "client": "Klien",
+            "type": "Jenis",
+            "createdAt": "Dibuat",
+            "actions": "Aksi"
+        },
+        "types": {
+            "loo": "Letter of Order (LOO)",
+            "reagentRequest": "Permintaan Reagen",
+            "coaPcrSelf": "COA PCR Mandiri",
+            "coaPcrCoop": "COA PCR Kerja Sama",
+            "coaWgs": "COA WGS",
+            "other": "Lainnya"
+        },
+        "actions": {
+            "preview": "Pratinjau",
+            "download": "Unduh",
+            "open": "Buka"
+        },
+        "empty": {
+            "title": "Tidak ada laporan",
+            "body": "Coba ubah filter atau cek lagi nanti."
+        },
+        "meta": {
+            "showing": "Menampilkan {{from}}–{{to}} dari {{total}} laporan"
+        },
+        "errors": {
+            "loadFailed": "Gagal memuat laporan.",
+            "downloadFailed": "Gagal mengunduh PDF."
+        }
+    },
+    "reportPreviewModal": {
+        "title": "Pratinjau laporan",
+        "subtitle": "Pratinjau dan unduh PDF.",
+        "states": {
+            "loading": "Memuat pratinjau…",
+            "noPdf": "PDF tidak tersedia.",
+            "errorTitle": "Pratinjau tidak tersedia",
+            "errorBody": "Coba lagi atau unduh PDF."
+        },
+        "toolbar": {
+            "prevPage": "Halaman sebelumnya",
+            "nextPage": "Halaman berikutnya",
+            "zoomIn": "Perbesar",
+            "zoomOut": "Perkecil",
+            "fitWidth": "Pas lebar",
+            "fitPage": "Pas halaman",
+            "rotate": "Putar",
+            "print": "Cetak",
+            "openNewTab": "Buka di tab baru"
+        },
+        "buttons": {
+            "close": "Tutup",
+            "download": "Unduh",
+            "retry": "Coba lagi"
+        }
     },
     "samples": {
         "documents": {
@@ -1204,6 +1308,49 @@
                     "testsLocked": "Terkunci sampai Permintaan Reagen disetujui.",
                     "qualityCoverLocked": "Terbuka setelah pengujian selesai.",
                     "qualityCoverReadOnly": "Hanya lihat (sesuai peran Anda)."
+                }
+            },
+            "archive": {
+                "title": "Arsip Sampel",
+                "titleShort": "Arsip",
+                "subtitle": "Rekaman historis read-only (untuk pelacakan dan audit).",
+                "searchPlaceholder": "Cari kode lab, klien, atau nomor COA…",
+                "loading": "Memuat arsip…",
+                "emptyTitle": "Tidak ada sampel arsip",
+                "emptyHint": "Pencarian tidak ditemukan. Coba kata kunci lain.",
+                "loadError": "Gagal memuat arsip.",
+                "table": {
+                    "labCode": "Kode Lab",
+                    "client": "Klien",
+                    "workflow": "Grup Workflow",
+                    "coa": "COA",
+                    "archived": "Diarsipkan",
+                    "actions": "Aksi"
+                }
+            },
+            "archiveDetail": {
+                "detailTitle": "Detail Arsip Sampel",
+                "loading": "Memuat detail…",
+                "detailLoadError": "Gagal memuat detail arsip.",
+                "repoDocsError": "Gagal memuat dokumen repository: {{msg}}",
+                "archivedAtLabel": "diarsipkan {{at}}",
+                "previewTitle": "Pratinjau PDF",
+                "previewDocTitle": "{{name}} — Pratinjau",
+                "overviewHint": "Metadata kunci untuk pelacakan (klien, grup workflow, status akhir, dan dokumen).",
+                "finalStatus": "Status Akhir",
+                "archivedAt": "Diarsipkan Pada",
+                "docsHint": "Dokumen yang terhubung (repository + sumber cadangan).",
+                "docsEmptyTitle": "Tidak ada dokumen",
+                "docsEmptyHint": "Sampel ini belum memiliki PDF tersimpan (atau akses dibatasi).",
+                "timelineTitle": "Timeline Workflow",
+                "timelineHint": "Jejak kronologis kejadian workflow.",
+                "timelineEmpty": "Tidak ada event timeline tercatat.",
+                "timelineBy": "Oleh: {{name}}",
+                "docs": {
+                    "looShort": "LOO",
+                    "coaShort": "COA",
+                    "loo": "Letter of Order (LOO)",
+                    "coa": "Certificate of Analysis (COA)"
                 }
             }
         }

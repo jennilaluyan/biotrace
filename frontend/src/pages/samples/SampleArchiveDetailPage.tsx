@@ -1,7 +1,8 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleArchiveDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Eye, FileText, RefreshCw, Info } from "lucide-react";
+import { ArrowLeft, Eye, FileText, RefreshCw } from "lucide-react";
 
 import { getErrorMessage } from "../../utils/errors";
 import { formatDateTimeLocal } from "../../utils/date";
@@ -71,11 +72,7 @@ function normalizeTimeline(d?: SampleArchiveDetail | null): ArchiveTimelineEvent
 function normalizeFallbackDocs(
     d?: SampleArchiveDetail | null,
     latestReportId?: number | null,
-    labels?: {
-        docFallback: string;
-        loo: string;
-        coa: string;
-    }
+    labels?: { docFallback: string; loo: string; coa: string }
 ): RenderDoc[] {
     const docs: RenderDoc[] = [];
     const fromArray = ((d as any)?.documents ?? []) as Array<ArchiveDocument & { download_url?: string | null }>;
@@ -99,14 +96,14 @@ function normalizeFallbackDocs(
     if (loId) {
         docs.push({
             type: "LOO",
-            label: loNumber ? `${labels?.loo ?? "Letter of Order (LOO)"} — ${loNumber}` : labels?.loo ?? "Letter of Order (LOO)",
+            label: loNumber ? `${labels?.loo ?? "Letter of Order (LOO)"} (${loNumber})` : labels?.loo ?? "Letter of Order (LOO)",
             kind: "pdf_url",
             pdfUrl: `/api/v1/reports/documents/loo/${loId}/pdf`,
         });
     } else if (loFile) {
         docs.push({
             type: "LOO",
-            label: loNumber ? `${labels?.loo ?? "Letter of Order (LOO)"} — ${loNumber}` : labels?.loo ?? "Letter of Order (LOO)",
+            label: loNumber ? `${labels?.loo ?? "Letter of Order (LOO)"} (${loNumber})` : labels?.loo ?? "Letter of Order (LOO)",
             kind: "pdf_url",
             pdfUrl: String(loFile),
         });
@@ -142,12 +139,12 @@ function normalizeFallbackDocs(
 
 export function SampleArchiveDetailPage() {
     const { t } = useTranslation();
+
     const nav = useNavigate();
     const params = useParams();
     const sampleId = Number((params as any).sampleId ?? (params as any).sample_id);
 
     const [data, setData] = useState<SampleArchiveDetail | null>(null);
-
     const [repoDocs, setRepoDocs] = useState<ReportDocumentRow[]>([]);
     const [repoDocsError, setRepoDocsError] = useState<string | null>(null);
 
@@ -157,7 +154,9 @@ export function SampleArchiveDetailPage() {
 
     const [previewReportId, setPreviewReportId] = useState<number | null>(null);
     const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
-    const [previewTitle, setPreviewTitle] = useState<string>(t("archive.previewTitle", "PDF Preview"));
+    const [previewTitle, setPreviewTitle] = useState<string>(() =>
+        t("samples.pages.archiveDetail.previewTitle", { defaultValue: "PDF Preview" })
+    );
     const [previewOpen, setPreviewOpen] = useState(false);
 
     async function load(opts?: { silent?: boolean }) {
@@ -177,7 +176,7 @@ export function SampleArchiveDetailPage() {
                 setRepoDocsError(getErrorMessage(e));
             }
         } catch (e) {
-            setError(getErrorMessage(e) || t("archive.detailLoadError", "Failed to load archive detail."));
+            setError(getErrorMessage(e) || t("samples.pages.archiveDetail.detailLoadError", { defaultValue: "Failed to load archive detail." }));
         } finally {
             if (!opts?.silent) setLoading(false);
         }
@@ -194,7 +193,7 @@ export function SampleArchiveDetailPage() {
 
     useEffect(() => {
         if (!Number.isFinite(sampleId) || sampleId <= 0) {
-            setError(t("common.invalidId", "Invalid id."));
+            setError(t("invalidId", { defaultValue: "Invalid id." }));
             return;
         }
         load();
@@ -204,7 +203,6 @@ export function SampleArchiveDetailPage() {
     const sample = (data as any)?.sample ?? null;
     const client = (data as any)?.client ?? null;
     const loo = (data as any)?.loo ?? null;
-
     const reports = (((data as any)?.reports ?? []) as any[]) || [];
     const latestReport = reports?.[0] ?? null;
 
@@ -216,9 +214,9 @@ export function SampleArchiveDetailPage() {
                 : null;
 
     const docs = useMemo<RenderDoc[]>(() => {
-        const docFallback = t("common.document", "Document");
-        const looLabel = t("docs.loo", "Letter of Order (LOO)");
-        const coaLabel = t("docs.coa", "Certificate of Analysis (COA)");
+        const docFallback = t("document", { defaultValue: "Document" });
+        const looLabel = t("samples.pages.archiveDetail.docs.loo", { defaultValue: "Letter of Order (LOO)" });
+        const coaLabel = t("samples.pages.archiveDetail.docs.coa", { defaultValue: "Certificate of Analysis (COA)" });
 
         const primary: RenderDoc[] = repoDocs.length
             ? (repoDocs
@@ -278,7 +276,10 @@ export function SampleArchiveDetailPage() {
         (data as any)?.archived_at ?? sample?.archived_at ?? sample?.reported_at ?? sample?.updated_at ?? null;
 
     const requestedParams =
-        ((data as any)?.requested_parameters ?? (data as any)?.requestedParameters ?? sample?.requestedParameters ?? []) as any[];
+        ((data as any)?.requested_parameters ??
+            (data as any)?.requestedParameters ??
+            sample?.requestedParameters ??
+            []) as any[];
 
     const openDocPreview = (doc: RenderDoc) => {
         if (doc.kind === "report_preview" && doc.reportId) {
@@ -290,7 +291,12 @@ export function SampleArchiveDetailPage() {
         if (!url) return;
 
         setPreviewPdfUrl(url);
-        setPreviewTitle(t("archive.previewDocTitle", "{{name}} — Preview", { name: doc.label }));
+        setPreviewTitle(
+            t("samples.pages.archiveDetail.previewDocTitle", {
+                name: doc.label,
+                defaultValue: "{{name}} — Preview",
+            })
+        );
         setPreviewOpen(true);
     };
 
@@ -299,29 +305,22 @@ export function SampleArchiveDetailPage() {
             <div className="px-0 py-2">
                 <nav className="lims-breadcrumb">
                     <Link to="/samples" className="lims-breadcrumb-link">
-                        {t("samples.title", "Samples")}
+                        {t("samplesPage.title", { defaultValue: "Samples" })}
                     </Link>
                     <span className="lims-breadcrumb-separator">›</span>
                     <Link to="/samples/archive" className="lims-breadcrumb-link">
-                        {t("archive.titleShort", "Archive")}
+                        {t("samples.pages.archive.titleShort", { defaultValue: "Archive" })}
                     </Link>
                     <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">{t("common.detail", "Detail")}</span>
+                    <span className="lims-breadcrumb-current">{t("common.detail", { defaultValue: "Detail" })}</span>
                 </nav>
             </div>
 
             <div className="lims-detail-shell">
-                {loading && (
-                    <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 flex items-center gap-2">
-                        <RefreshCw size={16} className="animate-spin" />
-                        {t("common.loading", "Loading…")}
-                    </div>
-                )}
+                {loading && <div className="text-sm text-gray-600">{t("loading", { defaultValue: "Loading…" })}</div>}
 
                 {error && !loading && (
-                    <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-4">
-                        {error}
-                    </div>
+                    <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
                 )}
 
                 {!loading && !error && (
@@ -332,24 +331,32 @@ export function SampleArchiveDetailPage() {
                                     type="button"
                                     className="lims-icon-button"
                                     onClick={() => nav(-1)}
-                                    aria-label={t("common.back", "Back")}
-                                    title={t("common.back", "Back")}
+                                    aria-label={t("back", { defaultValue: "Back" })}
+                                    title={t("back", { defaultValue: "Back" })}
                                 >
                                     <ArrowLeft size={16} />
                                 </button>
 
                                 <div>
-                                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("archive.detailTitle", "Sample Archive")}</h1>
+                                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                                        {t("samples.pages.archiveDetail.detailTitle", { defaultValue: "Sample Archive Detail" })}
+                                    </h1>
+
+                                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                                        {t("samples.pages.archiveDetail.detailTitle", { defaultValue: "Sample Archive Detail" })}
+                                    </h1>
 
                                     <div className="mt-1 flex items-center gap-2 flex-wrap">
-                                        <span className="text-xs text-gray-500">{t("samples.labCode", "Lab code")}</span>
+                                        <span className="text-xs text-gray-500">
+                                            {t("samples.pages.archive.table.labCode", { defaultValue: "Lab Code" })}
+                                        </span>
                                         <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
-                                            {safeText(labCode, t("common.na", "—"))}
+                                            {safeText(labCode, t("na", { defaultValue: "—" }))}
                                         </span>
 
                                         {archivedAt ? (
                                             <span className="text-[11px] text-gray-500">
-                                                {t("archive.archivedAtLabel", "archived {{at}}", {
+                                                {t("samples.pages.archiveDetail.archivedAtLabel", "archived {{at}}", {
                                                     at: formatDateTimeLocal(archivedAt),
                                                 })}
                                             </span>
@@ -364,8 +371,8 @@ export function SampleArchiveDetailPage() {
                                     className="lims-icon-button"
                                     onClick={refresh}
                                     disabled={pageRefreshing}
-                                    aria-label={t("common.refresh", "Refresh")}
-                                    title={t("common.refresh", "Refresh")}
+                                    aria-label={t("refresh", { defaultValue: "Refresh" })}
+                                    title={t("refresh", { defaultValue: "Refresh" })}
                                 >
                                     <RefreshCw size={16} className={cx(pageRefreshing && "animate-spin")} />
                                 </button>
@@ -373,49 +380,72 @@ export function SampleArchiveDetailPage() {
                         </div>
 
                         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                            {/* Overview */}
                             <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden lg:col-span-2">
                                 <div className="px-5 py-4 border-b border-gray-100 bg-white">
-                                    <div className="text-sm font-extrabold text-gray-900">{t("common.overview", "Overview")}</div>
+                                    <div className="text-sm font-extrabold text-gray-900">
+                                        {t("overview", { defaultValue: "Overview" })}
+                                    </div>
                                     <div className="text-xs text-gray-500 mt-1">
-                                        {t("archive.overviewHint", "Key metadata for traceability (client, workflow group, final status, and generated docs).")}
+                                        {t("samples.pages.archiveDetail.overviewHint", { defaultValue: "Summary of the archived sample and final status." })}
                                     </div>
                                 </div>
 
                                 <div className="px-5 py-5">
                                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                                         <div>
-                                            <div className="text-xs text-gray-500">{t("common.client", "Client")}</div>
-                                            <div className="text-sm font-semibold text-gray-900">{safeText(clientName, t("common.na", "—"))}</div>
-                                        </div>
-
-                                        <div>
-                                            <div className="text-xs text-gray-500">{t("samples.workflowGroup", "Workflow Group")}</div>
-                                            <div className="text-sm font-semibold text-gray-900">{safeText(workflowGroup, t("common.na", "—"))}</div>
-                                        </div>
-
-                                        <div>
-                                            <div className="text-xs text-gray-500">{t("archive.finalStatus", "Final Status")}</div>
-                                            <div className="text-sm font-semibold text-gray-900">{safeText(finalStatus, t("common.na", "—"))}</div>
-                                        </div>
-
-                                        <div>
-                                            <div className="text-xs text-gray-500">{t("archive.archivedAt", "Archived At")}</div>
+                                            <div className="text-xs text-gray-500">{t("client", { defaultValue: "Client" })}</div>
                                             <div className="text-sm font-semibold text-gray-900">
-                                                {archivedAt ? formatDateTimeLocal(archivedAt) : t("common.na", "—")}
+                                                {safeText(clientName, t("na", { defaultValue: "—" }))}
                                             </div>
                                         </div>
 
                                         <div>
-                                            <div className="text-xs text-gray-500">{t("docs.looShort", "LOO")}</div>
-                                            <div className="text-sm font-semibold text-gray-900">{safeText(loNumber, t("common.na", "—"))}</div>
+                                            <div className="text-xs text-gray-500">
+                                                {t("samples.workflowGroup", { defaultValue: "Workflow Group" })}
+                                            </div>
+                                            <div className="text-sm font-semibold text-gray-900">
+                                                {safeText(workflowGroup, t("na", { defaultValue: "—" }))}
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <div className="text-xs text-gray-500">
+                                                {t("samples.pages.archiveDetail.finalStatus", { defaultValue: "Status (Final)" })}
+                                            </div>
+                                            <div className="text-sm font-semibold text-gray-900">
+                                                {safeText(finalStatus, t("na", { defaultValue: "—" }))}
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <div className="text-xs text-gray-500">
+                                                {t("samples.pages.archiveDetail.archivedAt", { defaultValue: "Archived At" })}
+                                            </div>
+                                            <div className="text-sm font-semibold text-gray-900">
+                                                {archivedAt ? formatDateTimeLocal(archivedAt) : t("na", { defaultValue: "—" })}
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <div className="text-xs text-gray-500">
+                                                {t("samples.pages.archiveDetail.docs.looShort", { defaultValue: "LOO" })}
+                                            </div>
+                                            <div className="text-sm font-semibold text-gray-900">
+                                                {safeText(loNumber, t("na", { defaultValue: "—" }))}
+                                            </div>
                                             {loGeneratedAt ? (
                                                 <div className="text-xs text-gray-500">{formatDateTimeLocal(loGeneratedAt)}</div>
                                             ) : null}
                                         </div>
 
                                         <div>
-                                            <div className="text-xs text-gray-500">{t("docs.coaShort", "COA")}</div>
-                                            <div className="text-sm font-semibold text-gray-900">{safeText(coaNumber, t("common.na", "—"))}</div>
+                                            <div className="text-xs text-gray-500">
+                                                {t("samples.pages.archiveDetail.docs.coaShort", { defaultValue: "COA" })}
+                                            </div>
+                                            <div className="text-sm font-semibold text-gray-900">
+                                                {safeText(coaNumber, t("na", { defaultValue: "—" }))}
+                                            </div>
                                             {coaGeneratedAt ? (
                                                 <div className="text-xs text-gray-500">{formatDateTimeLocal(coaGeneratedAt)}</div>
                                             ) : null}
@@ -424,7 +454,7 @@ export function SampleArchiveDetailPage() {
 
                                     <div className="mt-6">
                                         <div className="text-xs font-semibold tracking-wide text-gray-500 uppercase">
-                                            {t("samples.requestedParameters", "Requested Parameters")}
+                                            {t("samples.requestedParameters", { defaultValue: "Requested Parameters" })}
                                         </div>
 
                                         <div className="mt-2 flex flex-wrap gap-2">
@@ -434,47 +464,43 @@ export function SampleArchiveDetailPage() {
                                                         key={`${p?.parameter_id ?? p?.id ?? p?.name ?? idx}`}
                                                         className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-700"
                                                     >
-                                                        {safeText(p?.name ?? p?.parameter_name ?? p?.label, t("common.na", "—"))}
+                                                        {safeText(p?.name ?? p?.parameter_name ?? p?.label, t("na", { defaultValue: "—" }))}
                                                     </span>
                                                 ))
                                             ) : (
-                                                <span className="text-sm text-gray-500">{t("common.na", "—")}</span>
+                                                <span className="text-sm text-gray-500">{t("na", { defaultValue: "—" })}</span>
                                             )}
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
+                            {/* Documents */}
                             <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                                 <div className="px-5 py-4 border-b border-gray-100 bg-white">
-                                    <div className="text-sm font-extrabold text-gray-900">{t("common.documents", "Documents")}</div>
+                                    <div className="text-sm font-extrabold text-gray-900">
+                                        {t("documents", { defaultValue: "Documents" })}
+                                    </div>
                                     <div className="text-xs text-gray-500 mt-1">
-                                        {t("archive.docsHint", "Documents linked to this sample (repository + fallback sources).")}
+                                        {t("samples.pages.archiveDetail.docsHint", {
+                                            defaultValue: "Documents are loaded from the sample document repository.",
+                                        })}
                                     </div>
                                 </div>
 
                                 <div className="px-5 py-5 space-y-3">
                                     {repoDocsError ? (
-                                        <div className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
-                                            {t("archive.repoDocsError", "Failed to load repository docs: {{msg}}", { msg: repoDocsError })}
+                                        <div className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                                            {t("samples.pages.archiveDetail.repoDocsError", {
+                                                msg: repoDocsError,
+                                                defaultValue: "Failed to load documents: {{msg}}",
+                                            })}
                                         </div>
                                     ) : null}
 
                                     {docs.length === 0 ? (
-                                        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-                                            <div className="flex items-start gap-3">
-                                                <span className="mt-0.5 text-gray-500">
-                                                    <Info size={16} />
-                                                </span>
-                                                <div>
-                                                    <div className="text-sm font-semibold text-gray-900">
-                                                        {t("archive.docsEmptyTitle", "No documents available")}
-                                                    </div>
-                                                    <div className="text-sm text-gray-600 mt-1">
-                                                        {t("archive.docsEmptyHint", "This sample does not have stored PDFs yet (or access is restricted).")}
-                                                    </div>
-                                                </div>
-                                            </div>
+                                        <div className="text-sm text-gray-600">
+                                            {t("samples.pages.archiveDetail.docsEmptyHint", { defaultValue: "No documents found." })}
                                         </div>
                                     ) : (
                                         <div className="space-y-2">
@@ -493,7 +519,7 @@ export function SampleArchiveDetailPage() {
                                                         <div className="min-w-0">
                                                             <div className="font-semibold text-gray-900 truncate">{d.label}</div>
                                                             <div className="text-xs text-gray-500 truncate">
-                                                                {safeText(d.type, t("common.na", "—"))?.toUpperCase?.() ?? d.type}
+                                                                {safeText(d.type, t("na", { defaultValue: "—" })).toUpperCase()}
                                                             </div>
                                                         </div>
                                                     </div>
@@ -508,25 +534,28 @@ export function SampleArchiveDetailPage() {
 
                                     <div className="pt-2">
                                         <Link className="text-sm text-gray-700 underline" to="/samples/archive">
-                                            {t("archive.backToList", "Back to Archive List")}
+                                            {t("samples.pages.archiveDetail.backToList", { defaultValue: "Back to Archive List" })}
                                         </Link>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
+                        {/* Timeline */}
                         <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                             <div className="px-5 py-4 border-b border-gray-100 bg-white">
-                                <div className="text-sm font-extrabold text-gray-900">{t("archive.timelineTitle", "Workflow Timeline")}</div>
+                                <div className="text-sm font-extrabold text-gray-900">
+                                    {t("samples.pages.archiveDetail.timelineTitle", { defaultValue: "Workflow Timeline" })}
+                                </div>
                                 <div className="text-xs text-gray-500 mt-1">
-                                    {t("archive.timelineHint", "A chronological trail of workflow events (from audit logs / timeline payload).")}
+                                    {t("samples.pages.archiveDetail.timelineHint", { defaultValue: "Events derived from audit logs / timeline payload." })}
                                 </div>
                             </div>
 
                             <div className="px-5 py-5">
                                 {timeline.length === 0 ? (
-                                    <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 text-sm text-gray-700">
-                                        {t("archive.timelineEmpty", "No timeline events recorded.")}
+                                    <div className="text-sm text-gray-600">
+                                        {t("samples.pages.archiveDetail.timelineEmpty", { defaultValue: "No timeline events." })}
                                     </div>
                                 ) : (
                                     <ol className="space-y-2">
@@ -538,7 +567,10 @@ export function SampleArchiveDetailPage() {
                                                 </div>
 
                                                 <div className="mt-1 text-xs text-gray-600">
-                                                    {t("archive.timelineBy", "By: {{name}}", { name: e.actor_name ? e.actor_name : t("common.na", "—") })}
+                                                    {t("samples.pages.archiveDetail.timelineBy", {
+                                                        name: e.actor_name || t("na", { defaultValue: "—" }),
+                                                        defaultValue: "By: {{name}}",
+                                                    })}
                                                 </div>
 
                                                 {e.note ? (

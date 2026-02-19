@@ -787,11 +787,115 @@
         }
     },
     "reports": {
+        "title": "Reports",
+        "subtitle": "All PDF documents (LOO, Reagent Request, COA, etc).",
+        "filters": {
+            "searchPlaceholder": "Search by document name / code / status…",
+            "allDates": "All dates",
+            "searchLabel": "Search documents",
+            "dateFilterLabel": "Date filter",
+            "today": "Today",
+            "last7d": "Last 7 days",
+            "last30d": "Last 30 days"
+        },
+        "table": {
+            "document": "Document",
+            "codeNumber": "Code / Number",
+            "generated": "Generated",
+            "status": "Status",
+            "actions": "Actions"
+        },
+        "pagination": {
+            "showing": "Showing {{from}} to {{to}} of {{total}}",
+            "page": "Page {{page}} / {{totalPages}}"
+        },
+        "coaName": "Certificate of Analysis",
+        "previewDocTitle": "{{name}} — Preview",
+        "loadError": "Failed to load reports.",
+        "emptyTitle": "No documents found.",
+        "status": {
+            "locked": "Locked",
+            "draft": "Draft",
+            "generated": "Generated",
+            "approved": "Approved",
+            "rejected": "Rejected"
+        },
         "pdfPreviewTitle": "PDF preview",
         "loadingPdf": "Loading PDF…",
         "failedPreview": "Failed to preview PDF",
         "failedToLoadPdf": "Failed to load PDF.",
         "noPdf": "No PDF to preview."
+    },
+    "reportsPage": {
+        "title": "Reports",
+        "subtitle": "Browse generated PDFs and download when needed.",
+        "loading": "Loading reports…",
+        "filters": {
+            "searchLabel": "Search reports",
+            "searchPlaceholder": "Search by sample ID, lab code, client, document type…",
+            "typeLabel": "Document type",
+            "typeAll": "All types",
+            "fromDate": "From date",
+            "toDate": "To date"
+        },
+        "table": {
+            "document": "Document",
+            "sample": "Sample",
+            "client": "Client",
+            "type": "Type",
+            "createdAt": "Created",
+            "actions": "Actions"
+        },
+        "types": {
+            "loo": "Letter of Order (LOO)",
+            "reagentRequest": "Reagent Request",
+            "coaPcrSelf": "COA PCR (Self)",
+            "coaPcrCoop": "COA PCR (Cooperation)",
+            "coaWgs": "COA WGS",
+            "other": "Other"
+        },
+        "actions": {
+            "preview": "Preview",
+            "download": "Download",
+            "open": "Open"
+        },
+        "empty": {
+            "title": "No reports found",
+            "body": "Try adjusting filters or check back later."
+        },
+        "meta": {
+            "showing": "Showing {{from}}–{{to}} of {{total}} reports"
+        },
+        "errors": {
+            "loadFailed": "Failed to load reports.",
+            "downloadFailed": "Failed to download PDF."
+        }
+    },
+    "reportPreviewModal": {
+        "title": "Report preview",
+        "subtitle": "Preview and download the PDF.",
+        "states": {
+            "loading": "Loading preview…",
+            "noPdf": "No PDF available.",
+            "errorTitle": "Preview unavailable",
+            "errorBody": "Try again or download the PDF."
+        },
+        "toolbar": {
+            "prevPage": "Previous page",
+            "nextPage": "Next page",
+            "zoomIn": "Zoom in",
+            "zoomOut": "Zoom out",
+            "fitWidth": "Fit width",
+            "fitPage": "Fit page",
+            "rotate": "Rotate",
+            "print": "Print",
+            "openNewTab": "Open in new tab"
+        },
+        "buttons": {
+            "close": "Close",
+            "download": "Download",
+            "retry": "Retry"
+        }
     },
     "samples": {
         "documents": {
@@ -1207,6 +1311,49 @@
                     "testsLocked": "Locked until Reagent Request is approved.",
                     "qualityCoverLocked": "Unlocks after testing is completed.",
                     "qualityCoverReadOnly": "Read-only for your role."
+                }
+            },
+            "archive": {
+                "title": "Samples Archive",
+                "titleShort": "Archive",
+                "subtitle": "Historical records that are read-only (useful for traceability and audits).",
+                "searchPlaceholder": "Search lab code, client, or COA number…",
+                "loading": "Loading archive…",
+                "emptyTitle": "No archived samples",
+                "emptyHint": "Nothing matches your search. Try a shorter keyword.",
+                "loadError": "Failed to load archive.",
+                "table": {
+                    "labCode": "Lab Code",
+                    "client": "Client",
+                    "workflow": "Workflow Group",
+                    "coa": "COA",
+                    "archived": "Archived",
+                    "actions": "Actions"
+                }
+            },
+            "archiveDetail": {
+                "detailTitle": "Sample Archive Detail",
+                "loading": "Loading detail…",
+                "detailLoadError": "Failed to load archive detail.",
+                "repoDocsError": "Failed to load repository docs: {{msg}}",
+                "archivedAtLabel": "archived {{at}}",
+                "previewTitle": "PDF Preview",
+                "previewDocTitle": "{{name}} — Preview",
+                "overviewHint": "Key metadata for traceability (client, workflow group, final status, and generated docs).",
+                "finalStatus": "Final Status",
+                "archivedAt": "Archived At",
+                "docsHint": "Documents linked to this sample (repository + fallback sources).",
+                "docsEmptyTitle": "No documents available",
+                "docsEmptyHint": "This sample does not have stored PDFs yet (or access is restricted).",
+                "timelineTitle": "Workflow Timeline",
+                "timelineHint": "A chronological trail of workflow events.",
+                "timelineEmpty": "No timeline events recorded.",
+                "timelineBy": "By: {{name}}",
+                "docs": {
+                    "looShort": "LOO",
+                    "coaShort": "COA",
+                    "loo": "Letter of Order (LOO)",
+                    "coa": "Certificate of Analysis (COA)"
                 }
             }
         }

@@ -1,6 +1,7 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\components\reports\ReportPreviewModal.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { X, FileText, AlertTriangle } from "lucide-react";
+import { X, Loader2 } from "lucide-react";
 import { http } from "../../services/api";
 
 type Props = {
@@ -11,6 +12,10 @@ type Props = {
     pdfUrl?: string | null;
     title?: string;
 };
+
+function cx(...arr: Array<string | false | null | undefined>) {
+    return arr.filter(Boolean).join(" ");
+}
 
 function normalizeToSameOriginPath(input: string): string {
     let s = String(input || "").trim();
@@ -39,7 +44,7 @@ export const ReportPreviewModal: React.FC<Props> = ({
 }) => {
     const { t } = useTranslation();
 
-    const dialogTitle = title ?? t("reports.pdfPreviewTitle");
+    const dialogTitle = title ?? t(["reports.pdfPreviewTitle", "reports.previewTitle"], "PDF Preview");
 
     const requestUrl = useMemo(() => {
         if (pdfUrl) return pdfUrl; // storage/static
@@ -52,6 +57,7 @@ export const ReportPreviewModal: React.FC<Props> = ({
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Escape to close (keep the “new” behavior, but fits old design)
     useEffect(() => {
         if (!open) return;
 
@@ -88,7 +94,7 @@ export const ReportPreviewModal: React.FC<Props> = ({
 
             const path = normalizeToSameOriginPath(requestUrl);
 
-            // CASE 1: storage/static → iframe langsung
+            // CASE 1: storage/static → iframe directly
             if (path.startsWith("/storage/")) {
                 setDirectUrl(path);
                 return;
@@ -120,7 +126,10 @@ export const ReportPreviewModal: React.FC<Props> = ({
                 setBlobUrl(url);
             } catch (e: any) {
                 if (cancelled) return;
-                const msg = e?.response?.data?.message ?? e?.message ?? t("reports.failedToLoadPdf");
+                const msg =
+                    e?.response?.data?.message ??
+                    e?.message ??
+                    t("reports.failedToLoadPdf", "Failed to load PDF.");
                 setError(String(msg));
             } finally {
                 if (!cancelled) setLoading(false);
@@ -141,44 +150,60 @@ export const ReportPreviewModal: React.FC<Props> = ({
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
-            <div className="bg-white w-[92vw] h-[92vh] rounded-2xl shadow-xl flex flex-col overflow-hidden border border-black/10">
-                <div className="flex items-center justify-between px-5 py-4 border-b bg-gray-50">
-                    <div className="flex items-center gap-2 min-w-0">
-                        <div className="inline-flex items-center justify-center h-9 w-9 rounded-xl bg-white border border-gray-200">
-                            <FileText size={18} />
-                        </div>
-                        <h2 className="text-sm font-bold text-gray-900 truncate">{dialogTitle}</h2>
-                    </div>
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            role="dialog"
+            aria-modal="true"
+            onClick={!loading ? onClose : undefined}
+        >
+            <div
+                className={cx(
+                    "bg-white w-[90vw] h-[90vh] rounded-xl shadow-lg flex flex-col overflow-hidden",
+                    "animate-in fade-in zoom-in-95 duration-150"
+                )}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-center justify-between px-4 py-3 border-b">
+                    <h2 className="text-sm font-semibold text-gray-800 truncate">{dialogTitle}</h2>
 
                     <button
                         onClick={onClose}
-                        className={cx("lims-icon-button", loading && "opacity-60 cursor-not-allowed")}
-                        aria-label={t("close")}
-                        title={t("close")}
+                        className={cx(
+                            "text-gray-500 hover:text-gray-700",
+                            loading && "opacity-50 cursor-not-allowed"
+                        )}
+                        aria-label={t(["close", "common.close"], "Close")}
+                        title={t(["close", "common.close"], "Close")}
                         type="button"
                         disabled={loading}
                     >
-                        <X size={16} />
+                        <X size={18} />
                     </button>
                 </div>
 
-                <div className="flex-1 bg-gray-100">
+                <div className="flex-1 bg-gray-100 relative">
                     {loading ? (
-                        <div className="w-full h-full flex items-center justify-center text-sm text-gray-600">
-                            {t("reports.loadingPdf")}
+                        <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center text-sm text-gray-600 gap-2">
+                            {/* “old design”, but with nicer spinner + color tweak */}
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                            <div>{t("reports.loadingPdf", "Loading PDF…")}</div>
                         </div>
                     ) : error ? (
-                        <div className="w-full h-full flex items-center justify-center p-6">
-                            <div className="max-w-2xl w-full">
-                                <div className="flex items-center justify-center gap-2 text-sm font-semibold text-red-700 mb-3">
-                                    <AlertTriangle size={18} />
-                                    {t("reports.failedPreview")}
+                        <div className="absolute inset-0 w-full h-full flex items-center justify-center p-6">
+                            <div className="max-w-xl w-full text-center">
+                                <div className="text-sm font-semibold text-red-700 mb-2">
+                                    {t("reports.failedPreview", "Failed to preview PDF")}
                                 </div>
-
-                                <pre className="text-xs bg-white border rounded-xl p-3 overflow-auto max-h-[50vh] text-left">
+                                <pre className="text-xs bg-white border rounded-lg p-3 overflow-auto max-h-[40vh] text-left whitespace-pre-wrap break-words">
                                     {error}
                                 </pre>
+                                <button
+                                    type="button"
+                                    className="mt-4 lims-icon-button"
+                                    onClick={onClose}
+                                >
+                                    {t(["close", "common.close"], "Close")}
+                                </button>
                             </div>
                         </div>
                     ) : blobUrl ? (
@@ -186,8 +211,8 @@ export const ReportPreviewModal: React.FC<Props> = ({
                     ) : directUrl ? (
                         <iframe title={dialogTitle} src={directUrl} className="w-full h-full border-0" />
                     ) : (
-                        <div className="w-full h-full flex items-center justify-center text-sm text-gray-600">
-                            {t("reports.noPdf")}
+                        <div className="absolute inset-0 w-full h-full flex items-center justify-center text-sm text-gray-600">
+                            {t("reports.noPdf", "No PDF to preview.")}
                         </div>
                     )}
                 </div>
@@ -195,7 +220,3 @@ export const ReportPreviewModal: React.FC<Props> = ({
         </div>
     );
 };
-
-function cx(...arr: Array<string | false | null | undefined>) {
-    return arr.filter(Boolean).join(" ");
-}
