@@ -69,7 +69,7 @@
         },
         "dashboardPage": {
             "title": "Dashboard",
-            "subtitle": "Welcome{{name}}. Create and track your sample requests here.",
+            "subtitle": "Welcome, {{name}}. Create and track your sample requests here.",
             "cta": {
                 "openRequests": "Open requests",
                 "createRequest": "New request"
@@ -276,6 +276,12 @@
         }
     },
     "clients": {
+        "forbidden": {
+            "title": "403 – Access denied",
+            "bodyClients": "Your role ({{role}}) is not allowed to access the Clients module.",
+            "bodyApprovals": "Your role ({{role}}) is not allowed to approve clients.",
+            "backToClients": "Back to clients"
+        },
         "list": {
             "title": "Client management",
             "subtitle": "View and maintain client records.",
@@ -986,6 +992,55 @@
                 }
             }
         }
+    },
+    "audit": {
+        "logs": {
+            "title": "Audit logs",
+            "subtitle": "A chronological record of actions in the system.",
+            "count": "{{count}} log(s)",
+            "forbiddenTitle": "403 – Access denied",
+            "forbiddenBody": "Your role ({{role}}) is not allowed to access audit logs.",
+            "backToDashboard": "Back to dashboard",
+            "filters": {
+                "title": "Filters",
+                "hint": "Tip: use at least one filter to narrow results.",
+                "sampleId": "sample_id",
+                "sampleTestId": "sample_test_id",
+                "staffId": "staff_id",
+                "action": "action",
+                "perPage": "per_page",
+                "sampleIdPlaceholder": "e.g. 35",
+                "sampleTestIdPlaceholder": "e.g. 22",
+                "staffIdPlaceholder": "e.g. 4",
+                "actionPlaceholder": "e.g. SAMPLE_TEST_OM_VERIFIED"
+            },
+            "table": {
+                "title": "Logs",
+                "pageOf": "Page {{page}} / {{totalPages}}",
+                "time": "Time",
+                "action": "Action",
+                "entity": "Entity",
+                "staff": "Staff",
+                "ip": "IP",
+                "old": "Old",
+                "new": "New",
+                "empty": "No audit logs found."
+            },
+            "pagination": {
+                "pageOf": "Page {{page}} / {{totalPages}}",
+                "total": "Total {{total}}"
+            },
+            "errors": {
+                "loadFailed": "Failed to load audit logs."
+            }
+        }
+    },
+    "notFound": {
+        "title": "404 – Page not found",
+        "message": "The page you are looking for does not exist."
+    },
+    "errors": {
+        "somethingWentWrong": "Something went wrong."
     },
     "docs": {
         "templates": {

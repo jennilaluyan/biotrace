@@ -69,7 +69,7 @@
         },
         "dashboardPage": {
             "title": "Beranda",
-            "subtitle": "Selamat datang{{name}}. Buat dan lacak permintaan sampel Anda di sini.",
+            "subtitle": "Selamat datang, {{name}}. Buat dan lacak permintaan sampel Anda di sini.",
             "cta": {
                 "openRequests": "Buka permintaan",
                 "createRequest": "Permintaan baru"
@@ -933,8 +933,8 @@
             "reasonForFail": "Alasan (untuk fail)",
             "reasonPlaceholder": "Jelaskan ketidaksesuaian…",
             "labelPlaceholder": "Ketik kode label…",
-            "pass": "Pass",
-            "fail": "Fail",
+            "pass": "Lulus",
+            "fail": "Gagal",
             "passed": "Lulus",
             "note": "Catatan",
             "codesMatchHint": "Kodenya cocok. Gunakan Pass.",
