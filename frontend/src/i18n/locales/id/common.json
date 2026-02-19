@@ -15,7 +15,9 @@
     "clearFilters": "Hapus filter",
     "prev": "Sebelumnya",
     "next": "Berikutnya",
+    "pageOf": "Halaman {{page}} dari {{totalPages}}",
     "view": "Lihat",
+    "status": "Status",
     "yes": "Ya",
     "no": "Tidak",
     "confirm": "Konfirmasi",
@@ -416,38 +418,17 @@
     "clients": {
         "forbidden": {
             "title": "403 – Akses ditolak",
-            "bodyClients": "Peran Anda ({{role}}) tidak diizinkan mengakses modul klien.",
+            "bodyClients": "Peran Anda ({{role}}) tidak diizinkan mengakses modul Klien.",
             "bodyApprovals": "Peran Anda ({{role}}) tidak diizinkan menyetujui klien.",
             "backToClients": "Kembali ke klien"
         },
         "list": {
             "title": "Manajemen klien",
-            "new": "Klien baru",
+            "subtitle": "Lihat dan kelola data klien.",
+            "newClient": "Klien baru",
             "loading": "Memuat daftar klien…",
-            "searchPlaceholder": "Cari nama, email, institusi…",
-            "filterType": "Tipe klien",
-            "typeAll": "Semua tipe",
-            "typeIndividual": "Individu",
-            "typeInstitution": "Institusi",
-            "empty": "Tidak ada klien yang sesuai dengan filter saat ini.",
-            "table": {
-                "name": "Nama",
-                "type": "Tipe",
-                "contact": "Kontak",
-                "institutionOrAddress": "Institusi / alamat",
-                "actions": "Aksi",
-                "pic": "PIC"
-            },
-            "pagination": {
-                "showing": "Menampilkan {{from}}–{{to}} dari {{total}} klien",
-                "previous": "Sebelumnya",
-                "next": "Berikutnya"
-            },
-            "actions": {
-                "view": "Lihat klien",
-                "edit": "Edit klien",
-                "delete": "Hapus klien"
-            },
+            "empty": "Klien tidak ditemukan.",
+            "emptyFiltered": "Tidak ada klien yang cocok dengan filter saat ini.",
             "errors": {
                 "loadFailed": "Gagal memuat daftar klien.",
                 "createFailed": "Gagal membuat klien.",
@@ -455,13 +436,54 @@
                 "deleteFailed": "Gagal menghapus klien."
             }
         },
+        "approvals": {
+            "title": "Persetujuan klien",
+            "subtitle": "Setujui atau tolak pendaftaran klien yang baru diajukan.",
+            "loading": "Memuat pendaftaran yang menunggu…",
+            "empty": "Tidak ada pendaftaran klien yang menunggu.",
+            "statusPending": "Status: Menunggu",
+            "approveAction": "Setujui",
+            "rejectAction": "Tolak"
+        },
+        "filters": {
+            "searchPlaceholder": "Cari nama, email, institusi…",
+            "typeAll": "Semua tipe",
+            "typeIndividual": "Individu",
+            "typeInstitution": "Institusi"
+        },
+        "table": {
+            "client": "Klien",
+            "name": "Nama",
+            "type": "Tipe",
+            "contact": "Kontak",
+            "details": "Detail",
+            "institutionOrAddress": "Institusi / Alamat",
+            "actions": "Aksi",
+            "pic": "PIC"
+        },
+        "badges": {
+            "individual": "Individu",
+            "institution": "Institusi"
+        },
+        "actions": {
+            "view": "Lihat",
+            "edit": "Edit",
+            "delete": "Hapus"
+        },
+        "pagination": {
+            "showing": "Menampilkan {{from}}–{{to}} dari {{total}} klien",
+            "previous": "Sebelumnya",
+            "next": "Berikutnya"
+        },
         "detail": {
-            "title": "Detail klien",
+            "breadcrumbClients": "Klien",
+            "breadcrumbCurrent": "Detail klien",
             "loading": "Memuat detail klien…",
             "invalidUrl": "URL klien tidak valid.",
-            "basicInfo": "Informasi dasar",
-            "personalProfile": "Profil personal",
-            "institutionInfo": "Informasi institusi",
+            "loadFailed": "Gagal memuat detail klien.",
+            "basicTitle": "Informasi dasar",
+            "personalTitle": "Profil personal",
+            "institutionTitle": "Informasi institusi",
             "labels": {
                 "clientType": "Tipe klien",
                 "clientId": "ID Klien",
@@ -485,46 +507,41 @@
                 "individualClient": "Klien individu"
             }
         },
+        "form": {
+            "createTitle": "Tambah Client",
+            "editTitle": "Edit Client",
+            "viewTitle": "Detail Client",
+            "viewHint": "Mode tampilan saja.",
+            "editHint": "Isi data dengan benar untuk keperluan dokumen dan komunikasi.",
+            "personalSection": "Profil personal",
+            "institutionSection": "Informasi institusi",
+            "addressKtpSection": "Alamat (KTP)",
+            "submitCreate": "Buat client",
+            "submitEdit": "Simpan perubahan",
+            "submitSaving": "Menyimpan...",
+            "submitCreating": "Membuat...",
+            "validation": {
+                "nameRequired": "Nama wajib diisi.",
+                "emailRequired": "Email wajib diisi.",
+                "nikInvalid": "NIK harus tepat 16 digit."
+            },
+            "placeholders": {
+                "nameIndividual": "Nama lengkap client",
+                "nameInstitution": "Nama institusi",
+                "phone": "Nomor telepon",
+                "email": "Email kontak",
+                "nik": "16 digit angka",
+                "street": "mis. Jl. Sam Ratulangi No. 10",
+                "rtRw": "mis. 001/002"
+            }
+        },
         "deleteModal": {
             "title": "Hapus klien?",
             "subtitle": "Ini akan menghapus klien dari daftar aktif.",
             "body": "Anda akan menghapus {{name}} dari daftar klien aktif.",
-            "hint": "Ini soft delete. Riwayat sampel, laporan, dan log audit yang terhubung akan tetap tersimpan untuk menjaga keterlacakan ISO/IEC 17025.",
-            "cancel": "Batal",
+            "softDeleteNote": "Ini soft delete. Riwayat sampel, laporan, dan log audit yang terhubung akan tetap tersimpan untuk menjaga keterlacakan ISO/IEC 17025.",
             "confirm": "Hapus klien",
-            "confirming": "Menghapus…"
-        },
-        "approvals": {
-            "title": "Persetujuan klien",
-            "subtitle": "Setujui atau tolak pendaftaran klien yang baru diajukan.",
-            "loading": "Memuat pendaftaran yang menunggu…",
-            "empty": "Tidak ada pendaftaran klien yang menunggu.",
-            "searchPlaceholder": "Cari nama, email, institusi…",
-            "typeAll": "Semua tipe",
-            "typeIndividual": "Individu",
-            "typeInstitution": "Institusi",
-            "statusPending": "Status: Menunggu",
-            "table": {
-                "client": "Klien",
-                "type": "Tipe",
-                "contact": "Kontak",
-                "details": "Detail",
-                "actions": "Aksi"
-            },
-            "actions": {
-                "approve": "Setujui",
-                "reject": "Tolak"
-            },
-            "confirm": {
-                "approve": "Setujui pendaftaran klien ini? Ini akan membuat akun klien.",
-                "reject": "Tolak pendaftaran ini?",
-                "rejectReasonPrompt": "Alasan penolakan (opsional):"
-            },
-            "errors": {
-                "loadFailed": "Gagal memuat pendaftaran klien yang menunggu.",
-                "approveFailed": "Gagal menyetujui pendaftaran.",
-                "rejectFailed": "Gagal menolak pendaftaran."
-            }
+            "deleting": "Menghapus…"
         }
     },
     "qualityCover": {
@@ -1152,6 +1169,76 @@
             }
         }
     },
+    "samplesPage": {
+        "title": "Sampel",
+        "newSample": "Sampel baru",
+        "filters": {
+            "searchLabel": "Cari sampel",
+            "searchPlaceholder": "Cari berdasarkan kode lab, klien, jenis sampel, status…",
+            "client": "Klien",
+            "allClients": "Semua klien",
+            "loadingClients": "Memuat klien…",
+            "allStatus": "Semua status",
+            "fromDate": "Tanggal dari",
+            "toDate": "Tanggal sampai"
+        },
+        "status": {
+            "registered": "Terdaftar",
+            "testing": "Pengujian",
+            "reported": "Dilaporkan"
+        },
+        "loading": "Memuat sampel…",
+        "empty": "Sampel tidak ditemukan.",
+        "showing": "Menampilkan {{from}}–{{to}} dari {{total}} sampel",
+        "group": {
+            "titleWithNumber": "LOO {{number}}",
+            "noLooTitle": "Tanpa LOO",
+            "metaWithCrosscheck": "{{count}} sampel • Crosscheck: {{crosscheck}}",
+            "meta": "{{count}} sampel",
+            "crosscheckPassed": "Lulus",
+            "crosscheckNotReady": "Belum siap"
+        },
+        "reagent": {
+            "create": "Buat permintaan reagen",
+            "continue": "Lanjutkan permintaan reagen",
+            "viewSubmitted": "Lihat permintaan terkirim",
+            "viewApproved": "Lihat permintaan disetujui",
+            "viewOther": "Lihat permintaan ({{status}})",
+            "blockedTitle": "Diblok sampai semua sampel lulus crosscheck."
+        },
+        "table": {
+            "labCode": "Kode lab",
+            "sampleType": "Jenis sampel",
+            "status": "Status",
+            "received": "Diterima"
+        },
+        "help": {
+            "title": "Cara kerja daftar ini",
+            "body": "Sampel dikelompokkan berdasarkan LOO. Permintaan reagen hanya tersedia jika semua sampel dalam LOO lulus crosscheck.",
+            "hint": "Tip: pakai pencarian dan filter untuk memperkecil hasil."
+        }
+    },
+    "sampleStatus": {
+        "inProgress": "Sedang diproses",
+        "testingDone": "Pengujian selesai",
+        "readyForReagent": "Siap untuk permintaan reagen",
+        "awaitingIntake": "Menunggu intake analis",
+        "inTransitToAnalyst": "Dikirim ke analis",
+        "received": "Diterima",
+        "awaitingPromotion": "Menunggu penetapan kode lab",
+        "awaitingCrosscheck": "Menunggu crosscheck",
+        "crosscheckPassed": "Crosscheck lulus",
+        "crosscheckFailed": "Crosscheck gagal",
+        "verified": "Intake terverifikasi",
+        "validated": "Intake tervalidasi",
+        "reported": "Dilaporkan"
+    },
+    "reagentStatus": {
+        "draft": "Permintaan reagen (draf)",
+        "submitted": "Permintaan reagen (terkirim)",
+        "approved": "Permintaan reagen (disetujui)",
+        "denied": "Permintaan reagen (ditolak)"
+    },
     "audit": {
         "logs": {
             "title": "Log audit",
@@ -1199,6 +1286,8 @@
         "message": "Halaman yang Anda cari tidak tersedia."
     },
     "errors": {
-        "somethingWentWrong": "Terjadi kesalahan."
+        "somethingWentWrong": "Terjadi kesalahan.",
+        "accessDeniedTitle": "403 – Akses ditolak",
+        "accessDeniedBodyWithRole": "Peran Anda ({{role}}) tidak diizinkan mengakses halaman ini."
     }
 }

@@ -15,7 +15,9 @@
     "clearFilters": "Clear filters",
     "prev": "Prev",
     "next": "Next",
+    "pageOf": "Page {{page}} of {{totalPages}}",
     "view": "View",
+    "status": "Status",
     "yes": "Yes",
     "no": "No",
     "confirm": "Confirm",
@@ -36,6 +38,7 @@
     "optional": "Optional",
     "tips": "Tips",
     "summary": "Summary",
+    "actions": "Actions",
     "nav": {
         "clients": "Clients",
         "samples": "Samples",
@@ -423,9 +426,15 @@
             "title": "Client management",
             "subtitle": "View and maintain client records.",
             "newClient": "New client",
-            "loading": "Loading clients…",
             "empty": "No clients found.",
-            "emptyFiltered": "No clients match the current filters."
+            "emptyFiltered": "No clients match the current filters.",
+            "errors": {
+                "loadFailed": "Failed to load clients list.",
+                "createFailed": "Failed to create client.",
+                "updateFailed": "Failed to update client.",
+                "deleteFailed": "Failed to remove client."
+            },
+            "loading": "Loading clients…"
         },
         "approvals": {
             "title": "Client approvals",
@@ -471,6 +480,7 @@
             "breadcrumbCurrent": "Client detail",
             "loading": "Loading client detail…",
             "invalidUrl": "Invalid client URL.",
+            "loadFailed": "Failed to load client details.",
             "basicTitle": "Basic information",
             "personalTitle": "Personal profile",
             "institutionTitle": "Institution information",
@@ -491,6 +501,38 @@
                 "institutionAddress": "Institution address",
                 "contactPerson": "Contact person",
                 "contactPersonContact": "Contact person phone / email"
+            },
+            "type": {
+                "institutionalClient": "Institutional client",
+                "individualClient": "Individual client"
+            }
+        },
+        "form": {
+            "createTitle": "Create Client",
+            "editTitle": "Edit Client",
+            "viewTitle": "Client Details",
+            "viewHint": "View only mode.",
+            "editHint": "Fill in the data correctly for documentation and communication.",
+            "personalSection": "Personal profile",
+            "institutionSection": "Institution information",
+            "addressKtpSection": "Address (KTP)",
+            "submitCreate": "Create client",
+            "submitEdit": "Save changes",
+            "submitSaving": "Saving...",
+            "submitCreating": "Creating...",
+            "validation": {
+                "nameRequired": "Name is required.",
+                "emailRequired": "Email is required.",
+                "nikInvalid": "NIK must be exactly 16 digits."
+            },
+            "placeholders": {
+                "nameIndividual": "Client full name",
+                "nameInstitution": "Institution name",
+                "phone": "Phone number",
+                "email": "Contact email",
+                "nik": "16 digit number",
+                "street": "e.g. Jl. Sam Ratulangi No. 10",
+                "rtRw": "e.g. 001/002"
             }
         },
         "deleteModal": {
@@ -1130,6 +1172,76 @@
             }
         }
     },
+    "samplesPage": {
+        "title": "Samples",
+        "newSample": "New sample",
+        "filters": {
+            "searchLabel": "Search samples",
+            "searchPlaceholder": "Search by lab code, client, sample type, status…",
+            "client": "Client",
+            "allClients": "All clients",
+            "loadingClients": "Loading clients…",
+            "allStatus": "All status",
+            "fromDate": "From date",
+            "toDate": "To date"
+        },
+        "status": {
+            "registered": "Registered",
+            "testing": "Testing",
+            "reported": "Reported"
+        },
+        "loading": "Loading samples…",
+        "empty": "No samples found.",
+        "showing": "Showing {{from}}–{{to}} of {{total}} samples",
+        "group": {
+            "titleWithNumber": "LOO {{number}}",
+            "noLooTitle": "No LOO",
+            "metaWithCrosscheck": "{{count}} sample(s) • Crosscheck: {{crosscheck}}",
+            "meta": "{{count}} sample(s)",
+            "crosscheckPassed": "Passed",
+            "crosscheckNotReady": "Not ready"
+        },
+        "reagent": {
+            "create": "Create reagent request",
+            "continue": "Continue reagent request",
+            "viewSubmitted": "View submitted request",
+            "viewApproved": "View approved request",
+            "viewOther": "View request ({{status}})",
+            "blockedTitle": "Blocked until all samples pass crosscheck."
+        },
+        "table": {
+            "labCode": "Lab code",
+            "sampleType": "Sample type",
+            "status": "Status",
+            "received": "Received"
+        },
+        "help": {
+            "title": "How this list works",
+            "body": "Samples are grouped by LOO. Reagent request is available only when all samples in an LOO pass crosscheck.",
+            "hint": "Tip: use search and filters to narrow results."
+        }
+    },
+    "sampleStatus": {
+        "inProgress": "In progress",
+        "testingDone": "Testing done",
+        "readyForReagent": "Ready for reagent request",
+        "awaitingIntake": "Awaiting analyst intake",
+        "inTransitToAnalyst": "In transit to analyst",
+        "received": "Received",
+        "awaitingPromotion": "Awaiting promotion",
+        "awaitingCrosscheck": "Awaiting crosscheck",
+        "crosscheckPassed": "Crosscheck passed",
+        "crosscheckFailed": "Crosscheck failed",
+        "verified": "Intake verified",
+        "validated": "Intake validated",
+        "reported": "Reported"
+    },
+    "reagentStatus": {
+        "draft": "Reagent request (draft)",
+        "submitted": "Reagent request (submitted)",
+        "approved": "Reagent request (approved)",
+        "denied": "Reagent request (denied)"
+    },
     "audit": {
         "logs": {
             "title": "Audit logs",
@@ -1374,6 +1486,11 @@
                 "title": "404 – Page not found",
                 "message": "The page you are looking for does not exist."
             }
+        },
+        "errors": {
+            "somethingWentWrong": "Something went wrong.",
+            "accessDeniedTitle": "403 – Access denied",
+            "accessDeniedBodyWithRole": "Your role ({{role}}) is not allowed to access this page."
         }
     }
 }

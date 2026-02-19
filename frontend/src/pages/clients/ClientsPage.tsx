@@ -1,6 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { Plus, Search, RefreshCw, Eye, Pencil, Trash2, ChevronLeft, ChevronRight, Users } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import {
+    Plus,
+    Search,
+    RefreshCw,
+    Eye,
+    Pencil,
+    Trash2,
+    ChevronLeft,
+    ChevronRight,
+    Users,
+    Filter,
+    Building2,
+    User,
+    ShieldAlert
+} from "lucide-react";
 
 import { clientService, Client, CreateClientPayload, UpdateClientPayload } from "../../services/clients";
 import { ClientFormModal } from "../../components/clients/ClientFormModal";
@@ -12,6 +27,10 @@ import { toClientSlug } from "../../utils/slug";
 type TypeFilter = "all" | "individual" | "institution";
 
 const PAGE_SIZE = 10;
+
+function cx(...arr: Array<string | false | null | undefined>) {
+    return arr.filter(Boolean).join(" ");
+}
 
 function getPagination(current: number, total: number) {
     // compact pagination: 1 … (c-1) c (c+1) … total
@@ -35,6 +54,7 @@ function getPagination(current: number, total: number) {
 }
 
 export const ClientsPage = () => {
+    const { t } = useTranslation();
     const { user } = useAuth();
     const navigate = useNavigate();
 
@@ -65,7 +85,7 @@ export const ClientsPage = () => {
             const data = await clientService.getAll();
             setClients(data);
         } catch (err: any) {
-            setError(err?.data?.message ?? err?.data?.error ?? "Failed to load clients list.");
+            setError(err?.data?.message ?? err?.data?.error ?? t("clients.list.errors.loadFailed", "Failed to load clients list."));
         } finally {
             setLoading(false);
         }
@@ -81,19 +101,27 @@ export const ClientsPage = () => {
         setCurrentPage(1);
     }, [searchTerm, typeFilter, clients.length]);
 
-    const handleOpenCreate = () => {
+    const handleOpenCreate = (e?: React.MouseEvent) => {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
         if (!canCrudClients) return;
         setSelectedClient(null);
         setIsCreateOpen(true);
     };
 
-    const handleOpenEdit = (client: Client) => {
+    const handleOpenEdit = (e: React.MouseEvent, client: Client) => {
+        e.preventDefault();
+        e.stopPropagation(); // Mencegah bubbling event ke row/parent
         if (!canCrudClients) return;
         setSelectedClient(client);
         setIsEditOpen(true);
     };
 
-    const handleAskDelete = (client: Client) => {
+    const handleAskDelete = (e: React.MouseEvent, client: Client) => {
+        e.preventDefault();
+        e.stopPropagation(); // Mencegah bubbling
         if (!canCrudClients) return;
         setSelectedClient(client);
         setIsDeleteOpen(true);
@@ -107,14 +135,13 @@ export const ClientsPage = () => {
 
     const handleCreateSubmit = async (payload: CreateClientPayload | Partial<CreateClientPayload>) => {
         const values = payload as CreateClientPayload;
-
         try {
             setError(null);
             const created = await clientService.create(values);
             setClients((prev) => [created, ...prev]);
             setCurrentPage(1);
         } catch (err: any) {
-            setError(err?.data?.message ?? err?.data?.error ?? "Failed to create client.");
+            setError(err?.data?.message ?? err?.data?.error ?? t("clients.list.errors.createFailed", "Failed to create client."));
         } finally {
             setIsCreateOpen(false);
         }
@@ -127,7 +154,7 @@ export const ClientsPage = () => {
             const updated = await clientService.update(selectedClient.client_id, values);
             setClients((prev) => prev.map((c) => (c.client_id === updated.client_id ? updated : c)));
         } catch (err: any) {
-            setError(err?.data?.message ?? err?.data?.error ?? "Failed to update client.");
+            setError(err?.data?.message ?? err?.data?.error ?? t("clients.list.errors.updateFailed", "Failed to update client."));
         } finally {
             setIsEditOpen(false);
             setSelectedClient(null);
@@ -143,7 +170,7 @@ export const ClientsPage = () => {
             setClients((prev) => prev.filter((c) => c.client_id !== selectedClient.client_id));
             handleCloseDelete();
         } catch (err: any) {
-            setError(err?.data?.message ?? err?.data?.error ?? "Failed to remove client.");
+            setError(err?.data?.message ?? err?.data?.error ?? t("clients.list.errors.deleteFailed", "Failed to remove client."));
             setDeleteLoading(false);
         }
     };
@@ -188,23 +215,25 @@ export const ClientsPage = () => {
     if (!canViewClients) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center text-center px-4">
-                <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
-                <p className="text-sm text-gray-600">
-                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to access the clients
-                    module.
+                <div className="bg-red-50 p-4 rounded-full mb-3">
+                    <ShieldAlert className="h-8 w-8 text-red-600" />
+                </div>
+                <h1 className="text-xl font-bold text-gray-900 mb-1">{t("clients.forbidden.title", "Access denied")}</h1>
+                <p className="text-sm text-gray-600 max-w-md">
+                    {t("clients.forbidden.bodyClients", "Your role ({{role}}) is not allowed to access the Clients module.", { role: roleLabel })}
                 </p>
             </div>
         );
     }
 
     return (
-        <div className="min-h-[60vh]">
+        <div className="min-h-[60vh] pb-20">
             {/* Header */}
-            <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between px-0 py-2">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between px-0 py-2 mb-2">
                 <div>
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">Clients</h1>
+                    <h1 className="text-xl md:text-2xl font-bold text-gray-900">{t("clients.list.title", "Client management")}</h1>
                     <p className="text-xs text-gray-500 mt-1">
-                        View and manage the client registry. Client records are used across samples, reports, and audit logs.
+                        {t("clients.list.subtitle", "View and maintain client records.")}
                     </p>
                 </div>
 
@@ -212,109 +241,115 @@ export const ClientsPage = () => {
                     <button
                         type="button"
                         onClick={load}
-                        className="btn-outline inline-flex items-center gap-2"
+                        className={cx(
+                            "lims-icon-button bg-white border border-gray-200 shadow-sm hover:bg-gray-50",
+                            loading && "opacity-70 cursor-not-allowed"
+                        )}
                         disabled={loading}
+                        title={t("refresh", "Refresh")}
                     >
-                        <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-                        Refresh
+                        <RefreshCw className={cx("h-4 w-4", loading && "animate-spin")} />
                     </button>
 
                     {canCrudClients && (
-                        <button type="button" onClick={handleOpenCreate} className="lims-btn-primary inline-flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={handleOpenCreate}
+                            className="lims-btn-primary inline-flex items-center gap-2 shadow-sm"
+                        >
                             <Plus className="h-4 w-4" />
-                            New client
+                            {t("clients.list.newClient", "New client")}
                         </button>
                     )}
                 </div>
             </div>
 
-            <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            {/* Error Banner */}
+            {error && (
+                <div className="mb-4 text-sm text-rose-900 bg-rose-50 border border-rose-200 px-4 py-3 rounded-2xl flex items-start gap-2">
+                    <ShieldAlert size={18} className="shrink-0 mt-0.5" />
+                    {error}
+                </div>
+            )}
+
+            {/* Content Card */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 {/* Filters */}
-                <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
-                    <div className="flex-1">
-                        <label className="sr-only" htmlFor="client-search">
-                            Search clients
-                        </label>
-                        <div className="relative">
-                            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
-                                <Search className="h-4 w-4" />
-                            </span>
-                            <input
-                                id="client-search"
-                                type="text"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="Search name, email, phone, institution…"
-                                className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                            />
-                        </div>
+                <div className="px-4 py-3 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
+                    <div className="flex-1 relative">
+                        <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-400">
+                            <Search className="h-4 w-4" />
+                        </span>
+                        <input
+                            type="text"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            placeholder={t("clients.filters.searchPlaceholder", "Search by name, email, institution...")}
+                            className="w-full rounded-xl border border-gray-200 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent bg-gray-50/50"
+                        />
                     </div>
 
-                    <div className="w-full md:w-56">
-                        <label className="sr-only" htmlFor="client-type-filter">
-                            Client type
-                        </label>
+                    <div className="w-full md:w-auto relative min-w-[180px]">
+                        <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-400">
+                            <Filter className="h-4 w-4" />
+                        </span>
                         <select
-                            id="client-type-filter"
                             value={typeFilter}
                             onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
-                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                            className="w-full rounded-xl border border-gray-200 pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent bg-gray-50/50 appearance-none cursor-pointer"
                         >
-                            <option value="all">All types</option>
-                            <option value="individual">Individual</option>
-                            <option value="institution">Institution</option>
+                            <option value="all">{t("clients.filters.typeAll", "All types")}</option>
+                            <option value="individual">{t("clients.filters.typeIndividual", "Individual")}</option>
+                            <option value="institution">{t("clients.filters.typeInstitution", "Institution")}</option>
                         </select>
+                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-400">
+                            <ChevronLeft className="h-3 w-3 -rotate-90" />
+                        </span>
                     </div>
                 </div>
 
-                {/* Body */}
-                <div className="px-4 md:px-6 py-4">
-                    {error && (
-                        <div className="text-sm text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-xl mb-4">
-                            {error}
+                {/* Table Body */}
+                <div className="relative">
+                    {loading && clients.length === 0 ? (
+                        <div className="py-20 flex flex-col items-center justify-center text-gray-500">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary-soft mb-2" />
+                            <p className="text-sm">{t("loading", "Loading...")}</p>
                         </div>
-                    )}
-
-                    {loading ? (
-                        <div className="text-sm text-gray-600">Loading clients…</div>
                     ) : filteredClients.length === 0 ? (
-                        <div className="py-10 text-center">
-                            <div className="mx-auto h-10 w-10 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-600">
-                                <Users className="h-5 w-5" />
+                        <div className="py-16 text-center px-4">
+                            <div className="mx-auto h-12 w-12 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-400 mb-3">
+                                <Users className="h-6 w-6" />
                             </div>
-                            <div className="mt-3 text-sm font-semibold text-gray-900">No clients found</div>
-                            <div className="mt-1 text-xs text-gray-500">
-                                Try adjusting the search or filters{canCrudClients ? ", or create a new client." : "."}
-                            </div>
-
+                            <h3 className="text-sm font-semibold text-gray-900">{t("clients.list.empty", "No clients found.")}</h3>
+                            <p className="mt-1 text-xs text-gray-500">
+                                {t("clients.list.emptyFiltered", "No clients match the current filters.")}
+                            </p>
                             {canCrudClients && (
                                 <button
                                     type="button"
                                     onClick={handleOpenCreate}
-                                    className="mt-4 lims-btn-primary inline-flex items-center gap-2"
+                                    className="mt-4 btn-outline inline-flex items-center gap-2"
                                 >
-                                    <Plus className="h-4 w-4" />
-                                    Create client
+                                    <Plus className="h-3.5 w-3.5" />
+                                    {t("clients.list.newClient", "New client")}
                                 </button>
                             )}
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="min-w-full text-sm">
-                                <thead className="bg-gray-50">
-                                    <tr className="text-xs text-gray-500 uppercase tracking-wide">
-                                        <th className="px-4 py-3 text-left">Name</th>
-                                        <th className="px-4 py-3 text-left">Type</th>
-                                        <th className="px-4 py-3 text-left">Contact</th>
-                                        <th className="px-4 py-3 text-left">Institution / Address</th>
-                                        <th className="px-4 py-3 text-right">Actions</th>
+                            <table className="min-w-full text-sm text-left">
+                                <thead className="bg-gray-50 border-b border-gray-100 text-xs uppercase text-gray-500 font-semibold tracking-wide">
+                                    <tr>
+                                        <th className="px-4 py-3">{t("clients.table.name", "Name")}</th>
+                                        <th className="px-4 py-3">{t("clients.table.type", "Type")}</th>
+                                        <th className="px-4 py-3">{t("clients.table.contact", "Contact")}</th>
+                                        <th className="px-4 py-3">{t("clients.table.institutionOrAddress", "Institution / Address")}</th>
+                                        <th className="px-4 py-3 text-right">{t("clients.table.actions", "Actions")}</th>
                                     </tr>
                                 </thead>
-
-                                <tbody>
+                                <tbody className="divide-y divide-gray-100">
                                     {paginatedClients.map((client) => {
                                         const isInstitution = client.type === "institution";
-
                                         const primaryContact =
                                             client.email ||
                                             client.phone ||
@@ -327,52 +362,77 @@ export const ClientsPage = () => {
                                             : client.address_domicile || client.address_ktp || "-";
 
                                         return (
-                                            <tr key={client.client_id} className="border-t border-gray-100 hover:bg-gray-50/60">
+                                            <tr key={client.client_id} className="hover:bg-gray-50/80 transition-colors group">
                                                 <td className="px-4 py-3">
-                                                    <div className="font-medium text-gray-900">{client.name}</div>
-                                                    {isInstitution && client.contact_person_name && (
-                                                        <div className="text-[11px] text-gray-500">PIC: {client.contact_person_name}</div>
-                                                    )}
+                                                    <div className="flex items-center gap-3">
+                                                        <div className={cx(
+                                                            "h-8 w-8 rounded-full flex items-center justify-center shrink-0",
+                                                            isInstitution ? "bg-indigo-50 text-indigo-600" : "bg-emerald-50 text-emerald-600"
+                                                        )}>
+                                                            {isInstitution ? <Building2 size={14} /> : <User size={14} />}
+                                                        </div>
+                                                        <div>
+                                                            <div className="font-medium text-gray-900">{client.name}</div>
+                                                            {isInstitution && client.contact_person_name && (
+                                                                <div className="text-[10px] text-gray-500">
+                                                                    {t("clients.table.pic", "PIC")}: {client.contact_person_name}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
                                                 </td>
 
                                                 <td className="px-4 py-3">
-                                                    <span className={isInstitution ? "lims-badge-institution" : "lims-badge-individual"}>
-                                                        {isInstitution ? "Institution" : "Individual"}
+                                                    <span className={cx(
+                                                        "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border",
+                                                        isInstitution
+                                                            ? "bg-indigo-50 text-indigo-700 border-indigo-100"
+                                                            : "bg-emerald-50 text-emerald-700 border-emerald-100"
+                                                    )}>
+                                                        {isInstitution ? t("clients.badges.institution", "Institution") : t("clients.badges.individual", "Individual")}
                                                     </span>
                                                 </td>
 
-                                                <td className="px-4 py-3 text-gray-700">{primaryContact}</td>
-                                                <td className="px-4 py-3 text-gray-700">{institutionOrAddress}</td>
+                                                <td className="px-4 py-3 text-gray-600 font-mono text-xs">
+                                                    {primaryContact}
+                                                </td>
+
+                                                <td className="px-4 py-3 text-gray-600 max-w-[200px] truncate" title={institutionOrAddress}>
+                                                    {institutionOrAddress}
+                                                </td>
 
                                                 <td className="px-4 py-3 text-right">
-                                                    <div className="inline-flex gap-1.5">
+                                                    <div className="inline-flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                         <button
                                                             type="button"
-                                                            className="lims-icon-button text-gray-600"
-                                                            aria-label="View client"
-                                                            onClick={() => navigate(`/clients/${toClientSlug(client)}`)}
+                                                            className="lims-icon-button text-gray-500 hover:text-primary hover:bg-primary/5"
+                                                            title={t("clients.actions.view", "View")}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                navigate(`/clients/${toClientSlug(client)}`);
+                                                            }}
                                                         >
-                                                            <Eye className="h-4 w-4" />
+                                                            <Eye size={14} />
                                                         </button>
 
                                                         {canCrudClients && (
                                                             <>
                                                                 <button
                                                                     type="button"
-                                                                    className="lims-icon-button text-gray-600"
-                                                                    aria-label="Edit client"
-                                                                    onClick={() => handleOpenEdit(client)}
+                                                                    className="lims-icon-button text-gray-500 hover:text-amber-600 hover:bg-amber-50"
+                                                                    title={t("clients.actions.edit", "Edit")}
+                                                                    onClick={(e) => handleOpenEdit(e, client)}
                                                                 >
-                                                                    <Pencil className="h-4 w-4" />
+                                                                    <Pencil size={14} />
                                                                 </button>
 
                                                                 <button
                                                                     type="button"
-                                                                    className="lims-icon-button lims-icon-button--danger"
-                                                                    aria-label="Remove client"
-                                                                    onClick={() => handleAskDelete(client)}
+                                                                    className="lims-icon-button text-gray-500 hover:text-rose-600 hover:bg-rose-50"
+                                                                    title={t("clients.actions.delete", "Delete")}
+                                                                    onClick={(e) => handleAskDelete(e, client)}
                                                                 >
-                                                                    <Trash2 className="h-4 w-4" />
+                                                                    <Trash2 size={14} />
                                                                 </button>
                                                             </>
                                                         )}
@@ -383,66 +443,69 @@ export const ClientsPage = () => {
                                     })}
                                 </tbody>
                             </table>
-
-                            {/* Pagination */}
-                            <div className="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-xs text-gray-600">
-                                <div>
-                                    Showing{" "}
-                                    <span className="font-semibold">
-                                        {totalClients === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1}
-                                    </span>{" "}
-                                    –{" "}
-                                    <span className="font-semibold">{Math.min(currentPage * PAGE_SIZE, totalClients)}</span>{" "}
-                                    of <span className="font-semibold">{totalClients}</span> clients
-                                </div>
-
-                                <div className="flex items-center justify-end gap-1">
-                                    <button
-                                        type="button"
-                                        onClick={() => handlePageChange(currentPage - 1)}
-                                        disabled={currentPage === 1}
-                                        className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 inline-flex items-center gap-2"
-                                    >
-                                        <ChevronLeft className="h-4 w-4" />
-                                        Previous
-                                    </button>
-
-                                    {getPagination(currentPage, totalPages).map((it, idx) =>
-                                        it === "ellipsis" ? (
-                                            <span key={`e-${idx}`} className="px-2 text-gray-400">
-                                                …
-                                            </span>
-                                        ) : (
-                                            <button
-                                                key={it}
-                                                type="button"
-                                                onClick={() => handlePageChange(it)}
-                                                className={`px-3 py-1 rounded-full text-xs border ${it === currentPage
-                                                    ? "bg-primary text-white border-primary"
-                                                    : "bg-white text-gray-700 hover:bg-gray-50"
-                                                    }`}
-                                            >
-                                                {it}
-                                            </button>
-                                        )
-                                    )}
-
-                                    <button
-                                        type="button"
-                                        onClick={() => handlePageChange(currentPage + 1)}
-                                        disabled={currentPage === totalPages}
-                                        className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 inline-flex items-center gap-2"
-                                    >
-                                        Next
-                                        <ChevronRight className="h-4 w-4" />
-                                    </button>
-                                </div>
-                            </div>
                         </div>
                     )}
                 </div>
+
+                {/* Pagination */}
+                {totalClients > 0 && (
+                    <div className="border-t border-gray-100 px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-gray-50/50">
+                        <div className="text-xs text-gray-500">
+                            {t("clients.pagination.showing", {
+                                from: totalClients === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1,
+                                to: Math.min(currentPage * PAGE_SIZE, totalClients),
+                                total: totalClients
+                            })}
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                            <button
+                                type="button"
+                                onClick={() => handlePageChange(currentPage - 1)}
+                                disabled={currentPage === 1}
+                                className="p-1.5 rounded-lg border border-gray-200 bg-white text-gray-500 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                                title={t("clients.pagination.previous", "Previous")}
+                            >
+                                <ChevronLeft size={16} />
+                            </button>
+
+                            <div className="flex items-center gap-1 px-1">
+                                {getPagination(currentPage, totalPages).map((it, idx) => (
+                                    it === "ellipsis" ? (
+                                        <span key={`e-${idx}`} className="px-2 text-xs text-gray-400">…</span>
+                                    ) : (
+                                        <button
+                                            key={it}
+                                            type="button"
+                                            onClick={() => handlePageChange(it)}
+                                            className={cx(
+                                                "min-w-[28px] h-7 rounded-lg text-xs font-medium border transition-colors",
+                                                it === currentPage
+                                                    ? "bg-primary text-white border-primary"
+                                                    : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                                            )}
+                                        >
+                                            {it}
+                                        </button>
+                                    )
+                                ))}
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => handlePageChange(currentPage + 1)}
+                                disabled={currentPage === totalPages}
+                                className="p-1.5 rounded-lg border border-gray-200 bg-white text-gray-500 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                                title={t("clients.pagination.next", "Next")}
+                            >
+                                <ChevronRight size={16} />
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
 
+            {/* Modals */}
             <ClientFormModal
                 open={isCreateOpen}
                 mode="create"
@@ -472,3 +535,23 @@ export const ClientsPage = () => {
         </div>
     );
 };
+
+// Simple loader helper for local usage
+function Loader2({ className, size }: { className?: string; size?: number }) {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width={size || 24}
+            height={size || 24}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={className}
+        >
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+    );
+}

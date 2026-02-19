@@ -1,4 +1,5 @@
 import { AlertTriangle, RefreshCw, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 interface ClientDeleteModalProps {
     open: boolean;
@@ -15,69 +16,63 @@ export const ClientDeleteModal = ({
     onCancel,
     onConfirm,
 }: ClientDeleteModalProps) => {
+    const { t } = useTranslation();
+
     if (!open) return null;
 
     return (
         <div className="lims-modal-backdrop">
-            <div className="lims-modal-panel">
+            <div className="lims-modal-panel max-w-md">
                 {/* Header */}
-                <div className="lims-modal-header">
-                    <div className="h-9 w-9 flex items-center justify-center rounded-full bg-red-50 text-red-600">
+                <div className="lims-modal-header bg-red-50/50">
+                    <div className="h-10 w-10 flex items-center justify-center rounded-full bg-red-100 text-red-600 shrink-0">
                         <AlertTriangle className="h-5 w-5" />
                     </div>
 
-                    <div className="min-w-0">
-                        <h2 className="text-base font-semibold text-gray-900">Remove client?</h2>
+                    <div className="min-w-0 flex-1">
+                        <h2 className="text-base font-bold text-gray-900">{t("clients.deleteModal.title", "Delete client?")}</h2>
                         <p className="text-xs text-gray-500">
-                            This hides the client from the active list. Linked records stay intact.
+                            {t("clients.deleteModal.subtitle", "This removes the client from the active list.")}
                         </p>
                     </div>
 
                     <button
                         type="button"
-                        className="ml-auto lims-icon-button text-gray-600"
+                        className="lims-icon-button text-gray-500 hover:bg-gray-100"
                         onClick={onCancel}
-                        aria-label="Close modal"
+                        aria-label={t("close", "Close")}
                         disabled={loading}
                     >
-                        <X className="h-4 w-4" />
+                        <X className="h-5 w-5" />
                     </button>
                 </div>
 
                 {/* Body */}
                 <div className="lims-modal-body">
-                    <p className="text-sm text-gray-800">
-                        You are about to remove <span className="font-semibold text-gray-900">{clientName}</span> from the
-                        active client registry.
+                    <p className="text-sm text-gray-700 leading-relaxed">
+                        {t("clients.deleteModal.body", "You are about to remove {{name}} from the active client registry.", { name: clientName })}
                     </p>
 
-                    <div className="mt-3 text-xs text-gray-600 leading-relaxed bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
-                        <span className="font-semibold text-gray-900">Note:</span> this is a <span className="font-semibold">soft delete</span>.
-                        Historical samples, reports, and audit logs linked to this client will remain stored to preserve
-                        ISO/IEC 17025 traceability.
+                    <div className="mt-4 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 leading-relaxed">
+                        <span className="font-bold block mb-1">Notice:</span>
+                        {t("clients.deleteModal.softDeleteNote", "This is a soft delete. Historical records linked to this client will remain stored.")}
                     </div>
                 </div>
 
                 {/* Footer */}
-                <div className="lims-modal-footer">
-                    <button type="button" className="btn-outline" onClick={onCancel} disabled={loading}>
-                        Cancel
+                <div className="lims-modal-footer bg-gray-50">
+                    <button type="button" className="btn-outline border-gray-300 text-gray-700" onClick={onCancel} disabled={loading}>
+                        {t("cancel", "Cancel")}
                     </button>
 
                     <button
                         type="button"
-                        className="lims-btn-danger inline-flex items-center gap-2"
+                        className="lims-btn-danger inline-flex items-center gap-2 shadow-sm"
                         onClick={onConfirm}
                         disabled={loading}
                     >
-                        {loading ? (
-                            <>
-                                <RefreshCw className="h-4 w-4 animate-spin" />
-                                Removing…
-                            </>
-                        ) : (
-                            "Remove client"
-                        )}
+                        {loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
+                        {loading ? t("clients.deleteModal.deleting", "Deleting…") : t("clients.deleteModal.confirm", "Delete client")}
                     </button>
                 </div>
             </div>
