@@ -4,18 +4,18 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ReagentRequestDraftSaveRequest;
 use App\Models\Staff;
+use App\Services\ReagentRequestDocumentService;
 use App\Support\ApiResponse;
 use App\Support\AuditLogger;
-use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
-use SimpleSoftwareIO\QrCode\Facades\QrCode;
 
 class ReagentRequestController extends Controller
 {
+    public function __construct(private readonly ReagentRequestDocumentService $docs) {}
+
     /**
      * POST /v1/reagent-requests/draft
      * Body:
@@ -423,7 +423,12 @@ class ReagentRequestController extends Controller
 
     /**
      * POST /v1/reagent-requests/{id}/approve
-     * OM/LH approves a submitted reagent request and generates PDF.
+     * OM/LH approves a submitted reagent request and generates official PDF from DOCX template.
+     *
+     * NOTE:
+     * - Atomic approach: if PDF generation fails, approval is rolled back (status stays submitted).
+     * - Output PDF stored in DB files + registered in generated_documents.
+     * - For backward-compat, reagent_requests.file_url is set to /api/v1/files/{file_id}.
      */
     public function approve(Request $request, int $id): JsonResponse
     {
@@ -454,6 +459,7 @@ class ReagentRequestController extends Controller
 
             $approvedAt = now();
 
+            // 1) Approve (but still inside TX; if doc generation fails, this will rollback)
             DB::table('reagent_requests')
                 ->where('reagent_request_id', $id)
                 ->update([
@@ -468,83 +474,12 @@ class ReagentRequestController extends Controller
                     'updated_at' => now(),
                 ]);
 
-            // Build payload for PDF (fresh after update)
-            $payload = $this->payload((int) $id);
+            // 2) Generate official PDF from DOCX template (DB template -> merged docx -> LO pdf -> files + generated_documents)
+            $gd = $this->docs->generateApprovedPdf($id, (int) $actorStaffId, false, $approvedAt);
 
-            $payload['requested_by'] = !empty($payload['request']?->created_by_staff_id)
-                ? DB::table('staffs')->where('staff_id', (int) $payload['request']->created_by_staff_id)->first()
-                : null;
+            $downloadUrl = url("/api/v1/files/{$gd->file_pdf_id}");
 
-            $payload['approved_by'] = DB::table('staffs')->where('staff_id', (int) $actorStaffId)->first();
-
-            $payload['loo'] = !empty($payload['request']?->lo_id)
-                ? DB::table('letters_of_order')->where('lo_id', (int) $payload['request']->lo_id)->first()
-                : null;
-
-            // Render PDF -> store -> write file_url
-            $disk = (string) config('reagent_request.storage_disk', 'local');
-            $base = trim((string) config('reagent_request.storage_path', 'documents/reagent_requests'), '/');
-            $year = now()->format('Y');
-
-            $looNumber = (string) ($payload['loo']?->number ?? ('LOO-' . (int) $payload['request']->lo_id));
-            $safeNo = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $looNumber) ?: ('LOO_' . (int) $payload['request']->lo_id);
-            $safeNo = str_replace('/', '_', $safeNo);
-
-            $cycleNo = (int) ($payload['request']->cycle_no ?? 1);
-            $fileName = "reagent_request_{$safeNo}_C{$cycleNo}_{$id}.pdf";
-            $path = "{$base}/{$year}/{$fileName}";
-
-            // Embed OM QR signature (prefer verify URL from loa_signatures hash)
-            $signatures = DB::table('loa_signatures')
-                ->where('lo_id', (int) $payload['request']->lo_id)
-                ->get();
-
-            $pickSig = function (array $roleCodes) use ($signatures) {
-                foreach ($roleCodes as $code) {
-                    $row = $signatures->firstWhere('role_code', $code);
-                    if ($row) return $row;
-                }
-                return null;
-            };
-
-            $omSig = $pickSig(['OM', 'OPERATIONAL_MANAGER', 'OP_MANAGER', 'MANAGER_OPERASIONAL', 'MANAGER_OPS']);
-            $omHash = trim((string) ($omSig->signature_hash ?? ''));
-
-            $omQrUrl = $omHash !== ''
-                ? url("/api/v1/loo/signatures/verify/{$omHash}")
-                : (string) config('reagent_request.om_qr_fallback_url', 'https://google.com');
-
-            $omQrSrc = null;
-            try {
-                if (class_exists(QrCode::class)) {
-                    $png = QrCode::format('png')
-                        ->size(110)
-                        ->margin(0)
-                        ->generate($omQrUrl);
-
-                    if (is_string($png) && $png !== '') {
-                        $omQrSrc = 'data:image/png;base64,' . base64_encode($png);
-                    }
-                }
-            } catch (\Throwable $e) {
-                $omQrSrc = null;
-            }
-
-            $payload['om_qr_src'] = $omQrSrc;
-            if (!isset($payload['payload']) || !is_array($payload['payload'])) {
-                $payload['payload'] = [];
-            }
-            $payload['payload']['om_qr_src'] = $omQrSrc;
-
-            $view = (string) config('reagent_request.pdf_view', 'documents.reagent_request');
-
-            $bytes = Pdf::loadView($view, $payload)
-                ->setPaper('a4', 'portrait')
-                ->output();
-
-            Storage::disk($disk)->put($path, $bytes);
-
-            // ✅ 8.5 — Audit log: PDF generated (ONLY after file stored + file_url updated)
+            // 3) Backward compat: also fill reagent_requests.file_url with API download URL
             $pdfGeneratedAt = now();
 
             $beforePdf = [
@@ -557,7 +492,7 @@ class ReagentRequestController extends Controller
             DB::table('reagent_requests')
                 ->where('reagent_request_id', $id)
                 ->update([
-                    'file_url' => $path,
+                    'file_url' => $downloadUrl,
                     'updated_at' => $pdfGeneratedAt,
                 ]);
 
@@ -565,10 +500,12 @@ class ReagentRequestController extends Controller
                 'reagent_request_id' => (int) $req->reagent_request_id,
                 'lo_id' => (int) $req->lo_id,
                 'status' => 'approved',
-                'file_url' => $path,
+                'file_url' => $downloadUrl,
                 'pdf_generated_at' => $pdfGeneratedAt->toISOString(),
-                'storage_disk' => $disk,
-                'pdf_view' => $view,
+                'gen_doc_id' => (int) ($gd->gen_doc_id ?? 0),
+                'file_pdf_id' => (int) ($gd->file_pdf_id ?? 0),
+                'record_no' => (string) ($gd->record_no ?? ''),
+                'template_version' => (int) ($gd->template_version ?? 0),
             ];
 
             AuditLogger::write(
@@ -580,7 +517,7 @@ class ReagentRequestController extends Controller
                 $afterPdf
             );
 
-            // Keep approval audit as-is (immutable approval record)
+            // 4) Approval audit
             $newValues = [
                 'reagent_request_id' => (int) $req->reagent_request_id,
                 'lo_id' => (int) $req->lo_id,
@@ -590,7 +527,9 @@ class ReagentRequestController extends Controller
                 'rejected_at' => null,
                 'rejected_by_staff_id' => null,
                 'reject_note' => null,
-                'file_url' => $path,
+                'file_url' => $downloadUrl,
+                'file_pdf_id' => (int) ($gd->file_pdf_id ?? 0),
+                'gen_doc_id' => (int) ($gd->gen_doc_id ?? 0),
             ];
 
             AuditLogger::write(
@@ -602,7 +541,20 @@ class ReagentRequestController extends Controller
                 $newValues
             );
 
-            return $this->payload((int) $id);
+            // 5) Return payload + pdf meta (handy for FE)
+            $out = $this->payload((int) $id);
+            $out['pdf'] = [
+                'gen_doc_id' => (int) ($gd->gen_doc_id ?? 0),
+                'file_pdf_id' => (int) ($gd->file_pdf_id ?? 0),
+                'download_url' => $downloadUrl,
+                'record_no' => (string) ($gd->record_no ?? ''),
+                'form_code' => (string) ($gd->form_code ?? ''),
+                'revision_no' => (int) ($gd->revision_no ?? 0),
+                'template_version' => (int) ($gd->template_version ?? 0),
+                'generated_at' => optional($gd->generated_at)->toISOString(),
+            ];
+
+            return $out;
         });
 
         return ApiResponse::success($result, 'Approved');
