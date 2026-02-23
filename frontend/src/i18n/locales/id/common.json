@@ -1606,7 +1606,8 @@
             },
             "actions": {
                 "uploadDocx": "Unggah DOCX",
-                "editMetadata": "Edit metadata"
+                "editMetadata": "Edit metadata",
+                "uploadTemplate": "Upload template"
             },
             "table": {
                 "template": "Template",
@@ -1632,7 +1633,8 @@
                 "dropzoneBrowse": "klik untuk memilih",
                 "supported": "Didukung:",
                 "action": "Unggah",
-                "uploading": "Mengunggah…"
+                "uploading": "Mengunggah…",
+                "supportedExt": "Didukung: .{{ext}}"
             },
             "edit": {
                 "title": "Edit metadata template",
@@ -1656,7 +1658,9 @@
             },
             "errors": {
                 "docxOnly": "File harus berformat .docx",
-                "pickDocxFirst": "Silakan pilih file .docx terlebih dulu."
+                "pickDocxFirst": "Silakan pilih file .docx terlebih dulu.",
+                "pickFileFirst": "Pilih file template terlebih dahulu.",
+                "invalidFileType": "Tipe file tidak didukung. Upload file .{{ext}}."
             }
         }
     },

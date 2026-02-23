@@ -1607,7 +1607,8 @@
             },
             "actions": {
                 "uploadDocx": "Upload DOCX",
-                "editMetadata": "Edit metadata"
+                "editMetadata": "Edit metadata",
+                "uploadTemplate": "Upload template"
             },
             "table": {
                 "template": "Template",
@@ -1633,7 +1634,8 @@
                 "dropzoneBrowse": "click to browse",
                 "supported": "Supported:",
                 "action": "Upload",
-                "uploading": "Uploading…"
+                "uploading": "Uploading…",
+                "supportedExt": "Supported: .{{ext}}"
             },
             "edit": {
                 "title": "Edit template metadata",
@@ -1657,7 +1659,9 @@
             },
             "errors": {
                 "docxOnly": "File must be a .docx",
-                "pickDocxFirst": "Please choose a .docx file first."
+                "pickDocxFirst": "Please choose a .docx file first.",
+                "pickFileFirst": "Select a template file first.",
+                "invalidFileType": "Unsupported file type. Please upload a .{{ext}} template."
             }
         }
     },

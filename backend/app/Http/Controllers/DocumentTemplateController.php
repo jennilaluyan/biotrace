@@ -170,14 +170,39 @@ class DocumentTemplateController extends Controller
         }
 
         $originalName = (string) $file->getClientOriginalName();
-        $mime = (string) ($file->getMimeType() ?? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+
+        // ext paling reliable dari nama file (mime browser kadang ngaco)
+        $ext = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
+        $ext = ltrim($ext, '.');
+
+        $docCodeUpper = strtoupper(trim($docCode));
+        $isCoa = str_starts_with($docCodeUpper, 'COA_');
+
+        // Enforce per doc_code:
+        // - COA_* => XLSX
+        // - lainnya => DOCX
+        if ($isCoa) {
+            if ($ext !== 'xlsx') {
+                return response()->json(['message' => 'COA templates must be uploaded as .xlsx'], 422);
+            }
+        } else {
+            if ($ext !== 'docx') {
+                return response()->json(['message' => 'This template must be uploaded as .docx'], 422);
+            }
+        }
+
+        // mime: tentukan dari ext (lebih stabil)
+        $mime = match ($ext) {
+            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            default => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        };
 
         // store file bytes (dedupe on)
         $fileId = $this->files->storeBytes(
             $bytes,
             $originalName,
             $mime,
-            'docx',
+            $ext,
             $uploadedBy,
             true
         );

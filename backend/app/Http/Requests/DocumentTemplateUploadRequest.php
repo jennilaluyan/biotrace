@@ -14,8 +14,14 @@ class DocumentTemplateUploadRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'file' => ['required', 'file', 'mimetypes:application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'max:20480'],
-            // 20MB max (ubah kalau perlu)
+            'file' => [
+                'required',
+                'file',
+                'mimetypes:' .
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document,' .
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'max:30720',
+            ],
         ];
     }
 }

@@ -172,6 +172,7 @@ class FileStoreService
         return match ($mimeType) {
             'application/pdf' => 'pdf',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
             default => 'bin',
         };
     }

@@ -87,9 +87,22 @@ function pickUpdatedAt(r: DocTemplateRow): string | null {
     return r.updated_at ?? r.version_uploaded_at ?? r.current_version?.created_at ?? r.created_at ?? null;
 }
 
-function isDocxFile(file: File): boolean {
-    // Some browsers may not provide correct mime; name is the most reliable.
-    return /\.docx$/i.test(file.name);
+function expectedTemplateExt(docCode: string): "docx" | "xlsx" {
+    const dc = String(docCode ?? "").trim().toUpperCase();
+    if (dc.startsWith("COA_")) return "xlsx";
+    return "docx";
+}
+
+function isExpectedTemplateFile(docCode: string, file: File): boolean {
+    const ext = expectedTemplateExt(docCode);
+    return ext === "xlsx" ? /\.xlsx$/i.test(file.name) : /\.docx$/i.test(file.name);
+}
+
+function acceptByDocCode(docCode: string): string {
+    const ext = expectedTemplateExt(docCode);
+    return ext === "xlsx"
+        ? ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        : ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 }
 
 function formatBytes(bytes: number): string {
@@ -237,14 +250,17 @@ export function DocumentTemplatesPage() {
     // Upload helpers (dropzone)
     // =============================
     function pickFile(file: File | null) {
+        const docCode = uploadModal.doc?.doc_code ?? "";
+        const needExt = expectedTemplateExt(docCode);
+
         if (!file) {
             setUploadFile(null);
             return;
         }
 
-        if (!isDocxFile(file)) {
+        if (!isExpectedTemplateFile(docCode, file)) {
             setUploadFile(null);
-            setErr(t("docs.templates.errors.docxOnly"));
+            setErr(t("docs.templates.errors.invalidFileType", { ext: needExt }));
             return;
         }
 
@@ -345,13 +361,16 @@ export function DocumentTemplatesPage() {
         const doc = uploadModal.doc;
         if (!doc) return;
 
+        const docCode = uploadModal.doc?.doc_code ?? "";
+        const needExt = expectedTemplateExt(docCode);
+
         if (!uploadFile) {
-            setErr(t("docs.templates.errors.pickDocxFirst"));
+            setErr(t("docs.templates.errors.pickFileFirst"));
             return;
         }
 
-        if (!isDocxFile(uploadFile)) {
-            setErr(t("docs.templates.errors.docxOnly"));
+        if (!isExpectedTemplateFile(docCode, uploadFile)) {
+            setErr(t("docs.templates.errors.invalidFileType", { ext: needExt }));
             return;
         }
 
@@ -703,7 +722,7 @@ export function DocumentTemplatesPage() {
                                     </div>
 
                                     <div className="text-[11px] text-gray-500 mt-1">
-                                        {t("docs.templates.upload.supported")} <span className="font-mono">.docx</span>
+                                        {t("docs.templates.upload.supportedExt", { ext: expectedTemplateExt(uploadModal.doc?.doc_code ?? "") })}
                                     </div>
                                 </div>
 
@@ -711,7 +730,7 @@ export function DocumentTemplatesPage() {
                                 <input
                                     ref={uploadInputRef}
                                     type="file"
-                                    accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                    accept={acceptByDocCode(uploadModal.doc?.doc_code ?? "")}
                                     onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
                                     disabled={saving}
                                     className="hidden"

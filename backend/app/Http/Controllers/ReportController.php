@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
+use App\Services\CoaXlsxDocumentService;
+use Illuminate\Support\Facades\Schema;
 
 class ReportController extends Controller
 {
@@ -184,30 +186,44 @@ class ReportController extends Controller
             ], 409);
         }
 
-        DB::transaction(function () use ($report, $signature, $user) {
-            $now = now();
+        try {
+            DB::transaction(function () use ($report, $signature, $user) {
+                $now = now();
 
-            // Build canonical payload
-            $payload = $this->buildSignaturePayload(
-                $report->report_id,
-                $user->staff_id,
-                $now->toISOString()
-            );
+                $payload = $this->buildSignaturePayload(
+                    $report->report_id,
+                    $user->staff_id,
+                    $now->toISOString()
+                );
 
-            // Deterministic SHA-256
-            $hash = hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE));
+                $hash = hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE));
 
-            // Sign as LH
-            $signature->signed_by = $user->staff_id;
-            $signature->signed_at = $now;
-            $signature->signature_hash = $hash;
-            $signature->save();
+                // Sign as LH
+                $signature->signed_by = $user->staff_id;
+                $signature->signed_at = $now;
+                $signature->signature_hash = $hash;
+                $signature->save();
 
-            // Lock report
-            $report->is_locked = true;
-            $report->updated_at = $now;
-            $report->save();
-        });
+                // Generate COA PDF from XLSX template and attach to report
+                $svc = app(CoaXlsxDocumentService::class);
+                $svc->generateForReport((int) $report->report_id, (int) $user->staff_id, true, $now);
+
+                // Lock report
+                $report->is_locked = true;
+                $report->updated_at = $now;
+
+                // Optional: store hash in reports.document_hash if exists
+                if (Schema::hasColumn('reports', 'document_hash')) {
+                    $report->document_hash = $hash;
+                }
+
+                $report->save();
+            });
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Failed to finalize report.'], 500);
+        }
 
         return response()->json([
             'message' => 'Report finalized and locked.',
