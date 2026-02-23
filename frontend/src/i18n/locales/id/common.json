@@ -666,6 +666,78 @@
                 "validatedWarn": "Quality cover divalidasi, tetapi COA masih diblok (cek test/hasil dulu).",
                 "rejected": "Quality cover berhasil ditolak."
             }
+        },
+        "section": {
+            "title": "Quality cover",
+            "subtitle": "Isi hasil QC dan metode analisis. Kirim untuk mengunci rekaman.",
+            "lockedBadge": "Terkunci",
+            "lockedHint": "Rekaman ini terkunci (sudah dikirim). Pengeditan dinonaktifkan.",
+            "tooltips": {
+                "locked": "Terkunci"
+            },
+            "status": {
+                "draft": "Draf",
+                "submitted": "Terkirim"
+            },
+            "states": {
+                "loading": "Memuat quality cover…"
+            },
+            "meta": {
+                "parameter": "Parameter",
+                "date": "Tanggal",
+                "labCode": "Kode lab",
+                "checkedBy": "Dicek oleh"
+            },
+            "fields": {
+                "methodOfAnalysis": "Metode analisis"
+            },
+            "placeholders": {
+                "methodOfAnalysis": "mis. RT-qPCR, preparasi WGS + pipeline bioinformatika…"
+            },
+            "hints": {
+                "methodOfAnalysis": "Tulis spesifik supaya reviewer bisa mengulang metodenya."
+            },
+            "groups": {
+                "pcr": {
+                    "markerHint": "Marker PCR"
+                }
+            },
+            "pcr": {
+                "value": "Nilai",
+                "result": "Hasil",
+                "interpretation": "Interpretasi",
+                "valuePlaceholder": "mis. 28.5",
+                "resultPlaceholder": "mis. Positif / Negatif",
+                "interpretationPlaceholder": "mis. Terdeteksi / Tidak terdeteksi"
+            },
+            "wgs": {
+                "lineage": "Lineage",
+                "variant": "Varian",
+                "lineagePlaceholder": "mis. BA.2.86",
+                "variantPlaceholder": "mis. Omicron"
+            },
+            "others": {
+                "notes": "Catatan",
+                "notesPlaceholder": "Tulis catatan QC singkat…"
+            },
+            "validation": {
+                "notAllowed": "Tidak diizinkan.",
+                "alreadySubmitted": "Sudah terkirim.",
+                "methodRequired": "Metode analisis wajib diisi.",
+                "pcr.markerMissing": "{{marker}} wajib diisi.",
+                "pcr.valueRequired": "Nilai {{marker}} wajib diisi.",
+                "pcr.valueNumeric": "Nilai {{marker}} harus angka.",
+                "pcr.resultRequired": "Hasil {{marker}} wajib diisi.",
+                "pcr.interpretationRequired": "Interpretasi {{marker}} wajib diisi.",
+                "wgs.lineageRequired": "Lineage wajib diisi.",
+                "wgs.variantRequired": "Varian wajib diisi.",
+                "others.notesRequired": "Catatan wajib diisi."
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat quality cover.",
+                "saveDraftFailed": "Gagal menyimpan draf.",
+                "submitFailed": "Gagal mengirim quality cover."
+            }
         }
     },
     "reagents": {

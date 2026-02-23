@@ -666,6 +666,78 @@
                 "validatedWarn": "Quality cover validated, but COA generation is still blocked (check tests/results).",
                 "rejected": "Quality cover rejected."
             }
+        },
+        "section": {
+            "title": "Quality cover",
+            "subtitle": "Fill QC results and method of analysis. Submit to lock the record.",
+            "lockedBadge": "Locked",
+            "lockedHint": "This record is locked (submitted). Editing is disabled.",
+            "tooltips": {
+                "locked": "Locked"
+            },
+            "status": {
+                "draft": "Draft",
+                "submitted": "Submitted"
+            },
+            "states": {
+                "loading": "Loading quality cover…"
+            },
+            "meta": {
+                "parameter": "Parameter",
+                "date": "Date",
+                "labCode": "Lab code",
+                "checkedBy": "Checked by"
+            },
+            "fields": {
+                "methodOfAnalysis": "Method of analysis"
+            },
+            "placeholders": {
+                "methodOfAnalysis": "e.g. RT-qPCR, WGS library prep + bioinformatics pipeline…"
+            },
+            "hints": {
+                "methodOfAnalysis": "Keep it specific so reviewers can reproduce the method."
+            },
+            "groups": {
+                "pcr": {
+                    "markerHint": "PCR markers"
+                }
+            },
+            "pcr": {
+                "value": "Value",
+                "result": "Result",
+                "interpretation": "Interpretation",
+                "valuePlaceholder": "e.g. 28.5",
+                "resultPlaceholder": "e.g. Positive / Negative",
+                "interpretationPlaceholder": "e.g. Detected / Not detected"
+            },
+            "wgs": {
+                "lineage": "Lineage",
+                "variant": "Variant",
+                "lineagePlaceholder": "e.g. BA.2.86",
+                "variantPlaceholder": "e.g. Omicron"
+            },
+            "others": {
+                "notes": "Notes",
+                "notesPlaceholder": "Write a brief QC note…"
+            },
+            "validation": {
+                "notAllowed": "Not allowed.",
+                "alreadySubmitted": "Already submitted.",
+                "methodRequired": "Method of analysis is required.",
+                "pcr.markerMissing": "{{marker}} is required.",
+                "pcr.valueRequired": "{{marker}} value is required.",
+                "pcr.valueNumeric": "{{marker}} value must be numeric.",
+                "pcr.resultRequired": "{{marker}} result is required.",
+                "pcr.interpretationRequired": "{{marker}} interpretation is required.",
+                "wgs.lineageRequired": "Lineage is required.",
+                "wgs.variantRequired": "Variant is required.",
+                "others.notesRequired": "Notes is required."
+            },
+            "errors": {
+                "loadFailed": "Failed to load quality cover.",
+                "saveDraftFailed": "Failed to save draft.",
+                "submitFailed": "Failed to submit quality cover."
+            }
         }
     },
     "reagents": {
