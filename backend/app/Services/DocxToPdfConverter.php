@@ -8,15 +8,22 @@ use ZipArchive;
 
 class DocxToPdfConverter
 {
-    public function convertBytes(string $docxBytes): string
+    public function convertBytes(string $inputBytes, string $ext = 'docx'): string
     {
-        $tmpDir = $this->makeTmpDir();
-        $inPath = $tmpDir . DIRECTORY_SEPARATOR . 'input.docx';
+        $ext = $this->normalizeExt($ext);
 
-        file_put_contents($inPath, $docxBytes);
+        $tmpDir = $this->makeTmpDir();
+        $inPath = $tmpDir . DIRECTORY_SEPARATOR . 'input.' . $ext;
+
+        file_put_contents($inPath, $inputBytes);
 
         try {
-            $this->assertValidDocx($inPath);
+            // ✅ Basic validation (zip-based) to fail fast on corrupted templates
+            if ($ext === 'docx') {
+                $this->assertValidDocx($inPath);
+            } elseif ($ext === 'xlsx') {
+                $this->assertValidXlsx($inPath);
+            }
 
             $bin = $this->sofficeBinForConversion();
             if (!$bin) {
@@ -35,6 +42,12 @@ class DocxToPdfConverter
 
             $profileUrl = $this->toFileUrl($profileDir, true);
 
+            // ✅ Choose export filter by file type
+            // - DOCX => writer_pdf_Export
+            // - XLSX => calc_pdf_Export
+            // Fallback => "pdf"
+            $filter = $this->pdfFilterForExt($ext);
+
             $cmd = [
                 $bin,
                 '--headless',
@@ -44,7 +57,7 @@ class DocxToPdfConverter
                 '--invisible',
                 '-env:UserInstallation=' . $profileUrl,
                 '--convert-to',
-                'pdf:writer_pdf_Export',
+                $filter,
                 '--outdir',
                 $tmpDir,
                 $inPath,
@@ -56,7 +69,8 @@ class DocxToPdfConverter
             $env = $this->buildLibreOfficeEnv($loDir, $tmpDir);
 
             $p = new Process($cmd, $cwd, $env);
-            $p->setTimeout(180);
+            // XLSX can be heavier than DOCX; give it a bit more time.
+            $p->setTimeout(240);
             $p->run();
 
             $out = trim((string) $p->getOutput());
@@ -65,6 +79,7 @@ class DocxToPdfConverter
             if (!$p->isSuccessful()) {
                 throw new RuntimeException(
                     "LibreOffice conversion failed (exit {$p->getExitCode()}).\n" .
+                        "InputExt: {$ext}\n" .
                         "Command: " . $this->prettyCmd($cmd) . "\n" .
                         "CWD: {$cwd}\n" .
                         "TmpDir: {$tmpDir}\n" .
@@ -75,11 +90,12 @@ class DocxToPdfConverter
             }
 
             // wait up to 30s for pdf
-            $pdfPath = $this->findPdfOutputPath($tmpDir, 30);
+            $pdfPath = $this->findPdfOutputPath($tmpDir, $ext, 30);
 
             if (!$pdfPath) {
                 throw new RuntimeException(
                     "PDF output not found after conversion.\n" .
+                        "InputExt: {$ext}\n" .
                         "Command: " . $this->prettyCmd($cmd) . "\n" .
                         "CWD: {$cwd}\n" .
                         "TmpDir: {$tmpDir}\n" .
@@ -99,7 +115,6 @@ class DocxToPdfConverter
             $this->cleanupDir($tmpDir);
         }
     }
-
     private function sofficeBinForConversion(): ?string
     {
         $envBin = trim((string) (env('SOFFICE_BIN') ?: ''), "\"' ");
@@ -151,13 +166,15 @@ class DocxToPdfConverter
         return $env;
     }
 
-    private function findPdfOutputPath(string $tmpDir, int $waitSeconds = 20): ?string
+    private function findPdfOutputPath(string $tmpDir, string $ext, int $waitSeconds = 20): ?string
     {
+        $ext = $this->normalizeExt($ext);
+
         $candidates = [
             $tmpDir . DIRECTORY_SEPARATOR . 'input.pdf',
             $tmpDir . DIRECTORY_SEPARATOR . 'input.PDF',
-            $tmpDir . DIRECTORY_SEPARATOR . 'input.docx.pdf',
-            $tmpDir . DIRECTORY_SEPARATOR . 'input.docx.PDF',
+            $tmpDir . DIRECTORY_SEPARATOR . "input.{$ext}.pdf",
+            $tmpDir . DIRECTORY_SEPARATOR . "input.{$ext}.PDF",
         ];
 
         $tries = max(1, (int)($waitSeconds / 0.25));
@@ -174,7 +191,6 @@ class DocxToPdfConverter
 
         return null;
     }
-
     private function assertValidDocx(string $path): void
     {
         $zip = new ZipArchive();
@@ -188,6 +204,56 @@ class DocxToPdfConverter
             foreach (['[Content_Types].xml', 'word/document.xml'] as $entry) {
                 if ($zip->locateName($entry) === false) {
                     throw new RuntimeException("Input DOCX is missing required part: {$entry}");
+                }
+            }
+        } finally {
+            $zip->close();
+        }
+    }
+
+    private function normalizeExt(string $ext): string
+    {
+        $ext = strtolower(trim($ext));
+        $ext = ltrim($ext, '.');
+
+        // keep it tight: only letters/numbers to avoid weird filenames
+        $ext = preg_replace('/[^a-z0-9]+/', '', $ext) ?: 'docx';
+
+        // alias support (optional)
+        if ($ext === 'xlsm') $ext = 'xlsx';
+        if ($ext === 'xltx') $ext = 'xlsx';
+
+        return $ext;
+    }
+
+    private function pdfFilterForExt(string $ext): string
+    {
+        $ext = $this->normalizeExt($ext);
+
+        // LibreOffice export filters:
+        // - writer_pdf_Export for Writer (doc/docx)
+        // - calc_pdf_Export for Calc (xls/xlsx)
+        // Fallback to "pdf" lets LO try to infer.
+        return match ($ext) {
+            'doc', 'docx' => 'pdf:writer_pdf_Export',
+            'xls', 'xlsx' => 'pdf:calc_pdf_Export',
+            default => 'pdf',
+        };
+    }
+
+    private function assertValidXlsx(string $path): void
+    {
+        $zip = new ZipArchive();
+        $ok = $zip->open($path);
+
+        if ($ok !== true) {
+            throw new RuntimeException("Input XLSX is not a valid zip archive (ZipArchive open code: {$ok}).");
+        }
+
+        try {
+            foreach (['[Content_Types].xml', 'xl/workbook.xml'] as $entry) {
+                if ($zip->locateName($entry) === false) {
+                    throw new RuntimeException("Input XLSX is missing required part: {$entry}");
                 }
             }
         } finally {
