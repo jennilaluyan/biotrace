@@ -209,7 +209,17 @@ class ReportDocumentsController extends Controller
 
                     // Optional inference fields
                     $clientTypeAliasCol = null;
-                    $workflowGroupCol = Schema::hasColumn('reports', 'workflow_group') ? 'workflow_group' : null;
+                    $workflowGroupCol = null;
+
+                    $canJoinSamples = Schema::hasTable('samples') && Schema::hasColumn('samples', 'sample_id');
+                    if ($canJoinSamples) {
+                        $q->leftJoin('samples as s', 's.sample_id', '=', 'r.sample_id');
+
+                        // ✅ ambil workflow_group dari samples kalau ada
+                        if (Schema::hasColumn('samples', 'workflow_group')) {
+                            $workflowGroupCol = 's.workflow_group';
+                        }
+                    }
 
                     $canJoinSamples = Schema::hasTable('samples') && Schema::hasColumn('samples', 'sample_id');
                     $canJoinClients = Schema::hasTable('clients');
@@ -245,7 +255,7 @@ class ReportDocumentsController extends Controller
                         'r.pdf_file_id',
                     ];
 
-                    if ($workflowGroupCol) $select[] = 'r.' . $workflowGroupCol . ' as workflow_group';
+                    if ($workflowGroupCol) $select[] = $workflowGroupCol . ' as workflow_group';
                     if ($clientTypeAliasCol) $select[] = 'c.' . $clientTypeAliasCol . ' as client_type';
 
                     $rows = $q->get($select);
@@ -307,7 +317,12 @@ class ReportDocumentsController extends Controller
         $no = strtolower((string) $reportNo);
         $ct = strtolower((string) ($row->client_type ?? ''));
 
-        if ($wf !== '' && str_contains($wf, 'wgs')) return 'COA_WGS';
+        if ($wf !== '') {
+            if (str_contains($wf, 'wgs')) return 'COA_WGS';
+            if (str_contains($wf, 'antigen')) return 'COA_ANTIGEN';
+            if (str_contains($wf, 'group_19_22') || str_contains($wf, '19_22')) return 'COA_GROUP_19_22';
+            if (str_contains($wf, 'group_23_32') || str_contains($wf, '23_32')) return 'COA_GROUP_23_32';
+        }
         if ($no !== '' && (str_contains($no, '/adm/16/') || str_contains($no, 'wgs'))) return 'COA_WGS';
 
         if (
@@ -329,6 +344,9 @@ class ReportDocumentsController extends Controller
             'COA_WGS' => 'COA WGS',
             'COA_PCR_KERJASAMA' => 'COA PCR Kerja Sama',
             'COA_PCR_MANDIRI' => 'COA PCR Mandiri',
+            'COA_ANTIGEN' => 'COA Antigen',
+            'COA_GROUP_19_22' => 'COA Parameters 19–22',
+            'COA_GROUP_23_32' => 'COA Parameters 23–32',
             default => 'COA',
         };
     }

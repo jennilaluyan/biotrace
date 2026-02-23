@@ -48,6 +48,27 @@ class DocumentTemplatesSeeder extends Seeder
                 'form_code_prefix' => 'FORM/LAB-BM/ADM/16.Rev02.',
                 'revision_no' => 2,
             ],
+            [
+                'doc_code' => 'COA_ANTIGEN',
+                'title' => 'COA Antigen',
+                'record_no_prefix' => 'RevREK/LAB-BM/ADM/02/',
+                'form_code_prefix' => 'FORM/LAB-BM/ADM/16.Rev02.',
+                'revision_no' => 2,
+            ],
+            [
+                'doc_code' => 'COA_GROUP_19_22',
+                'title' => 'COA Parameters 19–22',
+                'record_no_prefix' => 'RevREK/LAB-BM/ADM/02/',
+                'form_code_prefix' => 'FORM/LAB-BM/ADM/16.Rev02.',
+                'revision_no' => 2,
+            ],
+            [
+                'doc_code' => 'COA_GROUP_23_32',
+                'title' => 'COA Parameters 23–32',
+                'record_no_prefix' => 'RevREK/LAB-BM/ADM/02/',
+                'form_code_prefix' => 'FORM/LAB-BM/ADM/16.Rev02.',
+                'revision_no' => 2,
+            ],
         ];
 
         foreach ($rows as $r) {

@@ -57,6 +57,8 @@ export const ReportPreviewModal: React.FC<Props> = ({
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const [errorKind, setErrorKind] = useState<"error" | "warn">("error");
+
     // Escape to close (keep the “new” behavior, but fits old design)
     useEffect(() => {
         if (!open) return;
@@ -81,11 +83,13 @@ export const ReportPreviewModal: React.FC<Props> = ({
                 });
                 setDirectUrl(null);
                 setError(null);
+                setErrorKind("error");
                 setLoading(false);
                 return;
             }
 
             setError(null);
+            setErrorKind("error");
             setBlobUrl((prev) => {
                 if (prev) URL.revokeObjectURL(prev);
                 return null;
@@ -126,10 +130,64 @@ export const ReportPreviewModal: React.FC<Props> = ({
                 setBlobUrl(url);
             } catch (e: any) {
                 if (cancelled) return;
-                const msg =
-                    e?.response?.data?.message ??
-                    e?.message ??
-                    t("reports.failedToLoadPdf", "Failed to load PDF.");
+
+                let msg = e?.message ?? t("reports.failedToLoadPdf", "Failed to load PDF.");
+                let kind: "error" | "warn" = "error";
+
+                const status = e?.response?.status;
+                const data = e?.response?.data;
+
+                // axios responseType=blob -> server error often arrives as Blob
+                if (data instanceof Blob) {
+                    try {
+                        const text = await data.text();
+
+                        // try parse JSON
+                        const parsed =
+                            text && text.trim().startsWith("{")
+                                ? JSON.parse(text)
+                                : null;
+
+                        const serverMsg =
+                            parsed?.message ??
+                            parsed?.error ??
+                            (typeof text === "string" ? text : null);
+
+                        if (serverMsg) msg = String(serverMsg);
+
+                        const code = String(parsed?.code ?? "").toUpperCase();
+
+                        // heuristics: missing template / pdf not ready => warn
+                        const looksLikeNotReady =
+                            code.includes("NOT_AVAILABLE") ||
+                            code.includes("TEMPLATE") ||
+                            /template|not available|belum|missing/i.test(String(serverMsg ?? ""));
+
+                        if (status === 422 && looksLikeNotReady) {
+                            kind = "warn";
+                            msg =
+                                t(
+                                    "reports.previewNotReady",
+                                    "Dokumen belum siap dipreview. Template COA untuk workflow ini belum tersedia atau PDF belum tergenerate."
+                                ) + (serverMsg ? `\n\nServer: ${serverMsg}` : "");
+                        }
+                    } catch {
+                        // ignore parse failure, keep msg
+                    }
+                } else if (status === 422) {
+                    // non-blob business-rule (still not a “crash”)
+                    kind = "warn";
+                } else {
+                    // try best-effort message for non-blob axios errors
+                    const m =
+                        e?.response?.data?.message ??
+                        e?.response?.data?.error ??
+                        e?.message ??
+                        null;
+                    if (m) msg = String(m);
+                }
+
+                setErrorKind(kind);
                 setError(String(msg));
             } finally {
                 if (!cancelled) setLoading(false);
@@ -168,10 +226,7 @@ export const ReportPreviewModal: React.FC<Props> = ({
 
                     <button
                         onClick={onClose}
-                        className={cx(
-                            "text-gray-500 hover:text-gray-700",
-                            loading && "opacity-50 cursor-not-allowed"
-                        )}
+                        className={cx("text-gray-500 hover:text-gray-700", loading && "opacity-50 cursor-not-allowed")}
                         aria-label={t(["close", "common.close"], "Close")}
                         title={t(["close", "common.close"], "Close")}
                         type="button"
@@ -184,26 +239,49 @@ export const ReportPreviewModal: React.FC<Props> = ({
                 <div className="flex-1 bg-gray-100 relative">
                     {loading ? (
                         <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center text-sm text-gray-600 gap-2">
-                            {/* “old design”, but with nicer spinner + color tweak */}
                             <Loader2 className="h-8 w-8 animate-spin text-primary" />
                             <div>{t("reports.loadingPdf", "Loading PDF…")}</div>
                         </div>
                     ) : error ? (
                         <div className="absolute inset-0 w-full h-full flex items-center justify-center p-6">
                             <div className="max-w-xl w-full text-center">
-                                <div className="text-sm font-semibold text-red-700 mb-2">
-                                    {t("reports.failedPreview", "Failed to preview PDF")}
+                                <div
+                                    className={cx(
+                                        "text-sm font-semibold mb-2",
+                                        errorKind === "warn" ? "text-amber-800" : "text-red-700"
+                                    )}
+                                >
+                                    {errorKind === "warn"
+                                        ? t("reports.previewUnavailable", "Preview belum tersedia")
+                                        : t("reports.failedPreview", "Failed to preview PDF")}
                                 </div>
-                                <pre className="text-xs bg-white border rounded-lg p-3 overflow-auto max-h-[40vh] text-left whitespace-pre-wrap wrap-break-word">
+
+                                <pre
+                                    className={cx(
+                                        "text-xs border rounded-lg p-3 overflow-auto max-h-[40vh] text-left whitespace-pre-wrap wrap-break-word",
+                                        errorKind === "warn"
+                                            ? "bg-amber-50 border-amber-200 text-amber-900"
+                                            : "bg-white border-gray-200 text-gray-900"
+                                    )}
+                                >
                                     {error}
                                 </pre>
-                                <button
-                                    type="button"
-                                    className="mt-4 lims-icon-button"
-                                    onClick={onClose}
-                                >
-                                    {t(["close", "common.close"], "Close")}
-                                </button>
+
+                                <div className="mt-4 flex items-center justify-center gap-2">
+                                    {errorKind === "warn" ? (
+                                        <button
+                                            type="button"
+                                            className="btn-outline"
+                                            onClick={() => window.open("/settings/docs/templates", "_blank")}
+                                        >
+                                            {t("reports.goToTemplates", "Buka Template Dokumen")}
+                                        </button>
+                                    ) : null}
+
+                                    <button type="button" className="lims-icon-button" onClick={onClose}>
+                                        {t(["close", "common.close"], "Close")}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     ) : blobUrl ? (

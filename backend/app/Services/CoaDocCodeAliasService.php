@@ -68,6 +68,31 @@ class CoaDocCodeAliasService
             return strtoupper(str_replace('__', '_', $s));
         }
 
+        // --- ANTIGEN ---
+        if ($s === 'antigen' || str_contains($s, 'coa_antigen') || str_contains($s, 'antigen')) {
+            return 'COA_ANTIGEN';
+        }
+
+        // --- GROUP 19–22 ---
+        if (
+            $s === 'group_19_22' ||
+            str_contains($s, 'group_19_22') ||
+            str_contains($s, '19_22') ||
+            str_contains($s, 'parameters_19_22')
+        ) {
+            return 'COA_GROUP_19_22';
+        }
+
+        // --- GROUP 23–32 ---
+        if (
+            $s === 'group_23_32' ||
+            str_contains($s, 'group_23_32') ||
+            str_contains($s, '23_32') ||
+            str_contains($s, 'parameters_23_32')
+        ) {
+            return 'COA_GROUP_23_32';
+        }
+
         // fallback: keep safe default
         return 'COA_PCR_MANDIRI';
     }
@@ -83,6 +108,9 @@ class CoaDocCodeAliasService
             'COA_WGS' => 'COA WGS',
             'COA_PCR_KERJASAMA' => 'COA PCR Kerja Sama',
             'COA_PCR_MANDIRI' => 'COA PCR Mandiri',
+            'COA_ANTIGEN' => 'COA Antigen',
+            'COA_GROUP_19_22' => 'COA Parameters 19–22',
+            'COA_GROUP_23_32' => 'COA Parameters 23–32',
             default => 'COA',
         };
     }
