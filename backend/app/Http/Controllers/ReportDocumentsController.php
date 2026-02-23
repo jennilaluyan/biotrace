@@ -212,38 +212,40 @@ class ReportDocumentsController extends Controller
                     $workflowGroupCol = null;
 
                     $canJoinSamples = Schema::hasTable('samples') && Schema::hasColumn('samples', 'sample_id');
-                    if ($canJoinSamples) {
-                        $q->leftJoin('samples as s', 's.sample_id', '=', 'r.sample_id');
-
-                        // ✅ ambil workflow_group dari samples kalau ada
-                        if (Schema::hasColumn('samples', 'workflow_group')) {
-                            $workflowGroupCol = 's.workflow_group';
-                        }
-                    }
-
-                    $canJoinSamples = Schema::hasTable('samples') && Schema::hasColumn('samples', 'sample_id');
                     $canJoinClients = Schema::hasTable('clients');
 
-                    if ($canJoinSamples) {
+                    // ✅ Guard: jangan join "samples as s" lebih dari sekali (pgsql error duplicate alias)
+                    $joinedSamples = false;
+                    $ensureSamplesJoin = function () use (&$q, &$joinedSamples) {
+                        if ($joinedSamples) return;
                         $q->leftJoin('samples as s', 's.sample_id', '=', 'r.sample_id');
+                        $joinedSamples = true;
+                    };
 
-                        if ($canJoinClients && Schema::hasColumn('samples', 'client_id')) {
-                            $clientPk = Schema::hasColumn('clients', 'client_id')
-                                ? 'client_id'
-                                : (Schema::hasColumn('clients', 'id') ? 'id' : null);
+                    // ✅ ambil workflow_group dari samples kalau ada
+                    if ($canJoinSamples && Schema::hasColumn('samples', 'workflow_group')) {
+                        $ensureSamplesJoin();
+                        $workflowGroupCol = 's.workflow_group';
+                    }
 
-                            $typeCol = null;
-                            foreach (['client_type', 'type', 'kind', 'category'] as $cand) {
-                                if (Schema::hasColumn('clients', $cand)) {
-                                    $typeCol = $cand;
-                                    break;
-                                }
+                    // join clients (requires samples join)
+                    if ($canJoinSamples && $canJoinClients && Schema::hasColumn('samples', 'client_id')) {
+                        $clientPk = Schema::hasColumn('clients', 'client_id')
+                            ? 'client_id'
+                            : (Schema::hasColumn('clients', 'id') ? 'id' : null);
+
+                        $typeCol = null;
+                        foreach (['client_type', 'type', 'kind', 'category'] as $cand) {
+                            if (Schema::hasColumn('clients', $cand)) {
+                                $typeCol = $cand;
+                                break;
                             }
+                        }
 
-                            if ($clientPk && $typeCol) {
-                                $q->leftJoin('clients as c', 'c.' . $clientPk, '=', 's.client_id');
-                                $clientTypeAliasCol = $typeCol;
-                            }
+                        if ($clientPk && $typeCol) {
+                            $ensureSamplesJoin();
+                            $q->leftJoin('clients as c', 'c.' . $clientPk, '=', 's.client_id');
+                            $clientTypeAliasCol = $typeCol;
                         }
                     }
 
