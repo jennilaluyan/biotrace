@@ -100,6 +100,7 @@ class CoaXlsxDocumentService
 
         $lineage = $this->pickFirstValueByNeedles($items, ['lineage']);
         $variant = $this->pickFirstValueByNeedles($items, ['variant', 'clade', 'mutasi']);
+        $qcVars = $this->buildQcVars((int) ($sample->sample_id ?? 0));
 
         // Build vars for ${...}
         $vars = [
@@ -120,6 +121,7 @@ class CoaXlsxDocumentService
             'client_phone' => (string) ($client->phone ?? ''),
             'client_organization' => (string) ($client->organization ?? ''),
             'client_type' => (string) ($client->type ?? ''),
+            'examination_purpose' => (string) ($sample->examination_purpose ?? ''),
 
             // dates
             'received_at' => $receivedAt,
@@ -177,6 +179,8 @@ class CoaXlsxDocumentService
             $actorStaffId,
             true
         );
+
+        $vars = array_merge($vars, $qcVars);
 
         // Attach to reports
         if (Schema::hasColumn('reports', 'pdf_file_id')) {
@@ -380,5 +384,131 @@ class CoaXlsxDocumentService
     private function assertPositive(int $value, string $name): void
     {
         if ($value <= 0) throw new RuntimeException("{$name} is required.");
+    }
+
+    private function buildQcVars(int $sampleId): array
+    {
+        // default aman: kalau payload tidak ada, tetap tampil + / -
+        $out = [
+            'qc_orf1b_pos' => '+',
+            'qc_orf1b_neg' => '-',
+            'qc_rdrp_pos' => '+',
+            'qc_rdrp_neg' => '-',
+            'qc_rpp30_pos' => '+',
+            'qc_rpp30_neg' => '-',
+        ];
+
+        if ($sampleId <= 0) return $out;
+
+        $payload = $this->fetchLatestQualityCoverPayload($sampleId);
+        if (!$payload) return $out;
+
+        // ambil nilai dari payload kalau ada (best-effort, fleksibel)
+        $out['qc_orf1b_pos'] = $this->pickQc($payload, 'ORF1b', 'positive') ?? $out['qc_orf1b_pos'];
+        $out['qc_orf1b_neg'] = $this->pickQc($payload, 'ORF1b', 'negative') ?? $out['qc_orf1b_neg'];
+
+        $out['qc_rdrp_pos'] = $this->pickQc($payload, 'RdRp', 'positive') ?? $out['qc_rdrp_pos'];
+        $out['qc_rdrp_neg'] = $this->pickQc($payload, 'RdRp', 'negative') ?? $out['qc_rdrp_neg'];
+
+        $out['qc_rpp30_pos'] = $this->pickQc($payload, 'RPP30', 'positive') ?? $out['qc_rpp30_pos'];
+        $out['qc_rpp30_neg'] = $this->pickQc($payload, 'RPP30', 'negative') ?? $out['qc_rpp30_neg'];
+
+        return $out;
+    }
+
+    private function fetchLatestQualityCoverPayload(int $sampleId): ?array
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('quality_covers')) return null;
+
+        $row = \Illuminate\Support\Facades\DB::table('quality_covers')
+            ->where('sample_id', $sampleId)
+            // prefer validated kalau ada
+            ->orderByRaw("CASE WHEN status = 'validated' THEN 0 ELSE 1 END")
+            ->orderByDesc('quality_cover_id')
+            ->first(['qc_payload']);
+
+        if (!$row) return null;
+
+        $raw = $row->qc_payload ?? null;
+
+        if (is_array($raw)) return $raw;
+        if (is_object($raw)) return (array) $raw;
+
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+            return is_array($decoded) ? $decoded : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Best-effort QC picker.
+     * Supports several possible payload shapes, e.g.:
+     * - qc_positive: { ORF1b: "+", ... }, qc_negative: { ... }
+     * - qc: { positive: {...}, negative: {...} }
+     * - ORF1b: { qc_positive: "+", qc_negative: "-" }
+     */
+    private function pickQc(array $payload, string $target, string $kind): ?string
+    {
+        $tKey = strtolower($target);
+        $kind = strtolower($kind); // positive | negative
+
+        $targets = [
+            $target,
+            strtoupper($target),
+            strtolower($target),
+            $tKey,
+        ];
+
+        $kindKeys = $kind === 'positive'
+            ? ['qc_positive', 'qcPositive', 'positive', 'pos', 'qc_pos']
+            : ['qc_negative', 'qcNegative', 'negative', 'neg', 'qc_neg'];
+
+        // 1) payload['qc_positive'][target]
+        foreach (['qc_positive', 'qcPositive'] as $root) {
+            if (isset($payload[$root]) && is_array($payload[$root])) {
+                foreach ($targets as $tk) {
+                    $v = $payload[$root][$tk] ?? null;
+                    if ($v !== null && $v !== '') return (string) $v;
+                }
+            }
+        }
+
+        // 2) payload['qc']['positive'][target]
+        if (isset($payload['qc']) && is_array($payload['qc'])) {
+            $qc = $payload['qc'];
+
+            foreach (['positive', 'pos'] as $pKey) {
+                if ($kind === 'positive' && isset($qc[$pKey]) && is_array($qc[$pKey])) {
+                    foreach ($targets as $tk) {
+                        $v = $qc[$pKey][$tk] ?? null;
+                        if ($v !== null && $v !== '') return (string) $v;
+                    }
+                }
+            }
+
+            foreach (['negative', 'neg'] as $nKey) {
+                if ($kind === 'negative' && isset($qc[$nKey]) && is_array($qc[$nKey])) {
+                    foreach ($targets as $tk) {
+                        $v = $qc[$nKey][$tk] ?? null;
+                        if ($v !== null && $v !== '') return (string) $v;
+                    }
+                }
+            }
+        }
+
+        // 3) payload[target]['qc_positive' / 'qc_negative' / ...]
+        foreach ($targets as $tk) {
+            $node = $payload[$tk] ?? null;
+            if (!is_array($node)) continue;
+
+            foreach ($kindKeys as $k) {
+                $v = $node[$k] ?? null;
+                if ($v !== null && $v !== '') return (string) $v;
+            }
+        }
+
+        return null;
     }
 }
