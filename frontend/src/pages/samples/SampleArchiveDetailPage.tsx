@@ -342,10 +342,6 @@ export function SampleArchiveDetailPage() {
                                         {t("samples.pages.archiveDetail.detailTitle", { defaultValue: "Sample Archive Detail" })}
                                     </h1>
 
-                                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                                        {t("samples.pages.archiveDetail.detailTitle", { defaultValue: "Sample Archive Detail" })}
-                                    </h1>
-
                                     <div className="mt-1 flex items-center gap-2 flex-wrap">
                                         <span className="text-xs text-gray-500">
                                             {t("samples.pages.archive.table.labCode", { defaultValue: "Lab Code" })}

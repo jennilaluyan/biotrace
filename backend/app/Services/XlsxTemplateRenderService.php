@@ -35,14 +35,28 @@ class XlsxTemplateRenderService
                 $map['${' . $key . '}'] = $v === null ? '' : (string) $v;
             }
 
-            // choose active sheet + hide others (so LibreOffice export won't dump dozens of sheets)
             if ($preferredSheetName) {
-                $sheet = $spreadsheet->getSheetByName($preferredSheetName);
+                $wanted = trim((string) $preferredSheetName);
+
+                // 1) exact match
+                $sheet = $spreadsheet->getSheetByName($wanted);
+
+                // 2) case-insensitive match (handles "LHU " vs "LHU")
+                if (!$sheet) {
+                    foreach ($spreadsheet->getAllSheets() as $ws) {
+                        if (strcasecmp(trim($ws->getTitle()), $wanted) === 0) {
+                            $sheet = $ws;
+                            break;
+                        }
+                    }
+                }
+
                 if ($sheet) {
+                    $activeTitle = $sheet->getTitle();
                     $spreadsheet->setActiveSheetIndex($spreadsheet->getIndex($sheet));
 
                     foreach ($spreadsheet->getAllSheets() as $ws) {
-                        if ($ws->getTitle() !== $preferredSheetName) {
+                        if ($ws->getTitle() !== $activeTitle) {
                             $ws->setSheetState(Worksheet::SHEETSTATE_HIDDEN);
                         }
                     }

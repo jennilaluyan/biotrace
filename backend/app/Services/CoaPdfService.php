@@ -37,8 +37,18 @@ class CoaPdfService
 
         // client type (individual / institution)
         $clientType = 'individual';
-        if ($sample && isset($sample->client_id) && $sample->client_id) {
-            $clientType = (string) (DB::table('clients')->where('client_id', $sample->client_id)->value('type') ?: 'individual');
+
+        if ($sample && $sample->client_id) {
+            $client = DB::table('clients')->where('client_id', $sample->client_id)->first();
+
+            if ($client) {
+                foreach (['type', 'client_type', 'kind', 'category'] as $col) {
+                    if (isset($client->{$col}) && trim((string) $client->{$col}) !== '') {
+                        $clientType = strtolower(trim((string) $client->{$col}));
+                        break;
+                    }
+                }
+            }
         }
 
         // workflow group -> wgs?

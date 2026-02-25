@@ -21,68 +21,56 @@ class CoaXlsxDocumentService
     ) {}
 
     /**
-     * Generate COA PDF from uploaded XLSX template for a report.
-     * - Loads template from documents/document_versions/files (DB)
-     * - Replaces ${vars}
-     * - Converts XLSX -> PDF via LibreOffice
-     * - Stores PDF in files and attaches reports.pdf_file_id
-     * - Writes generated_documents snapshot (optional but recommended)
+     * Generate COA from uploaded XLSX template:
+     * - Load active template bytes from DB (documents -> document_versions -> files)
+     * - Replace ${vars}
+     * - Convert XLSX -> PDF via LibreOffice
+     * - Store XLSX & PDF in files table
+     * - Attach reports.pdf_file_id
+     * - Snapshot generated_documents (if table exists)
      */
     public function generateForReport(
         int $reportId,
         int $actorStaffId,
         bool $forceRegenerate = true,
-        ?Carbon $generatedAt = null
+        ?Carbon $generatedAt = null,
+        ?string $overrideTemplateCode = null
     ): array {
         $this->assertPositive($reportId, 'report_id');
         $this->assertPositive($actorStaffId, 'actor_staff_id');
 
         $generatedAt = $generatedAt ?: now();
+        $overrideTemplateCode = $this->normalizeTemplateCode($overrideTemplateCode);
 
-        // resolve which COA doc_code applies (WGS vs PCR Mandiri vs PCR Kerjasama)
-        $tpl = $this->coaPdf->resolveTemplate($reportId, null);
+        // Decide which doc_code to use (WGS vs PCR Kerjasama vs PCR Mandiri)
+        $tpl = $this->coaPdf->resolveTemplate($reportId, $overrideTemplateCode);
         $docCode = (string) ($tpl['doc_code'] ?? 'COA_PCR_MANDIRI');
 
-        // If already has PDF and not forced, reuse
+        // Reuse existing PDF if requested
         if (!$forceRegenerate && Schema::hasColumn('reports', 'pdf_file_id')) {
             $existing = (int) (DB::table('reports')->where('report_id', $reportId)->value('pdf_file_id') ?? 0);
             if ($existing > 0) {
-                return ['doc_code' => $docCode, 'pdf_file_id' => $existing, 'reused' => true];
+                return [
+                    'doc_code' => $docCode,
+                    'pdf_file_id' => $existing,
+                    'reused' => true,
+                ];
             }
         }
 
-        // Load core data
-        $report = DB::table('reports')->where('report_id', $reportId)->first();
-        if (!$report) throw new RuntimeException("Report {$reportId} not found.");
+        $report = $this->fetchReportOrFail($reportId);
+        $sample = $this->fetchSampleOrFail((int) $report->sample_id, $reportId);
+        $client = $this->fetchClientOrFallback($sample);
 
-        $sample = DB::table('samples')->where('sample_id', (int) $report->sample_id)->first();
-        if (!$sample) throw new RuntimeException("Sample not found for report {$reportId}.");
+        $items = $this->fetchReportItems($reportId);
 
-        $client = null;
-        if (!empty($sample->client_id) && Schema::hasTable('clients')) {
-            $client = DB::table('clients')->where('client_id', (int) $sample->client_id)->first();
-        }
-        if (!$client) {
-            $client = (object) ['name' => '', 'phone' => '', 'organization' => '', 'type' => 'individual'];
-        }
-
-        $items = DB::table('report_items')
-            ->where('report_id', $reportId)
-            ->orderBy('order_no')
-            ->orderBy('report_item_id')
-            ->get()
-            ->map(fn($r) => (array) $r)
-            ->all();
-
-        $wf = strtolower(trim((string) ($sample->workflow_group ?? '')));
-        $isWgs = $wf !== '' && str_contains($wf, 'wgs');
-
-        // Numbering (consistent with LOO/RR)
+        // Numbering (consistent with other documents)
         $nums = $this->numbers->generate($docCode, $generatedAt);
         $recordNo = (string) ($nums['record_no'] ?? '');
         $formCodeFull = (string) ($nums['form_code'] ?? '');
         $revisionNo = (int) ($nums['revision_no'] ?? 0);
 
+        // Some templates want only trailing date segment of form_code
         $formCodeDate = $this->extractTrailingDateCode($formCodeFull) ?: $generatedAt->format('d-m-y');
 
         // Dates
@@ -92,29 +80,31 @@ class CoaXlsxDocumentService
         $printedAt = $this->fmtDate($generatedAt);
         $resultDate = $printedAt;
 
-        // Extract results
+        // Results
         $orf1b = $this->pickFirstValueByNeedles($items, ['orf1b', 'orf1ab']);
-        $rdrp  = $this->pickFirstValueByNeedles($items, ['rdrp', 'rd-rp', 'rd rp']);
+        $rdrp = $this->pickFirstValueByNeedles($items, ['rdrp', 'rd-rp', 'rd rp']);
         $rpp30 = $this->pickFirstValueByNeedles($items, ['rpp30', 'rppp30']);
         $result = $this->inferResult($report, $items);
 
         $lineage = $this->pickFirstValueByNeedles($items, ['lineage']);
         $variant = $this->pickFirstValueByNeedles($items, ['variant', 'clade', 'mutasi']);
+
+        // QC vars (from latest QC cover payload if available)
         $qcVars = $this->buildQcVars((int) ($sample->sample_id ?? 0));
 
-        // Build vars for ${...}
         $vars = [
+            // identifiers
+            'doc_code' => $docCode,
+            'report_id' => (string) $reportId,
+            'report_no' => (string) ($report->report_no ?? ''),
+            'sample_id' => (string) ($sample->sample_id ?? ''),
+            'lab_sample_code' => (string) ($sample->lab_sample_code ?? ''),
+
             // numbering
             'record_no' => $recordNo,
             'form_code_full' => $formCodeFull,
             'form_code' => $formCodeDate,
             'revision_no' => (string) $revisionNo,
-
-            // identity
-            'report_id' => (string) $reportId,
-            'report_no' => (string) ($report->report_no ?? ''),
-            'sample_id' => (string) ($sample->sample_id ?? ''),
-            'lab_sample_code' => (string) ($sample->lab_sample_code ?? ''),
 
             // client
             'client_name' => (string) ($client->name ?? ''),
@@ -130,30 +120,33 @@ class CoaXlsxDocumentService
             'printed_at' => $printedAt,
             'result_date' => $resultDate,
 
-            // PCR results
+            // PCR
             'orf1b' => $orf1b ?? '',
             'rdrp' => $rdrp ?? '',
             'rpp30' => $rpp30 ?? '',
             'result' => $result ?? '',
 
-            // WGS results
+            // WGS
             'lineage' => $lineage ?? '',
             'variant' => $variant ?? '',
 
-            // misc (optional)
+            // misc
             'sample_type' => (string) ($sample->sample_type ?? ''),
             'workflow_group' => (string) ($sample->workflow_group ?? ''),
         ];
+
+        // ✅ QC placeholders must be available BEFORE render
+        $vars = array_merge($vars, $qcVars);
 
         // Load XLSX template from DB
         $tplRow = $this->loadActiveTemplateOrFail($docCode);
         $templateBytes = $tplRow['bytes'];
         $templateVersionNo = (int) $tplRow['template_version'];
 
-        // Prefer sheet per doc_code (prevents multi-sheet PDF explosions)
+        // Prevent multi-sheet export chaos
         $preferredSheet = $this->preferredSheetNameForDocCode($docCode);
 
-        // Render + Convert
+        // Render & convert
         $mergedXlsx = $this->xlsx->renderBytes($templateBytes, $vars, $preferredSheet);
         $pdfBytes = $this->converter->convertBytes($mergedXlsx, 'xlsx');
 
@@ -180,9 +173,7 @@ class CoaXlsxDocumentService
             true
         );
 
-        $vars = array_merge($vars, $qcVars);
-
-        // Attach to reports
+        // Attach to report
         if (Schema::hasColumn('reports', 'pdf_file_id')) {
             DB::table('reports')->where('report_id', $reportId)->update([
                 'pdf_file_id' => $pdfFileId,
@@ -190,7 +181,7 @@ class CoaXlsxDocumentService
             ]);
         }
 
-        // Snapshot generated_documents (best effort)
+        // Snapshot generated_documents (best-effort)
         if (Schema::hasTable('generated_documents')) {
             DB::table('generated_documents')
                 ->where('doc_code', $docCode)
@@ -211,10 +202,8 @@ class CoaXlsxDocumentService
                 'revision_no' => $revisionNo,
                 'template_version' => $templateVersionNo,
                 'file_pdf_id' => $pdfFileId,
-
-                // NOTE: column name is file_docx_id, but we store XLSX source there (generic "source file").
+                // column name is file_docx_id, used as generic "source file" slot
                 'file_docx_id' => $xlsxFileId,
-
                 'generated_by' => $actorStaffId,
                 'generated_at' => $generatedAt,
                 'is_active' => true,
@@ -223,11 +212,16 @@ class CoaXlsxDocumentService
             ]);
         }
 
+        $wf = strtolower(trim((string) ($sample->workflow_group ?? '')));
+        $isWgs = $wf !== '' && str_contains($wf, 'wgs');
+
         return [
             'doc_code' => $docCode,
             'pdf_file_id' => (int) $pdfFileId,
             'xlsx_file_id' => (int) $xlsxFileId,
             'template_version' => $templateVersionNo,
+            'record_no' => $recordNo,
+            'form_code' => $formCodeFull,
             'is_wgs' => $isWgs,
         ];
     }
@@ -235,8 +229,12 @@ class CoaXlsxDocumentService
     private function preferredSheetNameForDocCode(string $docCode): ?string
     {
         $dc = strtoupper(trim($docCode));
+
+        // Per your rule:
+        // - Sheet "1" for Kerjasama & Mandiri
+        // - Sheet "LHU" for WGS
         return match ($dc) {
-            'COA_PCR_MANDIRI' => 'master',
+            'COA_PCR_MANDIRI' => '1',
             'COA_PCR_KERJASAMA' => '1',
             'COA_WGS' => 'LHU',
             default => null,
@@ -255,22 +253,34 @@ class CoaXlsxDocumentService
             ->where('is_active', true)
             ->first(['doc_id', 'version_current_id']);
 
-        if (!$doc) throw new RuntimeException("Template {$docCode} not found or inactive.");
+        if (!$doc) {
+            throw new RuntimeException("Template {$docCode} not found or inactive.");
+        }
+
         $verId = (int) ($doc->version_current_id ?? 0);
-        if ($verId <= 0) throw new RuntimeException("Template {$docCode} has no uploaded version yet.");
+        if ($verId <= 0) {
+            throw new RuntimeException("Template {$docCode} has no uploaded version yet.");
+        }
 
         $ver = DB::table('document_versions')
             ->where('doc_ver_id', $verId)
             ->first(['doc_ver_id', 'file_id', 'version_no']);
 
-        if (!$ver) throw new RuntimeException("Template {$docCode} version not found.");
+        if (!$ver) {
+            throw new RuntimeException("Template {$docCode} version not found.");
+        }
+
         $fileId = (int) ($ver->file_id ?? 0);
-        if ($fileId <= 0) throw new RuntimeException("Template {$docCode} version missing file_id.");
+        if ($fileId <= 0) {
+            throw new RuntimeException("Template {$docCode} version missing file_id.");
+        }
 
         $file = $this->files->getFile($fileId);
         $bytes = $this->normalizeDbBytes($file->bytes ?? null);
 
-        if ($bytes === '') throw new RuntimeException("Template {$docCode} file bytes not found.");
+        if ($bytes === '') {
+            throw new RuntimeException("Template {$docCode} file bytes not found.");
+        }
 
         return [
             'bytes' => $bytes,
@@ -278,13 +288,48 @@ class CoaXlsxDocumentService
         ];
     }
 
-    private function normalizeDbBytes($bytes): string
+    private function fetchReportOrFail(int $reportId): object
     {
-        if (is_resource($bytes)) {
-            $read = stream_get_contents($bytes);
-            return is_string($read) ? $read : '';
+        $report = DB::table('reports')->where('report_id', $reportId)->first();
+        if (!$report) {
+            throw new RuntimeException("Report {$reportId} not found.");
         }
-        return is_string($bytes) ? $bytes : '';
+        return $report;
+    }
+
+    private function fetchSampleOrFail(int $sampleId, int $reportId): object
+    {
+        $sample = DB::table('samples')->where('sample_id', $sampleId)->first();
+        if (!$sample) {
+            throw new RuntimeException("Sample not found for report {$reportId}.");
+        }
+        return $sample;
+    }
+
+    private function fetchClientOrFallback(object $sample): object
+    {
+        if (!empty($sample->client_id) && Schema::hasTable('clients')) {
+            $client = DB::table('clients')->where('client_id', (int) $sample->client_id)->first();
+            if ($client) return $client;
+        }
+
+        return (object) [
+            'name' => '',
+            'phone' => '',
+            'organization' => '',
+            'type' => 'individual',
+        ];
+    }
+
+    private function fetchReportItems(int $reportId): array
+    {
+        return DB::table('report_items')
+            ->where('report_id', $reportId)
+            ->orderBy('order_no')
+            ->orderBy('report_item_id')
+            ->get()
+            ->map(fn($r) => (array) $r)
+            ->all();
     }
 
     private function pickLhSignedAt(int $reportId): ?string
@@ -381,14 +426,30 @@ class CoaXlsxDocumentService
         return $s . '_' . substr(hash('sha256', Str::uuid()->toString()), 0, 8);
     }
 
+    private function normalizeTemplateCode(?string $templateCode): ?string
+    {
+        $t = is_string($templateCode) ? trim($templateCode) : '';
+        return $t !== '' ? $t : null;
+    }
+
     private function assertPositive(int $value, string $name): void
     {
-        if ($value <= 0) throw new RuntimeException("{$name} is required.");
+        if ($value <= 0) {
+            throw new RuntimeException("{$name} is required.");
+        }
+    }
+
+    private function normalizeDbBytes($bytes): string
+    {
+        if (is_resource($bytes)) {
+            $read = stream_get_contents($bytes);
+            return is_string($read) ? $read : '';
+        }
+        return is_string($bytes) ? $bytes : '';
     }
 
     private function buildQcVars(int $sampleId): array
     {
-        // default aman: kalau payload tidak ada, tetap tampil + / -
         $out = [
             'qc_orf1b_pos' => '+',
             'qc_orf1b_neg' => '-',
@@ -403,7 +464,6 @@ class CoaXlsxDocumentService
         $payload = $this->fetchLatestQualityCoverPayload($sampleId);
         if (!$payload) return $out;
 
-        // ambil nilai dari payload kalau ada (best-effort, fleksibel)
         $out['qc_orf1b_pos'] = $this->pickQc($payload, 'ORF1b', 'positive') ?? $out['qc_orf1b_pos'];
         $out['qc_orf1b_neg'] = $this->pickQc($payload, 'ORF1b', 'negative') ?? $out['qc_orf1b_neg'];
 
@@ -418,11 +478,10 @@ class CoaXlsxDocumentService
 
     private function fetchLatestQualityCoverPayload(int $sampleId): ?array
     {
-        if (!\Illuminate\Support\Facades\Schema::hasTable('quality_covers')) return null;
+        if (!Schema::hasTable('quality_covers')) return null;
 
-        $row = \Illuminate\Support\Facades\DB::table('quality_covers')
+        $row = DB::table('quality_covers')
             ->where('sample_id', $sampleId)
-            // prefer validated kalau ada
             ->orderByRaw("CASE WHEN status = 'validated' THEN 0 ELSE 1 END")
             ->orderByDesc('quality_cover_id')
             ->first(['qc_payload']);
@@ -442,30 +501,20 @@ class CoaXlsxDocumentService
         return null;
     }
 
-    /**
-     * Best-effort QC picker.
-     * Supports several possible payload shapes, e.g.:
-     * - qc_positive: { ORF1b: "+", ... }, qc_negative: { ... }
-     * - qc: { positive: {...}, negative: {...} }
-     * - ORF1b: { qc_positive: "+", qc_negative: "-" }
-     */
     private function pickQc(array $payload, string $target, string $kind): ?string
     {
-        $tKey = strtolower($target);
         $kind = strtolower($kind); // positive | negative
 
         $targets = [
             $target,
             strtoupper($target),
             strtolower($target),
-            $tKey,
         ];
 
         $kindKeys = $kind === 'positive'
             ? ['qc_positive', 'qcPositive', 'positive', 'pos', 'qc_pos']
             : ['qc_negative', 'qcNegative', 'negative', 'neg', 'qc_neg'];
 
-        // 1) payload['qc_positive'][target]
         foreach (['qc_positive', 'qcPositive'] as $root) {
             if (isset($payload[$root]) && is_array($payload[$root])) {
                 foreach ($targets as $tk) {
@@ -475,30 +524,30 @@ class CoaXlsxDocumentService
             }
         }
 
-        // 2) payload['qc']['positive'][target]
         if (isset($payload['qc']) && is_array($payload['qc'])) {
             $qc = $payload['qc'];
 
-            foreach (['positive', 'pos'] as $pKey) {
-                if ($kind === 'positive' && isset($qc[$pKey]) && is_array($qc[$pKey])) {
-                    foreach ($targets as $tk) {
-                        $v = $qc[$pKey][$tk] ?? null;
-                        if ($v !== null && $v !== '') return (string) $v;
+            if ($kind === 'positive') {
+                foreach (['positive', 'pos'] as $pKey) {
+                    if (isset($qc[$pKey]) && is_array($qc[$pKey])) {
+                        foreach ($targets as $tk) {
+                            $v = $qc[$pKey][$tk] ?? null;
+                            if ($v !== null && $v !== '') return (string) $v;
+                        }
                     }
                 }
-            }
-
-            foreach (['negative', 'neg'] as $nKey) {
-                if ($kind === 'negative' && isset($qc[$nKey]) && is_array($qc[$nKey])) {
-                    foreach ($targets as $tk) {
-                        $v = $qc[$nKey][$tk] ?? null;
-                        if ($v !== null && $v !== '') return (string) $v;
+            } else {
+                foreach (['negative', 'neg'] as $nKey) {
+                    if (isset($qc[$nKey]) && is_array($qc[$nKey])) {
+                        foreach ($targets as $tk) {
+                            $v = $qc[$nKey][$tk] ?? null;
+                            if ($v !== null && $v !== '') return (string) $v;
+                        }
                     }
                 }
             }
         }
 
-        // 3) payload[target]['qc_positive' / 'qc_negative' / ...]
         foreach ($targets as $tk) {
             $node = $payload[$tk] ?? null;
             if (!is_array($node)) continue;
