@@ -697,6 +697,22 @@
             "states": {
                 "loading": "Memuat quality cover…"
             },
+            "supporting": {
+                "title": "Dokumen pendukung",
+                "subtitle": "Opsional. Upload file apa saja (0..n): PDF, gambar, DOCX, XLSX, dll.",
+                "driveUrl": "Link Google Drive (opsional)",
+                "notes": "Keterangan lain (opsional)",
+                "upload": "Upload dokumen pendukung (0..n)",
+                "pending": "Menunggu upload",
+                "uploaded": "Sudah diupload",
+                "noFiles": "Belum ada dokumen pendukung.",
+                "filesHint": "File akan diupload saat kamu klik Simpan draft atau Submit.",
+                "download": "Unduh",
+                "remove": "Hapus",
+                "uploading": "Mengupload…",
+                "removeFailed": "Gagal menghapus dokumen pendukung.",
+                "uploadFailed": "Gagal mengupload dokumen pendukung."
+            },
             "meta": {
                 "parameter": "Parameter",
                 "date": "Tanggal",

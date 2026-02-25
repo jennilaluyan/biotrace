@@ -697,6 +697,22 @@
             "states": {
                 "loading": "Loading quality cover…"
             },
+            "supporting": {
+                "title": "Supporting documents",
+                "subtitle": "Optional. Upload any files (0..n): PDF, images, DOCX, XLSX, etc.",
+                "driveUrl": "Google Drive link (optional)",
+                "notes": "Other notes (optional)",
+                "upload": "Upload supporting docs (0..n)",
+                "pending": "Pending upload",
+                "uploaded": "Uploaded",
+                "noFiles": "No supporting documents uploaded.",
+                "filesHint": "Files are uploaded when you click Save draft or Submit.",
+                "download": "Download",
+                "remove": "Remove",
+                "uploading": "Uploading…",
+                "removeFailed": "Failed to remove supporting document.",
+                "uploadFailed": "Failed to upload supporting documents."
+            },
             "meta": {
                 "parameter": "Parameter",
                 "date": "Date",

@@ -1,9 +1,18 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\QualityCoverSection.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Save, Send, Loader2 } from "lucide-react";
+import { Save, Send, Loader2, Paperclip, Download, Trash2 } from "lucide-react";
 
 import type { Sample } from "../../services/samples";
-import { QualityCover, getQualityCover, saveQualityCoverDraft, submitQualityCover } from "../../services/qualityCovers";
+import {
+    QualityCover,
+    getQualityCover,
+    saveQualityCoverDraft,
+    submitQualityCover,
+    uploadQualityCoverSupportingDocs,
+    deleteQualityCoverSupportingDoc,
+    type SupportingFile,
+} from "../../services/qualityCovers";
 import { formatDateTimeLocal } from "../../utils/date";
 
 function cx(...arr: Array<string | false | null | undefined>) {
@@ -51,16 +60,42 @@ type ValidationKey =
 
 type ValidationResult = { ok: true } | { ok: false; key: ValidationKey; ctx?: Record<string, any> };
 
+function humanFileSize(bytes: number | null | undefined): string {
+    const n = Number(bytes);
+    if (!Number.isFinite(n) || n <= 0) return "—";
+    const kb = n / 1024;
+    if (kb < 1024) return `${Math.ceil(kb)} KB`;
+    const mb = kb / 1024;
+    if (mb < 1024) return `${mb.toFixed(1)} MB`;
+    const gb = mb / 1024;
+    return `${gb.toFixed(1)} GB`;
+}
+
+/**
+ * Quality Cover Section (Analyst)
+ * Fix 3 additions:
+ * - Optional Google Drive link
+ * - Optional notes
+ * - Supporting documents upload (0..n, any file types)
+ *
+ * Important:
+ * - Supporting docs can be modified ONLY while QC is draft.
+ * - On submit: we force a draft save + upload pending files BEFORE submitting.
+ */
 export function QualityCoverSection(props: Props) {
     const { t } = useTranslation();
+    const ts = (key: string, options?: any) => String(t(key, options));
+
     const { sample, checkedByName, disabled, onAfterSave } = props;
 
     const sampleId = Number((sample as any)?.sample_id ?? 0);
 
+    // Fix 2 groups (new): pcr | sequencing | rapid | microbiology
+    // UI logic here still uses "wgs" form fields; we map sequencing -> wgs.
     const workflowGroup = String((sample as any)?.workflow_group ?? "").toLowerCase();
     const qcGroup = useMemo(() => {
         if (workflowGroup.includes("pcr")) return "pcr";
-        if (workflowGroup.includes("wgs")) return "wgs";
+        if (workflowGroup.includes("sequencing") || workflowGroup.includes("wgs")) return "wgs";
         return "others";
     }, [workflowGroup]);
 
@@ -93,6 +128,15 @@ export function QualityCoverSection(props: Props) {
     const [methodOfAnalysis, setMethodOfAnalysis] = useState("");
     const [qcPayload, setQcPayload] = useState<any>({});
 
+    // ✅ Fix 3: supporting fields (optional)
+    const [supportingDriveUrl, setSupportingDriveUrl] = useState("");
+    const [supportingNotes, setSupportingNotes] = useState("");
+
+    // ✅ Fix 3: supporting docs upload
+    const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+    const [uploadingFiles, setUploadingFiles] = useState(false);
+    const [uploadError, setUploadError] = useState<string | null>(null);
+
     useEffect(() => {
         if (!sampleId) return;
 
@@ -108,8 +152,11 @@ export function QualityCoverSection(props: Props) {
 
                 setCover(c);
 
-                if (c?.method_of_analysis) setMethodOfAnalysis(String(c.method_of_analysis));
-                if (c?.qc_payload) setQcPayload(c.qc_payload);
+                setMethodOfAnalysis(c?.method_of_analysis ? String(c.method_of_analysis) : "");
+                setQcPayload(c?.qc_payload ?? {});
+
+                setSupportingDriveUrl(String(c?.supporting_drive_url ?? ""));
+                setSupportingNotes(String(c?.supporting_notes ?? ""));
             } catch (e: any) {
                 if (!alive) return;
                 setQcError(prettyErr(e, t("qualityCover.section.errors.loadFailed")));
@@ -185,6 +232,41 @@ export function QualityCoverSection(props: Props) {
         return typeof msg === "string" ? msg : String(msg);
     }, [validate, t]);
 
+    const isLocked = !!disabled || cover?.status === "submitted";
+    const isBusy = qcLoading || qcSaving || qcSubmitting || uploadingFiles;
+
+    // show "now" as analysis date placeholder (until backend provides date_of_analysis field)
+    const nowLabel = useMemo(() => {
+        try {
+            return formatDateTimeLocal(new Date().toISOString());
+        } catch {
+            return new Date().toLocaleString();
+        }
+    }, []);
+
+    const supportingFiles: SupportingFile[] = useMemo(() => {
+        const arr = (cover as any)?.supporting_files;
+        return Array.isArray(arr) ? (arr as SupportingFile[]) : [];
+    }, [cover]);
+
+    async function uploadPendingIfAny(qualityCoverId: number) {
+        if (pendingFiles.length === 0) return;
+
+        setUploadingFiles(true);
+        setUploadError(null);
+
+        try {
+            const updated = await uploadQualityCoverSupportingDocs(qualityCoverId, pendingFiles);
+            setCover(updated);
+            setPendingFiles([]);
+        } catch (e: any) {
+            setUploadError(prettyErr(e, "Failed to upload supporting documents."));
+            throw e;
+        } finally {
+            setUploadingFiles(false);
+        }
+    }
+
     async function onSaveDraft() {
         if (!sampleId) return;
         if (disabled) return;
@@ -194,13 +276,23 @@ export function QualityCoverSection(props: Props) {
 
         try {
             const c = await saveQualityCoverDraft(sampleId, {
-                parameter_id: parameterId,
-                parameter_label: paramLabel !== "—" ? paramLabel : undefined,
-                method_of_analysis: methodOfAnalysis || undefined,
+                parameter_id: parameterId ?? null,
+                parameter_label: paramLabel !== "—" ? paramLabel : null,
+                method_of_analysis: methodOfAnalysis || null,
                 qc_payload: qcPayload,
+
+                // ✅ Fix 3
+                supporting_drive_url: supportingDriveUrl.trim() || null,
+                supporting_notes: supportingNotes.trim() || null,
             });
 
             setCover(c);
+
+            // Upload pending documents (draft-only)
+            if (c?.quality_cover_id) {
+                await uploadPendingIfAny(Number(c.quality_cover_id));
+            }
+
             onAfterSave?.();
         } catch (e: any) {
             setQcError(prettyErr(e, t("qualityCover.section.errors.saveDraftFailed")));
@@ -218,22 +310,43 @@ export function QualityCoverSection(props: Props) {
         setQcError(null);
 
         try {
-            // ensure saved draft first (audit-friendly)
-            await saveQualityCoverDraft(sampleId, {
-                parameter_id: parameterId,
-                parameter_label: paramLabel !== "—" ? paramLabel : undefined,
+            // 1) Save draft first (audit-friendly + ensures QC row exists)
+            const draft = await saveQualityCoverDraft(sampleId, {
+                parameter_id: parameterId ?? null,
+                parameter_label: paramLabel !== "—" ? paramLabel : null,
                 method_of_analysis: methodOfAnalysis.trim(),
                 qc_payload: qcPayload,
+
+                // ✅ Fix 3
+                supporting_drive_url: supportingDriveUrl.trim() || null,
+                supporting_notes: supportingNotes.trim() || null,
             });
 
+            setCover(draft);
+
+            // 2) Upload any pending files BEFORE submit (upload is draft-only)
+            if (draft?.quality_cover_id) {
+                await uploadPendingIfAny(Number(draft.quality_cover_id));
+            }
+
+            // 3) Submit
             const submitted = await submitQualityCover(sampleId, {
-                parameter_id: parameterId,
-                parameter_label: paramLabel !== "—" ? paramLabel : undefined,
+                parameter_id: parameterId ?? null,
+                parameter_label: paramLabel !== "—" ? paramLabel : null,
                 method_of_analysis: methodOfAnalysis.trim(),
                 qc_payload: qcPayload,
+
+                // ✅ Fix 3
+                supporting_drive_url: supportingDriveUrl.trim() || null,
+                supporting_notes: supportingNotes.trim() || null,
             });
 
             setCover(submitted);
+
+            // 4) Refresh once more to ensure supporting_files list is included (backend may not eager-load on submit)
+            const refreshed = await getQualityCover(sampleId);
+            if (refreshed) setCover(refreshed);
+
             onAfterSave?.();
         } catch (e: any) {
             setQcError(prettyErr(e, t("qualityCover.section.errors.submitFailed")));
@@ -242,17 +355,19 @@ export function QualityCoverSection(props: Props) {
         }
     }
 
-    const isLocked = !!disabled || cover?.status === "submitted";
-    const isBusy = qcLoading || qcSaving || qcSubmitting;
+    async function onRemoveSupportingFile(fileId: number) {
+        if (!cover?.quality_cover_id) return;
+        if (isLocked) return;
 
-    // show "now" as analysis date placeholder (until backend provides date_of_analysis field)
-    const nowLabel = useMemo(() => {
+        setUploadError(null);
+
         try {
-            return formatDateTimeLocal(new Date().toISOString());
-        } catch {
-            return new Date().toLocaleString();
+            const updated = await deleteQualityCoverSupportingDoc(Number(cover.quality_cover_id), Number(fileId));
+            setCover(updated);
+        } catch (e: any) {
+            setUploadError(prettyErr(e, "Failed to remove supporting document."));
         }
-    }, []);
+    }
 
     return (
         <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
@@ -276,7 +391,7 @@ export function QualityCoverSection(props: Props) {
                     <div className="text-xs text-gray-500 mt-1">{t("qualityCover.section.subtitle")}</div>
                 </div>
 
-                {/* Actions (secondary + primary) */}
+                {/* Actions */}
                 <div className="flex items-center gap-2">
                     <button
                         type="button"
@@ -299,10 +414,11 @@ export function QualityCoverSection(props: Props) {
                         className={cx(
                             "lims-btn-primary inline-flex items-center justify-center gap-2 rounded-xl h-10 px-3",
                             "min-w-11",
-                            (!!submitDisabledReason || qcLoading || qcSubmitting) && "opacity-60 cursor-not-allowed"
+                            (!!submitDisabledReason || qcLoading || qcSubmitting || uploadingFiles) &&
+                            "opacity-60 cursor-not-allowed"
                         )}
                         onClick={onSubmit}
-                        disabled={qcLoading || qcSubmitting || !!submitDisabledReason}
+                        disabled={qcLoading || qcSubmitting || uploadingFiles || !!submitDisabledReason}
                         aria-label={t("submit")}
                         title={submitDisabledReason || t("submit")}
                     >
@@ -315,10 +431,7 @@ export function QualityCoverSection(props: Props) {
             <div className="px-5 py-4">
                 {/* Error */}
                 {qcError ? (
-                    <div
-                        className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-3"
-                        role="alert"
-                    >
+                    <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-3" role="alert">
                         {qcError}
                     </div>
                 ) : null}
@@ -391,9 +504,7 @@ export function QualityCoverSection(props: Props) {
 
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                                         <div>
-                                            <label className="block text-xs text-gray-500">
-                                                {t("qualityCover.section.pcr.value")}
-                                            </label>
+                                            <label className="block text-xs text-gray-500">{t("qualityCover.section.pcr.value")}</label>
                                             <input
                                                 value={qcPayload?.[k]?.value ?? ""}
                                                 onChange={(e) =>
@@ -410,9 +521,7 @@ export function QualityCoverSection(props: Props) {
                                         </div>
 
                                         <div>
-                                            <label className="block text-xs text-gray-500">
-                                                {t("qualityCover.section.pcr.result")}
-                                            </label>
+                                            <label className="block text-xs text-gray-500">{t("qualityCover.section.pcr.result")}</label>
                                             <input
                                                 value={qcPayload?.[k]?.result ?? ""}
                                                 onChange={(e) =>
@@ -501,6 +610,165 @@ export function QualityCoverSection(props: Props) {
                             {submitDisabledReason}
                         </div>
                     ) : null}
+                </div>
+
+                {/* ✅ Fix 3: Supporting documents */}
+                <div className="mt-5 rounded-2xl border border-gray-100 bg-white overflow-hidden">
+                    <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                                <Paperclip size={16} className="text-gray-700" />
+                                <div className="text-sm font-extrabold text-gray-900">
+                                    {ts("qualityCover.section.supporting.title", { defaultValue: "Supporting documents" })}
+                                </div>
+
+                                <div className="text-xs text-gray-500 mt-1">
+                                    {ts("qualityCover.section.supporting.subtitle", {
+                                        defaultValue: "Optional. Upload any files (0..n): PDF, images, DOCX, XLSX, etc.",
+                                    })}
+                                </div>
+                            </div>
+
+                            {uploadingFiles ? (
+                                <div className="text-xs text-gray-600 inline-flex items-center gap-2">
+                                    <Loader2 size={14} className="animate-spin" />
+                                    Uploading…
+                                </div>
+                            ) : null}
+                        </div>
+
+                        <div className="p-4 space-y-4">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                    {ts("qualityCover.section.supporting.driveUrl", { defaultValue: "Google Drive link (optional)" })}
+                                </label>
+                                <input
+                                    value={supportingDriveUrl}
+                                    onChange={(e) => setSupportingDriveUrl(e.target.value)}
+                                    placeholder="https://drive.google.com/..."
+                                    disabled={isLocked}
+                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                    {ts("qualityCover.section.supporting.notes", { defaultValue: "Other notes (optional)" })}
+                                </label>
+                                <textarea
+                                    value={supportingNotes}
+                                    onChange={(e) => setSupportingNotes(e.target.value)}
+                                    rows={3}
+                                    placeholder="Any additional context…"
+                                    disabled={isLocked}
+                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                    {ts("qualityCover.section.supporting.upload", { defaultValue: "Upload supporting docs (0..n)" })}
+                                </label>
+
+                                <input
+                                    type="file"
+                                    multiple
+                                    disabled={isLocked || uploadingFiles}
+                                    onChange={(e) => {
+                                        const files = Array.from(e.target.files ?? []);
+                                        if (files.length === 0) return;
+                                        setPendingFiles((prev) => [...prev, ...files]);
+                                        e.currentTarget.value = "";
+                                    }}
+                                    className="block w-full text-sm"
+                                />
+
+                                {uploadError ? (
+                                    <div className="mt-2 text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
+                                        {uploadError}
+                                    </div>
+                                ) : null}
+
+                                {pendingFiles.length > 0 ? (
+                                    <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                                        <div className="text-xs font-semibold text-gray-700">Pending upload</div>
+                                        <ul className="mt-2 space-y-2">
+                                            {pendingFiles.map((f, idx) => (
+                                                <li key={`${f.name}-${idx}`} className="flex items-center justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <div className="text-sm font-medium text-gray-900 truncate">{f.name}</div>
+                                                        <div className="text-xs text-gray-500">{humanFileSize(f.size)}</div>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        className="lims-icon-button"
+                                                        onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
+                                                        disabled={isLocked || uploadingFiles}
+                                                        aria-label="Remove"
+                                                        title="Remove"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                        <div className="mt-3 text-[11px] text-gray-500">
+                                            Files are uploaded when you click <span className="font-semibold">Save draft</span> or{" "}
+                                            <span className="font-semibold">Submit</span>.
+                                        </div>
+                                    </div>
+                                ) : null}
+
+                                {supportingFiles.length > 0 ? (
+                                    <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3">
+                                        <div className="text-xs font-semibold text-gray-700">Uploaded</div>
+                                        <ul className="mt-2 space-y-2">
+                                            {supportingFiles.map((f) => (
+                                                <li key={f.file_id} className="flex items-center justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <div className="text-sm font-medium text-gray-900 truncate">
+                                                            {f.original_name ?? `File #${f.file_id}`}
+                                                        </div>
+                                                        <div className="text-xs text-gray-500">
+                                                            {humanFileSize(f.size_bytes)} {f.mime_type ? `• ${f.mime_type}` : ""}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2">
+                                                        <a
+                                                            className="btn-outline px-3! py-1! text-xs inline-flex items-center gap-2"
+                                                            href={`/v1/files/${f.file_id}`}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            title="Download"
+                                                        >
+                                                            <Download size={14} />
+                                                            Download
+                                                        </a>
+
+                                                        {!isLocked ? (
+                                                            <button
+                                                                type="button"
+                                                                className="lims-icon-button"
+                                                                onClick={() => onRemoveSupportingFile(f.file_id)}
+                                                                disabled={uploadingFiles}
+                                                                aria-label="Remove"
+                                                                title="Remove"
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        ) : null}
+                                                    </div>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                ) : (
+                                    <div className="mt-3 text-[11px] text-gray-500">No supporting documents uploaded.</div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
