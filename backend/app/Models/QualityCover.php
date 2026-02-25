@@ -28,6 +28,8 @@ class QualityCover extends Model
         'reject_reason',
         'rejected_by_staff_id',
         'rejected_at',
+        'supporting_drive_url',
+        'supporting_notes',
     ];
 
     protected $casts = [
@@ -57,5 +59,16 @@ class QualityCover extends Model
     public function validatedBy()
     {
         return $this->belongsTo(\App\Models\Staff::class, 'validated_by_staff_id', 'staff_id');
+    }
+
+    public function supportingFiles()
+    {
+        return $this->belongsToMany(
+            \App\Models\FileBlob::class,
+            'quality_cover_supporting_files',
+            'quality_cover_id',
+            'file_id'
+        )->withPivot(['created_by_staff_id'])
+            ->withTimestamps();
     }
 }

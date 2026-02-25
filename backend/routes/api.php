@@ -449,6 +449,12 @@ Route::prefix('v1')->group(function () {
         Route::get('quality-covers/{qualityCover}', [QualityCoverController::class, 'showById'])
             ->whereNumber('qualityCover');
 
+        Route::post('quality-covers/{qualityCover}/supporting-files', [QualityCoverController::class, 'uploadSupportingFiles'])
+            ->whereNumber('qualityCover');
+        Route::delete('quality-covers/{qualityCover}/supporting-files/{fileId}', [QualityCoverController::class, 'deleteSupportingFile'])
+            ->whereNumber('qualityCover')
+            ->whereNumber('fileId');
+
         /*
         |----------------------------------------------------------------------
         | Audit Logs
