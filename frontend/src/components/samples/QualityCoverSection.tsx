@@ -1,7 +1,6 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\QualityCoverSection.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Save, Send, Loader2, Paperclip, Download, Trash2 } from "lucide-react";
+import { Save, Send, Loader2, Paperclip, Download, Trash2, UploadCloud } from "lucide-react";
 
 import type { Sample } from "../../services/samples";
 import {
@@ -128,14 +127,24 @@ export function QualityCoverSection(props: Props) {
     const [methodOfAnalysis, setMethodOfAnalysis] = useState("");
     const [qcPayload, setQcPayload] = useState<any>({});
 
-    // ✅ Fix 3: supporting fields (optional)
     const [supportingDriveUrl, setSupportingDriveUrl] = useState("");
     const [supportingNotes, setSupportingNotes] = useState("");
 
-    // ✅ Fix 3: supporting docs upload
     const [pendingFiles, setPendingFiles] = useState<File[]>([]);
     const [uploadingFiles, setUploadingFiles] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
+
+    // drag & drop box
+    const [isDragOver, setIsDragOver] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+    function addPendingFiles(files: File[]) {
+        const incoming = (files ?? []).filter(Boolean);
+        if (incoming.length === 0) return;
+
+        // append, keep order (simple + predictable)
+        setPendingFiles((prev) => [...prev, ...incoming]);
+    }
 
     useEffect(() => {
         if (!sampleId) return;
@@ -612,9 +621,8 @@ export function QualityCoverSection(props: Props) {
                     ) : null}
                 </div>
 
-                {/* ✅ Fix 3: Supporting documents */}
-                <div className="mt-5 rounded-2xl border border-gray-100 bg-white overflow-hidden">
-                    <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
+                <div className="mt-5 w-full rounded-2xl border border-gray-100 bg-white overflow-hidden flex flex-col">
+                    <div className="w-full px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
                         <div className="min-w-0">
                             <div className="flex items-center gap-2">
                                 <Paperclip size={16} className="text-gray-700" />
@@ -637,18 +645,213 @@ export function QualityCoverSection(props: Props) {
                             ) : null}
                         </div>
 
-                        <div className="p-4 space-y-4">
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                    {ts("qualityCover.section.supporting.driveUrl", { defaultValue: "Google Drive link (optional)" })}
-                                </label>
-                                <input
-                                    value={supportingDriveUrl}
-                                    onChange={(e) => setSupportingDriveUrl(e.target.value)}
-                                    placeholder="https://drive.google.com/..."
-                                    disabled={isLocked}
-                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
-                                />
+                        <div className="w-full p-4 space-y-4">
+                            <div className="md:col-span-3">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* LEFT: Dropzone */}
+                                    <div>
+                                        <div
+                                            className={cx(
+                                                "rounded-2xl border-2 border-dashed p-6 bg-gray-50/60",
+                                                "flex flex-col items-center justify-center text-center",
+                                                "transition",
+                                                isLocked || uploadingFiles ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-gray-50",
+                                                isDragOver ? "border-primary ring-2 ring-primary-soft bg-white" : "border-gray-200"
+                                            )}
+                                            onClick={() => {
+                                                if (isLocked || uploadingFiles) return;
+                                                fileInputRef.current?.click();
+                                            }}
+                                            onDragOver={(e) => {
+                                                if (isLocked || uploadingFiles) return;
+                                                e.preventDefault();
+                                                setIsDragOver(true);
+                                            }}
+                                            onDragLeave={() => setIsDragOver(false)}
+                                            onDrop={(e) => {
+                                                if (isLocked || uploadingFiles) return;
+                                                e.preventDefault();
+                                                setIsDragOver(false);
+
+                                                const files = Array.from(e.dataTransfer?.files ?? []);
+                                                addPendingFiles(files);
+                                            }}
+                                            role="button"
+                                            aria-disabled={isLocked || uploadingFiles}
+                                            title={ts("qualityCover.section.supporting.upload", { defaultValue: "Upload supporting docs (0..n)" })}
+                                        >
+                                            <UploadCloud className={cx("mb-3", isDragOver ? "text-primary" : "text-gray-600")} size={34} />
+
+                                            <div className="text-sm font-semibold text-gray-900">
+                                                {ts("qualityCover.section.supporting.dropTitle", { defaultValue: "Drag and drop files here" })}
+                                            </div>
+                                            <div className="text-xs text-gray-500 mt-1">
+                                                {ts("qualityCover.section.supporting.dropHint", { defaultValue: "or browse from your computer" })}
+                                            </div>
+
+                                            <button
+                                                type="button"
+                                                className={cx("btn-outline mt-4", (isLocked || uploadingFiles) && "cursor-not-allowed")}
+                                                disabled={isLocked || uploadingFiles}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (isLocked || uploadingFiles) return;
+                                                    fileInputRef.current?.click();
+                                                }}
+                                            >
+                                                {ts("qualityCover.section.supporting.browse", { defaultValue: "Browse files" })}
+                                            </button>
+
+                                            <div className="mt-3 text-[11px] text-gray-500">
+                                                {ts("qualityCover.section.supporting.subtitle", {
+                                                    defaultValue: "Optional. Upload any files (0..n): PDF, images, DOCX, XLSX, etc.",
+                                                })}
+                                            </div>
+
+                                            {/* Hidden real input */}
+                                            <input
+                                                ref={fileInputRef}
+                                                type="file"
+                                                multiple
+                                                className="hidden"
+                                                disabled={isLocked || uploadingFiles}
+                                                onChange={(e) => {
+                                                    const files = Array.from(e.target.files ?? []);
+                                                    addPendingFiles(files);
+                                                    e.currentTarget.value = "";
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* RIGHT: Drive URL + Notes */}
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                                {ts("qualityCover.section.supporting.driveUrl", { defaultValue: "Google Drive link (optional)" })}
+                                            </label>
+                                            <input
+                                                value={supportingDriveUrl}
+                                                onChange={(e) => setSupportingDriveUrl(e.target.value)}
+                                                placeholder="https://drive.google.com/..."
+                                                disabled={isLocked}
+                                                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                                {ts("qualityCover.section.supporting.notes", { defaultValue: "Other notes (optional)" })}
+                                            </label>
+                                            <textarea
+                                                value={supportingNotes}
+                                                onChange={(e) => setSupportingNotes(e.target.value)}
+                                                rows={4}
+                                                placeholder="Any additional context…"
+                                                disabled={isLocked}
+                                                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                                {/* Messages */}
+                                {uploadError ? (
+                                    <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
+                                        {uploadError}
+                                    </div>
+                                ) : null}
+
+                                {/* Pending list */}
+                                {pendingFiles.length > 0 ? (
+                                    <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+                                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                                            <div className="text-sm font-semibold text-gray-900">
+                                                {ts("qualityCover.section.supporting.pending", { defaultValue: "Pending upload" })}
+                                            </div>
+                                            <div className="text-[11px] text-gray-500">
+                                                {ts("qualityCover.section.supporting.filesHint", { defaultValue: "Files are uploaded when you click Save draft or Submit." })}
+                                            </div>
+                                        </div>
+
+                                        <ul className="divide-y divide-gray-100">
+                                            {pendingFiles.map((f, idx) => (
+                                                <li key={`${f.name}-${idx}`} className="px-4 py-3 flex items-center justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <div className="text-sm font-medium text-gray-900 truncate">{f.name}</div>
+                                                        <div className="text-xs text-gray-500">{humanFileSize(f.size)}</div>
+                                                    </div>
+
+                                                    <button
+                                                        type="button"
+                                                        className="lims-icon-button"
+                                                        onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
+                                                        disabled={isLocked || uploadingFiles}
+                                                        aria-label={ts("qualityCover.section.supporting.remove", { defaultValue: "Remove" })}
+                                                        title={ts("qualityCover.section.supporting.remove", { defaultValue: "Remove" })}
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                ) : null}
+
+                                {/* Uploaded list */}
+                                {supportingFiles.length > 0 ? (
+                                    <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+                                        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
+                                            <div className="text-sm font-semibold text-gray-900">
+                                                {ts("qualityCover.section.supporting.uploaded", { defaultValue: "Uploaded" })}
+                                            </div>
+                                        </div>
+
+                                        <ul className="divide-y divide-gray-100">
+                                            {supportingFiles.map((f) => (
+                                                <li key={f.file_id} className="px-4 py-3 flex items-center justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <div className="text-sm font-medium text-gray-900 truncate">
+                                                            {f.original_name ?? `File #${f.file_id}`}
+                                                        </div>
+                                                        <div className="text-xs text-gray-500">
+                                                            {humanFileSize(f.size_bytes)}{f.mime_type ? ` • ${f.mime_type}` : ""}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2">
+                                                        <a
+                                                            className="btn-outline px-3! py-1! text-xs inline-flex items-center gap-2"
+                                                            href={`/v1/files/${f.file_id}`}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            title={ts("qualityCover.section.supporting.download", { defaultValue: "Download" })}
+                                                        >
+                                                            <Download size={14} />
+                                                            {ts("qualityCover.section.supporting.download", { defaultValue: "Download" })}
+                                                        </a>
+
+                                                        {!isLocked ? (
+                                                            <button
+                                                                type="button"
+                                                                className="lims-icon-button"
+                                                                onClick={() => onRemoveSupportingFile(f.file_id)}
+                                                                disabled={uploadingFiles}
+                                                                aria-label={ts("qualityCover.section.supporting.remove", { defaultValue: "Remove" })}
+                                                                title={ts("qualityCover.section.supporting.remove", { defaultValue: "Remove" })}
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        ) : null}
+                                                    </div>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                ) : (
+                                    <div className="text-[11px] text-gray-500">
+                                        {ts("qualityCover.section.supporting.noFiles", { defaultValue: "No supporting documents uploaded." })}
+                                    </div>
+                                )}
                             </div>
 
                             <div>
@@ -663,109 +866,6 @@ export function QualityCoverSection(props: Props) {
                                     disabled={isLocked}
                                     className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
                                 />
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                    {ts("qualityCover.section.supporting.upload", { defaultValue: "Upload supporting docs (0..n)" })}
-                                </label>
-
-                                <input
-                                    type="file"
-                                    multiple
-                                    disabled={isLocked || uploadingFiles}
-                                    onChange={(e) => {
-                                        const files = Array.from(e.target.files ?? []);
-                                        if (files.length === 0) return;
-                                        setPendingFiles((prev) => [...prev, ...files]);
-                                        e.currentTarget.value = "";
-                                    }}
-                                    className="block w-full text-sm"
-                                />
-
-                                {uploadError ? (
-                                    <div className="mt-2 text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
-                                        {uploadError}
-                                    </div>
-                                ) : null}
-
-                                {pendingFiles.length > 0 ? (
-                                    <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
-                                        <div className="text-xs font-semibold text-gray-700">Pending upload</div>
-                                        <ul className="mt-2 space-y-2">
-                                            {pendingFiles.map((f, idx) => (
-                                                <li key={`${f.name}-${idx}`} className="flex items-center justify-between gap-3">
-                                                    <div className="min-w-0">
-                                                        <div className="text-sm font-medium text-gray-900 truncate">{f.name}</div>
-                                                        <div className="text-xs text-gray-500">{humanFileSize(f.size)}</div>
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        className="lims-icon-button"
-                                                        onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
-                                                        disabled={isLocked || uploadingFiles}
-                                                        aria-label="Remove"
-                                                        title="Remove"
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                        <div className="mt-3 text-[11px] text-gray-500">
-                                            Files are uploaded when you click <span className="font-semibold">Save draft</span> or{" "}
-                                            <span className="font-semibold">Submit</span>.
-                                        </div>
-                                    </div>
-                                ) : null}
-
-                                {supportingFiles.length > 0 ? (
-                                    <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3">
-                                        <div className="text-xs font-semibold text-gray-700">Uploaded</div>
-                                        <ul className="mt-2 space-y-2">
-                                            {supportingFiles.map((f) => (
-                                                <li key={f.file_id} className="flex items-center justify-between gap-3">
-                                                    <div className="min-w-0">
-                                                        <div className="text-sm font-medium text-gray-900 truncate">
-                                                            {f.original_name ?? `File #${f.file_id}`}
-                                                        </div>
-                                                        <div className="text-xs text-gray-500">
-                                                            {humanFileSize(f.size_bytes)} {f.mime_type ? `• ${f.mime_type}` : ""}
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="flex items-center gap-2">
-                                                        <a
-                                                            className="btn-outline px-3! py-1! text-xs inline-flex items-center gap-2"
-                                                            href={`/v1/files/${f.file_id}`}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            title="Download"
-                                                        >
-                                                            <Download size={14} />
-                                                            Download
-                                                        </a>
-
-                                                        {!isLocked ? (
-                                                            <button
-                                                                type="button"
-                                                                className="lims-icon-button"
-                                                                onClick={() => onRemoveSupportingFile(f.file_id)}
-                                                                disabled={uploadingFiles}
-                                                                aria-label="Remove"
-                                                                title="Remove"
-                                                            >
-                                                                <Trash2 size={16} />
-                                                            </button>
-                                                        ) : null}
-                                                    </div>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                ) : (
-                                    <div className="mt-3 text-[11px] text-gray-500">No supporting documents uploaded.</div>
-                                )}
                             </div>
                         </div>
                     </div>
