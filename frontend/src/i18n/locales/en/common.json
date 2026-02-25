@@ -640,6 +640,11 @@
             "breadcrumbLh": "Quality Cover Inbox (LH)",
             "breadcrumbCurrent": "Detail",
             "title": "Quality Cover Review",
+            "step": {
+                "om": "OM verification",
+                "lh": "LH validation"
+            },
+            "reportIdLabel": "Report ID",
             "meta": {
                 "sample": "Sample",
                 "client": "Client",

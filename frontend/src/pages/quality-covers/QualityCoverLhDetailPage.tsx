@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Download, FileText, RefreshCw } from "lucide-react";
+import { Download, FileText, Loader2, RefreshCw, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { formatDateTimeLocal } from "../../utils/date";
 import {
@@ -9,18 +10,29 @@ import {
     lhValidate,
     QualityCoverInboxItem,
     CoaReportResult,
+    type LhValidateResponse,
 } from "../../services/qualityCovers";
 import { openCoaPdfBySample } from "../../services/coa";
 
 import { QualityCoverDecisionModal } from "../../components/quality-covers/QualityCoverDecisionModal";
 
-type DecisionMode = "validate" | "reject";
-
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
+type DecisionMode = "validate" | "reject";
+
+type FlashPayload = {
+    type: "success" | "warning" | "error";
+    message: string;
+    sampleId?: number;
+    canDownload?: boolean;
+    reportId?: number | null;
+};
+
 export function QualityCoverLhDetailPage() {
+    const { t } = useTranslation();
+
     const { qualityCoverId } = useParams();
     const id = Number(qualityCoverId);
     const nav = useNavigate();
@@ -33,8 +45,7 @@ export function QualityCoverLhDetailPage() {
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // ✅ success toast (green)
-    const [success, setSuccess] = useState<string | null>(null);
+    const [flash, setFlash] = useState<FlashPayload | null>(null);
     const [report, setReport] = useState<CoaReportResult>(null);
 
     async function load(opts?: { silent?: boolean }) {
@@ -55,26 +66,54 @@ export function QualityCoverLhDetailPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
+    // auto dismiss flash
+    useEffect(() => {
+        if (!flash) return;
+        const tmr = window.setTimeout(() => setFlash(null), 9000);
+        return () => window.clearTimeout(tmr);
+    }, [flash]);
+
     async function submit() {
         if (!data || !mode) return;
 
         if (mode === "reject" && !reason.trim()) {
-            setError("Reject reason is required.");
+            setError(t("qualityCover.inbox.modal.errors.rejectReasonRequired"));
             return;
         }
 
         setSubmitting(true);
         setError(null);
-        setSuccess(null);
+        setFlash(null);
         setReport(null);
 
         try {
             if (mode === "validate") {
-                const res = await lhValidate(data.quality_cover_id);
+                const res = (await lhValidate(data.quality_cover_id)) as LhValidateResponse;
 
-                setSuccess(res?.message || "Quality cover validated. COA generated.");
+                const qc = res?.data?.quality_cover ?? null;
                 const r = res?.data?.report ?? null;
+                const coaError = res?.data?.coa_error ?? null;
+                const sampleId = qc?.sample_id ?? data.sample_id;
+
                 setReport(r);
+
+                if (r && typeof r.report_id === "number" && r.report_id > 0) {
+                    setFlash({
+                        type: "success",
+                        message: t("qualityCover.detail.flash.validatedOk"),
+                        sampleId,
+                        canDownload: true,
+                        reportId: r.report_id,
+                    });
+                } else {
+                    setFlash({
+                        type: "warning",
+                        message: coaError || res?.message || t("qualityCover.detail.flash.validatedWarn"),
+                        sampleId,
+                        canDownload: false,
+                        reportId: null,
+                    });
+                }
 
                 await load({ silent: true });
 
@@ -85,10 +124,21 @@ export function QualityCoverLhDetailPage() {
 
             if (mode === "reject") {
                 await lhReject(data.quality_cover_id, reason.trim());
+
                 setMode(null);
                 setReason("");
                 await load({ silent: true });
-                nav("/quality-covers/inbox/lh");
+
+                nav("/quality-covers/inbox/lh", {
+                    state: {
+                        flash: {
+                            type: "success",
+                            message: t("qualityCover.detail.flash.rejected"),
+                            sampleId: data.sample_id,
+                            canDownload: false,
+                        },
+                    },
+                });
                 return;
             }
         } catch (e: any) {
@@ -96,7 +146,8 @@ export function QualityCoverLhDetailPage() {
                 e?.message ||
                 e?.data?.message ||
                 (typeof e?.data === "string" ? e.data : null) ||
-                "Failed to submit decision.";
+                e?.response?.data?.message ||
+                t("qualityCover.inbox.modal.errors.submitFailed");
             setError(msg);
         } finally {
             setSubmitting(false);
@@ -106,10 +157,10 @@ export function QualityCoverLhDetailPage() {
     if (!Number.isFinite(id) || id <= 0) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
-                <h1 className="text-2xl font-semibold text-primary mb-2">Invalid ID</h1>
-                <p className="text-sm text-gray-600">Invalid quality cover id.</p>
+                <h1 className="text-2xl font-semibold text-primary mb-2">{t("qualityCover.detail.states.invalidIdTitle")}</h1>
+                <p className="text-sm text-gray-600">{t("qualityCover.detail.states.invalidIdBody")}</p>
                 <Link to="/quality-covers/inbox/lh" className="mt-4 lims-btn-primary">
-                    Back to inbox
+                    {t("qualityCover.detail.actions.backToInbox")}
                 </Link>
             </div>
         );
@@ -126,10 +177,10 @@ export function QualityCoverLhDetailPage() {
             <div className="px-0 py-2">
                 <nav className="lims-breadcrumb">
                     <Link to="/quality-covers/inbox/lh" className="lims-breadcrumb-link">
-                        Quality Cover Inbox (LH)
+                        {t("qualityCover.detail.breadcrumbLh")}
                     </Link>
                     <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">Detail</span>
+                    <span className="lims-breadcrumb-current">{t("qualityCover.detail.breadcrumbCurrent")}</span>
                 </nav>
             </div>
 
@@ -137,13 +188,13 @@ export function QualityCoverLhDetailPage() {
                 {/* Header */}
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div>
-                        <h1 className="text-lg md:text-xl font-bold text-gray-900">Quality Cover Review</h1>
+                        <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("qualityCover.detail.title")}</h1>
                         <div className="mt-1 flex items-center gap-2 flex-wrap">
-                            <span className="text-xs text-gray-500">Sample</span>
+                            <span className="text-xs text-gray-500">{t("qualityCover.detail.meta.sample")}</span>
                             <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
                                 {sampleCode}
                             </span>
-                            <span className="text-[11px] text-gray-500">LH validation</span>
+                            <span className="text-[11px] text-gray-500">{t("qualityCover.detail.step.lh")}</span>
                         </div>
                     </div>
 
@@ -153,48 +204,67 @@ export function QualityCoverLhDetailPage() {
                             className="lims-icon-button"
                             onClick={() => load()}
                             disabled={loading || submitting}
-                            aria-label="Refresh"
-                            title="Refresh"
+                            aria-label={t("refresh")}
+                            title={t("refresh")}
                         >
-                            <RefreshCw size={16} />
+                            {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
                         </button>
                     </div>
                 </div>
 
-                {/* ✅ green notification */}
-                {success ? (
-                    <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                        <div className="font-medium">{success}</div>
-                        <div className="mt-2 flex flex-wrap gap-2 items-center">
-                            <Link to="/reports" className="lims-btn inline-flex items-center gap-2">
+                {/* Flash banner */}
+                {flash ? (
+                    <div
+                        className={cx(
+                            "mt-4 rounded-2xl border px-4 py-3 text-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3",
+                            flash.type === "success" && "border-emerald-200 bg-emerald-50 text-emerald-900",
+                            flash.type === "warning" && "border-amber-200 bg-amber-50 text-amber-900",
+                            flash.type === "error" && "border-rose-200 bg-rose-50 text-rose-900"
+                        )}
+                    >
+                        <div className="leading-relaxed">
+                            <div className="font-medium">{flash.message}</div>
+                            {flash.reportId ? (
+                                <div className="mt-1 text-xs">
+                                    {t("qualityCover.detail.reportIdLabel")}: <span className="font-semibold">#{flash.reportId}</span>
+                                </div>
+                            ) : null}
+                        </div>
+
+                        <div className="flex items-center gap-2 justify-end">
+                            <Link to="/reports" className="lims-icon-button" aria-label={`${t("open")} ${t("nav.reports")}`} title={`${t("open")} ${t("nav.reports")}`}>
                                 <FileText size={16} />
-                                Open Reports
                             </Link>
 
-                            {sampleId ? (
+                            {flash.canDownload && flash.sampleId ? (
                                 <button
                                     type="button"
-                                    onClick={() => openCoaPdfBySample(sampleId, `COA_${sampleId}.pdf`)}
-                                    className="lims-btn inline-flex items-center gap-2"
+                                    onClick={() => openCoaPdfBySample(flash.sampleId!, `COA_${flash.sampleId}.pdf`)}
+                                    className="lims-icon-button"
+                                    aria-label={`${t("download")} COA`}
+                                    title={`${t("download")} COA`}
                                 >
                                     <Download size={16} />
-                                    Download COA
                                 </button>
                             ) : null}
 
-                            {report?.report_id ? (
-                                <div className="text-xs text-emerald-800 flex items-center">
-                                    Report ID: <span className="font-semibold ml-1">#{report.report_id}</span>
-                                </div>
-                            ) : null}
+                            <button
+                                type="button"
+                                onClick={() => setFlash(null)}
+                                className="lims-icon-button"
+                                aria-label={t("dismiss")}
+                                title={t("dismiss")}
+                            >
+                                <X size={16} />
+                            </button>
                         </div>
                     </div>
                 ) : null}
 
                 {loading ? (
-                    <div className="mt-4 text-sm text-gray-600">Loading…</div>
+                    <div className="mt-4 text-sm text-gray-600">{t("qualityCover.detail.states.loading")}</div>
                 ) : !data ? (
-                    <div className="mt-4 text-sm text-gray-600">Not found.</div>
+                    <div className="mt-4 text-sm text-gray-600">{t("qualityCover.detail.states.notFound")}</div>
                 ) : (
                     <div className="mt-4 space-y-6">
                         {/* Error banner */}
@@ -208,18 +278,19 @@ export function QualityCoverLhDetailPage() {
                         <div className="rounded-2xl border border-gray-200 bg-white p-4">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div>
-                                    <div className="text-sm text-gray-500">Sample</div>
+                                    <div className="text-sm text-gray-500">{t("qualityCover.detail.meta.sample")}</div>
                                     <div className="text-lg font-semibold text-gray-900">{sampleCode}</div>
                                     <div className="text-sm text-gray-600">
-                                        Client: {clientName} • Group: {group}
+                                        {t("qualityCover.detail.meta.client")}: {clientName} • {t("qualityCover.detail.meta.group")}: {group}
                                     </div>
                                 </div>
 
                                 <div className="text-right">
-                                    <div className="text-sm text-gray-500">Status</div>
+                                    <div className="text-sm text-gray-500">{t("qualityCover.detail.meta.status")}</div>
                                     <div className="font-medium text-gray-900">{data.status}</div>
                                     <div className="text-xs text-gray-600">
-                                        Verified: {data.verified_at ? formatDateTimeLocal(data.verified_at) : "-"}
+                                        {t("qualityCover.detail.meta.verified")}:{" "}
+                                        {data.verified_at ? formatDateTimeLocal(data.verified_at) : "-"}
                                     </div>
                                 </div>
                             </div>
@@ -229,14 +300,14 @@ export function QualityCoverLhDetailPage() {
                         <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
                             <div className="grid gap-3 md:grid-cols-2">
                                 <div>
-                                    <div className="text-xs text-gray-500">Date of analysis</div>
+                                    <div className="text-xs text-gray-500">{t("qualityCover.detail.fields.dateOfAnalysis")}</div>
                                     <div className="rounded-xl border border-gray-200 px-3 py-2 text-sm">
                                         {data.date_of_analysis ? formatDateTimeLocal(data.date_of_analysis) : "-"}
                                     </div>
                                 </div>
 
                                 <div>
-                                    <div className="text-xs text-gray-500">Checked by</div>
+                                    <div className="text-xs text-gray-500">{t("qualityCover.detail.fields.checkedBy")}</div>
                                     <div className="rounded-xl border border-gray-200 px-3 py-2 text-sm">
                                         {data.checked_by?.name ?? data.checked_by_staff_id ?? "-"}
                                     </div>
@@ -244,7 +315,7 @@ export function QualityCoverLhDetailPage() {
                             </div>
 
                             <div>
-                                <div className="text-xs text-gray-500">Method of analysis</div>
+                                <div className="text-xs text-gray-500">{t("qualityCover.detail.fields.methodOfAnalysis")}</div>
                                 <div className="rounded-xl border border-gray-200 px-3 py-2 text-sm">
                                     {data.method_of_analysis ?? "-"}
                                 </div>
@@ -260,10 +331,10 @@ export function QualityCoverLhDetailPage() {
                                         setMode("validate");
                                         setError(null);
                                     }}
-                                    className="lims-btn-primary"
+                                    className="lims-btn-primary inline-flex items-center gap-2"
                                     disabled={submitting}
                                 >
-                                    Validate
+                                    {t("qualityCover.detail.actions.validate")}
                                 </button>
 
                                 <button
@@ -272,20 +343,18 @@ export function QualityCoverLhDetailPage() {
                                         setMode("reject");
                                         setError(null);
                                     }}
-                                    className="lims-btn-danger"
+                                    className="lims-btn-danger inline-flex items-center gap-2"
                                     disabled={submitting}
                                 >
-                                    Reject
+                                    {t("qualityCover.detail.actions.reject")}
                                 </button>
 
                                 <Link to="/quality-covers/inbox/lh" className="lims-btn">
-                                    Back to inbox
+                                    {t("qualityCover.detail.actions.backToInbox")}
                                 </Link>
                             </div>
                         ) : (
-                            <div className="text-sm text-gray-600">
-                                This cover is not in <span className="font-medium">verified</span> status.
-                            </div>
+                            <div className="text-sm text-gray-600">{t("qualityCover.detail.hints.notInVerified")}</div>
                         )}
                     </div>
                 )}
@@ -295,13 +364,17 @@ export function QualityCoverLhDetailPage() {
             <QualityCoverDecisionModal
                 open={!!mode}
                 mode={mode === "reject" ? "reject" : "approve"}
-                title={mode === "reject" ? "Reject Quality Cover" : "Validate Quality Cover"}
-                subtitle={data ? `QC #${data.quality_cover_id} • Sample #${data.sample_id}` : undefined}
+                title={mode === "reject" ? t("qualityCover.inbox.modal.rejectTitle") : t("qualityCover.inbox.modal.validateTitle")}
+                subtitle={
+                    data
+                        ? t("qualityCover.inbox.modal.subtitle", { qcId: data.quality_cover_id, sampleId: data.sample_id })
+                        : undefined
+                }
                 submitting={submitting}
                 error={error}
                 rejectReason={reason}
                 onRejectReasonChange={setReason}
-                approveHint="This is the final step. The cover will become validated. If tests exist, COA will be generated."
+                approveHint={t("qualityCover.detail.hints.approveHintLh")}
                 onClose={() => {
                     if (submitting) return;
                     setMode(null);
