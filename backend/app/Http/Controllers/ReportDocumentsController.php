@@ -76,7 +76,7 @@ class ReportDocumentsController extends Controller
             $docName = 'Letter of Order (LOO)';
             $docCode = (string) $lo->number;
 
-            // ✅ Step 21: selalu lewat endpoint gate (OM+LH ready) => baru redirect ke /files/{id}
+            // ✅ selalu lewat endpoint gate => baru stream
             $downloadUrl = url("/api/v1/reports/documents/loo/{$loId}/pdf");
 
             $docs[] = [
@@ -91,10 +91,8 @@ class ReportDocumentsController extends Controller
                 'sample_ids' => $sampleIds,
                 'lo_id' => $loId,
 
-                // legacy compatibility fields (DB-only: selalu null)
                 'file_url' => null,
 
-                // new fields
                 'record_no' => (string) ($payload['record_no'] ?? ''),
                 'form_code' => (string) ($payload['form_code'] ?? ''),
                 'pdf_file_id' => $pdfFileId,
@@ -128,7 +126,7 @@ class ReportDocumentsController extends Controller
                         'gd.form_code as form_code',
                     ])
                     ->where('rr.status', '=', 'approved')
-                    ->whereNotNull('gd.file_pdf_id') // ✅ Step 21: no legacy file_url
+                    ->whereNotNull('gd.file_pdf_id')
                     ->orderByDesc('rr.reagent_request_id')
                     ->limit(300);
 
@@ -145,10 +143,8 @@ class ReportDocumentsController extends Controller
                     if ($sampleId && !in_array($sampleId, $sampleIds, true)) continue;
 
                     $looNumber = $rr->loo_number ? (string) $rr->loo_number : null;
-
                     $pdfFileId = (int) ($rr->pdf_file_id ?? 0);
 
-                    // ✅ Step 21: viewer endpoint (validasi approved + exist pdf) lalu redirect /files
                     $downloadUrl = url("/api/v1/reports/documents/reagent-request/{$rrId}/pdf");
 
                     $docs[] = [
@@ -164,10 +160,8 @@ class ReportDocumentsController extends Controller
                         'lo_id' => $loId,
                         'reagent_request_id' => $rrId,
 
-                        // legacy compat (DB-only: null)
                         'file_url' => null,
 
-                        // metadata
                         'record_no' => (string) ($rr->record_no ?? ''),
                         'form_code' => (string) ($rr->form_code ?? ''),
                         'pdf_file_id' => $pdfFileId,
@@ -200,21 +194,20 @@ class ReportDocumentsController extends Controller
 
                 if ($numberCol) {
                     $q = DB::table('reports as r')
-                        ->whereNotNull('r.pdf_file_id') // ✅ Step 21
+                        ->whereNotNull('r.pdf_file_id')
                         ->when(Schema::hasColumn('reports', 'is_locked'), fn($qq) => $qq->where('r.is_locked', '=', 1))
                         ->when(Schema::hasColumn('reports', 'report_type'), fn($qq) => $qq->where('r.report_type', '=', 'coa'))
                         ->when($sampleId, fn($qq) => $qq->where('r.sample_id', '=', $sampleId))
                         ->orderByDesc('r.' . $idCol)
                         ->limit(300);
 
-                    // Optional inference fields
                     $clientTypeAliasCol = null;
                     $workflowGroupCol = null;
 
                     $canJoinSamples = Schema::hasTable('samples') && Schema::hasColumn('samples', 'sample_id');
                     $canJoinClients = Schema::hasTable('clients');
 
-                    // ✅ Guard: jangan join "samples as s" lebih dari sekali (pgsql error duplicate alias)
+                    // ✅ Guard: jangan join "samples as s" lebih dari sekali
                     $joinedSamples = false;
                     $ensureSamplesJoin = function () use (&$q, &$joinedSamples) {
                         if ($joinedSamples) return;
@@ -222,13 +215,11 @@ class ReportDocumentsController extends Controller
                         $joinedSamples = true;
                     };
 
-                    // ✅ ambil workflow_group dari samples kalau ada
                     if ($canJoinSamples && Schema::hasColumn('samples', 'workflow_group')) {
                         $ensureSamplesJoin();
                         $workflowGroupCol = 's.workflow_group';
                     }
 
-                    // join clients (requires samples join)
                     if ($canJoinSamples && $canJoinClients && Schema::hasColumn('samples', 'client_id')) {
                         $clientPk = Schema::hasColumn('clients', 'client_id')
                             ? 'client_id'
@@ -271,8 +262,8 @@ class ReportDocumentsController extends Controller
                         $pdfFileId = (int) ($r->pdf_file_id ?? 0);
                         if ($pdfFileId <= 0) continue;
 
-                        // ✅ Step 21: pakai controller COA untuk policy check, lalu redirect ke /files
-                        $downloadUrl = url("/api/v1/reports/{$rid}/pdf");
+                        // ✅ FIX: gunakan gate endpoint kita sendiri (bukan /reports/{id}/pdf)
+                        $downloadUrl = url("/api/v1/reports/documents/coa/{$rid}/pdf");
 
                         $coaDocCode = $this->inferCoaDocCode($r, $no);
                         $coaName = $this->coaLabel($coaDocCode);
@@ -289,7 +280,6 @@ class ReportDocumentsController extends Controller
                             'created_at' => $r->created_at ? (string) $r->created_at : null,
                             'sample_ids' => [$sid],
 
-                            // legacy compat (DB-only: null)
                             'file_url' => null,
 
                             'pdf_file_id' => $pdfFileId,
@@ -310,9 +300,6 @@ class ReportDocumentsController extends Controller
         return response()->json(['data' => $docs]);
     }
 
-    /**
-     * Infer COA doc_code using available row fields (best effort).
-     */
     private function inferCoaDocCode(object $row, string $reportNo): string
     {
         $wf = strtolower((string) ($row->workflow_group ?? ''));
@@ -361,6 +348,53 @@ class ReportDocumentsController extends Controller
         $type = strtolower(trim($type));
 
         // =========================
+        // COA (stream existing PDF by file id)
+        // =========================
+        if ($type === 'coa') {
+            $roleId = (int) ($user->role_id ?? 0);
+            if (!in_array($roleId, self::COA_VIEWER_ROLE_IDS, true)) {
+                return response()->json(['message' => 'Forbidden.'], 403);
+            }
+
+            if (!Schema::hasTable('reports')) {
+                return response()->json(['message' => 'Reports table not found.'], 500);
+            }
+
+            $idCol = Schema::hasColumn('reports', 'report_id')
+                ? 'report_id'
+                : (Schema::hasColumn('reports', 'id') ? 'id' : null);
+
+            if (!$idCol || !Schema::hasColumn('reports', 'pdf_file_id')) {
+                return response()->json(['message' => 'Reports schema not compatible.'], 500);
+            }
+
+            $q = DB::table('reports')->where($idCol, $id);
+
+            // lock gate if exists (matches list behavior)
+            if (Schema::hasColumn('reports', 'is_locked')) {
+                $q->where('is_locked', '=', 1);
+            }
+
+            $r = $q->first(['pdf_file_id']);
+            if (!$r) return response()->json(['message' => 'Document not found.'], 404);
+
+            $pdfFileId = (int) ($r->pdf_file_id ?? 0);
+            if ($pdfFileId <= 0) {
+                return response()->json([
+                    'message' => 'COA PDF not available (missing pdf_file_id).',
+                    'code' => 'COA_PDF_NOT_AVAILABLE',
+                    'report_id' => (int) $id,
+                ], 422);
+            }
+
+            try {
+                return $this->files->streamResponse($pdfFileId, false);
+            } catch (ModelNotFoundException $e) {
+                return response()->json(['message' => 'File not found.'], 404);
+            }
+        }
+
+        // =========================
         // LOO
         // =========================
         if ($type === 'loo') {
@@ -389,7 +423,6 @@ class ReportDocumentsController extends Controller
                 return response()->json(['message' => 'LOO payload missing sample ids.'], 422);
             }
 
-            // Gate: at least ONE sample is Ready (OM+LH approved)
             $rows = DB::table('loo_sample_approvals')
                 ->whereIn('sample_id', $sampleIds)
                 ->whereIn('role_code', ['OM', 'LH'])
@@ -418,7 +451,6 @@ class ReportDocumentsController extends Controller
 
             $pdfFileId = (int) ($payload['pdf_file_id'] ?? 0);
             if ($pdfFileId > 0) {
-                // ✅ PERBAIKAN: Gunakan service untuk streaming BLOB, bukan file path
                 try {
                     return $this->files->streamResponse($pdfFileId, false);
                 } catch (ModelNotFoundException $e) {
@@ -449,7 +481,6 @@ class ReportDocumentsController extends Controller
                 return response()->json(['message' => 'Reagent Request is not approved.'], 422);
             }
 
-            // ✅ Step 21: harus ada generated_documents.file_pdf_id
             if (Schema::hasTable('generated_documents')) {
                 $gd = DB::table('generated_documents')
                     ->where('doc_code', 'REAGENT_REQUEST')
@@ -461,7 +492,6 @@ class ReportDocumentsController extends Controller
 
                 $pdfFileId = (int) ($gd->file_pdf_id ?? 0);
                 if ($pdfFileId > 0) {
-                    // ✅ PERBAIKAN: Gunakan service untuk streaming BLOB
                     try {
                         return $this->files->streamResponse($pdfFileId, false);
                     } catch (ModelNotFoundException $e) {
@@ -482,7 +512,6 @@ class ReportDocumentsController extends Controller
 
     private function streamPdfByFileId(int $fileId, string $fallbackName)
     {
-        // ✅ PERBAIKAN: Gunakan service untuk streaming BLOB
         try {
             return $this->files->streamResponse($fileId, false);
         } catch (\Exception $e) {
