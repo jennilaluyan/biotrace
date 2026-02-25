@@ -1,11 +1,10 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\QualityCoverSection.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Save, Send, Loader2 } from "lucide-react";
 
 import type { Sample } from "../../services/samples";
 import { QualityCover, getQualityCover, saveQualityCoverDraft, submitQualityCover } from "../../services/qualityCovers";
-import { formatDate } from "../../utils/date";
+import { formatDateTimeLocal } from "../../utils/date";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -246,12 +245,12 @@ export function QualityCoverSection(props: Props) {
     const isLocked = !!disabled || cover?.status === "submitted";
     const isBusy = qcLoading || qcSaving || qcSubmitting;
 
-    // show "today" as analysis date placeholder (until backend provides date_of_analysis field)
-    const todayLabel = useMemo(() => {
+    // show "now" as analysis date placeholder (until backend provides date_of_analysis field)
+    const nowLabel = useMemo(() => {
         try {
-            return formatDate(new Date().toISOString());
+            return formatDateTimeLocal(new Date().toISOString());
         } catch {
-            return new Date().toLocaleDateString();
+            return new Date().toLocaleString();
         }
     }, []);
 
@@ -277,12 +276,13 @@ export function QualityCoverSection(props: Props) {
                     <div className="text-xs text-gray-500 mt-1">{t("qualityCover.section.subtitle")}</div>
                 </div>
 
-                {/* Icon-only actions */}
+                {/* Actions (secondary + primary) */}
                 <div className="flex items-center gap-2">
                     <button
                         type="button"
                         className={cx(
-                            "btn-outline inline-flex items-center justify-center h-10 w-10 rounded-xl",
+                            "lims-btn inline-flex items-center justify-center gap-2 rounded-xl h-10 px-3",
+                            "min-w-11",
                             (qcLoading || qcSaving || isLocked) && "opacity-60 cursor-not-allowed"
                         )}
                         onClick={onSaveDraft}
@@ -290,13 +290,15 @@ export function QualityCoverSection(props: Props) {
                         aria-label={t("saveDraft")}
                         title={isLocked ? t("qualityCover.section.tooltips.locked") : t("saveDraft")}
                     >
-                        {qcSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                        {qcSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                        <span className="hidden sm:inline">{t("saveDraft")}</span>
                     </button>
 
                     <button
                         type="button"
                         className={cx(
-                            "lims-btn-primary inline-flex items-center justify-center h-10 w-10 rounded-xl",
+                            "lims-btn-primary inline-flex items-center justify-center gap-2 rounded-xl h-10 px-3",
+                            "min-w-11",
                             (!!submitDisabledReason || qcLoading || qcSubmitting) && "opacity-60 cursor-not-allowed"
                         )}
                         onClick={onSubmit}
@@ -304,7 +306,8 @@ export function QualityCoverSection(props: Props) {
                         aria-label={t("submit")}
                         title={submitDisabledReason || t("submit")}
                     >
-                        {qcSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                        {qcSubmitting ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                        <span className="hidden sm:inline">{t("submit")}</span>
                     </button>
                 </div>
             </div>
@@ -312,7 +315,10 @@ export function QualityCoverSection(props: Props) {
             <div className="px-5 py-4">
                 {/* Error */}
                 {qcError ? (
-                    <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-3" role="alert">
+                    <div
+                        className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-3"
+                        role="alert"
+                    >
                         {qcError}
                     </div>
                 ) : null}
@@ -341,7 +347,7 @@ export function QualityCoverSection(props: Props) {
 
                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
                         <div className="text-xs text-gray-500">{t("qualityCover.section.meta.date")}</div>
-                        <div className="font-semibold text-gray-900 mt-0.5">{todayLabel}</div>
+                        <div className="font-semibold text-gray-900 mt-0.5">{nowLabel}</div>
                     </div>
 
                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
@@ -378,12 +384,16 @@ export function QualityCoverSection(props: Props) {
                                 <div key={k} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
                                     <div className="flex items-center justify-between gap-2 mb-2">
                                         <div className="text-xs font-semibold text-gray-800">{k}</div>
-                                        <div className="text-[11px] text-gray-500">{t("qualityCover.section.groups.pcr.markerHint")}</div>
+                                        <div className="text-[11px] text-gray-500">
+                                            {t("qualityCover.section.groups.pcr.markerHint")}
+                                        </div>
                                     </div>
 
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                                         <div>
-                                            <label className="block text-xs text-gray-500">{t("qualityCover.section.pcr.value")}</label>
+                                            <label className="block text-xs text-gray-500">
+                                                {t("qualityCover.section.pcr.value")}
+                                            </label>
                                             <input
                                                 value={qcPayload?.[k]?.value ?? ""}
                                                 onChange={(e) =>
@@ -400,7 +410,9 @@ export function QualityCoverSection(props: Props) {
                                         </div>
 
                                         <div>
-                                            <label className="block text-xs text-gray-500">{t("qualityCover.section.pcr.result")}</label>
+                                            <label className="block text-xs text-gray-500">
+                                                {t("qualityCover.section.pcr.result")}
+                                            </label>
                                             <input
                                                 value={qcPayload?.[k]?.result ?? ""}
                                                 onChange={(e) =>
@@ -416,13 +428,18 @@ export function QualityCoverSection(props: Props) {
                                         </div>
 
                                         <div>
-                                            <label className="block text-xs text-gray-500">{t("qualityCover.section.pcr.interpretation")}</label>
+                                            <label className="block text-xs text-gray-500">
+                                                {t("qualityCover.section.pcr.interpretation")}
+                                            </label>
                                             <input
                                                 value={qcPayload?.[k]?.interpretation ?? ""}
                                                 onChange={(e) =>
                                                     setQcPayload((prev: any) => ({
                                                         ...prev,
-                                                        [k]: { ...(prev?.[k] || {}), interpretation: e.target.value },
+                                                        [k]: {
+                                                            ...(prev?.[k] || {}),
+                                                            interpretation: e.target.value,
+                                                        },
                                                     }))
                                                 }
                                                 disabled={isLocked}
