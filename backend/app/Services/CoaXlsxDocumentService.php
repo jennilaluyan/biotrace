@@ -98,7 +98,7 @@ class CoaXlsxDocumentService
             'report_id' => (string) $reportId,
             'report_no' => (string) ($report->report_no ?? ''),
             'sample_id' => (string) ($sample->sample_id ?? ''),
-            'lab_sample_code' => (string) ($sample->lab_sample_code ?? ''),
+            'lab_sample_code' => (string) (($sample->lab_sample_code ?? $sample->sample_code ?? $sample->code ?? '') ?: ''),
 
             // numbering
             'record_no' => $recordNo,
@@ -308,17 +308,37 @@ class CoaXlsxDocumentService
 
     private function fetchClientOrFallback(object $sample): object
     {
+        $client = null;
+
         if (!empty($sample->client_id) && Schema::hasTable('clients')) {
             $client = DB::table('clients')->where('client_id', (int) $sample->client_id)->first();
-            if ($client) return $client;
+        }
+
+        if (!$client) {
+            return (object) [
+                'name' => '',
+                'phone' => '',
+                'organization' => '',
+                'type' => 'individual',
+            ];
         }
 
         return (object) [
-            'name' => '',
-            'phone' => '',
-            'organization' => '',
-            'type' => 'individual',
+            'name' => $this->pickObjField($client, ['name', 'client_name', 'full_name']) ?? '',
+            'phone' => $this->pickObjField($client, ['phone', 'phone_number', 'mobile', 'no_hp']) ?? '',
+            'organization' => $this->pickObjField($client, ['organization', 'institution', 'company', 'instansi']) ?? '',
+            'type' => strtolower($this->pickObjField($client, ['type', 'client_type', 'kind', 'category']) ?? 'individual'),
         ];
+    }
+
+    private function pickObjField(object $obj, array $candidates): ?string
+    {
+        foreach ($candidates as $c) {
+            if (isset($obj->{$c}) && trim((string) $obj->{$c}) !== '') {
+                return (string) $obj->{$c};
+            }
+        }
+        return null;
     }
 
     private function fetchReportItems(int $reportId): array

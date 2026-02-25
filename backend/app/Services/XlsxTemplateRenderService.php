@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\RichText\RichText;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
@@ -57,7 +59,9 @@ class XlsxTemplateRenderService
 
                     foreach ($spreadsheet->getAllSheets() as $ws) {
                         if ($ws->getTitle() !== $activeTitle) {
-                            $ws->setSheetState(Worksheet::SHEETSTATE_HIDDEN);
+                            $ws->setSheetState(Worksheet::SHEETSTATE_VERYHIDDEN);
+                        } else {
+                            $ws->setSheetState(Worksheet::SHEETSTATE_VISIBLE);
                         }
                     }
                 }
@@ -91,37 +95,61 @@ class XlsxTemplateRenderService
     {
         if (!$map) return;
 
-        $coords = $ws->getCellCollection()->getCoordinates();
-        foreach ($coords as $coord) {
-            $cell = $ws->getCell($coord);
-            $v = $cell->getValue();
+        $highestRow = $ws->getHighestDataRow();
+        $highestCol = Coordinate::columnIndexFromString($ws->getHighestDataColumn());
 
-            // skip formulas
-            if ($cell->isFormula()) continue;
+        for ($row = 1; $row <= $highestRow; $row++) {
+            for ($col = 1; $col <= $highestCol; $col++) {
+                $addr = Coordinate::stringFromColumnIndex($col) . $row;
+                $cell = $ws->getCell($addr);
+                $v = $cell->getValue();
 
-            // RichText
-            if ($v instanceof RichText) {
-                $changed = false;
-                foreach ($v->getRichTextElements() as $el) {
-                    if (!method_exists($el, 'getText') || !method_exists($el, 'setText')) continue;
-                    $txt = (string) $el->getText();
-                    if (strpos($txt, '${') === false) continue;
-                    $new = strtr($txt, $map);
-                    if ($new !== $txt) {
-                        $el->setText($new);
-                        $changed = true;
+                if ($v === null) continue;
+
+                // If formula contains placeholders (rare but safe), convert to string after replacement
+                if ($cell->isFormula()) {
+                    $f = (string) $v;
+                    if (strpos($f, '$') === false) continue;
+
+                    $norm = $this->normalizePlaceholderTypos($f);
+                    $new = strtr($norm, $map);
+
+                    if ($new !== $f) {
+                        $cell->setValueExplicit($new, DataType::TYPE_STRING);
                     }
+                    continue;
                 }
-                if ($changed) $cell->setValue($v);
-                continue;
-            }
 
-            if (!is_string($v) || trim($v) === '') continue;
-            if (strpos($v, '${') === false) continue;
+                if ($v instanceof RichText) {
+                    $changed = false;
 
-            $new = strtr($v, $map);
-            if ($new !== $v) {
-                $cell->setValueExplicit($new, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                    foreach ($v->getRichTextElements() as $el) {
+                        if (!method_exists($el, 'getText') || !method_exists($el, 'setText')) continue;
+
+                        $txt = (string) $el->getText();
+                        if (strpos($txt, '$') === false) continue;
+
+                        $norm = $this->normalizePlaceholderTypos($txt);
+                        $new = strtr($norm, $map);
+
+                        if ($new !== $txt) {
+                            $el->setText($new);
+                            $changed = true;
+                        }
+                    }
+
+                    if ($changed) $cell->setValue($v);
+                    continue;
+                }
+
+                if (!is_string($v) || trim($v) === '' || strpos($v, '$') === false) continue;
+
+                $norm = $this->normalizePlaceholderTypos($v);
+                $new = strtr($norm, $map);
+
+                if ($new !== $v) {
+                    $cell->setValueExplicit($new, DataType::TYPE_STRING);
+                }
             }
         }
     }
@@ -130,6 +158,17 @@ class XlsxTemplateRenderService
     {
         $key = preg_replace('/[^A-Za-z0-9_]/', '_', $key) ?: '';
         return trim($key, '_');
+    }
+
+    private function normalizePlaceholderTypos(string $s): string
+    {
+        // $result} => ${result}
+        $s = preg_replace_callback('/\$(?!\{)([A-Za-z0-9_]+)\}/', fn($m) => '${' . $m[1] . '}', $s) ?? $s;
+
+        // ${client_phone) => ${client_phone}
+        $s = preg_replace_callback('/\$\{([A-Za-z0-9_]+)\)\s*/', fn($m) => '${' . $m[1] . '}', $s) ?? $s;
+
+        return $s;
     }
 
     private function makeTmpDir(): string
