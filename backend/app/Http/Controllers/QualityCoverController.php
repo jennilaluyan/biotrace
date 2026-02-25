@@ -489,6 +489,9 @@ class QualityCoverController extends Controller
             'checkedBy:staff_id,name',
             'verifiedBy:staff_id,name',
             'validatedBy:staff_id,name',
+            'supportingFiles' => function ($q) {
+                $q->orderBy('id', 'asc');
+            },
         ]);
 
         return response()->json([
