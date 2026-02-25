@@ -623,6 +623,16 @@
             "pagination": {
                 "page": "Page",
                 "of": "of"
+            },
+            "modal": {
+                "verifyTitle": "Verify quality cover",
+                "validateTitle": "Validate quality cover",
+                "rejectTitle": "Reject quality cover",
+                "subtitle": "QC #{{qcId}} • Sample #{{sampleId}}",
+                "errors": {
+                    "rejectReasonRequired": "Rejection reason is required.",
+                    "submitFailed": "Failed to submit decision."
+                }
             }
         },
         "detail": {

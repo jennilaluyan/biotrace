@@ -623,6 +623,16 @@
             "pagination": {
                 "page": "Halaman",
                 "of": "dari"
+            },
+            "modal": {
+                "verifyTitle": "Verifikasi quality cover",
+                "validateTitle": "Validasi quality cover",
+                "rejectTitle": "Tolak quality cover",
+                "subtitle": "QC #{{qcId}} • Sampel #{{sampleId}}",
+                "errors": {
+                    "rejectReasonRequired": "Alasan penolakan wajib diisi.",
+                    "submitFailed": "Gagal mengirim keputusan."
+                }
             }
         },
         "detail": {

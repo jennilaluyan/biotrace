@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, ChevronLeft, ChevronRight, Eye, RefreshCw, Search, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Eye, Loader2, RefreshCw, Search, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { listOmInbox, omReject, omVerify, QualityCoverInboxItem, InboxMeta } from "../../services/qualityCovers";
 import { formatDateTimeLocal } from "../../utils/date";
@@ -22,6 +23,8 @@ type DecisionState =
     };
 
 export function QualityCoverOmInboxPage() {
+    const { t } = useTranslation();
+
     const [rows, setRows] = useState<QualityCoverInboxItem[]>([]);
     const [meta, setMeta] = useState<InboxMeta | null>(null);
     const [loading, setLoading] = useState(false);
@@ -56,8 +59,12 @@ export function QualityCoverOmInboxPage() {
 
     const totalText = useMemo(() => {
         if (!meta) return "";
-        return `${meta.total} items • page ${meta.current_page}/${meta.last_page}`;
-    }, [meta]);
+        return t("qualityCover.inbox.totalText", {
+            total: meta.total,
+            page: meta.current_page,
+            pages: meta.last_page,
+        });
+    }, [meta, t]);
 
     function openApprove(item: QualityCoverInboxItem) {
         setDecision({ open: true, mode: "approve", item, reason: "", submitting: false, error: null });
@@ -75,7 +82,7 @@ export function QualityCoverOmInboxPage() {
         if (!decision.open) return;
 
         if (decision.mode === "reject" && !decision.reason.trim()) {
-            setDecision({ ...decision, error: "Reject reason is required." });
+            setDecision({ ...decision, error: t("qualityCover.inbox.modal.errors.rejectReasonRequired") });
             return;
         }
 
@@ -93,28 +100,34 @@ export function QualityCoverOmInboxPage() {
             closeModal();
             await fetchData();
         } catch (e: any) {
-            setDecision({ ...decision, submitting: false, error: e?.message || "Failed to submit decision." });
+            setDecision({
+                ...decision,
+                submitting: false,
+                error: e?.message || t("qualityCover.inbox.modal.errors.submitFailed"),
+            });
         }
     }
+
+    const searchHasValue = search.trim().length > 0;
 
     return (
         <div className="min-h-[60vh]">
             {/* Header */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">Quality Cover Inbox</h1>
-                    <p className="text-xs text-gray-500 mt-1">OM — Submitted covers waiting for verification.</p>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("qualityCover.inbox.title")}</h1>
+                    <p className="text-xs text-gray-500 mt-1">{t("qualityCover.inbox.omSubtitle")}</p>
                 </div>
 
                 <button
                     type="button"
                     className="lims-icon-button self-start md:self-auto"
                     onClick={() => fetchData()}
-                    aria-label="Refresh"
-                    title="Refresh"
+                    aria-label={t("refresh")}
+                    title={t("refresh")}
                     disabled={loading}
                 >
-                    <RefreshCw size={16} />
+                    {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
                 </button>
             </div>
 
@@ -123,7 +136,7 @@ export function QualityCoverOmInboxPage() {
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="qc-search-om">
-                            Search
+                            {t("search")}
                         </label>
 
                         <div className="relative">
@@ -138,21 +151,39 @@ export function QualityCoverOmInboxPage() {
                                 onKeyDown={(e) => {
                                     if (e.key === "Enter") fetchData({ resetPage: true });
                                 }}
-                                className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                placeholder="Search sample code / client…"
+                                className="w-full rounded-xl border border-gray-300 pl-9 pr-10 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                placeholder={t("qualityCover.inbox.searchPlaceholder")}
                             />
+
+                            {searchHasValue ? (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSearch("");
+                                        setPage(1);
+                                        // refresh list immediately
+                                        void fetchData({ resetPage: true });
+                                    }}
+                                    className="absolute inset-y-0 right-2 flex items-center justify-center text-gray-500 hover:text-gray-700"
+                                    aria-label={t("clear")}
+                                    title={t("clear")}
+                                    disabled={loading}
+                                >
+                                    <X size={16} />
+                                </button>
+                            ) : null}
                         </div>
                     </div>
 
                     <div className="w-full md:w-auto flex items-center justify-between md:justify-end gap-3">
-                        <div className="text-xs text-gray-500">{loading ? "Loading…" : totalText}</div>
+                        <div className="text-xs text-gray-500">{loading ? t("loading") : totalText}</div>
 
                         <button
                             type="button"
                             className="lims-icon-button"
                             onClick={() => fetchData({ resetPage: true })}
-                            aria-label="Apply search"
-                            title="Apply search"
+                            aria-label={t("search")}
+                            title={t("search")}
                             disabled={loading}
                         >
                             <Search size={16} />
@@ -167,11 +198,21 @@ export function QualityCoverOmInboxPage() {
                             <table className="min-w-full text-sm">
                                 <thead className="bg-white text-gray-700 border-b border-gray-100">
                                     <tr>
-                                        <th className="text-left font-semibold px-4 py-3">Sample</th>
-                                        <th className="text-left font-semibold px-4 py-3">Group</th>
-                                        <th className="text-left font-semibold px-4 py-3">Submitted</th>
-                                        <th className="text-left font-semibold px-4 py-3">Checked by</th>
-                                        <th className="text-right font-semibold px-4 py-3">Actions</th>
+                                        <th className="text-left font-semibold px-4 py-3">
+                                            {t("qualityCover.inbox.table.sample")}
+                                        </th>
+                                        <th className="text-left font-semibold px-4 py-3">
+                                            {t("qualityCover.inbox.table.group")}
+                                        </th>
+                                        <th className="text-left font-semibold px-4 py-3">
+                                            {t("qualityCover.inbox.table.submitted")}
+                                        </th>
+                                        <th className="text-left font-semibold px-4 py-3">
+                                            {t("qualityCover.inbox.table.checkedBy")}
+                                        </th>
+                                        <th className="text-right font-semibold px-4 py-3">
+                                            {t("qualityCover.inbox.table.actions")}
+                                        </th>
                                     </tr>
                                 </thead>
 
@@ -179,7 +220,7 @@ export function QualityCoverOmInboxPage() {
                                     {rows.length === 0 && !loading ? (
                                         <tr>
                                             <td className="px-4 py-8 text-gray-500" colSpan={5}>
-                                                No submitted quality covers found.
+                                                {t("qualityCover.inbox.table.emptyOm")}
                                             </td>
                                         </tr>
                                     ) : null}
@@ -207,8 +248,8 @@ export function QualityCoverOmInboxPage() {
                                                         <Link
                                                             to={`/quality-covers/om/${r.quality_cover_id}`}
                                                             className="lims-icon-button"
-                                                            aria-label="Open quality cover"
-                                                            title="Open quality cover"
+                                                            aria-label={`${t("open")} ${t("qualityCover.section.title")}`}
+                                                            title={`${t("open")} ${t("qualityCover.section.title")}`}
                                                         >
                                                             <Eye size={16} />
                                                         </Link>
@@ -217,8 +258,9 @@ export function QualityCoverOmInboxPage() {
                                                             type="button"
                                                             onClick={() => openApprove(r)}
                                                             className="lims-icon-button"
-                                                            aria-label="Verify"
-                                                            title="Verify"
+                                                            aria-label={t("verify")}
+                                                            title={t("verify")}
+                                                            disabled={loading}
                                                         >
                                                             <Check size={16} />
                                                         </button>
@@ -227,8 +269,9 @@ export function QualityCoverOmInboxPage() {
                                                             type="button"
                                                             onClick={() => openReject(r)}
                                                             className="lims-icon-button lims-icon-button--danger"
-                                                            aria-label="Reject"
-                                                            title="Reject"
+                                                            aria-label={t("reject")}
+                                                            title={t("reject")}
+                                                            disabled={loading}
                                                         >
                                                             <X size={16} />
                                                         </button>
@@ -244,8 +287,7 @@ export function QualityCoverOmInboxPage() {
                         {/* Pagination */}
                         <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between">
                             <div className="text-xs text-gray-500">
-                                Page <span className="font-semibold">{meta?.current_page ?? 1}</span> /{" "}
-                                <span className="font-semibold">{meta?.last_page ?? 1}</span>
+                                {t("pageOf", { page: meta?.current_page ?? 1, totalPages: meta?.last_page ?? 1 })}
                             </div>
 
                             <div className="flex items-center gap-2">
@@ -253,8 +295,8 @@ export function QualityCoverOmInboxPage() {
                                     disabled={!canPrev || loading}
                                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                                     className={cx("lims-icon-button", (!canPrev || loading) && "opacity-40 cursor-not-allowed")}
-                                    aria-label="Prev"
-                                    title="Prev"
+                                    aria-label={t("prev")}
+                                    title={t("prev")}
                                 >
                                     <ChevronLeft size={16} />
                                 </button>
@@ -263,8 +305,8 @@ export function QualityCoverOmInboxPage() {
                                     disabled={!canNext || loading}
                                     onClick={() => setPage((p) => p + 1)}
                                     className={cx("lims-icon-button", (!canNext || loading) && "opacity-40 cursor-not-allowed")}
-                                    aria-label="Next"
-                                    title="Next"
+                                    aria-label={t("next")}
+                                    title={t("next")}
                                 >
                                     <ChevronRight size={16} />
                                 </button>
@@ -278,9 +320,20 @@ export function QualityCoverOmInboxPage() {
             <QualityCoverDecisionModal
                 open={decision.open}
                 mode={decision.open ? decision.mode : "approve"}
-                title={decision.open && decision.mode === "approve" ? "Verify Quality Cover" : "Reject Quality Cover"}
+                title={
+                    decision.open
+                        ? decision.mode === "approve"
+                            ? t("qualityCover.inbox.modal.verifyTitle")
+                            : t("qualityCover.inbox.modal.rejectTitle")
+                        : t("qualityCover.inbox.modal.verifyTitle")
+                }
                 subtitle={
-                    decision.open ? `QC #${decision.item.quality_cover_id} • Sample #${decision.item.sample_id}` : null
+                    decision.open
+                        ? t("qualityCover.inbox.modal.subtitle", {
+                            qcId: decision.item.quality_cover_id,
+                            sampleId: decision.item.sample_id,
+                        })
+                        : null
                 }
                 submitting={decision.open ? decision.submitting : false}
                 error={decision.open ? decision.error ?? null : null}
@@ -289,7 +342,7 @@ export function QualityCoverOmInboxPage() {
                     if (!decision.open) return;
                     setDecision({ ...decision, reason: v });
                 }}
-                approveHint="This will mark the cover as verified and send it to LH inbox for validation."
+                approveHint={t("qualityCover.detail.hints.approveHintOm")}
                 onClose={closeModal}
                 onConfirm={submitDecision}
             />
