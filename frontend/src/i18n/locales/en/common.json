@@ -1832,5 +1832,109 @@
             "previewTitle": "LOO {{number}}",
             "previewTitleFallback": "LOO Preview"
         }
+    },
+    "intakeChecklist": {
+        "title": "Intake checklist",
+        "subtitle": "All items must pass. If any item fails, the request will be returned to admin.",
+        "sections": {
+            "physicalCondition": "Physical condition",
+            "identity": "Identity",
+            "volume": "Volume",
+            "packing": "Packing",
+            "supportingDocs": "Supporting documents"
+        },
+        "progress": "Progress: {{decided}}/{{total}} • PASS: {{passed}} • FAIL: {{failed}}",
+        "actions": {
+            "pass": "PASS",
+            "fail": "FAIL",
+            "submit": "Submit checklist",
+            "submitting": "Submitting…"
+        },
+        "reason": {
+            "label": "Reason (required)",
+            "placeholder": "Explain what is not compliant…"
+        },
+        "generalNote": {
+            "label": "General note (optional)",
+            "placeholder": "Add extra context if needed…"
+        },
+        "warning": {
+            "anyFail": "One or more items failed. Request status will become {{status}} and be returned to admin."
+        },
+        "validation": {
+            "pickDecision": "Choose PASS or FAIL.",
+            "failReasonRequired": "Reason is required when FAIL.",
+            "fixHighlighted": "Please complete the highlighted items before submitting.",
+            "incompleteTooltip": "Checklist is not complete yet."
+        },
+        "errors": {
+            "submitFailed": "Failed to submit checklist."
+        },
+        "items": {
+            "container_intact": {
+                "label": "Container in good condition",
+                "hint": "Sample container is intact (no cracks/breaks/leaks)."
+            },
+            "cap_sealed": {
+                "label": "Cap/closure sealed tightly",
+                "hint": "Container is properly closed and securely sealed."
+            },
+            "no_leakage": {
+                "label": "No leakage/spillage",
+                "hint": "No leakage, spillage, or contamination observed."
+            },
+            "label_attached": {
+                "label": "Label attached",
+                "hint": "A label is present on the container."
+            },
+            "label_clear": {
+                "label": "Label clear & readable",
+                "hint": "Label text is legible (not faded, smudged, or unclear)."
+            },
+            "label_matches_form": {
+                "label": "Label matches request/form",
+                "hint": "Label details match the request form (name/ID/date/time where applicable)."
+            },
+            "identity_complete": {
+                "label": "Identity information complete",
+                "hint": "Identity information is complete according to lab requirement."
+            },
+            "sample_type_matches": {
+                "label": "Sample type matches request",
+                "hint": "Sample type/container matches what was requested."
+            },
+            "volume_sufficient": {
+                "label": "Volume sufficient",
+                "hint": "Volume/amount is sufficient for the requested tests."
+            },
+            "vtm_present": {
+                "label": "VTM/transport media present (if required)",
+                "hint": "Transport media (e.g., VTM) is present when required by SOP."
+            },
+            "packaging_intact": {
+                "label": "Packaging intact & safe",
+                "hint": "Secondary packaging is intact and protects sample integrity."
+            },
+            "triple_packaging": {
+                "label": "Triple packaging applied (if required)",
+                "hint": "Triple packaging is applied when required by SOP."
+            },
+            "temperature_condition_ok": {
+                "label": "Temperature/transport condition OK",
+                "hint": "Cooling/temperature control (ice pack/dry ice) meets storage requirements."
+            },
+            "request_form_attached": {
+                "label": "Request form attached",
+                "hint": "Sample request form / sample list is attached and complete."
+            },
+            "chain_of_custody_attached": {
+                "label": "Chain of custody attached (if used)",
+                "hint": "Chain-of-custody form is attached if applicable."
+            },
+            "other_docs_complete": {
+                "label": "Other supporting docs complete",
+                "hint": "Any other required supporting documents are complete (if applicable)."
+            }
+        }
     }
 }

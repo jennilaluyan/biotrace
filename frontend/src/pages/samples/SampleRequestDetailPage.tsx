@@ -49,6 +49,14 @@ function normalizeStatusToken(raw?: string | null) {
         .replace(/\s+/g, "_");
 }
 
+function titleCaseFromToken(token: string) {
+    return token
+        .replace(/_/g, " ")
+        .trim()
+        .toLowerCase()
+        .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
 function requestStatusLabel(t: TFunction, raw?: string | null) {
     const token = normalizeStatusToken(raw);
     if (!token) return "-";
@@ -78,10 +86,9 @@ function requestStatusLabel(t: TFunction, raw?: string | null) {
     };
 
     const key = map[token];
-    if (!key) return raw ?? "-";
+    if (!key) return titleCaseFromToken(token);
 
-    const out = t(key);
-    return out === key ? (raw ?? "-") : out;
+    return t(key, { defaultValue: titleCaseFromToken(token) });
 }
 
 function StatusPill({ value, t }: { value?: string | null; t: TFunction }) {
@@ -124,7 +131,7 @@ function SmallButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
             {...rest}
             className={cx(
                 "lims-btn",
-                "px-3 py-1.5 text-xs rounded-xl whitespace-nowrap",
+                "px-3 py-1.5 text-xs rounded-xl whitespace-nowrap inline-flex items-center gap-2",
                 rest.disabled ? "opacity-60 cursor-not-allowed" : "",
                 className
             )}
@@ -145,6 +152,21 @@ function TabButton(props: { active: boolean; children: ReactNode; onClick: () =>
             {props.children}
         </button>
     );
+}
+
+function extractWorkflowLogs(res: any): any[] | null {
+    if (Array.isArray(res)) return res;
+
+    if (res && typeof res === "object") {
+        if (Array.isArray((res as any).data)) return (res as any).data;
+
+        const d = (res as any).data;
+        if (d && typeof d === "object" && Array.isArray(d.data)) return d.data;
+
+        if (Array.isArray((res as any).items)) return (res as any).items;
+    }
+
+    return null;
 }
 
 function toSidRow(root: any, sidRaw: any): SampleIdChangeRow | null {
@@ -172,8 +194,7 @@ function toSidRow(root: any, sidRaw: any): SampleIdChangeRow | null {
     const suggested = sidRaw?.suggested_lab_sample_code ?? sidRaw?.suggested_sample_id ?? sidRaw?.suggested ?? null;
     const proposed = sidRaw?.proposed_lab_sample_code ?? sidRaw?.proposed_sample_id ?? sidRaw?.proposed ?? null;
 
-    const clientName =
-        root?.client?.name ?? root?.client_name ?? (root?.client_id ? `Client #${root?.client_id}` : null);
+    const clientName = root?.client?.name ?? root?.client_name ?? (root?.client_id ? `Client #${root?.client_id}` : null);
     const clientEmail = root?.client?.email ?? root?.client_email ?? null;
 
     return {
@@ -198,57 +219,62 @@ function toSidRow(root: any, sidRaw: any): SampleIdChangeRow | null {
     };
 }
 
+function resolveRoleIdFromUser(user: any): number {
+    const pickRoleId = (obj: any): number | null => {
+        if (!obj) return null;
+
+        const candidates = [
+            obj.role_id,
+            obj.roleId,
+            obj.role?.role_id,
+            obj.role?.id,
+            obj.role?.roleId,
+            obj.user?.role_id,
+            obj.user?.roleId,
+            obj.data?.role_id,
+            obj.data?.roleId,
+            obj.staff?.role_id,
+            obj.staff?.roleId,
+        ];
+
+        for (const c of candidates) {
+            const n = Number(c);
+            if (Number.isFinite(n) && n > 0) return n;
+        }
+
+        return null;
+    };
+
+    const fromUser = pickRoleId(user);
+    if (fromUser) return fromUser;
+
+    try {
+        const keys = ["biotrace_auth", "biotrace_user", "auth", "user", "staff"];
+        for (const k of keys) {
+            const raw = localStorage.getItem(k);
+            if (!raw) continue;
+            const parsed = JSON.parse(raw);
+            const fromStorage = pickRoleId(parsed);
+            if (fromStorage) return fromStorage;
+        }
+    } catch {
+        // ignore
+    }
+
+    const fallback = Number(getUserRoleId(user));
+    return Number.isFinite(fallback) ? fallback : 0;
+}
+
 export default function SampleRequestDetailPage() {
     const { t } = useTranslation();
 
     const { id } = useParams<{ id: string }>();
     const { user } = useAuth();
 
-    const roleId = useMemo(() => {
-        const pickRoleId = (obj: any): number | null => {
-            if (!obj) return null;
-            const candidates = [
-                obj.role_id,
-                obj.roleId,
-                obj.role?.role_id,
-                obj.role?.id,
-                obj.role?.roleId,
-                obj.user?.role_id,
-                obj.user?.roleId,
-                obj.data?.role_id,
-                obj.data?.roleId,
-                obj.staff?.role_id,
-                obj.staff?.roleId,
-            ];
-            for (const c of candidates) {
-                const n = Number(c);
-                if (Number.isFinite(n) && n > 0) return n;
-            }
-            return null;
-        };
-
-        const fromUser = pickRoleId(user);
-        if (fromUser) return fromUser;
-
-        try {
-            const keys = ["biotrace_auth", "biotrace_user", "auth", "user", "staff"];
-            for (const k of keys) {
-                const raw = localStorage.getItem(k);
-                if (!raw) continue;
-                const parsed = JSON.parse(raw);
-                const fromStorage = pickRoleId(parsed);
-                if (fromStorage) return fromStorage;
-            }
-        } catch {
-            // ignore
-        }
-
-        const fallback = Number(getUserRoleId(user));
-        return Number.isFinite(fallback) ? fallback : 0;
-    }, [user]);
-
-    const roleLabel = useMemo(() => getUserRoleLabel(roleId), [roleId]);
     const requestId = Number(id);
+
+    const roleId = useMemo(() => resolveRoleIdFromUser(user), [user]);
+    const roleLabel = useMemo(() => getUserRoleLabel(roleId), [roleId]);
 
     const canView = useMemo(
         () =>
@@ -272,9 +298,7 @@ export default function SampleRequestDetailPage() {
 
     const [assignOpen, setAssignOpen] = useState(false);
     const [finalizeApprovedOpen, setFinalizeApprovedOpen] = useState(false);
-    const [assignFlash, setAssignFlash] = useState<{ type: "success" | "warning" | "error"; message: string } | null>(
-        null
-    );
+    const [assignFlash, setAssignFlash] = useState<{ type: "success" | "warning" | "error"; message: string } | null>(null);
 
     const [wfBusy, setWfBusy] = useState(false);
     const [wfError, setWfError] = useState<string | null>(null);
@@ -291,6 +315,8 @@ export default function SampleRequestDetailPage() {
     const labSampleCode = (sample as any)?.lab_sample_code ?? null;
     const verifiedAt = (sample as any)?.verified_at ?? null;
 
+    const displayRequestId = Number((sample as any)?.sample_id ?? requestId);
+
     const sidRaw =
         sidFetchedRaw ??
         (sample as any)?.sample_id_change ??
@@ -303,48 +329,20 @@ export default function SampleRequestDetailPage() {
         return toSidRow(sample as any, sidRaw);
     }, [sample, sidRaw]);
 
-    const handleVerifySampleIdChange = async () => {
-        setWfError(null);
-
-        let row = sidRow;
-
-        if (!row && Number.isFinite(requestId) && requestId > 0) {
-            try {
-                const fetched = await getLatestSampleIdChangeBySampleId(requestId);
-                if (fetched) {
-                    setSidFetchedRaw(fetched);
-                    row = sample ? toSidRow(sample as any, fetched) : null;
-                }
-            } catch {
-                // ignore
-            }
-        }
-
-        if (!row) {
-            setWfError(
-                t("samples.pages.requestDetail.errors.sampleIdChangeMissing", {
-                    defaultValue: "Sample ID change detail is missing.",
-                })
-            );
-            return;
-        }
-
-        setSidActiveRow(row);
-        setSidPickOpen(true);
-    };
-
     const load = async (opts?: { silent?: boolean }) => {
         if (!canView) {
             setLoading(false);
             return;
         }
-        if (!requestId || Number.isNaN(requestId)) {
+
+        if (!Number.isFinite(requestId) || requestId <= 0) {
             setError(t("samples.pages.requestDetail.errors.invalidUrl", { defaultValue: "Invalid request URL." }));
             setLoading(false);
             return;
         }
 
         const silent = !!opts?.silent;
+
         try {
             if (!silent) setLoading(true);
             setError(null);
@@ -354,25 +352,7 @@ export default function SampleRequestDetailPage() {
 
             try {
                 const res = await apiGet<any>(`/v1/samples/${requestId}/workflow-logs`);
-
-                const unwrapLogs = (x: any): any[] | null => {
-                    if (Array.isArray(x)) return x;
-                    if (x && typeof x === "object") {
-                        if (Array.isArray((x as any).data)) return (x as any).data;
-                        if (
-                            (x as any).data &&
-                            typeof (x as any).data === "object" &&
-                            Array.isArray((x as any).data.data)
-                        ) {
-                            return (x as any).data.data;
-                        }
-                        if (Array.isArray((x as any).items)) return (x as any).items;
-                    }
-                    return null;
-                };
-
-                const arr = unwrapLogs(res);
-                setWorkflowLogs(arr ?? []);
+                setWorkflowLogs(extractWorkflowLogs(res) ?? []);
             } catch {
                 setWorkflowLogs(null);
             }
@@ -403,19 +383,19 @@ export default function SampleRequestDetailPage() {
     };
 
     const approve = async () => {
-        if (!requestId || Number.isNaN(requestId)) return;
+        if (!Number.isFinite(requestId) || requestId <= 0) return;
+
         try {
             setWfBusy(true);
             setWfError(null);
+
             await apiPost<any>(`/v1/samples/${requestId}/request-status`, { action: "accept" });
+
             await load({ silent: true });
             setTab("workflow");
         } catch (err: any) {
             setWfError(
-                safeApiMessage(
-                    err,
-                    t("samples.pages.requestDetail.errors.approveFailed", { defaultValue: "Failed to approve request." })
-                )
+                safeApiMessage(err, t("samples.pages.requestDetail.errors.approveFailed", { defaultValue: "Failed to approve request." }))
             );
         } finally {
             setWfBusy(false);
@@ -423,7 +403,8 @@ export default function SampleRequestDetailPage() {
     };
 
     const doMarkPhysicallyReceived = async () => {
-        if (!requestId || Number.isNaN(requestId)) return;
+        if (!Number.isFinite(requestId) || requestId <= 0) return;
+
         try {
             setWfBusy(true);
             setWfError(null);
@@ -437,10 +418,7 @@ export default function SampleRequestDetailPage() {
             setTab("workflow");
         } catch (err: any) {
             setWfError(
-                safeApiMessage(
-                    err,
-                    t("samples.pages.requestDetail.errors.updateStatusFailed", { defaultValue: "Failed to update status." })
-                )
+                safeApiMessage(err, t("samples.pages.requestDetail.errors.updateStatusFailed", { defaultValue: "Failed to update status." }))
             );
         } finally {
             setWfBusy(false);
@@ -448,21 +426,19 @@ export default function SampleRequestDetailPage() {
     };
 
     const doPhysicalWorkflow = async (action: string) => {
-        if (!requestId || Number.isNaN(requestId)) return;
+        if (!Number.isFinite(requestId) || requestId <= 0) return;
+
         try {
             setWfBusy(true);
             setWfError(null);
+
             await apiPatch<any>(`/v1/samples/${requestId}/physical-workflow`, { action, note: null });
+
             await load({ silent: true });
             setTab("workflow");
         } catch (err: any) {
             setWfError(
-                safeApiMessage(
-                    err,
-                    t("samples.pages.requestDetail.errors.updateWorkflowFailed", {
-                        defaultValue: "Failed to update workflow.",
-                    })
-                )
+                safeApiMessage(err, t("samples.pages.requestDetail.errors.updateWorkflowFailed", { defaultValue: "Failed to update workflow." }))
             );
         } finally {
             setWfBusy(false);
@@ -470,7 +446,7 @@ export default function SampleRequestDetailPage() {
     };
 
     const doVerify = async () => {
-        if (!requestId || Number.isNaN(requestId)) return;
+        if (!Number.isFinite(requestId) || requestId <= 0) return;
         if (verifyBusy) return;
 
         try {
@@ -481,12 +457,36 @@ export default function SampleRequestDetailPage() {
             await load({ silent: true });
             setTab("workflow");
         } catch (err: any) {
-            setWfError(
-                safeApiMessage(err, t("samples.pages.requestDetail.errors.verifyFailed", { defaultValue: "Failed to verify." }))
-            );
+            setWfError(safeApiMessage(err, t("samples.pages.requestDetail.errors.verifyFailed", { defaultValue: "Failed to verify." })));
         } finally {
             setVerifyBusy(false);
         }
+    };
+
+    const handleVerifySampleIdChange = async () => {
+        setWfError(null);
+
+        let row = sidRow;
+
+        if (!row && Number.isFinite(requestId) && requestId > 0) {
+            try {
+                const fetched = await getLatestSampleIdChangeBySampleId(requestId);
+                if (fetched) {
+                    setSidFetchedRaw(fetched);
+                    row = sample ? toSidRow(sample as any, fetched) : null;
+                }
+            } catch {
+                // ignore
+            }
+        }
+
+        if (!row) {
+            setWfError(t("samples.pages.requestDetail.errors.sampleIdChangeMissing", { defaultValue: "Sample ID change detail is missing." }));
+            return;
+        }
+
+        setSidActiveRow(row);
+        setSidPickOpen(true);
     };
 
     if (!canView) {
@@ -505,7 +505,6 @@ export default function SampleRequestDetailPage() {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Breadcrumb (OLD shell) */}
             <div className="px-0 py-2">
                 <nav className="lims-breadcrumb">
                     <span className="lims-breadcrumb-icon">
@@ -522,43 +521,39 @@ export default function SampleRequestDetailPage() {
             </div>
 
             <div className="lims-detail-shell">
-                {loading && (
+                {loading ? (
                     <div className="flex items-center gap-2 text-sm text-gray-600">
                         <RefreshCw size={16} className="animate-spin text-primary" />
                         <span>{t("samples.pages.requestDetail.loading", { defaultValue: "Loading request detail..." })}</span>
                     </div>
-                )}
+                ) : null}
 
-                {error && !loading && (
+                {error && !loading ? (
                     <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
-                )}
+                ) : null}
 
-                {!loading && !error && sample && (
+                {!loading && !error && sample ? (
                     <div className="space-y-6">
-                        {/* Header (OLD style) */}
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                             <div>
+                                {/* FIX: pass id so "Permintaan #{{id}}" becomes "Permintaan #13" */}
                                 <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                                    {t("samples.pages.requestDetail.title", { defaultValue: "Sample Request Detail" })}
+                                    {t("samples.pages.requestDetail.title", {
+                                        id: displayRequestId,
+                                        defaultValue: `Request #${displayRequestId}`,
+                                    })}
                                 </h1>
 
+                                {/* FIX: remove "Request ID #13" line (double + English) */}
                                 <div className="text-sm text-gray-600 mt-1 flex items-center gap-2 flex-wrap">
-                                    <span>
-                                        {t("samples.pages.requestDetail.requestId", { defaultValue: "Request ID" })}{" "}
-                                        <span className="font-semibold">#{(sample as any)?.sample_id ?? requestId}</span>
-                                    </span>
-
-                                    <span className="text-gray-400">·</span>
-                                    <span className="text-xs text-gray-500">
-                                        {t("samples.pages.requestDetail.status", { defaultValue: "status" })}
-                                    </span>
+                                    <span className="text-xs text-gray-500">{t("status")}</span>
                                     <StatusPill value={(sample as any)?.request_status ?? "-"} t={t} />
 
                                     {verifiedAt ? (
                                         <>
                                             <span className="text-gray-400">·</span>
                                             <span className="text-xs text-gray-500">
-                                                {t("samples.pages.requestDetail.verified", { defaultValue: "verified" })}
+                                                {t("samples.pages.requestDetail.verified", { defaultValue: "Verified" })}
                                             </span>
                                             <span className="text-xs font-semibold text-emerald-700">
                                                 {formatDateTimeLocal(verifiedAt)}
@@ -570,7 +565,7 @@ export default function SampleRequestDetailPage() {
                                         <>
                                             <span className="text-gray-400">·</span>
                                             <span className="text-xs text-gray-500">
-                                                {t("samples.pages.requestDetail.labCode", { defaultValue: "BML" })}
+                                                {t("samples.pages.requestDetail.labCode", { defaultValue: "Lab Code" })}
                                             </span>
                                             <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
                                                 {labSampleCode}
@@ -581,16 +576,13 @@ export default function SampleRequestDetailPage() {
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <SmallButton type="button" onClick={refresh} disabled={pageRefreshing} className="flex items-center gap-2">
+                                <SmallButton type="button" onClick={refresh} disabled={pageRefreshing}>
                                     <RefreshCw size={16} className={cx(pageRefreshing && "animate-spin")} />
-                                    {pageRefreshing
-                                        ? t("refreshing", { defaultValue: "Refreshing..." })
-                                        : t("refresh", { defaultValue: "Refresh" })}
+                                    {t("refresh")}
                                 </SmallButton>
                             </div>
                         </div>
 
-                        {/* Tabs (OLD container) */}
                         <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                             <div className="px-5 pt-5">
                                 <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-2xl p-1 flex-wrap">
@@ -604,9 +596,9 @@ export default function SampleRequestDetailPage() {
                             </div>
 
                             <div className="px-5 py-5">
-                                {tab === "info" && <SampleRequestInfoTab sample={sample} />}
+                                {tab === "info" ? <SampleRequestInfoTab sample={sample} /> : null}
 
-                                {tab === "workflow" && (
+                                {tab === "workflow" ? (
                                     <>
                                         <SampleRequestWorkflowTab
                                             sample={sample}
@@ -639,7 +631,6 @@ export default function SampleRequestDetailPage() {
                                             }}
                                         />
 
-                                        {/* SID verify pick (OLD modal style, but i18n + better content) */}
                                         {sidPickOpen ? (
                                             <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
                                                 <div
@@ -736,10 +727,7 @@ export default function SampleRequestDetailPage() {
                                                 if (!sidActiveRow) return;
 
                                                 const changeId = Number(
-                                                    sidActiveRow.change_request_id ??
-                                                    sidActiveRow.id ??
-                                                    sidActiveRow.sample_id_change_id ??
-                                                    0
+                                                    sidActiveRow.change_request_id ?? sidActiveRow.id ?? sidActiveRow.sample_id_change_id ?? 0
                                                 );
                                                 if (!Number.isFinite(changeId) || changeId <= 0) return;
 
@@ -778,7 +766,7 @@ export default function SampleRequestDetailPage() {
                                             }}
                                         />
                                     </>
-                                )}
+                                ) : null}
                             </div>
                         </div>
 
@@ -830,8 +818,8 @@ export default function SampleRequestDetailPage() {
                                 onClose={() => setIntakeOpen(false)}
                                 sampleId={requestId}
                                 requestLabel={t("samples.pages.requestDetail.requestLabel", {
-                                    id: requestId,
-                                    defaultValue: `Request #${requestId}`,
+                                    id: displayRequestId,
+                                    defaultValue: `Request #${displayRequestId}`,
                                 })}
                                 onSubmitted={async () => {
                                     await load({ silent: true });
@@ -840,7 +828,7 @@ export default function SampleRequestDetailPage() {
                             />
                         ) : null}
                     </div>
-                )}
+                ) : null}
             </div>
         </div>
     );

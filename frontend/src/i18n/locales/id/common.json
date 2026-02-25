@@ -1831,5 +1831,109 @@
             "previewTitle": "LOO {{number}}",
             "previewTitleFallback": "Pratinjau LOO"
         }
+    },
+    "intakeChecklist": {
+        "title": "Checklist intake",
+        "subtitle": "Semua item harus PASS. Jika ada FAIL, permintaan akan dikembalikan ke admin.",
+        "sections": {
+            "physicalCondition": "Kondisi fisik",
+            "identity": "Identitas",
+            "volume": "Volume",
+            "packing": "Pengemasan",
+            "supportingDocs": "Dokumen pendukung"
+        },
+        "progress": "Progres: {{decided}}/{{total}} • PASS: {{passed}} • FAIL: {{failed}}",
+        "actions": {
+            "pass": "PASS",
+            "fail": "FAIL",
+            "submit": "Kirim checklist",
+            "submitting": "Mengirim…"
+        },
+        "reason": {
+            "label": "Alasan (wajib)",
+            "placeholder": "Jelaskan apa yang tidak sesuai…"
+        },
+        "generalNote": {
+            "label": "Catatan umum (opsional)",
+            "placeholder": "Tambahkan konteks bila perlu…"
+        },
+        "warning": {
+            "anyFail": "Ada item yang FAIL. Status permintaan akan menjadi {{status}} dan dikembalikan ke admin."
+        },
+        "validation": {
+            "pickDecision": "Pilih PASS atau FAIL.",
+            "failReasonRequired": "Wajib isi alasan saat FAIL.",
+            "fixHighlighted": "Lengkapi item yang disorot sebelum mengirim.",
+            "incompleteTooltip": "Checklist belum lengkap."
+        },
+        "errors": {
+            "submitFailed": "Gagal mengirim checklist."
+        },
+        "items": {
+            "container_intact": {
+                "label": "Wadah sampel dalam kondisi baik",
+                "hint": "Wadah utuh (tidak retak/pecah/bocor)."
+            },
+            "cap_sealed": {
+                "label": "Tutup/wadah tertutup rapat",
+                "hint": "Wadah tertutup dengan benar dan tersegel rapat."
+            },
+            "no_leakage": {
+                "label": "Tidak ada kebocoran/tumpahan",
+                "hint": "Tidak terlihat kebocoran, tumpahan, atau kontaminasi."
+            },
+            "label_attached": {
+                "label": "Label terpasang",
+                "hint": "Label ada pada wadah sampel."
+            },
+            "label_clear": {
+                "label": "Label jelas & terbaca",
+                "hint": "Teks label terbaca (tidak pudar, luntur, atau buram)."
+            },
+            "label_matches_form": {
+                "label": "Label sesuai formulir/permintaan",
+                "hint": "Detail label cocok dengan formulir permintaan (nama/ID/tanggal/jam bila ada)."
+            },
+            "identity_complete": {
+                "label": "Informasi identitas lengkap",
+                "hint": "Identitas lengkap sesuai persyaratan laboratorium."
+            },
+            "sample_type_matches": {
+                "label": "Jenis sampel sesuai permintaan",
+                "hint": "Jenis sampel/wadah sesuai dengan yang diminta."
+            },
+            "volume_sufficient": {
+                "label": "Volume mencukupi",
+                "hint": "Jumlah/volume cukup untuk pengujian yang diminta."
+            },
+            "vtm_present": {
+                "label": "VTM/media transport tersedia (bila diperlukan)",
+                "hint": "Media transport (mis. VTM) tersedia bila dipersyaratkan SOP."
+            },
+            "packaging_intact": {
+                "label": "Kemasan aman & utuh",
+                "hint": "Kemasan sekunder utuh dan melindungi integritas sampel."
+            },
+            "triple_packaging": {
+                "label": "Triple packaging diterapkan (bila diperlukan)",
+                "hint": "Triple packaging digunakan bila dipersyaratkan SOP."
+            },
+            "temperature_condition_ok": {
+                "label": "Kondisi suhu/transport OK",
+                "hint": "Kontrol suhu (ice pack/dry ice) sesuai kebutuhan penyimpanan."
+            },
+            "request_form_attached": {
+                "label": "Form permintaan terlampir",
+                "hint": "Form permintaan/daftar sampel terlampir dan lengkap."
+            },
+            "chain_of_custody_attached": {
+                "label": "Chain of custody terlampir (bila digunakan)",
+                "hint": "Form chain-of-custody terlampir bila berlaku."
+            },
+            "other_docs_complete": {
+                "label": "Dokumen pendukung lainnya lengkap",
+                "hint": "Dokumen pendukung lain yang dibutuhkan lengkap (bila ada)."
+            }
+        }
     }
 }
