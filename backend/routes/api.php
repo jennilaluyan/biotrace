@@ -43,6 +43,7 @@ use App\Http\Controllers\EquipmentBookingController;
 use App\Http\Controllers\EquipmentCatalogController;
 use App\Http\Controllers\MethodController;
 use App\Http\Controllers\ParameterController;
+use App\Http\Controllers\ClientParameterController;
 use App\Http\Controllers\ReagentController;
 use App\Http\Controllers\ReagentRequestController;
 use App\Http\Controllers\ReagentRequestDocumentController;
@@ -155,7 +156,7 @@ Route::prefix('v1')->group(function () {
             Route::post('samples/{sample}/submit', [ClientSampleRequestController::class, 'submit'])->whereNumber('sample');
 
             // Parameters (portal)
-            Route::get('parameters', [ParameterController::class, 'index']);
+            Route::get('parameters', [ClientParameterController::class, 'index']);
         });
 
     /*

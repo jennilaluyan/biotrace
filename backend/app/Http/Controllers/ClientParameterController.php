@@ -21,15 +21,27 @@ class ClientParameterController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        $perPage = (int) $request->query('per_page', 20);
+        $perPage = (int) $request->query('per_page', 50);
         $q = trim((string) $request->query('q', ''));
 
-        $query = Parameter::query()->orderBy('parameter_id', 'asc');
+        $query = Parameter::query();
 
-        // kalau di table parameters ada kolom "is_active" / "status", filter di sini (optional)
-        if (schema_has_column('parameters', 'is_active')) {
+        // filter aktif yang bener-bener ada di skema kamu
+        if (schema_has_column('parameters', 'status')) {
+            $query->where('status', 'Active');
+        } elseif (schema_has_column('parameters', 'is_active')) {
             $query->where('is_active', true);
         }
+
+        // urutan paling stabil untuk P01..Pn
+        if (schema_has_column('parameters', 'catalog_no')) {
+            // Postgres: NULLS LAST supported
+            $query->orderByRaw('catalog_no asc nulls last');
+        } else {
+            $query->orderBy('code', 'asc');
+        }
+
+        $query->orderBy('parameter_id', 'asc');
 
         if ($q !== '') {
             $query->where(function ($w) use ($q) {

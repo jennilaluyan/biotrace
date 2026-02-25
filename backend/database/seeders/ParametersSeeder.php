@@ -27,7 +27,15 @@ class ParametersSeeder extends Seeder
         }
 
         // referensi dokumen tarif (biar konsisten dan bisa ditrace)
+        // referensi dokumen tarif (biar konsisten dan bisa ditrace)
         $methodRef = 'SK Rektor UNSRAT 339/UW12/LL/2025 (28 Februari 2025) - Tarif Layanan Penunjang Akademik';
+
+        // ✅ timestamp tunggal untuk seeding (hindari “unassigned variable $now” + konsisten)
+        $now = now();
+
+        $hasUnitText   = Schema::hasColumn('parameters', 'unit');       // string (migration lama)
+        $hasUnitId     = Schema::hasColumn('parameters', 'unit_id');    // fk (migration baru)
+        $hasCatalogNo  = Schema::hasColumn('parameters', 'catalog_no'); // migration 2026_02_06
 
         // 32 parameter dari gambar (name persis, tarif hanya sebagai komentar)
         $items = [
@@ -71,28 +79,22 @@ class ParametersSeeder extends Seeder
         foreach ($items as $it) {
             $no = (int) $it['no'];
 
-            // code max 40 char, simple & stabil:
-            // BM-001 ... BM-032
-            // ... di dalam foreach ($items as $it) {
-            $no = (int) $it['no'];
-
-            // ✅ code baru sesuai permintaan: P01..P32
             $newCode = sprintf('P%02d', $no);
-
-            // ✅ kalau dulu sudah terlanjur ada BM-001..BM-032, kita treat sebagai legacy
             $legacyCode = sprintf('BM-%03d', $no);
 
             $payload = [
-                'catalog_no' => $no,
                 'code' => $newCode,
                 'name' => $it['name'],
                 'method_ref' => $methodRef,
                 'created_by' => $createdBy,
                 'status' => 'Active',
                 'tag' => 'Routine',
-                'updated_at' => now(),
+                'updated_at' => $now,
             ];
 
+            if ($hasCatalogNo) {
+                $payload['catalog_no'] = $no;
+            }
             if ($hasUnitText) {
                 $payload['unit'] = 'sampel';
             }
@@ -100,17 +102,70 @@ class ParametersSeeder extends Seeder
                 $payload['unit_id'] = $unitIdSampel;
             }
 
-            // 1) coba update row legacy BM-* dulu (kalau ada)
-            $updatedLegacy = DB::table('parameters')
-                ->where('code', $legacyCode)
-                ->update($payload);
+            // Cari target row yang paling tepat supaya:
+            // - kalau sudah ada Pxx -> update row itu
+            // - else kalau ada legacy BM-xxx -> update row itu + rename code ke Pxx (jaga FK)
+            // - else kalau ada catalog_no -> update row itu
+            $target = DB::table('parameters')
+                ->select(['parameter_id', 'code'])
+                ->where('code', $newCode)
+                ->first();
 
-            // 2) kalau legacy tidak ada, upsert by catalog_no (paling stabil)
-            if ($updatedLegacy === 0) {
-                DB::table('parameters')->updateOrInsert(
-                    ['catalog_no' => $no],
-                    $payload
-                );
+            if (!$target) {
+                $target = DB::table('parameters')
+                    ->select(['parameter_id', 'code'])
+                    ->where('code', $legacyCode)
+                    ->first();
+            }
+
+            if (!$target && $hasCatalogNo) {
+                $target = DB::table('parameters')
+                    ->select(['parameter_id', 'code'])
+                    ->where('catalog_no', $no)
+                    ->first();
+            }
+
+            if ($target) {
+                // Kalau ada row lain yang sudah pegang catalog_no ini, kosongkan dulu biar unique aman.
+                if ($hasCatalogNo) {
+                    DB::table('parameters')
+                        ->where('catalog_no', $no)
+                        ->where('parameter_id', '!=', (int) $target->parameter_id)
+                        ->update([
+                            'catalog_no' => null,
+                            'updated_at' => $now,
+                        ]);
+                }
+
+                DB::table('parameters')
+                    ->where('parameter_id', (int) $target->parameter_id)
+                    ->update($payload);
+            } else {
+                // Insert baru (P01/P02 pasti masuk, dan tidak akan bentrok dengan P03..P32 yang sudah ada)
+                $insert = $payload;
+                $insert['created_at'] = $now;
+
+                DB::table('parameters')->insert($insert);
+            }
+
+            // Optional cleanup: kalau masih ada row legacy BM-xxx yang bukan target (duplikat),
+            // kita nonaktifkan agar tidak mengganggu UI/list selection.
+            $legacyRow = DB::table('parameters')
+                ->select(['parameter_id'])
+                ->where('code', $legacyCode)
+                ->first();
+
+            if ($legacyRow) {
+                // jika legacy masih ada, berarti target bukan legacy (atau legacy duplikat)
+                $legacyUpdate = [
+                    'status' => 'Inactive',
+                    'updated_at' => $now,
+                ];
+                if ($hasCatalogNo) $legacyUpdate['catalog_no'] = null;
+
+                DB::table('parameters')
+                    ->where('parameter_id', (int) $legacyRow->parameter_id)
+                    ->update($legacyUpdate);
             }
         }
     }
