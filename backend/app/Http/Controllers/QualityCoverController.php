@@ -24,8 +24,8 @@ use Illuminate\Http\UploadedFile;
 class QualityCoverController extends Controller
 {
     public function __construct(
+        private readonly FileStoreService $files,
         private readonly ?CoaAutoGenerateService $coa = null,
-        private readonly ?FileStoreService $files = null,
     ) {}
 
     /**

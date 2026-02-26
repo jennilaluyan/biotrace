@@ -853,20 +853,6 @@ export function QualityCoverSection(props: Props) {
                                     </div>
                                 )}
                             </div>
-
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                    {ts("qualityCover.section.supporting.notes", { defaultValue: "Other notes (optional)" })}
-                                </label>
-                                <textarea
-                                    value={supportingNotes}
-                                    onChange={(e) => setSupportingNotes(e.target.value)}
-                                    rows={3}
-                                    placeholder="Any additional context…"
-                                    disabled={isLocked}
-                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100"
-                                />
-                            </div>
                         </div>
                     </div>
                 </div>
