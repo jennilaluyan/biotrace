@@ -11,6 +11,8 @@ class FileBlob extends Model
     public $incrementing = true;
     protected $keyType = 'int';
 
+    protected $hidden = ['bytes'];
+
     protected $fillable = [
         'original_name',
         'ext',

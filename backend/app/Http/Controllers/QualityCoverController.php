@@ -851,14 +851,28 @@ class QualityCoverController extends Controller
             }
         });
 
-        $qualityCover->refresh();
-        if (method_exists($qualityCover, 'supportingFiles')) {
-            $qualityCover->load(['supportingFiles']);
-        }
+        $qualityCover = $qualityCover->fresh();
+
+        // Return ONLY file metadata (never include bytes)
+        $supportingFiles = DB::table('quality_cover_supporting_files as qcsf')
+            ->join('files as f', 'f.file_id', '=', 'qcsf.file_id')
+            ->where('qcsf.quality_cover_id', (int) $qualityCover->quality_cover_id)
+            ->orderBy('qcsf.file_id', 'asc')
+            ->get([
+                'f.file_id',
+                'f.original_name',
+                'f.mime_type',
+                'f.ext',
+                'f.size_bytes',
+                'f.created_at',
+            ]);
+
+        $data = $qualityCover->toArray();
+        $data['supporting_files'] = $supportingFiles;
 
         return response()->json([
             'message' => 'Supporting documents uploaded.',
-            'data' => $qualityCover,
+            'data' => $data,
             'context' => [
                 'stored_file_ids' => $storedIds,
             ],
