@@ -286,6 +286,88 @@ export async function apiGetBlob(path: string, options?: AxiosRequestConfig): Pr
     }
 }
 
+function parseContentDispositionFilename(v?: string): string | null {
+    if (!v) return null;
+
+    // filename*=UTF-8''...
+    const star = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(v);
+    if (star?.[1]) {
+        try {
+            return decodeURIComponent(star[1].trim());
+        } catch {
+            return star[1].trim();
+        }
+    }
+
+    // filename="..."
+    const quoted = /filename\s*=\s*"([^"]+)"/i.exec(v);
+    if (quoted?.[1]) return quoted[1].trim();
+
+    // filename=...
+    const plain = /filename\s*=\s*([^;]+)/i.exec(v);
+    if (plain?.[1]) return plain[1].trim().replace(/^"+|"+$/g, "");
+
+    return null;
+}
+
+export async function apiGetAnyBlob(
+    path: string,
+    options?: AxiosRequestConfig
+): Promise<{ blob: Blob; filename?: string | null; contentType?: string | null }> {
+    try {
+        const res = await http.get(normalizePath(path), {
+            ...options,
+            responseType: "blob",
+            headers: {
+                Accept: "*/*",
+                ...(options?.headers || {}),
+            },
+        });
+
+        const disp = (res.headers as any)?.["content-disposition"] ?? (res.headers as any)?.["Content-Disposition"];
+        const ct = (res.headers as any)?.["content-type"] ?? (res.headers as any)?.["Content-Type"] ?? null;
+
+        return {
+            blob: res.data as Blob,
+            filename: parseContentDispositionFilename(disp),
+            contentType: ct,
+        };
+    } catch (err) {
+        const error = err as AxiosError;
+
+        if (error.response) {
+            let data: any = normalizeData(error.response.data);
+            let message = error.message;
+
+            if (typeof Blob !== "undefined" && data instanceof Blob) {
+                try {
+                    const text = await data.text();
+                    try {
+                        const json = JSON.parse(text);
+                        data = json;
+                        message = extractMessage(json, message);
+                    } catch {
+                        data = text;
+                        message = text || message;
+                    }
+                } catch {
+                    // ignore
+                }
+            } else {
+                message = extractMessage(data, message);
+            }
+
+            throw {
+                status: error.response.status,
+                data,
+                message,
+            };
+        }
+
+        throw err;
+    }
+}
+
 export async function apiPostRaw<T = any>(path: string, body?: any, options?: AxiosRequestConfig): Promise<T> {
     const res = await http.post(normalizePath(path), body, options);
     return normalizeData(res.data) as T;

@@ -12,6 +12,7 @@ import {
     deleteQualityCoverSupportingDoc,
     type SupportingFile,
 } from "../../services/qualityCovers";
+import { apiGetAnyBlob } from "../../services/api";
 import { formatDateTimeLocal } from "../../utils/date";
 
 function cx(...arr: Array<string | false | null | undefined>) {
@@ -70,17 +71,17 @@ function humanFileSize(bytes: number | null | undefined): string {
     return `${gb.toFixed(1)} GB`;
 }
 
-/**
- * Quality Cover Section (Analyst)
- * Fix 3 additions:
- * - Optional Google Drive link
- * - Optional notes
- * - Supporting documents upload (0..n, any file types)
- *
- * Important:
- * - Supporting docs can be modified ONLY while QC is draft.
- * - On submit: we force a draft save + upload pending files BEFORE submitting.
- */
+function startDownloadFromBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export function QualityCoverSection(props: Props) {
     const { t } = useTranslation();
     const ts = (key: string, options?: any) => String(t(key, options));
@@ -89,8 +90,6 @@ export function QualityCoverSection(props: Props) {
 
     const sampleId = Number((sample as any)?.sample_id ?? 0);
 
-    // Fix 2 groups (new): pcr | sequencing | rapid | microbiology
-    // UI logic here still uses "wgs" form fields; we map sequencing -> wgs.
     const workflowGroup = String((sample as any)?.workflow_group ?? "").toLowerCase();
     const qcGroup = useMemo(() => {
         if (workflowGroup.includes("pcr")) return "pcr";
@@ -134,15 +133,14 @@ export function QualityCoverSection(props: Props) {
     const [uploadingFiles, setUploadingFiles] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
 
-    // drag & drop box
     const [isDragOver, setIsDragOver] = useState(false);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+    const [fileBusyId, setFileBusyId] = useState<number | null>(null);
 
     function addPendingFiles(files: File[]) {
         const incoming = (files ?? []).filter(Boolean);
         if (incoming.length === 0) return;
-
-        // append, keep order (simple + predictable)
         setPendingFiles((prev) => [...prev, ...incoming]);
     }
 
@@ -244,7 +242,6 @@ export function QualityCoverSection(props: Props) {
     const isLocked = !!disabled || cover?.status === "submitted";
     const isBusy = qcLoading || qcSaving || qcSubmitting || uploadingFiles;
 
-    // show "now" as analysis date placeholder (until backend provides date_of_analysis field)
     const nowLabel = useMemo(() => {
         try {
             return formatDateTimeLocal(new Date().toISOString());
@@ -276,6 +273,20 @@ export function QualityCoverSection(props: Props) {
         }
     }
 
+    async function downloadSupportingFile(fileId: number) {
+        setFileBusyId(fileId);
+        setUploadError(null);
+
+        try {
+            const { blob, filename } = await apiGetAnyBlob(`/v1/files/${fileId}?download=1`);
+            startDownloadFromBlob(blob, filename || `file-${fileId}`);
+        } catch (e: any) {
+            setUploadError(prettyErr(e, "Failed to download file."));
+        } finally {
+            setFileBusyId(null);
+        }
+    }
+
     async function onSaveDraft() {
         if (!sampleId) return;
         if (disabled) return;
@@ -289,15 +300,12 @@ export function QualityCoverSection(props: Props) {
                 parameter_label: paramLabel !== "—" ? paramLabel : null,
                 method_of_analysis: methodOfAnalysis || null,
                 qc_payload: qcPayload,
-
-                // ✅ Fix 3
                 supporting_drive_url: supportingDriveUrl.trim() || null,
                 supporting_notes: supportingNotes.trim() || null,
             });
 
             setCover(c);
 
-            // Upload pending documents (draft-only)
             if (c?.quality_cover_id) {
                 await uploadPendingIfAny(Number(c.quality_cover_id));
             }
@@ -319,40 +327,32 @@ export function QualityCoverSection(props: Props) {
         setQcError(null);
 
         try {
-            // 1) Save draft first (audit-friendly + ensures QC row exists)
             const draft = await saveQualityCoverDraft(sampleId, {
                 parameter_id: parameterId ?? null,
                 parameter_label: paramLabel !== "—" ? paramLabel : null,
                 method_of_analysis: methodOfAnalysis.trim(),
                 qc_payload: qcPayload,
-
-                // ✅ Fix 3
                 supporting_drive_url: supportingDriveUrl.trim() || null,
                 supporting_notes: supportingNotes.trim() || null,
             });
 
             setCover(draft);
 
-            // 2) Upload any pending files BEFORE submit (upload is draft-only)
             if (draft?.quality_cover_id) {
                 await uploadPendingIfAny(Number(draft.quality_cover_id));
             }
 
-            // 3) Submit
             const submitted = await submitQualityCover(sampleId, {
                 parameter_id: parameterId ?? null,
                 parameter_label: paramLabel !== "—" ? paramLabel : null,
                 method_of_analysis: methodOfAnalysis.trim(),
                 qc_payload: qcPayload,
-
-                // ✅ Fix 3
                 supporting_drive_url: supportingDriveUrl.trim() || null,
                 supporting_notes: supportingNotes.trim() || null,
             });
 
             setCover(submitted);
 
-            // 4) Refresh once more to ensure supporting_files list is included (backend may not eager-load on submit)
             const refreshed = await getQualityCover(sampleId);
             if (refreshed) setCover(refreshed);
 
@@ -380,7 +380,6 @@ export function QualityCoverSection(props: Props) {
 
     return (
         <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
-            {/* Header */}
             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
                 <div>
                     <div className="flex items-center gap-2">
@@ -400,7 +399,6 @@ export function QualityCoverSection(props: Props) {
                     <div className="text-xs text-gray-500 mt-1">{t("qualityCover.section.subtitle")}</div>
                 </div>
 
-                {/* Actions */}
                 <div className="flex items-center gap-2">
                     <button
                         type="button"
@@ -438,21 +436,21 @@ export function QualityCoverSection(props: Props) {
             </div>
 
             <div className="px-5 py-4">
-                {/* Error */}
                 {qcError ? (
-                    <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-3" role="alert">
+                    <div
+                        className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-3"
+                        role="alert"
+                    >
                         {qcError}
                     </div>
                 ) : null}
 
-                {/* Locked banner */}
                 {isLocked ? (
                     <div className="text-sm text-gray-700 bg-gray-50 border border-gray-100 px-3 py-2 rounded-xl mb-3">
                         {t("qualityCover.section.lockedHint")}
                     </div>
                 ) : null}
 
-                {/* Loading state */}
                 {qcLoading ? (
                     <div className="flex items-center gap-2 text-sm text-gray-600 mb-3">
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -460,7 +458,6 @@ export function QualityCoverSection(props: Props) {
                     </div>
                 ) : null}
 
-                {/* Meta */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
                         <div className="text-xs text-gray-500">{t("qualityCover.section.meta.parameter")}</div>
@@ -483,7 +480,6 @@ export function QualityCoverSection(props: Props) {
                     </div>
                 </div>
 
-                {/* Method */}
                 <div className="mt-4">
                     <label className="block text-xs text-gray-500">
                         {t("qualityCover.section.fields.methodOfAnalysis")} <span className="text-red-600">*</span>
@@ -498,7 +494,6 @@ export function QualityCoverSection(props: Props) {
                     <div className="mt-1 text-[11px] text-gray-500">{t("qualityCover.section.hints.methodOfAnalysis")}</div>
                 </div>
 
-                {/* Payload */}
                 <div className="mt-4">
                     {qcGroup === "pcr" ? (
                         <div className="space-y-3">
@@ -506,9 +501,7 @@ export function QualityCoverSection(props: Props) {
                                 <div key={k} className="rounded-2xl border border-gray-100 bg-white px-4 py-3">
                                     <div className="flex items-center justify-between gap-2 mb-2">
                                         <div className="text-xs font-semibold text-gray-800">{k}</div>
-                                        <div className="text-[11px] text-gray-500">
-                                            {t("qualityCover.section.groups.pcr.markerHint")}
-                                        </div>
+                                        <div className="text-[11px] text-gray-500">{t("qualityCover.section.groups.pcr.markerHint")}</div>
                                     </div>
 
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -546,9 +539,7 @@ export function QualityCoverSection(props: Props) {
                                         </div>
 
                                         <div>
-                                            <label className="block text-xs text-gray-500">
-                                                {t("qualityCover.section.pcr.interpretation")}
-                                            </label>
+                                            <label className="block text-xs text-gray-500">{t("qualityCover.section.pcr.interpretation")}</label>
                                             <input
                                                 value={qcPayload?.[k]?.interpretation ?? ""}
                                                 onChange={(e) =>
@@ -613,7 +604,6 @@ export function QualityCoverSection(props: Props) {
                         </div>
                     ) : null}
 
-                    {/* Helper (why submit disabled) */}
                     {submitDisabledReason ? (
                         <div className={cx("mt-3 text-xs", isBusy ? "text-gray-400" : "text-gray-500")}>
                             {submitDisabledReason}
@@ -648,7 +638,6 @@ export function QualityCoverSection(props: Props) {
                         <div className="w-full p-4 space-y-4">
                             <div className="md:col-span-3">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {/* LEFT: Dropzone */}
                                     <div>
                                         <div
                                             className={cx(
@@ -708,7 +697,6 @@ export function QualityCoverSection(props: Props) {
                                                 })}
                                             </div>
 
-                                            {/* Hidden real input */}
                                             <input
                                                 ref={fileInputRef}
                                                 type="file"
@@ -724,7 +712,6 @@ export function QualityCoverSection(props: Props) {
                                         </div>
                                     </div>
 
-                                    {/* RIGHT: Drive URL + Notes */}
                                     <div className="space-y-4">
                                         <div>
                                             <label className="block text-xs font-semibold text-gray-700 mb-1">
@@ -754,14 +741,13 @@ export function QualityCoverSection(props: Props) {
                                         </div>
                                     </div>
                                 </div>
-                                {/* Messages */}
+
                                 {uploadError ? (
                                     <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
                                         {uploadError}
                                     </div>
                                 ) : null}
 
-                                {/* Pending list */}
                                 {pendingFiles.length > 0 ? (
                                     <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
                                         <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
@@ -769,7 +755,9 @@ export function QualityCoverSection(props: Props) {
                                                 {ts("qualityCover.section.supporting.pending", { defaultValue: "Pending upload" })}
                                             </div>
                                             <div className="text-[11px] text-gray-500">
-                                                {ts("qualityCover.section.supporting.filesHint", { defaultValue: "Files are uploaded when you click Save draft or Submit." })}
+                                                {ts("qualityCover.section.supporting.filesHint", {
+                                                    defaultValue: "Files are uploaded when you click Save draft or Submit.",
+                                                })}
                                             </div>
                                         </div>
 
@@ -797,7 +785,6 @@ export function QualityCoverSection(props: Props) {
                                     </div>
                                 ) : null}
 
-                                {/* Uploaded list */}
                                 {supportingFiles.length > 0 ? (
                                     <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
                                         <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
@@ -807,44 +794,49 @@ export function QualityCoverSection(props: Props) {
                                         </div>
 
                                         <ul className="divide-y divide-gray-100">
-                                            {supportingFiles.map((f) => (
-                                                <li key={f.file_id} className="px-4 py-3 flex items-center justify-between gap-3">
-                                                    <div className="min-w-0">
-                                                        <div className="text-sm font-medium text-gray-900 truncate">
-                                                            {f.original_name ?? `File #${f.file_id}`}
-                                                        </div>
-                                                        <div className="text-xs text-gray-500">
-                                                            {humanFileSize(f.size_bytes)}{f.mime_type ? ` • ${f.mime_type}` : ""}
-                                                        </div>
-                                                    </div>
+                                            {supportingFiles.map((f) => {
+                                                const busy = fileBusyId === f.file_id;
 
-                                                    <div className="flex items-center gap-2">
-                                                        <a
-                                                            className="btn-outline px-3! py-1! text-xs inline-flex items-center gap-2"
-                                                            href={`/v1/files/${f.file_id}`}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            title={ts("qualityCover.section.supporting.download", { defaultValue: "Download" })}
-                                                        >
-                                                            <Download size={14} />
-                                                            {ts("qualityCover.section.supporting.download", { defaultValue: "Download" })}
-                                                        </a>
+                                                return (
+                                                    <li key={f.file_id} className="px-4 py-3 flex items-center justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <div className="text-sm font-medium text-gray-900 truncate">
+                                                                {f.original_name ?? `File #${f.file_id}`}
+                                                            </div>
+                                                            <div className="text-xs text-gray-500">
+                                                                {humanFileSize(f.size_bytes)}
+                                                                {f.mime_type ? ` • ${f.mime_type}` : ""}
+                                                            </div>
+                                                        </div>
 
-                                                        {!isLocked ? (
+                                                        <div className="flex items-center gap-2">
                                                             <button
                                                                 type="button"
-                                                                className="lims-icon-button"
-                                                                onClick={() => onRemoveSupportingFile(f.file_id)}
-                                                                disabled={uploadingFiles}
-                                                                aria-label={ts("qualityCover.section.supporting.remove", { defaultValue: "Remove" })}
-                                                                title={ts("qualityCover.section.supporting.remove", { defaultValue: "Remove" })}
+                                                                className="btn-outline px-3! py-1! text-xs inline-flex items-center gap-2"
+                                                                onClick={() => void downloadSupportingFile(f.file_id)}
+                                                                disabled={!!fileBusyId}
+                                                                title={ts("qualityCover.section.supporting.download", { defaultValue: "Download" })}
                                                             >
-                                                                <Trash2 size={16} />
+                                                                {busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                                                                {ts("qualityCover.section.supporting.download", { defaultValue: "Download" })}
                                                             </button>
-                                                        ) : null}
-                                                    </div>
-                                                </li>
-                                            ))}
+
+                                                            {!isLocked ? (
+                                                                <button
+                                                                    type="button"
+                                                                    className="lims-icon-button"
+                                                                    onClick={() => onRemoveSupportingFile(f.file_id)}
+                                                                    disabled={uploadingFiles || !!fileBusyId}
+                                                                    aria-label={ts("qualityCover.section.supporting.remove", { defaultValue: "Remove" })}
+                                                                    title={ts("qualityCover.section.supporting.remove", { defaultValue: "Remove" })}
+                                                                >
+                                                                    <Trash2 size={16} />
+                                                                </button>
+                                                            ) : null}
+                                                        </div>
+                                                    </li>
+                                                );
+                                            })}
                                         </ul>
                                     </div>
                                 ) : (

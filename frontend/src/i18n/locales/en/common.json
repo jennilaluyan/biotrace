@@ -658,6 +658,26 @@
                 "checkedBy": "Checked by",
                 "methodOfAnalysis": "Method of analysis"
             },
+            "sections": {
+                "results": "Results",
+                "resultsHint": "Analyst measurement output.",
+                "supporting": "Supporting documents",
+                "supportingHint": "Files uploaded by the analyst (if any)."
+            },
+            "supporting": {
+                "noFiles": "No supporting files uploaded.",
+                "open": "Open",
+                "download": "Download"
+            },
+            "pcr": {
+                "value": "Value",
+                "result": "Result",
+                "interpretation": "Interpretation"
+            },
+            "wgs": {
+                "lineage": "Lineage",
+                "variant": "Variant"
+            },
             "states": {
                 "loading": "Loading…",
                 "notFound": "Not found.",
@@ -677,6 +697,7 @@
                 "approveHintLh": "This is the final step. The cover will become validated. If tests exist, COA will be generated."
             },
             "flash": {
+                "verifiedOk": "Quality cover verified. Sent to LH inbox for validation.",
                 "validatedOk": "Quality cover validated. COA generated and saved in Reports.",
                 "validatedWarn": "Quality cover validated, but COA generation is still blocked (check tests/results).",
                 "rejected": "Quality cover rejected."
@@ -700,6 +721,9 @@
             "supporting": {
                 "title": "Supporting documents",
                 "subtitle": "Optional. Upload any files (0..n): PDF, images, DOCX, XLSX, etc.",
+                "dropTitle": "Drag and drop files here",
+                "dropHint": "or browse from your computer",
+                "browse": "Browse files",
                 "driveUrl": "Google Drive link (optional)",
                 "notes": "Other notes (optional)",
                 "upload": "Upload supporting docs (0..n)",

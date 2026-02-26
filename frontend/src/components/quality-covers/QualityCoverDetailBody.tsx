@@ -1,13 +1,10 @@
-import { useMemo } from "react";
-import { Download, ExternalLink } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Download, ExternalLink, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { apiGetAnyBlob } from "../../services/api";
 import type { QualityCoverInboxItem } from "../../services/qualityCovers";
 import { formatDateTimeLocal } from "../../utils/date";
-
-function cx(...arr: Array<string | false | null | undefined>) {
-    return arr.filter(Boolean).join(" ");
-}
 
 type Props = {
     data: QualityCoverInboxItem;
@@ -21,16 +18,6 @@ type NormalizedFile = {
     size_bytes?: number | null;
     created_at?: string | null;
 };
-
-const RAW_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
-const API_VER =
-    (import.meta.env.VITE_API_VER as string | undefined) ??
-    (RAW_BASE === "/api" || RAW_BASE.endsWith("/api") ? "/v1" : "/api/v1");
-
-function buildFileUrl(fileId: number, download?: boolean) {
-    const qs = download ? "?download=1" : "";
-    return `${RAW_BASE}${API_VER}/files/${fileId}${qs}`;
-}
 
 function fmtBytes(n?: number | null) {
     if (!n || !Number.isFinite(n)) return "—";
@@ -75,11 +62,9 @@ function normalizeSupportingFiles(qc: any): NormalizedFile[] {
                 x?.file?.sizeBytes ??
                 null;
 
-            const mime =
-                x?.mime_type ?? x?.mimeType ?? x?.file?.mime_type ?? x?.file?.mimeType ?? null;
+            const mime = x?.mime_type ?? x?.mimeType ?? x?.file?.mime_type ?? x?.file?.mimeType ?? null;
 
-            const created =
-                x?.created_at ?? x?.createdAt ?? x?.file?.created_at ?? x?.file?.createdAt ?? null;
+            const created = x?.created_at ?? x?.createdAt ?? x?.file?.created_at ?? x?.file?.createdAt ?? null;
 
             return {
                 file_id: fileId,
@@ -104,6 +89,39 @@ function detectQcGroup(workflowGroupRaw: string): "pcr" | "sequencing" | "rapid"
     return "other";
 }
 
+function isPreviewableMime(mime?: string | null) {
+    const m = String(mime ?? "").toLowerCase();
+    if (!m) return false;
+    if (m.startsWith("image/")) return true;
+    if (m === "application/pdf") return true;
+    if (m.startsWith("text/")) return true;
+    return false;
+}
+
+function startDownloadFromBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function openPreviewFromBlob(blob: Blob) {
+    const url = URL.createObjectURL(blob);
+    const w = window.open(url, "_blank", "noopener,noreferrer");
+    if (!w) {
+        // Popup blocked -> leave it as a download fallback by returning false
+        URL.revokeObjectURL(url);
+        return false;
+    }
+
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return true;
+}
+
 export function QualityCoverDetailBody({ data, stepLabel }: Props) {
     const { t } = useTranslation();
     const ts = (key: string, options?: any) => String(t(key, options));
@@ -124,15 +142,58 @@ export function QualityCoverDetailBody({ data, stepLabel }: Props) {
 
     const resultsTitle = useMemo(() => {
         if (qcGroup === "pcr") return ts("qualityCover.detail.sections.results", { defaultValue: "Results (PCR)" });
-        if (qcGroup === "sequencing") return ts("qualityCover.detail.sections.results", { defaultValue: "Results (Sequencing)" });
+        if (qcGroup === "sequencing")
+            return ts("qualityCover.detail.sections.results", { defaultValue: "Results (Sequencing)" });
         if (qcGroup === "rapid") return ts("qualityCover.detail.sections.results", { defaultValue: "Results (Rapid)" });
-        if (qcGroup === "microbiology") return ts("qualityCover.detail.sections.results", { defaultValue: "Results (Microbiology)" });
+        if (qcGroup === "microbiology")
+            return ts("qualityCover.detail.sections.results", { defaultValue: "Results (Microbiology)" });
         return ts("qualityCover.detail.sections.results", { defaultValue: "Results" });
     }, [qcGroup, ts]);
 
+    const [fileBusyId, setFileBusyId] = useState<number | null>(null);
+    const [fileError, setFileError] = useState<string | null>(null);
+
+    async function openFile(fileId: number, mimeHint?: string | null) {
+        setFileBusyId(fileId);
+        setFileError(null);
+
+        try {
+            const { blob, filename, contentType } = await apiGetAnyBlob(`/v1/files/${fileId}`);
+            const mime = String(contentType || blob.type || mimeHint || "").toLowerCase();
+
+            if (isPreviewableMime(mime)) {
+                const opened = openPreviewFromBlob(blob);
+                if (!opened) {
+                    startDownloadFromBlob(blob, filename || `file-${fileId}`);
+                }
+            } else {
+                startDownloadFromBlob(blob, filename || `file-${fileId}`);
+            }
+        } catch (e: any) {
+            setFileError(e?.message || ts("qualityCover.detail.supporting.failed", { defaultValue: "Failed to open file." }));
+        } finally {
+            setFileBusyId(null);
+        }
+    }
+
+    async function downloadFile(fileId: number) {
+        setFileBusyId(fileId);
+        setFileError(null);
+
+        try {
+            const { blob, filename } = await apiGetAnyBlob(`/v1/files/${fileId}?download=1`);
+            startDownloadFromBlob(blob, filename || `file-${fileId}`);
+        } catch (e: any) {
+            setFileError(
+                e?.message || ts("qualityCover.detail.supporting.failedDownload", { defaultValue: "Failed to download file." })
+            );
+        } finally {
+            setFileBusyId(null);
+        }
+    }
+
     return (
         <div className="space-y-4">
-            {/* Top card */}
             <div className="rounded-2xl border border-gray-200 bg-white p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -156,7 +217,6 @@ export function QualityCoverDetailBody({ data, stepLabel }: Props) {
                 </div>
             </div>
 
-            {/* Analyst fields */}
             <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
                 <div className="grid gap-3 md:grid-cols-2">
                     <div>
@@ -176,12 +236,9 @@ export function QualityCoverDetailBody({ data, stepLabel }: Props) {
 
                 <div>
                     <div className="text-xs text-gray-500">{t("qualityCover.detail.fields.methodOfAnalysis")}</div>
-                    <div className="rounded-xl border border-gray-200 px-3 py-2 text-sm">
-                        {data.method_of_analysis ?? "-"}
-                    </div>
+                    <div className="rounded-xl border border-gray-200 px-3 py-2 text-sm">{data.method_of_analysis ?? "-"}</div>
                 </div>
 
-                {/* Supporting Drive + Notes (optional) */}
                 <div className="grid gap-3 md:grid-cols-2">
                     <div>
                         <div className="text-xs text-gray-500">
@@ -215,7 +272,6 @@ export function QualityCoverDetailBody({ data, stepLabel }: Props) {
                 </div>
             </div>
 
-            {/* Results */}
             <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
                 <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
                     <div className="text-sm font-bold text-gray-900">{resultsTitle}</div>
@@ -260,11 +316,15 @@ export function QualityCoverDetailBody({ data, stepLabel }: Props) {
                     ) : qcGroup === "sequencing" ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                             <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
-                                <div className="text-xs text-gray-500">{ts("qualityCover.detail.wgs.lineage", { defaultValue: "Lineage" })}</div>
+                                <div className="text-xs text-gray-500">
+                                    {ts("qualityCover.detail.wgs.lineage", { defaultValue: "Lineage" })}
+                                </div>
                                 <div className="font-semibold text-gray-900 mt-0.5">{qcPayload?.lineage ?? "—"}</div>
                             </div>
                             <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
-                                <div className="text-xs text-gray-500">{ts("qualityCover.detail.wgs.variant", { defaultValue: "Variant" })}</div>
+                                <div className="text-xs text-gray-500">
+                                    {ts("qualityCover.detail.wgs.variant", { defaultValue: "Variant" })}
+                                </div>
                                 <div className="font-semibold text-gray-900 mt-0.5">{qcPayload?.variant ?? "—"}</div>
                             </div>
                         </div>
@@ -286,7 +346,6 @@ export function QualityCoverDetailBody({ data, stepLabel }: Props) {
                 </div>
             </div>
 
-            {/* Attachments */}
             <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
                 <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
                     <div className="text-sm font-bold text-gray-900">
@@ -297,48 +356,60 @@ export function QualityCoverDetailBody({ data, stepLabel }: Props) {
                     </div>
                 </div>
 
-                <div className="p-4">
+                <div className="p-4 space-y-3">
+                    {fileError ? (
+                        <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                            {fileError}
+                        </div>
+                    ) : null}
+
                     {supportingFiles.length === 0 ? (
                         <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-600">
                             {ts("qualityCover.detail.supporting.noFiles", { defaultValue: "No supporting files uploaded." })}
                         </div>
                     ) : (
                         <div className="space-y-2">
-                            {supportingFiles.map((f) => (
-                                <div
-                                    key={f.file_id}
-                                    className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-white px-3 py-3"
-                                >
-                                    <div className="min-w-0">
-                                        <div className="text-sm font-semibold text-gray-900 truncate">{f.name}</div>
-                                        <div className="text-[11px] text-gray-500 mt-1">
-                                            {fmtBytes(f.size_bytes)} {f.mime_type ? `• ${f.mime_type}` : ""}
+                            {supportingFiles.map((f) => {
+                                const busy = fileBusyId === f.file_id;
+
+                                return (
+                                    <div
+                                        key={f.file_id}
+                                        className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-white px-3 py-3"
+                                    >
+                                        <div className="min-w-0">
+                                            <div className="text-sm font-semibold text-gray-900 truncate">{f.name}</div>
+                                            <div className="text-[11px] text-gray-500 mt-1">
+                                                {fmtBytes(f.size_bytes)} {f.mime_type ? `• ${f.mime_type}` : ""}
+                                            </div>
+                                        </div>
+
+                                        <div className="shrink-0 flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                className="lims-icon-button"
+                                                onClick={() => void openFile(f.file_id, f.mime_type)}
+                                                aria-label={ts("qualityCover.detail.supporting.open", { defaultValue: "Open" })}
+                                                title={ts("qualityCover.detail.supporting.open", { defaultValue: "Open" })}
+                                                disabled={!!fileBusyId}
+                                            >
+                                                {busy ? <Loader2 size={16} className="animate-spin" /> : <ExternalLink size={16} />}
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                className="lims-icon-button"
+                                                onClick={() => void downloadFile(f.file_id)}
+                                                aria-label={ts("qualityCover.detail.supporting.download", { defaultValue: "Download" })}
+                                                title={ts("qualityCover.detail.supporting.download", { defaultValue: "Download" })}
+                                                disabled={!!fileBusyId}
+                                            >
+                                                <Download size={16} />
+                                            </button>
                                         </div>
                                     </div>
-
-                                    <div className="shrink-0 flex items-center gap-2">
-                                        <a
-                                            className="lims-icon-button"
-                                            href={buildFileUrl(f.file_id, false)}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            aria-label={ts("qualityCover.detail.supporting.open", { defaultValue: "Open" })}
-                                            title={ts("qualityCover.detail.supporting.open", { defaultValue: "Open" })}
-                                        >
-                                            <ExternalLink size={16} />
-                                        </a>
-
-                                        <a
-                                            className="lims-icon-button"
-                                            href={buildFileUrl(f.file_id, true)}
-                                            aria-label={ts("qualityCover.detail.supporting.download", { defaultValue: "Download" })}
-                                            title={ts("qualityCover.detail.supporting.download", { defaultValue: "Download" })}
-                                        >
-                                            <Download size={16} />
-                                        </a>
-                                    </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>

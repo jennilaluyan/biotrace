@@ -658,6 +658,26 @@
                 "checkedBy": "Dicek oleh",
                 "methodOfAnalysis": "Metode analisis"
             },
+            "sections": {
+                "results": "Hasil",
+                "resultsHint": "Output pengukuran dari analis.",
+                "supporting": "Dokumen pendukung",
+                "supportingHint": "File yang diupload oleh analis (jika ada)."
+            },
+            "supporting": {
+                "noFiles": "Belum ada file pendukung yang diupload.",
+                "open": "Buka",
+                "download": "Unduh"
+            },
+            "pcr": {
+                "value": "Nilai",
+                "result": "Hasil",
+                "interpretation": "Interpretasi"
+            },
+            "wgs": {
+                "lineage": "Lineage",
+                "variant": "Varian"
+            },
             "states": {
                 "loading": "Memuat…",
                 "notFound": "Tidak ditemukan.",
@@ -677,6 +697,7 @@
                 "approveHintLh": "Ini tahap akhir. Cover akan menjadi validated. Jika test tersedia, COA akan digenerate."
             },
             "flash": {
+                "verifiedOk": "Quality cover terverifikasi. Dikirim ke inbox LH untuk validasi.",
                 "validatedOk": "Quality cover berhasil divalidasi. COA digenerate dan tersimpan di halaman Laporan.",
                 "validatedWarn": "Quality cover divalidasi, tetapi COA masih diblok (cek test/hasil dulu).",
                 "rejected": "Quality cover berhasil ditolak."
@@ -700,6 +721,9 @@
             "supporting": {
                 "title": "Dokumen pendukung",
                 "subtitle": "Opsional. Upload file apa saja (0..n): PDF, gambar, DOCX, XLSX, dll.",
+                "dropTitle": "Seret & lepas file di sini",
+                "dropHint": "atau pilih dari komputer",
+                "browse": "Pilih file",
                 "driveUrl": "Link Google Drive (opsional)",
                 "notes": "Keterangan lain (opsional)",
                 "upload": "Upload dokumen pendukung (0..n)",
