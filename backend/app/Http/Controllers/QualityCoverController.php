@@ -789,7 +789,20 @@ class QualityCoverController extends Controller
             ], 500);
         }
 
-        $v = Validator::make($request->all(), [
+        // Must be multipart/form-data (otherwise Laravel won't produce UploadedFile objects)
+        $contentType = strtolower((string) $request->header('content-type', ''));
+        if (!str_contains($contentType, 'multipart/form-data')) {
+            return response()->json([
+                'message' => 'Supporting files must be uploaded as multipart/form-data.',
+                'hint' => 'Frontend: send FormData and DO NOT set Content-Type manually; let the browser/axios set the boundary.',
+            ], 415);
+        }
+
+        /** @var UploadedFile[] $incoming */
+        $incoming = $request->file('files', []);
+        $incoming = is_array($incoming) ? $incoming : [];
+
+        $v = Validator::make(['files' => $incoming], [
             'files' => ['required', 'array', 'min:1', 'max:20'],
             'files.*' => ['file', 'max:20480'], // 20MB each
         ]);
@@ -800,9 +813,6 @@ class QualityCoverController extends Controller
                 'errors' => $v->errors(),
             ], 422);
         }
-
-        /** @var UploadedFile[] $incoming */
-        $incoming = $request->file('files', []);
         $storedIds = [];
 
         DB::transaction(function () use ($incoming, $qualityCover, $staff, &$storedIds) {

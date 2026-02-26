@@ -163,6 +163,41 @@ function normalizePath(path: string) {
     return p;
 }
 
+function isFormData(body: unknown): body is FormData {
+    return typeof FormData !== "undefined" && body instanceof FormData;
+}
+
+function stripContentType(headers: Record<string, any>) {
+    const out: Record<string, any> = { ...(headers ?? {}) };
+    for (const k of Object.keys(out)) {
+        if (k.toLowerCase() === "content-type") {
+            delete out[k];
+        }
+    }
+    return out;
+}
+
+function buildHeaders(body: unknown, options?: AxiosRequestConfig) {
+    const merged: Record<string, any> = {
+        Accept: "application/json",
+        ...(options?.headers || {}),
+    };
+
+    // For FormData: DO NOT set Content-Type manually.
+    // Let axios/browser set multipart boundary.
+    if (isFormData(body)) {
+        return stripContentType(merged);
+    }
+
+    // For non-FormData: default JSON unless caller already set it.
+    const hasContentType = Object.keys(merged).some((k) => k.toLowerCase() === "content-type");
+    if (!hasContentType) {
+        merged["Content-Type"] = "application/json";
+    }
+
+    return merged;
+}
+
 export async function apiGet<T = any>(path: string, options?: AxiosRequestConfig) {
     return handleAxios<T>(http.get(normalizePath(path), options));
 }
@@ -170,12 +205,8 @@ export async function apiGet<T = any>(path: string, options?: AxiosRequestConfig
 export async function apiPost<T = any>(path: string, body?: unknown, options?: AxiosRequestConfig) {
     return handleAxios<T>(
         http.post(normalizePath(path), body, {
-            headers: {
-                "Content-Type": "application/json",
-                Accept: "application/json",
-                ...(options?.headers || {}),
-            },
             ...options,
+            headers: buildHeaders(body, options),
         })
     );
 }
@@ -183,12 +214,8 @@ export async function apiPost<T = any>(path: string, body?: unknown, options?: A
 export async function apiPatch<T = any>(path: string, body?: unknown, options?: AxiosRequestConfig) {
     return handleAxios<T>(
         http.patch(normalizePath(path), body, {
-            headers: {
-                "Content-Type": "application/json",
-                Accept: "application/json",
-                ...(options?.headers || {}),
-            },
             ...options,
+            headers: buildHeaders(body, options),
         })
     );
 }
@@ -196,12 +223,8 @@ export async function apiPatch<T = any>(path: string, body?: unknown, options?: 
 export async function apiPut<T = any>(path: string, body?: unknown, options?: AxiosRequestConfig) {
     return handleAxios<T>(
         http.put(normalizePath(path), body, {
-            headers: {
-                "Content-Type": "application/json",
-                Accept: "application/json",
-                ...(options?.headers || {}),
-            },
             ...options,
+            headers: buildHeaders(body, options),
         })
     );
 }

@@ -349,7 +349,7 @@ export async function uploadQualityCoverSupportingDocs(qualityCoverId: number, f
     try {
         const form = new FormData();
         for (const f of files ?? []) {
-            form.append("files[]", f);
+            form.append("files", f);
         }
 
         const res = await apiPost<any>(`/v1/quality-covers/${qualityCoverId}/supporting-files`, form);
