@@ -85,6 +85,18 @@ export function QualityCoverInboxWorkspace(props: Props) {
     const [detail, setDetail] = useState<QualityCoverInboxItem | null>(null);
     const [loadingDetail, setLoadingDetail] = useState(false);
 
+    // --- detail modal
+    const [detailOpen, setDetailOpen] = useState<boolean>(!!initialSelectedId);
+
+    function openDetail(id: number) {
+        setSelectedId(id);
+        setDetailOpen(true);
+    }
+
+    function closeDetail() {
+        setDetailOpen(false);
+    }
+
     // --- modal + feedback state
     const [decision, setDecision] = useState<DecisionState>({ open: false });
     const [flash, setFlash] = useState<FlashPayload | null>(initialFlash ?? null);
@@ -156,17 +168,18 @@ export function QualityCoverInboxWorkspace(props: Props) {
         []
     );
 
-    // initial: read state from redirect detail page
     useEffect(() => {
         const st = (location.state as any) ?? {};
         const preselect = asInt(st?.preselectId ?? st?.selectedId ?? null);
         const incomingFlash = st?.flash as FlashPayload | undefined;
 
-        if (preselect) setSelectedId(preselect);
+        if (preselect) {
+            setSelectedId(preselect);
+            setDetailOpen(true);
+        }
+
         if (incomingFlash && typeof incomingFlash.message === "string") setFlash(incomingFlash);
 
-        // clean navigation state (avoid re-applying on back/forward)
-        // NOTE: we can't "replace" from here safely without navigate. So we just ignore repeats.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -423,160 +436,196 @@ export function QualityCoverInboxWorkspace(props: Props) {
                 </div>
 
                 {/* Workspace */}
-                <div className="grid grid-cols-1 md:grid-cols-[360px_1fr]">
-                    {/* Left: list */}
-                    <div className="border-b md:border-b-0 md:border-r border-gray-100">
-                        <div className="p-3 md:p-4">
-                            <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
-                                <div className="overflow-x-auto">
-                                    <table className="min-w-full text-sm">
-                                        <thead className="bg-white text-gray-700 border-b border-gray-100">
-                                            <tr>
-                                                <th className="text-left font-semibold px-4 py-3">{t("qualityCover.inbox.table.sample")}</th>
-                                                <th className="text-right font-semibold px-4 py-3">{t("qualityCover.inbox.table.actions")}</th>
-                                            </tr>
-                                        </thead>
+                <div className="p-3 md:p-4">
+                    <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full text-sm">
+                                <thead className="bg-white text-gray-700 border-b border-gray-100">
+                                    <tr>
+                                        <th className="text-left font-semibold px-4 py-3">{t("qualityCover.inbox.table.sample")}</th>
+                                        <th className="text-right font-semibold px-4 py-3">{t("qualityCover.inbox.table.actions")}</th>
+                                    </tr>
+                                </thead>
 
-                                        <tbody className="divide-y divide-gray-100">
-                                            {rows.length === 0 && !loadingList ? (
-                                                <tr>
-                                                    <td className="px-4 py-8 text-gray-500" colSpan={2}>
+                                <tbody className="divide-y divide-gray-100">
+                                    {rows.length === 0 && !loadingList ? (
+                                        <tr>
+                                            <td className="px-4 py-8 text-gray-500" colSpan={2}>
+                                                {mode === "om"
+                                                    ? t("qualityCover.inbox.table.emptyOm")
+                                                    : t("qualityCover.inbox.table.emptyLh")}
+                                            </td>
+                                        </tr>
+                                    ) : null}
+
+                                    {rows.map((r) => {
+                                        const sid = r.sample_id;
+                                        const sampleCode = r.sample?.lab_sample_code ?? `#${sid}`;
+                                        const group = r.sample?.workflow_group ?? r.workflow_group ?? "-";
+
+                                        const when =
+                                            mode === "om"
+                                                ? (r.submitted_at ? formatDateTimeLocal(r.submitted_at) : "-")
+                                                : (r.verified_at ? formatDateTimeLocal(r.verified_at) : "-");
+
+                                        const who =
+                                            mode === "om"
+                                                ? (r.checked_by?.name ?? "-")
+                                                : (r.verified_by?.name ?? "-");
+
+                                        const isSelected = Number(selectedId) === Number(r.quality_cover_id);
+
+                                        return (
+                                            <tr
+                                                key={r.quality_cover_id}
+                                                className={cx(
+                                                    "cursor-pointer hover:bg-gray-50",
+                                                    isSelected && "bg-emerald-50/40"
+                                                )}
+                                                onClick={() => openDetail(r.quality_cover_id)}
+                                            >
+                                                <td className="px-4 py-3">
+                                                    <div className="font-semibold text-gray-900">{sampleCode}</div>
+                                                    <div className="text-xs text-gray-500 mt-0.5">
+                                                        QC #{r.quality_cover_id} • {group}
+                                                    </div>
+                                                    <div className="text-xs text-gray-500 mt-0.5">
                                                         {mode === "om"
-                                                            ? t("qualityCover.inbox.table.emptyOm")
-                                                            : t("qualityCover.inbox.table.emptyLh")}
-                                                    </td>
-                                                </tr>
-                                            ) : null}
+                                                            ? `${t("qualityCover.inbox.table.submitted")}: ${when} • ${t("qualityCover.inbox.table.checkedBy")}: ${who}`
+                                                            : `${t("qualityCover.inbox.table.verified")}: ${when} • ${t("qualityCover.inbox.table.verifiedBy")}: ${who}`}
+                                                    </div>
+                                                </td>
 
-                                            {rows.map((r) => {
-                                                const sid = r.sample_id;
-                                                const sampleCode = r.sample?.lab_sample_code ?? `#${sid}`;
-                                                const group = r.sample?.workflow_group ?? r.workflow_group ?? "-";
+                                                <td className="px-4 py-3">
+                                                    <div className="flex justify-end gap-2">
+                                                        <button
+                                                            type="button"
+                                                            className="lims-icon-button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                openApprove(r);
+                                                            }}
+                                                            aria-label={titles.approveLabel}
+                                                            title={titles.approveLabel}
+                                                            disabled={loadingList}
+                                                        >
+                                                            <Check size={16} />
+                                                        </button>
 
-                                                const when =
-                                                    mode === "om"
-                                                        ? (r.submitted_at ? formatDateTimeLocal(r.submitted_at) : "-")
-                                                        : (r.verified_at ? formatDateTimeLocal(r.verified_at) : "-");
+                                                        <button
+                                                            type="button"
+                                                            className="lims-icon-button lims-icon-button--danger"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                openReject(r);
+                                                            }}
+                                                            aria-label={t("reject")}
+                                                            title={t("reject")}
+                                                            disabled={loadingList}
+                                                        >
+                                                            <X size={16} />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
 
-                                                const who =
-                                                    mode === "om"
-                                                        ? (r.checked_by?.name ?? "-")
-                                                        : (r.verified_by?.name ?? "-");
+                        {/* Pagination */}
+                        <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between">
+                            <div className="text-xs text-gray-500">
+                                {t("pageOf", { page: meta?.current_page ?? 1, totalPages: meta?.last_page ?? 1 })}
+                            </div>
 
-                                                const isSelected = Number(selectedId) === Number(r.quality_cover_id);
+                            <div className="flex items-center gap-2">
+                                <button
+                                    disabled={!canPrev || loadingList}
+                                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                    className={cx("lims-icon-button", (!canPrev || loadingList) && "opacity-40 cursor-not-allowed")}
+                                    aria-label={t("prev")}
+                                    title={t("prev")}
+                                >
+                                    <ChevronLeft size={16} />
+                                </button>
 
-                                                return (
-                                                    <tr
-                                                        key={r.quality_cover_id}
-                                                        className={cx(
-                                                            "cursor-pointer hover:bg-gray-50",
-                                                            isSelected && "bg-emerald-50/40"
-                                                        )}
-                                                        onClick={() => setSelectedId(r.quality_cover_id)}
-                                                    >
-                                                        <td className="px-4 py-3">
-                                                            <div className="font-semibold text-gray-900">{sampleCode}</div>
-                                                            <div className="text-xs text-gray-500 mt-0.5">
-                                                                QC #{r.quality_cover_id} • {group}
-                                                            </div>
-                                                            <div className="text-xs text-gray-500 mt-0.5">
-                                                                {mode === "om"
-                                                                    ? `${t("qualityCover.inbox.table.submitted")}: ${when} • ${t("qualityCover.inbox.table.checkedBy")}: ${who}`
-                                                                    : `${t("qualityCover.inbox.table.verified")}: ${when} • ${t("qualityCover.inbox.table.verifiedBy")}: ${who}`}
-                                                            </div>
-                                                        </td>
-
-                                                        <td className="px-4 py-3">
-                                                            <div className="flex justify-end gap-2">
-                                                                <button
-                                                                    type="button"
-                                                                    className="lims-icon-button"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        openApprove(r);
-                                                                    }}
-                                                                    aria-label={titles.approveLabel}
-                                                                    title={titles.approveLabel}
-                                                                    disabled={loadingList}
-                                                                >
-                                                                    <Check size={16} />
-                                                                </button>
-
-                                                                <button
-                                                                    type="button"
-                                                                    className="lims-icon-button lims-icon-button--danger"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        openReject(r);
-                                                                    }}
-                                                                    aria-label={t("reject")}
-                                                                    title={t("reject")}
-                                                                    disabled={loadingList}
-                                                                >
-                                                                    <X size={16} />
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-
-                                {/* Pagination */}
-                                <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between">
-                                    <div className="text-xs text-gray-500">
-                                        {t("pageOf", { page: meta?.current_page ?? 1, totalPages: meta?.last_page ?? 1 })}
-                                    </div>
-
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            disabled={!canPrev || loadingList}
-                                            onClick={() => setPage((p) => Math.max(1, p - 1))}
-                                            className={cx("lims-icon-button", (!canPrev || loadingList) && "opacity-40 cursor-not-allowed")}
-                                            aria-label={t("prev")}
-                                            title={t("prev")}
-                                        >
-                                            <ChevronLeft size={16} />
-                                        </button>
-
-                                        <button
-                                            disabled={!canNext || loadingList}
-                                            onClick={() => setPage((p) => p + 1)}
-                                            className={cx("lims-icon-button", (!canNext || loadingList) && "opacity-40 cursor-not-allowed")}
-                                            aria-label={t("next")}
-                                            title={t("next")}
-                                        >
-                                            <ChevronRight size={16} />
-                                        </button>
-                                    </div>
-                                </div>
+                                <button
+                                    disabled={!canNext || loadingList}
+                                    onClick={() => setPage((p) => p + 1)}
+                                    className={cx("lims-icon-button", (!canNext || loadingList) && "opacity-40 cursor-not-allowed")}
+                                    aria-label={t("next")}
+                                    title={t("next")}
+                                >
+                                    <ChevronRight size={16} />
+                                </button>
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
 
-                    {/* Right: detail */}
-                    <div className="p-3 md:p-4">
-                        {!selectedId ? (
-                            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-600">
-                                {t("qualityCover.detail.states.notFound")}
+            {/* Detail Modal */}
+            {detailOpen ? (
+                <div
+                    className="lims-modal-backdrop p-4"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={t("qualityCover.detail.meta.sample")}
+                    onMouseDown={(e) => {
+                        // click outside closes
+                        if (e.target === e.currentTarget) closeDetail();
+                    }}
+                >
+                    <div className="lims-modal-panel max-w-4xl">
+                        <div className="lims-modal-header">
+                            <div className="min-w-0">
+                                <div className="text-base font-semibold text-gray-900">
+                                    {titles.pageTitle}
+                                </div>
+                                <div className="text-xs text-gray-500 mt-0.5">
+                                    {titles.subtitle}
+                                </div>
                             </div>
-                        ) : loadingDetail ? (
-                            <div className="flex items-center gap-2 text-sm text-gray-600">
-                                <Loader2 size={16} className="animate-spin" />
-                                {t("loading")}
-                            </div>
-                        ) : !detail ? (
-                            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-600">
-                                {t("qualityCover.detail.states.notFound")}
-                            </div>
-                        ) : (
-                            <div className="space-y-4">
+
+                            <button
+                                type="button"
+                                className="ml-auto lims-icon-button"
+                                aria-label={t("close")}
+                                title={t("close")}
+                                onClick={closeDetail}
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        <div className="lims-modal-body max-h-[72vh] overflow-auto">
+                            {!selectedId ? (
+                                <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-600">
+                                    {t("qualityCover.detail.states.notFound")}
+                                </div>
+                            ) : loadingDetail ? (
+                                <div className="flex items-center gap-2 text-sm text-gray-600">
+                                    <Loader2 size={16} className="animate-spin" />
+                                    {t("loading")}
+                                </div>
+                            ) : !detail ? (
+                                <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-600">
+                                    {t("qualityCover.detail.states.notFound")}
+                                </div>
+                            ) : (
                                 <QualityCoverDetailBody data={detail} stepLabel={titles.stepLabel} />
+                            )}
+                        </div>
 
-                                {/* Actions (secondary place, optional) */}
-                                <div className="flex items-center gap-2 flex-wrap">
+                        <div className="lims-modal-footer">
+                            <button type="button" onClick={closeDetail} className="btn-outline">
+                                {t("close")}
+                            </button>
+
+                            {detail ? (
+                                <div className="flex items-center gap-2">
                                     <button
                                         type="button"
                                         className="lims-btn-primary inline-flex items-center gap-2"
@@ -601,11 +650,11 @@ export function QualityCoverInboxWorkspace(props: Props) {
                                         {t("reject")}
                                     </button>
                                 </div>
-                            </div>
-                        )}
+                            ) : null}
+                        </div>
                     </div>
                 </div>
-            </div>
+            ) : null}
 
             {/* Decision Modal */}
             <QualityCoverDecisionModal
