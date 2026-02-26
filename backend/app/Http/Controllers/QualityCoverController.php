@@ -798,9 +798,16 @@ class QualityCoverController extends Controller
             ], 415);
         }
 
+        $raw = $request->file('files');
+
         /** @var UploadedFile[] $incoming */
-        $incoming = $request->file('files', []);
-        $incoming = is_array($incoming) ? $incoming : [];
+        if ($raw instanceof UploadedFile) {
+            $incoming = [$raw];
+        } elseif (is_array($raw)) {
+            $incoming = $raw;
+        } else {
+            $incoming = [];
+        }
 
         $v = Validator::make(['files' => $incoming], [
             'files' => ['required', 'array', 'min:1', 'max:20'],
