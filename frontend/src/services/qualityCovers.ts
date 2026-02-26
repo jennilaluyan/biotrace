@@ -203,13 +203,13 @@ export async function listOmInbox(params: { search?: string; per_page?: number; 
     if (params.per_page) qs.set("per_page", String(params.per_page));
     if (params.page) qs.set("page", String(params.page));
 
-    const res = await apiGet<{ data: QualityCoverInboxItem[]; meta: InboxMeta }>(
-        `/v1/quality-covers/inbox/om?${qs.toString()}`
-    );
+    const res = await apiGet<any>(`/v1/quality-covers/inbox/om?${qs.toString()}`);
 
-    // Normalize supporting files on each item (safe if backend doesn't include them)
-    const payload = unwrapApi<any>(res);
+    // apiGet already returns the response body (res.data from axios),
+    // so do NOT unwrap here.
+    const payload = res ?? {};
     const items = Array.isArray(payload?.data) ? payload.data : [];
+
     return {
         ...(payload ?? {}),
         data: items.map((x: any) => normalizeCover<QualityCoverInboxItem>(x)),
@@ -222,12 +222,11 @@ export async function listLhInbox(params: { search?: string; per_page?: number; 
     if (params.per_page) qs.set("per_page", String(params.per_page));
     if (params.page) qs.set("page", String(params.page));
 
-    const res = await apiGet<{ data: QualityCoverInboxItem[]; meta: InboxMeta }>(
-        `/v1/quality-covers/inbox/lh?${qs.toString()}`
-    );
+    const res = await apiGet<any>(`/v1/quality-covers/inbox/lh?${qs.toString()}`);
 
-    const payload = unwrapApi<any>(res);
+    const payload = res ?? {};
     const items = Array.isArray(payload?.data) ? payload.data : [];
+
     return {
         ...(payload ?? {}),
         data: items.map((x: any) => normalizeCover<QualityCoverInboxItem>(x)),
