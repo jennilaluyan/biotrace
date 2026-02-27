@@ -18,25 +18,48 @@ final class WorkflowGroupResolver
 
         $params = Parameter::query()
             ->whereIn('parameter_id', $ids)
-            ->get(['parameter_id', 'catalog_no', 'code']);
+            ->get(['parameter_id', 'workflow_group', 'catalog_no', 'code']);
 
-        // Map to catalog_no (stable)
-        $catalogNos = [];
+        $groups = [];      // explicit (from parameters.workflow_group)
+        $catalogNos = [];  // fallback (legacy P01..P32)
+
         foreach ($params as $p) {
-            $no = $p->catalog_no;
+            $wgRaw = strtolower(trim((string) ($p->workflow_group ?? '')));
+            if ($wgRaw !== '') {
+                $wg = WorkflowGroup::tryFrom($wgRaw);
+                if ($wg) {
+                    $groups[$wg->value] = $wg;
+                    continue;
+                }
+            }
 
-            // fallback: parse from code if catalog_no null
+            // legacy fallback
+            $no = $p->catalog_no;
             if (!$no) {
                 $no = $this->inferCatalogNoFromCode((string) $p->code);
             }
-
             if ($no && $no > 0) {
                 $catalogNos[] = (int) $no;
             }
         }
 
-        // ✅ Now resolve using the same support logic, but on catalog_no space (1..32)
-        return SupportWorkflowGroupResolver::resolveFromParameterIds($catalogNos);
+        // Merge fallback-derived group (keeps same priority behavior)
+        if (!empty($catalogNos)) {
+            $fromCatalog = SupportWorkflowGroupResolver::resolveFromParameterIds($catalogNos);
+            if ($fromCatalog) {
+                $groups[$fromCatalog->value] = $fromCatalog;
+            }
+        }
+
+        if (empty($groups)) return null;
+
+        // Priority: sequencing > pcr > microbiology > rapid
+        if (isset($groups[WorkflowGroup::SEQUENCING->value])) return WorkflowGroup::SEQUENCING;
+        if (isset($groups[WorkflowGroup::PCR->value])) return WorkflowGroup::PCR;
+        if (isset($groups[WorkflowGroup::MICROBIOLOGY->value])) return WorkflowGroup::MICROBIOLOGY;
+        if (isset($groups[WorkflowGroup::RAPID->value])) return WorkflowGroup::RAPID;
+
+        return null;
     }
 
     /**

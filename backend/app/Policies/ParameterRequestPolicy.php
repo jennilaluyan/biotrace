@@ -11,9 +11,6 @@ class ParameterRequestPolicy
         return $user->role?->name;
     }
 
-    /**
-     * Step 3: visible to all staff except Sample Collector.
-     */
     public function viewAny(Staff $user): bool
     {
         $role = (string) ($this->roleName($user) ?? '');
@@ -22,14 +19,18 @@ class ParameterRequestPolicy
         return $role !== 'Sample Collector';
     }
 
-    /**
-     * Step 2: Only Administrator + Analyst can submit parameter requests.
-     */
     public function create(Staff $user): bool
     {
         return in_array($this->roleName($user), [
             'Administrator',
             'Analyst',
+        ], true);
+    }
+    public function approve(Staff $user): bool
+    {
+        return in_array($this->roleName($user), [
+            'Operational Manager',
+            'Laboratory Head',
         ], true);
     }
 }

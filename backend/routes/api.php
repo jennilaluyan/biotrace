@@ -189,6 +189,8 @@ Route::prefix('v1')->group(function () {
         // Parameter Requests (Admin/Analyst)
         Route::post('parameters/requests', [ParameterRequestController::class, 'store']);
         Route::get('parameter-requests', [ParameterRequestController::class, 'index']);
+        Route::post('parameter-requests/{id}/approve', [ParameterRequestController::class, 'approve'])
+            ->whereNumber('id');
 
         // Methods
         Route::get('methods', [MethodController::class, 'index']);
