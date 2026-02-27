@@ -75,20 +75,68 @@
     "nav": {
         "clients": "Clients",
         "samples": "Samples",
-        "requestQueue": "Request Queue",
-        "looWorkspace": "LOO Workspace",
-        "reagentApprovals": "Reagent Approvals",
-        "qualityCoverVerify": "Quality Cover (Verify)",
-        "qualityCoverValidate": "Quality Cover (Validate)",
-        "samplesArchive": "Samples Archive",
+        "requestQueue": "Request queue",
+        "looWorkspace": "LOO workspace",
+        "reagentApprovals": "Reagent approvals",
         "reports": "Reports",
-        "auditLogs": "Audit Logs",
-        "documentTemplates": "Document Templates",
-        "clientApprovals": "Client Approvals",
-        "staffApprovals": "Staff Approvals",
-        "myRequests": "My Requests",
-        "openNavigation": "Open navigation",
-        "closeSidebar": "Close sidebar"
+        "audit": "Audit",
+        "parameters": "Parameters"
+    },
+    "parametersPage": {
+        "title": "Parameters",
+        "subtitle": "Master list and staff requests in one place.",
+        "tabs": {
+            "parameters": "Parameters",
+            "requests": "Requests"
+        },
+        "filters": {
+            "searchParameters": "Search by name or code…",
+            "searchRequests": "Search request name…",
+            "status": "Status",
+            "all": "all",
+            "perPage": "Per page"
+        },
+        "table": {
+            "code": "Code",
+            "name": "Name",
+            "category": "Category",
+            "status": "Status",
+            "tag": "Tag",
+            "updatedAt": "Updated",
+            "requestName": "Request",
+            "requestedAt": "Requested",
+            "actions": "Actions"
+        },
+        "loading": {
+            "parameters": "Loading parameters…",
+            "requests": "Loading requests…"
+        },
+        "empty": {
+            "parameters": "No parameters found for this filter.",
+            "requests": "No requests found for this filter."
+        },
+        "pagination": {
+            "page": "Page",
+            "total": "Total",
+            "prev": "Previous",
+            "next": "Next"
+        },
+        "actions": {
+            "refresh": "Refresh",
+            "addRequest": "Add request",
+            "approve": "Approve",
+            "reject": "Reject"
+        },
+        "hints": {
+            "enterToSearch": "Tip: press Enter to apply search.",
+            "actionsRestricted": "No actions",
+            "createComingSoon": "Create request modal will be added in Step 7.",
+            "approveRejectComingSoon": "Approve/Reject modals will be added in Step 8."
+        },
+        "errors": {
+            "loadParametersFailed": "Failed to load parameters.",
+            "loadRequestsFailed": "Failed to load requests."
+        }
     },
     "portalRequestsPage": {
         "title": "Sample Requests",

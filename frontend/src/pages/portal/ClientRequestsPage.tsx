@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\portal\ClientRequestsPage.tsx
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Eye, FilePlus2, RefreshCw, Search, X } from "lucide-react";
@@ -456,7 +455,6 @@ export default function ClientRequestsPage() {
                                                     <tr key={stableKey(it, idx)} className="hover:bg-gray-50">
                                                         <td className="px-4 py-3">
                                                             <div className="font-medium text-gray-900">#{rid ?? "-"}</div>
-                                                            {/* NOTE: "1 parameter(s)" removed per request */}
                                                         </td>
 
                                                         <td className="px-4 py-3 text-gray-700">{it.sample_type ?? "-"}</td>

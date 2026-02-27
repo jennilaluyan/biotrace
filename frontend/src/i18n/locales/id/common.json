@@ -90,6 +90,62 @@
         "openNavigation": "Buka navigasi",
         "closeSidebar": "Tutup sidebar"
     },
+    "parametersPage": {
+        "title": "Daftar Parameter",
+        "subtitle": "Master parameter dan permintaan staff dalam satu halaman.",
+        "tabs": {
+            "parameters": "Parameter",
+            "requests": "Permintaan"
+        },
+        "filters": {
+            "searchParameters": "Cari berdasarkan nama atau kode…",
+            "searchRequests": "Cari nama permintaan…",
+            "status": "Status",
+            "all": "semua",
+            "perPage": "Per halaman"
+        },
+        "table": {
+            "code": "Kode",
+            "name": "Nama",
+            "category": "Kategori",
+            "status": "Status",
+            "tag": "Tag",
+            "updatedAt": "Diupdate",
+            "requestName": "Permintaan",
+            "requestedAt": "Diajukan",
+            "actions": "Aksi"
+        },
+        "loading": {
+            "parameters": "Memuat daftar parameter…",
+            "requests": "Memuat daftar permintaan…"
+        },
+        "empty": {
+            "parameters": "Tidak ada parameter untuk filter saat ini.",
+            "requests": "Tidak ada permintaan untuk filter saat ini."
+        },
+        "pagination": {
+            "page": "Halaman",
+            "total": "Total",
+            "prev": "Sebelumnya",
+            "next": "Berikutnya"
+        },
+        "actions": {
+            "refresh": "Refresh",
+            "addRequest": "Tambah permintaan",
+            "approve": "Setujui",
+            "reject": "Tolak"
+        },
+        "hints": {
+            "enterToSearch": "Tips: tekan Enter untuk menerapkan pencarian.",
+            "actionsRestricted": "Tanpa aksi",
+            "createComingSoon": "Modal tambah permintaan dibuat di Step 7.",
+            "approveRejectComingSoon": "Modal approve/reject dibuat di Step 8."
+        },
+        "errors": {
+            "loadParametersFailed": "Gagal memuat daftar parameter.",
+            "loadRequestsFailed": "Gagal memuat daftar permintaan."
+        }
+    },
     "portalRequestsPage": {
         "title": "Permintaan Sampel",
         "subtitle": "Buat request, lengkapi data wajib, lalu kirim untuk ditinjau admin.",
