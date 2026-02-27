@@ -44,6 +44,7 @@ use App\Http\Controllers\EquipmentCatalogController;
 use App\Http\Controllers\MethodController;
 use App\Http\Controllers\ParameterController;
 use App\Http\Controllers\ClientParameterController;
+use App\Http\Controllers\ParameterRequestController;
 use App\Http\Controllers\ReagentController;
 use App\Http\Controllers\ReagentRequestController;
 use App\Http\Controllers\ReagentRequestDocumentController;
@@ -184,6 +185,9 @@ Route::prefix('v1')->group(function () {
         Route::post('parameters', [ParameterController::class, 'store']);
         Route::patch('parameters/{parameter}', [ParameterController::class, 'update']);
         Route::delete('parameters/{parameter}', [ParameterController::class, 'destroy']);
+
+        // Parameter Requests (Admin/Analyst)
+        Route::post('parameters/requests', [ParameterRequestController::class, 'store']);
 
         // Methods
         Route::get('methods', [MethodController::class, 'index']);

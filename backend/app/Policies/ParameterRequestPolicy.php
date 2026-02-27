@@ -1,0 +1,24 @@
+<?php
+
+namespace App\Policies;
+
+use App\Models\Staff;
+
+class ParameterRequestPolicy
+{
+    private function roleName(Staff $user): ?string
+    {
+        return $user->role?->name;
+    }
+
+    /**
+     * Step 2: Only Administrator + Analyst can submit parameter requests.
+     */
+    public function create(Staff $user): bool
+    {
+        return in_array($this->roleName($user), [
+            'Administrator',
+            'Analyst',
+        ], true);
+    }
+}
