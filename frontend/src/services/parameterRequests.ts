@@ -76,13 +76,17 @@ export async function createParameterRequest(payload: CreateParameterRequestPayl
 }
 
 export async function approveParameterRequest(id: number): Promise<ApproveParameterRequestResult> {
-    const res = await api.post<ApiEnvelope<ApproveParameterRequestResult>>(`/v1/parameter-requests/${id}/approve`);
+    const rid = Number(id);
+    const res = await api.post<ApiEnvelope<ApproveParameterRequestResult>>(`/v1/parameter-requests/${rid}/approve`);
     return res.data;
 }
 
 export async function rejectParameterRequest(id: number, decision_note: string): Promise<RejectParameterRequestResult> {
-    const res = await api.post<ApiEnvelope<RejectParameterRequestResult>>(`/v1/parameter-requests/${id}/reject`, {
-        decision_note,
+    const rid = Number(id);
+    const note = String(decision_note ?? "").trim();
+
+    const res = await api.post<ApiEnvelope<RejectParameterRequestResult>>(`/v1/parameter-requests/${rid}/reject`, {
+        decision_note: note,
     });
     return res.data;
 }

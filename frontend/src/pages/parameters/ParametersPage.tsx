@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
     ChevronLeft,
@@ -87,12 +87,15 @@ export default function ParametersPage() {
 
     const roleId = getUserRoleId(user);
 
-    const canSeeRequestsTab = roleId !== ROLE_ID.SAMPLE_COLLECTOR;
+    const isSampleCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
+    const canSeeRequestsTab = !isSampleCollector;
+
     const canCreateRequest = roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.ANALYST;
     const canApproveReject = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
 
     const [tab, setTab] = useState<TabKey>("parameters");
 
+    // Parameters tab state
     const [pQ, setPQ] = useState("");
     const [pPage, setPPage] = useState(1);
     const [pPerPage, setPPerPage] = useState(20);
@@ -100,6 +103,7 @@ export default function ParametersPage() {
     const [pError, setPError] = useState<string | null>(null);
     const [pData, setPData] = useState<ParamPager | null>(null);
 
+    // Requests tab state
     const [rQ, setRQ] = useState("");
     const [rStatus, setRStatus] = useState<ParameterRequestStatus | "all">("pending");
     const [rPage, setRPage] = useState(1);
@@ -108,11 +112,13 @@ export default function ParametersPage() {
     const [rError, setRError] = useState<string | null>(null);
     const [rData, setRData] = useState<Paginator<ParameterRequestRow> | null>(null);
 
+    // Create modal
     const [createOpen, setCreateOpen] = useState(false);
 
+    // Decision modal
     const [decisionOpen, setDecisionOpen] = useState(false);
     const [decisionMode, setDecisionMode] = useState<"approve" | "reject">("approve");
-    const [decisionRow, setDecisionRow] = useState<ParameterRequestRow | null>(null);
+    const [decisionTarget, setDecisionTarget] = useState<ParameterRequestRow | null>(null);
     const [decisionNote, setDecisionNote] = useState("");
     const [decisionSubmitting, setDecisionSubmitting] = useState(false);
     const [decisionError, setDecisionError] = useState<string | null>(null);
@@ -120,40 +126,7 @@ export default function ParametersPage() {
     const paramsRows = useMemo(() => pData?.data ?? [], [pData]);
     const reqRows = useMemo(() => rData?.data ?? [], [rData]);
 
-    const refreshLabel = t("parametersPage.actions.refresh");
-
-    const refreshRequests = async (opts?: {
-        q?: string;
-        status?: ParameterRequestStatus | "all";
-        page?: number;
-        per_page?: number;
-    }) => {
-        if (!canSeeRequestsTab) return;
-
-        const q = (opts?.q ?? rQ).trim();
-        const status = opts?.status ?? rStatus;
-        const page = opts?.page ?? rPage;
-        const perPage = opts?.per_page ?? rPerPage;
-
-        setRLoading(true);
-        setRError(null);
-
-        try {
-            const res = await fetchParameterRequests({
-                q: q || undefined,
-                status,
-                page,
-                per_page: perPage,
-            });
-            setRData(res);
-        } catch (e: any) {
-            setRError(getErrorMessage(e, t("parametersPage.errors.loadRequestsFailed")));
-        } finally {
-            setRLoading(false);
-        }
-    };
-
-    const loadParameters = async () => {
+    const loadParameters = useCallback(async () => {
         setPLoading(true);
         setPError(null);
 
@@ -167,10 +140,44 @@ export default function ParametersPage() {
         } finally {
             setPLoading(false);
         }
-    };
+    }, [pQ, pPage, pPerPage, t]);
+
+    const refreshRequests = useCallback(
+        async (opts?: {
+            q?: string;
+            status?: ParameterRequestStatus | "all";
+            page?: number;
+            per_page?: number;
+        }) => {
+            if (!canSeeRequestsTab) return;
+
+            const q = (opts?.q ?? rQ).trim();
+            const status = opts?.status ?? rStatus;
+            const page = opts?.page ?? rPage;
+            const perPage = opts?.per_page ?? rPerPage;
+
+            setRLoading(true);
+            setRError(null);
+
+            try {
+                const res = await fetchParameterRequests({
+                    q: q || undefined,
+                    status,
+                    page,
+                    per_page: perPage,
+                });
+                setRData(res);
+            } catch (e: any) {
+                setRError(getErrorMessage(e, t("parametersPage.errors.loadRequestsFailed")));
+            } finally {
+                setRLoading(false);
+            }
+        },
+        [canSeeRequestsTab, rQ, rStatus, rPage, rPerPage, t]
+    );
 
     const openApprove = (row: ParameterRequestRow) => {
-        setDecisionRow(row);
+        setDecisionTarget(row);
         setDecisionMode("approve");
         setDecisionNote("");
         setDecisionError(null);
@@ -178,35 +185,39 @@ export default function ParametersPage() {
     };
 
     const openReject = (row: ParameterRequestRow) => {
-        setDecisionRow(row);
+        setDecisionTarget(row);
         setDecisionMode("reject");
         setDecisionNote("");
         setDecisionError(null);
         setDecisionOpen(true);
     };
 
-    const closeDecision = () => {
-        if (decisionSubmitting) return;
+    // allowForce: dipakai setelah sukses submit (walaupun decisionSubmitting masih true sampai finally)
+    const closeDecision = (allowForce = false) => {
+        if (decisionSubmitting && !allowForce) return;
         setDecisionOpen(false);
-        setDecisionRow(null);
+        setDecisionTarget(null);
         setDecisionError(null);
         setDecisionNote("");
     };
 
-    const confirmDecision = async () => {
-        if (!decisionRow) return;
+    const confirmDecision = useCallback(async () => {
+        if (!decisionTarget) return;
 
-        setDecisionSubmitting(true);
         setDecisionError(null);
+        setDecisionSubmitting(true);
 
         try {
-            if (decisionMode === "approve") {
-                await approveParameterRequest(decisionRow.id);
+            const id = Number(decisionTarget.id);
 
+            if (decisionMode === "approve") {
+                await approveParameterRequest(id);
+
+                // approve bikin parameter baru => refresh dua tab
                 await refreshRequests();
                 await loadParameters();
 
-                closeDecision();
+                closeDecision(true);
                 return;
             }
 
@@ -216,10 +227,10 @@ export default function ParametersPage() {
                 return;
             }
 
-            await rejectParameterRequest(decisionRow.id, note);
-
+            await rejectParameterRequest(id, note);
             await refreshRequests();
-            closeDecision();
+
+            closeDecision(true);
         } catch (e: any) {
             setDecisionError(
                 getErrorMessage(
@@ -232,22 +243,31 @@ export default function ParametersPage() {
         } finally {
             setDecisionSubmitting(false);
         }
-    };
+    }, [
+        decisionTarget,
+        decisionMode,
+        decisionNote,
+        refreshRequests,
+        loadParameters,
+        t,
+        decisionSubmitting,
+    ]);
 
+    // Guard: Sample Collector tidak boleh nyangkut di tab requests
     useEffect(() => {
         if (!canSeeRequestsTab && tab === "requests") setTab("parameters");
     }, [canSeeRequestsTab, tab]);
 
+    // Auto load parameters on pagination change
     useEffect(() => {
         loadParameters();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pPage, pPerPage]);
+    }, [loadParameters]);
 
+    // Auto load requests on filters/pagination change
     useEffect(() => {
         if (!canSeeRequestsTab) return;
         refreshRequests();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rPage, rPerPage, rStatus, canSeeRequestsTab]);
+    }, [canSeeRequestsTab, refreshRequests]);
 
     const onRefreshClick = () => {
         if (tab === "parameters") loadParameters();
@@ -276,10 +296,10 @@ export default function ParametersPage() {
                                     "border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
                                 )}
                                 onClick={onRefreshClick}
-                                title={refreshLabel}
+                                title={t("parametersPage.actions.refresh")}
                             >
                                 <RefreshCw size={16} />
-                                <span className="hidden sm:inline">{refreshLabel}</span>
+                                <span className="hidden sm:inline">{t("parametersPage.actions.refresh")}</span>
                             </button>
 
                             {tab === "requests" && canCreateRequest ? (
@@ -332,7 +352,10 @@ export default function ParametersPage() {
                         <>
                             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                                 <div className="relative w-full sm:max-w-md">
-                                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                    <Search
+                                        size={16}
+                                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                                    />
                                     <input
                                         value={pQ}
                                         onChange={(e) => setPQ(e.target.value)}
@@ -418,7 +441,9 @@ export default function ParametersPage() {
                                                             </span>
                                                         </td>
                                                         <td className="px-4 py-3">
-                                                            <span className={chipClass("neutral")}>{String(row.tag ?? "").toLowerCase()}</span>
+                                                            <span className={chipClass("neutral")}>
+                                                                {String(row.tag ?? "").toLowerCase()}
+                                                            </span>
                                                         </td>
                                                         <td className="px-4 py-3 text-gray-700">
                                                             {row.updated_at ? formatDateTimeLocal(row.updated_at) : "—"}
@@ -466,7 +491,10 @@ export default function ParametersPage() {
                         <>
                             <div className="flex flex-col lg:flex-row lg:items-center gap-3">
                                 <div className="relative w-full lg:max-w-md">
-                                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                    <Search
+                                        size={16}
+                                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                                    />
                                     <input
                                         value={rQ}
                                         onChange={(e) => setRQ(e.target.value)}
@@ -553,8 +581,9 @@ export default function ParametersPage() {
                                             </tr>
                                         ) : (
                                             reqRows.map((row) => {
-                                                const statusLower = String(row.status ?? "").toLowerCase();
+                                                const statusLower = String(row.status ?? "").toLowerCase().trim();
                                                 const isPending = statusLower === "pending";
+                                                const busy = rLoading || decisionSubmitting;
 
                                                 return (
                                                     <tr key={row.id} className="hover:bg-gray-50">
@@ -584,7 +613,7 @@ export default function ParametersPage() {
                                                                                 "border-gray-200 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-50"
                                                                             )}
                                                                             onClick={() => openApprove(row)}
-                                                                            disabled={rLoading || decisionSubmitting}
+                                                                            disabled={busy}
                                                                             title={t("parametersPage.actions.approve")}
                                                                         >
                                                                             <Check size={16} />
@@ -597,7 +626,7 @@ export default function ParametersPage() {
                                                                                 "border-gray-200 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-50"
                                                                             )}
                                                                             onClick={() => openReject(row)}
-                                                                            disabled={rLoading || decisionSubmitting}
+                                                                            disabled={busy}
                                                                             title={t("parametersPage.actions.reject")}
                                                                         >
                                                                             <X size={16} />
@@ -671,22 +700,22 @@ export default function ParametersPage() {
                         : t("parametersPage.decisionModal.rejectTitle")
                 }
                 subtitle={
-                    decisionRow
+                    decisionTarget
                         ? decisionMode === "approve"
-                            ? t("parametersPage.decisionModal.approveSubtitle", { name: decisionRow.parameter_name })
-                            : t("parametersPage.decisionModal.rejectSubtitle", { name: decisionRow.parameter_name })
+                            ? t("parametersPage.decisionModal.approveSubtitle")
+                            : t("parametersPage.decisionModal.rejectSubtitle", { name: decisionTarget.parameter_name })
                         : null
                 }
                 approveHint={
-                    decisionRow
-                        ? t("parametersPage.decisionModal.approveHint", { name: decisionRow.parameter_name })
+                    decisionTarget
+                        ? t("parametersPage.decisionModal.approveHint", { name: decisionTarget.parameter_name })
                         : undefined
                 }
                 submitting={decisionSubmitting}
                 error={decisionError}
                 rejectNote={decisionNote}
                 onRejectNoteChange={setDecisionNote}
-                onClose={closeDecision}
+                onClose={() => closeDecision(false)}
                 onConfirm={confirmDecision}
             />
         </div>

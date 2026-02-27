@@ -60,8 +60,14 @@ export default function ParameterRequestDecisionModal(props: Props) {
     if (!open) return null;
 
     return (
-        <div className="lims-modal-backdrop p-4" role="dialog" aria-modal="true" aria-label={title}>
-            <div className="lims-modal-panel max-w-lg">
+        <div
+            className="lims-modal-backdrop p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label={title}
+            onClick={() => (submitting ? null : onClose())}
+        >
+            <div className="lims-modal-panel max-w-lg" onClick={(e) => e.stopPropagation()}>
                 <div className="lims-modal-header">
                     <div
                         className={cx(
