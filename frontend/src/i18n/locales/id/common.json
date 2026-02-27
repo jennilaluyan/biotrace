@@ -144,6 +144,22 @@
         "errors": {
             "loadParametersFailed": "Gagal memuat daftar parameter.",
             "loadRequestsFailed": "Gagal memuat daftar permintaan."
+        },
+        "requestModal": {
+            "title": "Tambah permintaan parameter",
+            "subtitle": "Ajukan permintaan untuk disetujui OM/LH.",
+            "fields": {
+                "name": "Nama parameter",
+                "category": "Kategori",
+                "reason": "Alasan"
+            },
+            "placeholders": {
+                "name": "contoh: PCR Influenza A/B",
+                "reason": "Jelaskan kenapa parameter ini dibutuhkan…"
+            },
+            "errors": {
+                "submitFailed": "Gagal mengirim permintaan."
+            }
         }
     },
     "portalRequestsPage": {

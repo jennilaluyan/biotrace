@@ -23,6 +23,8 @@ import {
     type ParameterRequestStatus,
 } from "../../services/parameterRequests";
 
+import ParameterRequestCreateModal from "../../components/parameters/ParameterRequestCreateModal";
+
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
@@ -107,6 +109,33 @@ export default function ParametersPage() {
     const [rError, setRError] = useState<string | null>(null);
     const [rData, setRData] = useState<Paginator<ParameterRequestRow> | null>(null);
 
+    const [createOpen, setCreateOpen] = useState(false);
+
+    async function refreshRequests(opts?: { q?: string; status?: ParameterRequestStatus | "all"; page?: number; per_page?: number }) {
+        if (!canSeeRequestsTab) return;
+
+        const q = (opts?.q ?? rQ).trim();
+        const status = (opts?.status ?? rStatus);
+        const page = opts?.page ?? rPage;
+        const perPage = opts?.per_page ?? rPerPage;
+
+        setRLoading(true);
+        setRError(null);
+        try {
+            const res = await fetchParameterRequests({
+                q: q || undefined,
+                status,
+                page,
+                per_page: perPage,
+            });
+            setRData(res);
+        } catch (e: any) {
+            setRError(getErrorMessage(e, t("parametersPage.errors.loadRequestsFailed")));
+        } finally {
+            setRLoading(false);
+        }
+    }
+
     // guard: Sample Collector tidak boleh nyangkut di tab requests
     useEffect(() => {
         if (!canSeeRequestsTab && tab === "requests") setTab("parameters");
@@ -128,22 +157,7 @@ export default function ParametersPage() {
     }
 
     async function loadRequests() {
-        if (!canSeeRequestsTab) return;
-        setRLoading(true);
-        setRError(null);
-        try {
-            const res = await fetchParameterRequests({
-                q: rQ.trim() || undefined,
-                status: rStatus,
-                page: rPage,
-                per_page: rPerPage,
-            });
-            setRData(res);
-        } catch (e: any) {
-            setRError(getErrorMessage(e, t("parametersPage.errors.loadRequestsFailed")));
-        } finally {
-            setRLoading(false);
-        }
+        await refreshRequests();
     }
 
     useEffect(() => {
@@ -194,8 +208,8 @@ export default function ParametersPage() {
                                         "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
                                         "bg-gray-900 text-white hover:bg-gray-800"
                                     )}
-                                    disabled
-                                    title={t("parametersPage.hints.createComingSoon")}
+                                    onClick={() => setCreateOpen(true)}
+                                    title={t("parametersPage.actions.addRequest")}
                                 >
                                     <FilePlus2 size={16} />
                                     <span className="hidden sm:inline">{t("parametersPage.actions.addRequest")}</span>
@@ -549,6 +563,19 @@ export default function ParametersPage() {
             <div className="text-xs text-gray-500">
                 {t("parametersPage.hints.enterToSearch")}
             </div>
+
+            <ParameterRequestCreateModal
+                open={createOpen}
+                onClose={() => setCreateOpen(false)}
+                onCreated={() => {
+                    // setelah submit: paksa balik ke requests + show pending terbaru
+                    setTab("requests");
+                    setRQ("");
+                    setRStatus("pending");
+                    setRPage(1);
+                    refreshRequests({ q: "", status: "pending", page: 1 });
+                }}
+            />
         </div>
     );
 }

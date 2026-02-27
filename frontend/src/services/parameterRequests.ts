@@ -34,11 +34,25 @@ export type ParameterRequestRow = {
     updated_at?: string | null;
 };
 
+type ApiEnvelope<T> = { data: T };
+
+export type CreateParameterRequestPayload = {
+    parameter_name: string;
+    category: "pcr" | "sequencing" | "rapid" | "microbiology";
+    reason?: string | null;
+};
+
 export async function fetchParameterRequests(params?: {
     page?: number;
     per_page?: number;
     status?: ParameterRequestStatus | "all";
     q?: string;
 }): Promise<Paginator<ParameterRequestRow>> {
-    return api.get("/v1/parameter-requests", { params });
+    const res = await api.get<ApiEnvelope<Paginator<ParameterRequestRow>>>("/v1/parameter-requests", { params });
+    return res.data;
+}
+
+export async function createParameterRequest(payload: CreateParameterRequestPayload): Promise<ParameterRequestRow> {
+    const res = await api.post<ApiEnvelope<ParameterRequestRow>>("/v1/parameter-requests", payload);
+    return res.data;
 }

@@ -136,6 +136,22 @@
         "errors": {
             "loadParametersFailed": "Failed to load parameters.",
             "loadRequestsFailed": "Failed to load requests."
+        },
+        "requestModal": {
+            "title": "Add parameter request",
+            "subtitle": "Submit a request to be approved by OM/LH.",
+            "fields": {
+                "name": "Parameter name",
+                "category": "Category",
+                "reason": "Reason"
+            },
+            "placeholders": {
+                "name": "e.g. PCR Influenza A/B",
+                "reason": "Explain why this parameter is needed…"
+            },
+            "errors": {
+                "submitFailed": "Failed to submit request."
+            }
         }
     },
     "portalRequestsPage": {
