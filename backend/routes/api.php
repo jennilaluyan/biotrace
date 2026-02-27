@@ -191,6 +191,8 @@ Route::prefix('v1')->group(function () {
         Route::get('parameter-requests', [ParameterRequestController::class, 'index']);
         Route::post('parameter-requests/{id}/approve', [ParameterRequestController::class, 'approve'])
             ->whereNumber('id');
+        Route::post('parameter-requests/{id}/reject', [ParameterRequestController::class, 'reject'])
+            ->whereNumber('id');
 
         // Methods
         Route::get('methods', [MethodController::class, 'index']);

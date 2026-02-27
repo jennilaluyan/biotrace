@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use App\Models\Parameter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use App\Http\Requests\ParameterRequestRejectRequest;
 
 class ParameterRequestController extends Controller
 {
@@ -276,6 +277,82 @@ class ParameterRequestController extends Controller
         return ApiResponse::success(
             data: $result,
             message: 'Approved.',
+            status: 200,
+            extra: ['resource' => 'parameter_requests']
+        );
+    }
+
+    public function reject(ParameterRequestRejectRequest $request, int $id): JsonResponse
+    {
+        $this->authorize('reject', \App\Models\ParameterRequest::class);
+
+        /** @var \App\Models\Staff|null $actor */
+        $actor = $request->user();
+        $actorId = (int) ($actor?->staff_id ?? 0);
+        if ($actorId <= 0) {
+            return ApiResponse::error('Unauthorized.', 'unauthorized', 401, ['resource' => 'parameter_requests']);
+        }
+
+        $data = $request->validated();
+        $note = trim((string) ($data['decision_note'] ?? ''));
+
+        // quick precheck for consistent 404/409 response
+        $pre = \App\Models\ParameterRequest::query()->find($id);
+        if (!$pre) {
+            return ApiResponse::error('Parameter request not found.', 'not_found', 404, ['resource' => 'parameter_requests']);
+        }
+        if ((string) $pre->status !== 'pending') {
+            return ApiResponse::error('Request already decided.', 'already_decided', 409, [
+                'resource' => 'parameter_requests',
+                'details' => ['status' => $pre->status],
+            ]);
+        }
+
+        $result = DB::transaction(function () use ($id, $actorId, $note) {
+            $req = \App\Models\ParameterRequest::query()
+                ->where('id', $id)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$req) abort(404, 'Parameter request not found.');
+            if ((string) $req->status !== 'pending') abort(409, 'Request already decided.');
+
+            $oldReq = [
+                'status' => (string) $req->status,
+                'approved_parameter_id' => $req->approved_parameter_id,
+                'decided_by' => $req->decided_by,
+                'decided_at' => $req->decided_at,
+                'decision_note' => $req->decision_note,
+            ];
+
+            $req->status = 'rejected';
+            $req->decided_by = $actorId;
+            $req->decided_at = now();
+            $req->decision_note = $note;
+            $req->save();
+
+            AuditLogger::write(
+                action: 'PARAMETER_REQUEST_REJECTED',
+                staffId: $actorId,
+                entityName: 'parameter_requests',
+                entityId: (int) $req->id,
+                oldValues: $oldReq,
+                newValues: [
+                    'status' => 'rejected',
+                    'decided_by' => $actorId,
+                    'decided_at' => optional($req->decided_at)->toISOString(),
+                    'decision_note' => $note,
+                ]
+            );
+
+            return [
+                'request' => $req->fresh(),
+            ];
+        }, 3);
+
+        return ApiResponse::success(
+            data: $result,
+            message: 'Rejected.',
             status: 200,
             extra: ['resource' => 'parameter_requests']
         );

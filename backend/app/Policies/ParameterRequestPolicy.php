@@ -33,4 +33,12 @@ class ParameterRequestPolicy
             'Laboratory Head',
         ], true);
     }
+
+    public function reject(Staff $user): bool
+    {
+        return in_array($this->roleName($user), [
+            'Operational Manager',
+            'Laboratory Head',
+        ], true);
+    }
 }
