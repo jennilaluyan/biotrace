@@ -17,13 +17,16 @@ import { getErrorMessage } from "../../utils/errors";
 import { formatDateTimeLocal } from "../../utils/date";
 import { api } from "../../services/api";
 import {
+    approveParameterRequest,
     fetchParameterRequests,
+    rejectParameterRequest,
     type ParameterRequestRow,
     type Paginator,
     type ParameterRequestStatus,
 } from "../../services/parameterRequests";
 
 import ParameterRequestCreateModal from "../../components/parameters/ParameterRequestCreateModal";
+import ParameterRequestDecisionModal from "../../components/parameters/ParameterRequestDecisionModal";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -44,7 +47,6 @@ type ParameterRow = {
     created_at?: string;
     updated_at?: string | null;
 
-    // optional (kalau suatu saat backend tambahkan)
     workflow_group?: string | null;
     category?: string | null;
 };
@@ -84,15 +86,13 @@ export default function ParametersPage() {
     const { user } = useAuth();
 
     const roleId = getUserRoleId(user);
-    const isSampleCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
-    const canSeeRequestsTab = !isSampleCollector;
 
+    const canSeeRequestsTab = roleId !== ROLE_ID.SAMPLE_COLLECTOR;
     const canCreateRequest = roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.ANALYST;
     const canApproveReject = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
 
     const [tab, setTab] = useState<TabKey>("parameters");
 
-    // Parameters tab state
     const [pQ, setPQ] = useState("");
     const [pPage, setPPage] = useState(1);
     const [pPerPage, setPPerPage] = useState(20);
@@ -100,7 +100,6 @@ export default function ParametersPage() {
     const [pError, setPError] = useState<string | null>(null);
     const [pData, setPData] = useState<ParamPager | null>(null);
 
-    // Requests tab state
     const [rQ, setRQ] = useState("");
     const [rStatus, setRStatus] = useState<ParameterRequestStatus | "all">("pending");
     const [rPage, setRPage] = useState(1);
@@ -111,16 +110,34 @@ export default function ParametersPage() {
 
     const [createOpen, setCreateOpen] = useState(false);
 
-    async function refreshRequests(opts?: { q?: string; status?: ParameterRequestStatus | "all"; page?: number; per_page?: number }) {
+    const [decisionOpen, setDecisionOpen] = useState(false);
+    const [decisionMode, setDecisionMode] = useState<"approve" | "reject">("approve");
+    const [decisionRow, setDecisionRow] = useState<ParameterRequestRow | null>(null);
+    const [decisionNote, setDecisionNote] = useState("");
+    const [decisionSubmitting, setDecisionSubmitting] = useState(false);
+    const [decisionError, setDecisionError] = useState<string | null>(null);
+
+    const paramsRows = useMemo(() => pData?.data ?? [], [pData]);
+    const reqRows = useMemo(() => rData?.data ?? [], [rData]);
+
+    const refreshLabel = t("parametersPage.actions.refresh");
+
+    const refreshRequests = async (opts?: {
+        q?: string;
+        status?: ParameterRequestStatus | "all";
+        page?: number;
+        per_page?: number;
+    }) => {
         if (!canSeeRequestsTab) return;
 
         const q = (opts?.q ?? rQ).trim();
-        const status = (opts?.status ?? rStatus);
+        const status = opts?.status ?? rStatus;
         const page = opts?.page ?? rPage;
         const perPage = opts?.per_page ?? rPerPage;
 
         setRLoading(true);
         setRError(null);
+
         try {
             const res = await fetchParameterRequests({
                 q: q || undefined,
@@ -134,16 +151,12 @@ export default function ParametersPage() {
         } finally {
             setRLoading(false);
         }
-    }
+    };
 
-    // guard: Sample Collector tidak boleh nyangkut di tab requests
-    useEffect(() => {
-        if (!canSeeRequestsTab && tab === "requests") setTab("parameters");
-    }, [canSeeRequestsTab, tab]);
-
-    async function loadParameters() {
+    const loadParameters = async () => {
         setPLoading(true);
         setPError(null);
+
         try {
             const res = await api.get<ParamPager>("/v1/parameters", {
                 params: { q: pQ.trim() || undefined, page: pPage, per_page: pPerPage },
@@ -154,11 +167,76 @@ export default function ParametersPage() {
         } finally {
             setPLoading(false);
         }
-    }
+    };
 
-    async function loadRequests() {
-        await refreshRequests();
-    }
+    const openApprove = (row: ParameterRequestRow) => {
+        setDecisionRow(row);
+        setDecisionMode("approve");
+        setDecisionNote("");
+        setDecisionError(null);
+        setDecisionOpen(true);
+    };
+
+    const openReject = (row: ParameterRequestRow) => {
+        setDecisionRow(row);
+        setDecisionMode("reject");
+        setDecisionNote("");
+        setDecisionError(null);
+        setDecisionOpen(true);
+    };
+
+    const closeDecision = () => {
+        if (decisionSubmitting) return;
+        setDecisionOpen(false);
+        setDecisionRow(null);
+        setDecisionError(null);
+        setDecisionNote("");
+    };
+
+    const confirmDecision = async () => {
+        if (!decisionRow) return;
+
+        setDecisionSubmitting(true);
+        setDecisionError(null);
+
+        try {
+            if (decisionMode === "approve") {
+                await approveParameterRequest(decisionRow.id);
+
+                await refreshRequests();
+                await loadParameters();
+
+                closeDecision();
+                return;
+            }
+
+            const note = decisionNote.trim();
+            if (!note) {
+                setDecisionError(t("parametersPage.decisionModal.rejectNoteValidation"));
+                return;
+            }
+
+            await rejectParameterRequest(decisionRow.id, note);
+
+            await refreshRequests();
+            closeDecision();
+        } catch (e: any) {
+            setDecisionError(
+                getErrorMessage(
+                    e,
+                    decisionMode === "approve"
+                        ? t("parametersPage.errors.approveFailed")
+                        : t("parametersPage.errors.rejectFailed")
+                )
+            );
+        } finally {
+            setDecisionSubmitting(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!canSeeRequestsTab && tab === "requests") setTab("parameters");
+    }, [canSeeRequestsTab, tab]);
 
     useEffect(() => {
         loadParameters();
@@ -167,12 +245,14 @@ export default function ParametersPage() {
 
     useEffect(() => {
         if (!canSeeRequestsTab) return;
-        loadRequests();
+        refreshRequests();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rPage, rPerPage, rStatus, canSeeRequestsTab]);
 
-    const paramsRows = useMemo(() => pData?.data ?? [], [pData]);
-    const reqRows = useMemo(() => rData?.data ?? [], [rData]);
+    const onRefreshClick = () => {
+        if (tab === "parameters") loadParameters();
+        else refreshRequests();
+    };
 
     return (
         <div className="p-5 space-y-5">
@@ -195,14 +275,14 @@ export default function ParametersPage() {
                                     "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
                                     "border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
                                 )}
-                                onClick={() => (tab === "parameters" ? loadParameters() : loadRequests())}
-                                title={t("parametersPage.actions.refresh")}
+                                onClick={onRefreshClick}
+                                title={refreshLabel}
                             >
                                 <RefreshCw size={16} />
-                                <span className="hidden sm:inline">{t("parametersPage.actions.refresh")}</span>
+                                <span className="hidden sm:inline">{refreshLabel}</span>
                             </button>
 
-                            {tab === "requests" && canCreateRequest && (
+                            {tab === "requests" && canCreateRequest ? (
                                 <button
                                     className={cx(
                                         "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
@@ -214,11 +294,10 @@ export default function ParametersPage() {
                                     <FilePlus2 size={16} />
                                     <span className="hidden sm:inline">{t("parametersPage.actions.addRequest")}</span>
                                 </button>
-                            )}
+                            ) : null}
                         </div>
                     </div>
 
-                    {/* Tabs */}
                     <div className="mt-4 flex items-center gap-2">
                         <button
                             className={cx(
@@ -232,7 +311,7 @@ export default function ParametersPage() {
                             {t("parametersPage.tabs.parameters")}
                         </button>
 
-                        {canSeeRequestsTab && (
+                        {canSeeRequestsTab ? (
                             <button
                                 className={cx(
                                     "rounded-xl px-3 py-2 text-sm font-bold border",
@@ -244,14 +323,12 @@ export default function ParametersPage() {
                             >
                                 {t("parametersPage.tabs.requests")}
                             </button>
-                        )}
+                        ) : null}
                     </div>
                 </div>
 
-                {/* Body */}
                 <div className="px-5 py-5 space-y-4">
-                    {/* PARAMETERS TAB */}
-                    {tab === "parameters" && (
+                    {tab === "parameters" ? (
                         <>
                             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                                 <div className="relative w-full sm:max-w-md">
@@ -292,11 +369,11 @@ export default function ParametersPage() {
                                 </div>
                             </div>
 
-                            {pError && (
+                            {pError ? (
                                 <div className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-800">
                                     {pError}
                                 </div>
-                            )}
+                            ) : null}
 
                             <div className="overflow-x-auto rounded-2xl border border-gray-100">
                                 <table className="min-w-full text-sm">
@@ -327,6 +404,7 @@ export default function ParametersPage() {
                                         ) : (
                                             paramsRows.map((row) => {
                                                 const cat = row.workflow_group ?? row.category ?? null;
+
                                                 return (
                                                     <tr key={row.parameter_id} className="hover:bg-gray-50">
                                                         <td className="px-4 py-3 font-semibold text-gray-900">{row.code}</td>
@@ -353,8 +431,7 @@ export default function ParametersPage() {
                                 </table>
                             </div>
 
-                            {/* Pagination */}
-                            {pData && pData.last_page > 1 && (
+                            {pData && pData.last_page > 1 ? (
                                 <div className="flex items-center justify-between pt-2">
                                     <div className="text-xs text-gray-600">
                                         {t("parametersPage.pagination.page")} {pData.current_page} / {pData.last_page}
@@ -381,12 +458,11 @@ export default function ParametersPage() {
                                         </button>
                                     </div>
                                 </div>
-                            )}
+                            ) : null}
                         </>
-                    )}
+                    ) : null}
 
-                    {/* REQUESTS TAB */}
-                    {tab === "requests" && canSeeRequestsTab && (
+                    {tab === "requests" && canSeeRequestsTab ? (
                         <>
                             <div className="flex flex-col lg:flex-row lg:items-center gap-3">
                                 <div className="relative w-full lg:max-w-md">
@@ -397,7 +473,7 @@ export default function ParametersPage() {
                                         onKeyDown={(e) => {
                                             if (e.key === "Enter") {
                                                 setRPage(1);
-                                                loadRequests();
+                                                refreshRequests({ page: 1 });
                                             }
                                         }}
                                         placeholder={t("parametersPage.filters.searchRequests")}
@@ -444,11 +520,11 @@ export default function ParametersPage() {
                                 </div>
                             </div>
 
-                            {rError && (
+                            {rError ? (
                                 <div className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-800">
                                     {rError}
                                 </div>
-                            )}
+                            ) : null}
 
                             <div className="overflow-x-auto rounded-2xl border border-gray-100">
                                 <table className="min-w-full text-sm">
@@ -476,57 +552,70 @@ export default function ParametersPage() {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            reqRows.map((row) => (
-                                                <tr key={row.id} className="hover:bg-gray-50">
-                                                    <td className="px-4 py-3 font-semibold text-gray-900">{row.parameter_name}</td>
-                                                    <td className="px-4 py-3 text-gray-700">
-                                                        <span className={chipClass("neutral")}>{prettyCategory(row.category)}</span>
-                                                    </td>
-                                                    <td className="px-4 py-3">{statusChip(row.status)}</td>
-                                                    <td className="px-4 py-3 text-gray-700">
-                                                        {row.requested_at ? formatDateTimeLocal(row.requested_at) : "—"}
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        <div className="flex items-center justify-end gap-2">
-                                                            {canApproveReject ? (
-                                                                <>
-                                                                    <button
-                                                                        className={cx(
-                                                                            "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
-                                                                            "border-gray-200 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-50"
-                                                                        )}
-                                                                        disabled
-                                                                        title={t("parametersPage.hints.approveRejectComingSoon")}
-                                                                    >
-                                                                        <Check size={16} />
-                                                                        {t("parametersPage.actions.approve")}
-                                                                    </button>
-                                                                    <button
-                                                                        className={cx(
-                                                                            "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
-                                                                            "border-gray-200 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-50"
-                                                                        )}
-                                                                        disabled
-                                                                        title={t("parametersPage.hints.approveRejectComingSoon")}
-                                                                    >
-                                                                        <X size={16} />
-                                                                        {t("parametersPage.actions.reject")}
-                                                                    </button>
-                                                                </>
-                                                            ) : (
-                                                                <span className="text-xs text-gray-500">{t("parametersPage.hints.actionsRestricted")}</span>
-                                                            )}
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))
+                                            reqRows.map((row) => {
+                                                const statusLower = String(row.status ?? "").toLowerCase();
+                                                const isPending = statusLower === "pending";
+
+                                                return (
+                                                    <tr key={row.id} className="hover:bg-gray-50">
+                                                        <td className="px-4 py-3 font-semibold text-gray-900">{row.parameter_name}</td>
+                                                        <td className="px-4 py-3 text-gray-700">
+                                                            <span className={chipClass("neutral")}>{prettyCategory(row.category)}</span>
+                                                        </td>
+                                                        <td className="px-4 py-3">{statusChip(row.status)}</td>
+                                                        <td className="px-4 py-3 text-gray-700">
+                                                            {row.requested_at ? formatDateTimeLocal(row.requested_at) : "—"}
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                {!canApproveReject ? (
+                                                                    <span className="text-xs text-gray-500">
+                                                                        {t("parametersPage.hints.actionsRestricted")}
+                                                                    </span>
+                                                                ) : !isPending ? (
+                                                                    <span className="text-xs text-gray-500">
+                                                                        {t("parametersPage.hints.alreadyDecided")}
+                                                                    </span>
+                                                                ) : (
+                                                                    <>
+                                                                        <button
+                                                                            className={cx(
+                                                                                "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
+                                                                                "border-gray-200 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+                                                                            )}
+                                                                            onClick={() => openApprove(row)}
+                                                                            disabled={rLoading || decisionSubmitting}
+                                                                            title={t("parametersPage.actions.approve")}
+                                                                        >
+                                                                            <Check size={16} />
+                                                                            {t("parametersPage.actions.approve")}
+                                                                        </button>
+
+                                                                        <button
+                                                                            className={cx(
+                                                                                "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
+                                                                                "border-gray-200 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+                                                                            )}
+                                                                            onClick={() => openReject(row)}
+                                                                            disabled={rLoading || decisionSubmitting}
+                                                                            title={t("parametersPage.actions.reject")}
+                                                                        >
+                                                                            <X size={16} />
+                                                                            {t("parametersPage.actions.reject")}
+                                                                        </button>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
                                         )}
                                     </tbody>
                                 </table>
                             </div>
 
-                            {/* Pagination */}
-                            {rData && rData.last_page > 1 && (
+                            {rData && rData.last_page > 1 ? (
                                 <div className="flex items-center justify-between pt-2">
                                     <div className="text-xs text-gray-600">
                                         {t("parametersPage.pagination.page")} {rData.current_page} / {rData.last_page}
@@ -553,28 +642,52 @@ export default function ParametersPage() {
                                         </button>
                                     </div>
                                 </div>
-                            )}
+                            ) : null}
                         </>
-                    )}
+                    ) : null}
                 </div>
             </div>
 
-            {/* Small helper note */}
-            <div className="text-xs text-gray-500">
-                {t("parametersPage.hints.enterToSearch")}
-            </div>
+            <div className="text-xs text-gray-500">{t("parametersPage.hints.enterToSearch")}</div>
 
             <ParameterRequestCreateModal
                 open={createOpen}
                 onClose={() => setCreateOpen(false)}
                 onCreated={() => {
-                    // setelah submit: paksa balik ke requests + show pending terbaru
                     setTab("requests");
                     setRQ("");
                     setRStatus("pending");
                     setRPage(1);
                     refreshRequests({ q: "", status: "pending", page: 1 });
                 }}
+            />
+
+            <ParameterRequestDecisionModal
+                open={decisionOpen}
+                mode={decisionMode}
+                title={
+                    decisionMode === "approve"
+                        ? t("parametersPage.decisionModal.approveTitle")
+                        : t("parametersPage.decisionModal.rejectTitle")
+                }
+                subtitle={
+                    decisionRow
+                        ? decisionMode === "approve"
+                            ? t("parametersPage.decisionModal.approveSubtitle", { name: decisionRow.parameter_name })
+                            : t("parametersPage.decisionModal.rejectSubtitle", { name: decisionRow.parameter_name })
+                        : null
+                }
+                approveHint={
+                    decisionRow
+                        ? t("parametersPage.decisionModal.approveHint", { name: decisionRow.parameter_name })
+                        : undefined
+                }
+                submitting={decisionSubmitting}
+                error={decisionError}
+                rejectNote={decisionNote}
+                onRejectNoteChange={setDecisionNote}
+                onClose={closeDecision}
+                onConfirm={confirmDecision}
             />
         </div>
     );

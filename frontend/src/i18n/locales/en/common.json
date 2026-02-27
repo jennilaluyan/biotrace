@@ -130,12 +130,27 @@
         "hints": {
             "enterToSearch": "Tip: press Enter to apply search.",
             "actionsRestricted": "No actions",
+            "alreadyDecided": "No actions (decided)",
             "createComingSoon": "Create request modal will be added in Step 7.",
             "approveRejectComingSoon": "Approve/Reject modals will be added in Step 8."
         },
         "errors": {
             "loadParametersFailed": "Failed to load parameters.",
-            "loadRequestsFailed": "Failed to load requests."
+            "loadRequestsFailed": "Failed to load requests.",
+            "approveFailed": "Failed to approve request.",
+            "rejectFailed": "Failed to reject request."
+        },
+        "decisionModal": {
+            "approveTitle": "Approve request",
+            "approveSubtitle": "This will create a new parameter code automatically.",
+            "approveHint": "Approve request “{{name}}”?",
+            "approveDefaultHint": "This will mark the request as approved and generate a new parameter.",
+            "rejectTitle": "Reject request",
+            "rejectSubtitle": "Please write a short rejection note for “{{name}}”.",
+            "rejectNoteRequired": "Rejection note (required)",
+            "rejectNotePlaceholder": "Write the reason for rejection…",
+            "rejectNoteHelp": "This note will be saved as audit evidence.",
+            "rejectNoteValidation": "Rejection note is required."
         },
         "requestModal": {
             "title": "Add parameter request",

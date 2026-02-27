@@ -52,7 +52,37 @@ export async function fetchParameterRequests(params?: {
     return res.data;
 }
 
+export type ApproveParameterRequestResult = {
+    request: ParameterRequestRow;
+    // backend return parameter juga saat approve
+    parameter?: any;
+};
+
+export type RejectParameterRequestResult = {
+    request: ParameterRequestRow;
+};
+
 export async function createParameterRequest(payload: CreateParameterRequestPayload): Promise<ParameterRequestRow> {
-    const res = await api.post<ApiEnvelope<ParameterRequestRow>>("/v1/parameter-requests", payload);
+    try {
+        const res = await api.post<ApiEnvelope<ParameterRequestRow>>("/v1/parameters/requests", payload);
+        return res.data;
+    } catch (e: any) {
+        if (e?.status === 404 || e?.status === 405) {
+            const res2 = await api.post<ApiEnvelope<ParameterRequestRow>>("/v1/parameter-requests", payload);
+            return res2.data;
+        }
+        throw e;
+    }
+}
+
+export async function approveParameterRequest(id: number): Promise<ApproveParameterRequestResult> {
+    const res = await api.post<ApiEnvelope<ApproveParameterRequestResult>>(`/v1/parameter-requests/${id}/approve`);
+    return res.data;
+}
+
+export async function rejectParameterRequest(id: number, decision_note: string): Promise<RejectParameterRequestResult> {
+    const res = await api.post<ApiEnvelope<RejectParameterRequestResult>>(`/v1/parameter-requests/${id}/reject`, {
+        decision_note,
+    });
     return res.data;
 }

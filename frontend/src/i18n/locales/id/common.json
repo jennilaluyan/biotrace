@@ -138,12 +138,27 @@
         "hints": {
             "enterToSearch": "Tips: tekan Enter untuk menerapkan pencarian.",
             "actionsRestricted": "Tanpa aksi",
+            "alreadyDecided": "Tanpa aksi (sudah diputuskan)",
             "createComingSoon": "Modal tambah permintaan dibuat di Step 7.",
             "approveRejectComingSoon": "Modal approve/reject dibuat di Step 8."
         },
         "errors": {
             "loadParametersFailed": "Gagal memuat daftar parameter.",
-            "loadRequestsFailed": "Gagal memuat daftar permintaan."
+            "loadRequestsFailed": "Gagal memuat daftar permintaan.",
+            "approveFailed": "Gagal menyetujui permintaan.",
+            "rejectFailed": "Gagal menolak permintaan."
+        },
+        "decisionModal": {
+            "approveTitle": "Setujui permintaan",
+            "approveSubtitle": "Ini akan membuat kode parameter baru secara otomatis.",
+            "approveHint": "Setujui permintaan “{{name}}”?",
+            "approveDefaultHint": "Permintaan akan disetujui dan sistem akan membuat parameter baru.",
+            "rejectTitle": "Tolak permintaan",
+            "rejectSubtitle": "Tuliskan alasan penolakan untuk “{{name}}”.",
+            "rejectNoteRequired": "Alasan penolakan (wajib)",
+            "rejectNotePlaceholder": "Tulis alasan penolakan…",
+            "rejectNoteHelp": "Catatan ini akan tersimpan sebagai bukti audit.",
+            "rejectNoteValidation": "Alasan penolakan wajib diisi."
         },
         "requestModal": {
             "title": "Tambah permintaan parameter",
