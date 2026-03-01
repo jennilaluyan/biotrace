@@ -13,7 +13,6 @@ import {
     ShieldCheck,
     TestTube2,
     Users,
-    ClipboardList
 } from "lucide-react";
 
 import BiotraceLogo from "../../assets/biotrace-logo.png";
@@ -22,6 +21,7 @@ import { getUserRoleId, ROLE_ID } from "../../utils/roles";
 import { Topbar } from "./Topbar";
 
 type NavIcon =
+    | "dashboard"
     | "users"
     | "samples"
     | "inbox"
@@ -83,12 +83,12 @@ export const AppLayout = () => {
 
     const staffDashboardItem: NavItem[] =
         isStaff && !isClient && !isAdmin && !isSampleCollector
-            ? [{ label: t("nav.dashboard"), path: "/dashboard", icon: "reports" as const }]
+            ? [{ label: t("nav.dashboard"), path: "/dashboard", icon: "dashboard" as const }]
             : [];
 
     const scOnlyItems: NavItem[] = isSampleCollector
         ? [
-            { label: t("nav.dashboard"), path: "/dashboard", icon: "reports" as const },
+            { label: t("nav.dashboard"), path: "/dashboard", icon: "dashboard" as const },
 
             { label: t("nav.requestQueue"), path: "/samples/requests", icon: "inbox" as const },
             { label: t("nav.samples"), path: "/samples", icon: "samples" as const },
@@ -130,7 +130,7 @@ export const AppLayout = () => {
 
     const adminItems: NavItem[] = isAdmin
         ? [
-            { label: t("nav.dashboard"), path: "/dashboard", icon: "reports" as const },
+            { label: t("nav.dashboard"), path: "/dashboard", icon: "dashboard" as const },
 
             { label: t("nav.clientApprovals"), path: "/clients/approvals", icon: "approval" as const },
             { label: t("nav.requestQueue"), path: "/samples/requests", icon: "inbox" as const },
@@ -181,6 +181,8 @@ export const AppLayout = () => {
 
     const renderIcon = (icon?: NavIcon) => {
         switch (icon) {
+            case "dashboard":
+                return <BarChart3 className={iconClass} />;
             case "users":
                 return <Users className={iconClass} />;
             case "samples":
@@ -209,7 +211,7 @@ export const AppLayout = () => {
     const endPaths = useMemo(
         () =>
             new Set<string>([
-                "/dashboard",
+                // NOTE: "/dashboard" sengaja TIDAK di-set end=true supaya tetap aktif untuk sub-route dashboard (mis. /dashboard/lh)
                 "/samples",
                 "/clients",
                 "/portal",
