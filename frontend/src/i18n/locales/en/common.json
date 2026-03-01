@@ -161,73 +161,73 @@
             "errors": {
                 "loadFailed": "Failed to load dashboard data. Please try again."
             }
-        }
-    },
-    "sampleCollector": {
-        "title": "Sample Collector Dashboard",
-        "subtitle": "Welcome{{name}}. Focus on pickup, inspection, and moving samples forward.",
-        "hero": {
-            "title": "Collector workflow overview",
-            "body": "Use Work Queue to jump to actionable requests (in transit, under inspection, returned). Data reflects the last 30 days."
         },
-        "actions": {
-            "openQueue": "Open queue",
-            "openSamples": "Open samples"
-        },
-        "stats": {
-            "inTransit": {
-                "title": "In transit to collector",
-                "sub": "Items that should be received by the collector."
+        "sampleCollector": {
+            "title": "Sample Collector Dashboard",
+            "subtitle": "Welcome{{name}}. Focus on pickup, inspection, and moving samples forward.",
+            "hero": {
+                "title": "Collector workflow overview",
+                "body": "Use Work Queue to jump to actionable requests (in transit, under inspection, returned). Data reflects the last 30 days."
             },
-            "underInspection": {
-                "title": "Under inspection",
-                "sub": "Requests currently in inspection stage."
+            "actions": {
+                "openQueue": "Open queue",
+                "openSamples": "Open samples"
             },
-            "needsAttention": {
-                "title": "Needs attention",
-                "sub": "Returned/failed items that may block progress."
+            "stats": {
+                "inTransit": {
+                    "title": "In transit to collector",
+                    "sub": "Items that should be received by the collector."
+                },
+                "underInspection": {
+                    "title": "Under inspection",
+                    "sub": "Requests currently in inspection stage."
+                },
+                "needsAttention": {
+                    "title": "Needs attention",
+                    "sub": "Returned/failed items that may block progress."
+                },
+                "intakePassed": {
+                    "title": "Intake passed",
+                    "sub": "Requests that passed intake checklist."
+                }
             },
-            "intakePassed": {
-                "title": "Intake passed",
-                "sub": "Requests that passed intake checklist."
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Shortcut based on request status."
+            },
+            "queue": {
+                "inTransit": {
+                    "title": "In transit",
+                    "subtitle": "Receive and continue the workflow."
+                },
+                "underInspection": {
+                    "title": "Under inspection",
+                    "subtitle": "Complete inspection steps."
+                },
+                "returnedToAdmin": {
+                    "title": "Returned to admin",
+                    "subtitle": "Items that need handback/coordination."
+                },
+                "intakePassed": {
+                    "title": "Intake passed",
+                    "subtitle": "Ready for the next stage."
+                },
+                "allQueue": {
+                    "title": "All requests",
+                    "subtitle": "Browse the full queue."
+                }
+            },
+            "recent": {
+                "title": "Recent requests",
+                "subtitle": "Most recently updated requests in the queue.",
+                "requestLabel": "Request #{{id}}",
+                "updatedAt": "Updated",
+                "emptyTitle": "No requests yet",
+                "emptyBody": "Requests will appear here after clients submit them."
+            },
+            "errors": {
+                "loadFailed": "Failed to load dashboard data. Please try again."
             }
-        },
-        "workQueue": {
-            "title": "Work queue",
-            "subtitle": "Shortcut based on request status."
-        },
-        "queue": {
-            "inTransit": {
-                "title": "In transit",
-                "subtitle": "Receive and continue the workflow."
-            },
-            "underInspection": {
-                "title": "Under inspection",
-                "subtitle": "Complete inspection steps."
-            },
-            "returnedToAdmin": {
-                "title": "Returned to admin",
-                "subtitle": "Items that need handback/coordination."
-            },
-            "intakePassed": {
-                "title": "Intake passed",
-                "subtitle": "Ready for the next stage."
-            },
-            "allQueue": {
-                "title": "All requests",
-                "subtitle": "Browse the full queue."
-            }
-        },
-        "recent": {
-            "title": "Recent requests",
-            "subtitle": "Most recently updated requests in the queue.",
-            "requestLabel": "Request #{{id}}",
-            "updatedAt": "Updated",
-            "emptyTitle": "No requests yet",
-            "emptyBody": "Requests will appear here after clients submit them."
-        },
-        "errors": {
-            "loadFailed": "Failed to load dashboard data. Please try again."
         }
     },
     "parametersPage": {
