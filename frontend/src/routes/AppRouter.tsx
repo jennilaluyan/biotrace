@@ -27,7 +27,7 @@ import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
 import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
 import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
 
-import AdminDashboardPage from "../pages/dashboard/AdminDashboardPage";
+import StaffDashboardPage from "../pages/dashboard/StaffDashboardPage";
 
 import ReagentApprovalDetailPage from "../pages/reagents/ReagentApprovalDetailPage";
 import ReagentApprovalInboxPage from "../pages/reagents/ReagentApprovalInboxPage";
@@ -137,8 +137,16 @@ export const AppRouter = () => {
                         <Route
                             path="/dashboard"
                             element={
-                                <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN]}>
-                                    <AdminDashboardPage />
+                                <RoleGuard
+                                    allowedRoleIds={[
+                                        ROLE_ID.ADMIN,
+                                        ROLE_ID.SAMPLE_COLLECTOR,
+                                        ROLE_ID.ANALYST,
+                                        ROLE_ID.OPERATIONAL_MANAGER,
+                                        ROLE_ID.LAB_HEAD,
+                                    ]}
+                                >
+                                    <StaffDashboardPage />
                                 </RoleGuard>
                             }
                         />
