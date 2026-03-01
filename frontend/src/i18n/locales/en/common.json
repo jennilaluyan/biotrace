@@ -290,6 +290,89 @@
             "errors": {
                 "loadFailed": "Failed to load dashboard data. Please try again."
             }
+        },
+        "operationalManager": {
+            "title": "Operational Manager Dashboard",
+            "subtitle": "Welcome{{name}}. Keep approvals moving and unblock the workflow.",
+            "hero": {
+                "title": "Operations overview",
+                "body": "Focus on LOO approvals, reagent approvals, and Quality Cover verification. Stats reflect the last 30 days (queue) and recent documents."
+            },
+            "actions": {
+                "openLoo": "Open LOO workspace",
+                "openReagentApprovals": "Reagent approvals",
+                "openQualityCovers": "Quality cover (verify)",
+                "openReports": "Open reports"
+            },
+            "stats": {
+                "looCandidates": {
+                    "title": "LOO candidates",
+                    "sub": "Eligible samples listed in LOO workspace."
+                },
+                "reagentPending": {
+                    "title": "Reagent approvals (pending)",
+                    "sub": "Submitted requests waiting for your decision."
+                },
+                "qcToVerify": {
+                    "title": "Quality covers to verify",
+                    "sub": "Submitted QC drafts awaiting OM verification."
+                },
+                "docs7d": {
+                    "title": "Docs generated (7d)",
+                    "sub": "How many PDFs were generated in the last 7 days."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Shortcuts based on what needs attention now."
+            },
+            "queue": {
+                "requestSubmissions": {
+                    "title": "Request submissions",
+                    "subtitle": "New submissions in the queue."
+                },
+                "looWorkspace": {
+                    "title": "LOO workspace",
+                    "subtitle": "Approve and generate Letters of Order."
+                },
+                "reagentApprovals": {
+                    "title": "Reagent approvals",
+                    "subtitle": "Approve/reject submitted reagent requests."
+                },
+                "qualityCovers": {
+                    "title": "Quality covers",
+                    "subtitle": "Verify submitted quality covers."
+                },
+                "needsAttention": {
+                    "title": "Needs attention",
+                    "subtitle": "Returned/revision items blocking progress."
+                },
+                "reports": {
+                    "title": "Reports",
+                    "subtitle": "Browse generated PDFs."
+                }
+            },
+            "recentReagent": {
+                "title": "Recent reagent approvals",
+                "subtitle": "Latest submitted requests waiting for approval.",
+                "emptyTitle": "No pending approvals",
+                "emptyBody": "Submitted reagent requests will appear here."
+            },
+            "recentQc": {
+                "title": "Recent quality covers",
+                "subtitle": "Latest submitted QC drafts waiting for verification.",
+                "emptyTitle": "No quality covers in inbox",
+                "emptyBody": "Submitted quality covers will appear here."
+            },
+            "recentDocs": {
+                "title": "Recent documents",
+                "subtitle": "Latest generated PDFs across the system.",
+                "emptyTitle": "No documents yet",
+                "emptyBody": "Generated PDFs will appear here when available."
+            },
+            "errors": {
+                "loadFailed": "Failed to load dashboard data. Please try again."
+            }
         }
     },
     "parametersPage": {

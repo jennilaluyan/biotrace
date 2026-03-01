@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\reagents\ReagentApprovalInboxPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CheckCircle2, ChevronLeft, ChevronRight, Eye, RefreshCw, Search, XCircle } from "lucide-react";

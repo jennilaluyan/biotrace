@@ -299,6 +299,89 @@
             "errors": {
                 "loadFailed": "Gagal memuat data dashboard. Silakan coba lagi."
             }
+        },
+        "operationalManager": {
+            "title": "Dashboard Operational Manager",
+            "subtitle": "Selamat datang{{name}}. Jaga approval tetap jalan dan buka hambatan workflow.",
+            "hero": {
+                "title": "Ringkasan operasional",
+                "body": "Fokus pada approval LOO, approval reagen, dan verifikasi Quality Cover. Angka antrian dihitung dari 30 hari terakhir, dokumen tampil terbaru."
+            },
+            "actions": {
+                "openLoo": "Buka LOO workspace",
+                "openReagentApprovals": "Approval reagen",
+                "openQualityCovers": "Quality cover (verifikasi)",
+                "openReports": "Buka laporan"
+            },
+            "stats": {
+                "looCandidates": {
+                    "title": "Kandidat LOO",
+                    "sub": "Sampel eligible yang tampil di LOO workspace."
+                },
+                "reagentPending": {
+                    "title": "Approval reagen (pending)",
+                    "sub": "Request submitted yang menunggu keputusan OM."
+                },
+                "qcToVerify": {
+                    "title": "Quality cover untuk diverifikasi",
+                    "sub": "Draft QC yang sudah disubmit dan menunggu verifikasi OM."
+                },
+                "docs7d": {
+                    "title": "Dokumen dibuat (7h)",
+                    "sub": "Jumlah PDF yang digenerate dalam 7 hari terakhir."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Shortcut berdasarkan yang perlu ditangani sekarang."
+            },
+            "queue": {
+                "requestSubmissions": {
+                    "title": "Submission request",
+                    "subtitle": "Submission baru di antrian."
+                },
+                "looWorkspace": {
+                    "title": "LOO workspace",
+                    "subtitle": "Approval dan generate Letter of Order."
+                },
+                "reagentApprovals": {
+                    "title": "Approval reagen",
+                    "subtitle": "Approve/reject request reagen yang submitted."
+                },
+                "qualityCovers": {
+                    "title": "Quality cover",
+                    "subtitle": "Verifikasi quality cover yang sudah disubmit."
+                },
+                "needsAttention": {
+                    "title": "Perlu perhatian",
+                    "subtitle": "Item returned/revisi yang menghambat workflow."
+                },
+                "reports": {
+                    "title": "Laporan",
+                    "subtitle": "Lihat PDF yang sudah digenerate."
+                }
+            },
+            "recentReagent": {
+                "title": "Approval reagen terbaru",
+                "subtitle": "Request submitted terbaru yang menunggu approval.",
+                "emptyTitle": "Belum ada approval pending",
+                "emptyBody": "Request reagen yang disubmit akan muncul di sini."
+            },
+            "recentQc": {
+                "title": "Quality cover terbaru",
+                "subtitle": "Draft QC terbaru yang menunggu verifikasi.",
+                "emptyTitle": "Belum ada quality cover di inbox",
+                "emptyBody": "Quality cover yang disubmit akan muncul di sini."
+            },
+            "recentDocs": {
+                "title": "Dokumen terbaru",
+                "subtitle": "PDF yang paling baru digenerate di sistem.",
+                "emptyTitle": "Belum ada dokumen",
+                "emptyBody": "PDF yang digenerate akan muncul di sini saat tersedia."
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat data dashboard. Silakan coba lagi."
+            }
         }
     },
     "parametersPage": {
