@@ -88,7 +88,8 @@
         "staffApprovals": "Persetujuan Staf",
         "myRequests": "Permintaan Saya",
         "openNavigation": "Buka navigasi",
-        "closeSidebar": "Tutup sidebar"
+        "closeSidebar": "Tutup sidebar",
+        "parameters": "Parameters"
     },
     "parametersPage": {
         "title": "Daftar Parameter",

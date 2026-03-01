@@ -196,6 +196,7 @@ export const AppLayout = () => {
                 "/samples",
                 "/clients",
                 "/portal",
+                "/parameters",
                 "/qa/parameters",
                 "/qa/methods",
                 "/qa/consumables-catalog",
