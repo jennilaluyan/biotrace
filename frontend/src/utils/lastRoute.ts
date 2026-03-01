@@ -1,4 +1,3 @@
-// frontend/src/utils/lastRoute.ts
 type Actor = "staff" | "client";
 
 const KEY_STAFF = "biotrace_last_route_staff";

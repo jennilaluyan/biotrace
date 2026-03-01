@@ -27,6 +27,8 @@ import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
 import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
 import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
 
+import StaffDashboardPage from "../pages/dashboard/StaffDashboardPage";
+
 import ReagentApprovalDetailPage from "../pages/reagents/ReagentApprovalDetailPage";
 import ReagentApprovalInboxPage from "../pages/reagents/ReagentApprovalInboxPage";
 import ReagentRequestBuilderPage from "../pages/reagents/ReagentRequestBuilderPage";
@@ -107,13 +109,12 @@ function HomeRedirect() {
         return <Navigate to="/login" replace />;
     }
 
-    // Backoffice tenant
     if (staff.loading) return null;
 
     if (staff.isAuthenticated) {
         const staffId = (staff as any)?.user?.id;
         const last = getLastRoute("staff", staffId);
-        return <Navigate to={last ?? "/samples"} replace />;
+        return <Navigate to={last ?? "/dashboard"} replace />;
     }
 
     return <Navigate to="/login" replace />;
@@ -131,6 +132,24 @@ export const AppRouter = () => {
             <Route element={<ProtectedRoute />}>
                 <Route element={<StaffLastRouteTracker />}>
                     <Route element={<AppLayout />}>
+                        {/* Dashboard */}
+                        <Route
+                            path="/dashboard"
+                            element={
+                                <RoleGuard
+                                    allowedRoleIds={[
+                                        ROLE_ID.ADMIN,
+                                        ROLE_ID.SAMPLE_COLLECTOR,
+                                        ROLE_ID.ANALYST,
+                                        ROLE_ID.OPERATIONAL_MANAGER,
+                                        ROLE_ID.LAB_HEAD,
+                                    ]}
+                                >
+                                    <StaffDashboardPage />
+                                </RoleGuard>
+                            }
+                        />
+
                         {/* Clients */}
                         <Route
                             path="/clients/approvals"

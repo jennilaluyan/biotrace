@@ -73,6 +73,7 @@
         }
     },
     "nav": {
+        "dashboard": "Dashboard",
         "clients": "Klien",
         "samples": "Sampel",
         "requestQueue": "Antrian Permintaan",
@@ -90,6 +91,392 @@
         "openNavigation": "Buka navigasi",
         "closeSidebar": "Tutup sidebar",
         "parameters": "Parameters"
+    },
+    "dashboard": {
+        "admin": {
+            "title": "Dashboard Administrator",
+            "subtitle": "Selamat datang{{name}}. Prioritaskan approval, cek request baru, dan jaga dokumen tetap berjalan.",
+            "hero": {
+                "title": "Ringkasan alur",
+                "body": "Pakai Work Queue untuk lompat ke langkah yang bisa dikerjakan sekarang. Angka request dihitung dari 30 hari terakhir, dokumen tampil terbaru."
+            },
+            "actions": {
+                "openQueue": "Buka antrian",
+                "clientApprovals": "Persetujuan klien",
+                "openReports": "Buka laporan"
+            },
+            "stats": {
+                "pendingClients": {
+                    "title": "Persetujuan klien tertunda",
+                    "sub": "Pendaftaran klien baru yang menunggu keputusan admin."
+                },
+                "submitted": {
+                    "title": "Request baru",
+                    "sub": "Permintaan klien yang sudah dikirim dan siap ditinjau."
+                },
+                "needsAttention": {
+                    "title": "Perlu perhatian",
+                    "sub": "Item returned/revisi yang bisa menghambat workflow."
+                },
+                "docs7d": {
+                    "title": "Dokumen dibuat (7h)",
+                    "sub": "Jumlah PDF yang digenerate dalam 7 hari terakhir."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Shortcut berdasarkan status yang bisa dieksekusi."
+            },
+            "queue": {
+                "clientApprovals": {
+                    "title": "Persetujuan klien",
+                    "subtitle": "Tinjau pendaftaran yang menunggu."
+                },
+                "newSubmissions": {
+                    "title": "Antrian permintaan",
+                    "subtitle": "Submission baru untuk ditinjau."
+                },
+                "readyForDelivery": {
+                    "title": "Siap diantar",
+                    "subtitle": "Request yang sudah siap untuk pengantaran."
+                },
+                "physicallyReceived": {
+                    "title": "Diterima fisik",
+                    "subtitle": "Request yang sudah diterima di meja admin."
+                },
+                "needsAttention": {
+                    "title": "Perlu perhatian",
+                    "subtitle": "Item returned/revisi untuk membuka hambatan."
+                },
+                "documents": {
+                    "title": "Dokumen",
+                    "subtitle": "Lihat PDF yang sudah digenerate."
+                }
+            },
+            "recentDocs": {
+                "title": "Dokumen terbaru",
+                "subtitle": "PDF yang paling baru digenerate di sistem.",
+                "emptyTitle": "Belum ada dokumen",
+                "emptyBody": "PDF yang digenerate akan muncul di sini saat tersedia."
+            },
+            "recentRequests": {
+                "title": "Request terbaru",
+                "subtitle": "Request yang paling baru diupdate di antrian.",
+                "requestLabel": "Request #{{id}}",
+                "updatedAt": "Diperbarui",
+                "emptyTitle": "Belum ada request",
+                "emptyBody": "Submission klien akan muncul di sini setelah mereka mengirim request."
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat data dashboard. Silakan coba lagi."
+            }
+        },
+        "sampleCollector": {
+            "title": "Dashboard Pengambil Sampel",
+            "subtitle": "Selamat datang{{name}}. Fokus pada penjemputan, inspeksi, dan melanjutkan alur sampel.",
+            "hero": {
+                "title": "Ringkasan alur collector",
+                "body": "Pakai Work Queue untuk lompat ke request yang bisa dikerjakan sekarang (dalam perjalanan, inspeksi, dikembalikan). Data dihitung dari 30 hari terakhir."
+            },
+            "actions": {
+                "openQueue": "Buka antrian",
+                "openSamples": "Buka sampel"
+            },
+            "stats": {
+                "inTransit": {
+                    "title": "Dalam perjalanan ke collector",
+                    "sub": "Item yang perlu diterima oleh collector."
+                },
+                "underInspection": {
+                    "title": "Dalam inspeksi",
+                    "sub": "Request yang sedang berada pada tahap inspeksi."
+                },
+                "needsAttention": {
+                    "title": "Perlu perhatian",
+                    "sub": "Item returned/failed yang bisa menghambat workflow."
+                },
+                "intakePassed": {
+                    "title": "Intake lulus",
+                    "sub": "Request yang sudah lulus intake checklist."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Shortcut berdasarkan status request."
+            },
+            "queue": {
+                "inTransit": {
+                    "title": "Dalam perjalanan",
+                    "subtitle": "Terima barang dan lanjutkan workflow."
+                },
+                "underInspection": {
+                    "title": "Dalam inspeksi",
+                    "subtitle": "Selesaikan langkah inspeksi."
+                },
+                "returnedToAdmin": {
+                    "title": "Kembali ke admin",
+                    "subtitle": "Item yang perlu koordinasi/handback."
+                },
+                "intakePassed": {
+                    "title": "Intake lulus",
+                    "subtitle": "Siap ke tahap berikutnya."
+                },
+                "allQueue": {
+                    "title": "Semua request",
+                    "subtitle": "Lihat seluruh antrian."
+                }
+            },
+            "recent": {
+                "title": "Request terbaru",
+                "subtitle": "Request yang paling baru diupdate di antrian.",
+                "requestLabel": "Request #{{id}}",
+                "updatedAt": "Diperbarui",
+                "emptyTitle": "Belum ada request",
+                "emptyBody": "Request akan muncul di sini setelah klien mengirim permintaan."
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat data dashboard. Silakan coba lagi."
+            }
+        },
+        "analyst": {
+            "title": "Dashboard Analis",
+            "subtitle": "Selamat datang{{name}}. Fokus pada penerimaan, crosscheck, pengujian, dan menjaga alur hasil tetap berjalan.",
+            "hero": {
+                "title": "Ringkasan alur analis",
+                "body": "Pakai Work Queue untuk lompat ke langkah yang bisa dikerjakan sekarang (terima, crosscheck, siapkan reagen, uji)."
+            },
+            "actions": {
+                "openSamples": "Buka sampel",
+                "openReports": "Buka laporan"
+            },
+            "stats": {
+                "awaitingReceive": {
+                    "title": "Menunggu diterima",
+                    "sub": "Sampel sudah diantar collector tetapi belum diterima analis."
+                },
+                "crosscheckPending": {
+                    "title": "Crosscheck belum selesai",
+                    "sub": "Sampel yang sudah diterima dan masih perlu crosscheck."
+                },
+                "readyForReagent": {
+                    "title": "Siap buat permintaan reagen",
+                    "sub": "Crosscheck lulus dan siap buat permintaan reagen."
+                },
+                "inTesting": {
+                    "title": "Sedang diuji",
+                    "sub": "Reagen disetujui dan pengujian sedang berjalan."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Shortcut berdasarkan tahap yang sedang berjalan."
+            },
+            "queue": {
+                "awaitingReceive": {
+                    "title": "Menunggu diterima",
+                    "subtitle": "Konfirmasi penerimaan sampel fisik."
+                },
+                "crosscheckPending": {
+                    "title": "Crosscheck",
+                    "subtitle": "Cocokkan label fisik vs kode lab lalu submit hasil."
+                },
+                "readyForReagent": {
+                    "title": "Siap reagen",
+                    "subtitle": "Siapkan permintaan reagen setelah crosscheck lulus."
+                },
+                "inTesting": {
+                    "title": "Pengujian",
+                    "subtitle": "Lanjutkan workflow uji sampai selesai."
+                }
+            },
+            "recent": {
+                "title": "Sampel terbaru",
+                "subtitle": "Sampel yang paling baru diupdate.",
+                "updatedAt": "Diperbarui",
+                "emptyTitle": "Belum ada sampel",
+                "emptyBody": "Sampel akan muncul setelah masuk ke workflow lab."
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat data dashboard. Silakan coba lagi."
+            }
+        },
+        "operationalManager": {
+            "title": "Dashboard Operational Manager",
+            "subtitle": "Selamat datang{{name}}. Jaga approval tetap jalan dan buka hambatan workflow.",
+            "hero": {
+                "title": "Ringkasan operasional",
+                "body": "Fokus pada approval LOO, approval reagen, dan verifikasi Quality Cover. Angka antrian dihitung dari 30 hari terakhir, dokumen tampil terbaru."
+            },
+            "actions": {
+                "openLoo": "Buka LOO workspace",
+                "openReagentApprovals": "Approval reagen",
+                "openQualityCovers": "Quality cover (verifikasi)",
+                "openReports": "Buka laporan"
+            },
+            "stats": {
+                "looCandidates": {
+                    "title": "Kandidat LOO",
+                    "sub": "Sampel eligible yang tampil di LOO workspace."
+                },
+                "reagentPending": {
+                    "title": "Approval reagen (pending)",
+                    "sub": "Request submitted yang menunggu keputusan OM."
+                },
+                "qcToVerify": {
+                    "title": "Quality cover untuk diverifikasi",
+                    "sub": "Draft QC yang sudah disubmit dan menunggu verifikasi OM."
+                },
+                "docs7d": {
+                    "title": "Dokumen dibuat (7h)",
+                    "sub": "Jumlah PDF yang digenerate dalam 7 hari terakhir."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Shortcut berdasarkan yang perlu ditangani sekarang."
+            },
+            "queue": {
+                "requestSubmissions": {
+                    "title": "Submission request",
+                    "subtitle": "Submission baru di antrian."
+                },
+                "looWorkspace": {
+                    "title": "LOO workspace",
+                    "subtitle": "Approval dan generate Letter of Order."
+                },
+                "reagentApprovals": {
+                    "title": "Approval reagen",
+                    "subtitle": "Approve/reject request reagen yang submitted."
+                },
+                "qualityCovers": {
+                    "title": "Quality cover",
+                    "subtitle": "Verifikasi quality cover yang sudah disubmit."
+                },
+                "needsAttention": {
+                    "title": "Perlu perhatian",
+                    "subtitle": "Item returned/revisi yang menghambat workflow."
+                },
+                "reports": {
+                    "title": "Laporan",
+                    "subtitle": "Lihat PDF yang sudah digenerate."
+                }
+            },
+            "recentReagent": {
+                "title": "Approval reagen terbaru",
+                "subtitle": "Request submitted terbaru yang menunggu approval.",
+                "emptyTitle": "Belum ada approval pending",
+                "emptyBody": "Request reagen yang disubmit akan muncul di sini."
+            },
+            "recentQc": {
+                "title": "Quality cover terbaru",
+                "subtitle": "Draft QC terbaru yang menunggu verifikasi.",
+                "emptyTitle": "Belum ada quality cover di inbox",
+                "emptyBody": "Quality cover yang disubmit akan muncul di sini."
+            },
+            "recentDocs": {
+                "title": "Dokumen terbaru",
+                "subtitle": "PDF yang paling baru digenerate di sistem.",
+                "emptyTitle": "Belum ada dokumen",
+                "emptyBody": "PDF yang digenerate akan muncul di sini saat tersedia."
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat data dashboard. Silakan coba lagi."
+            }
+        },
+        "laboratoryHead": {
+            "title": "Dashboard Kepala Laboratorium",
+            "subtitle": "Ringkasan hari ini{{name}}.",
+            "hero": {
+                "title": "Mutu & persetujuan",
+                "body": "Pantau persetujuan yang tertunda dan lakukan validasi Quality Cover dengan cepat."
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat data dashboard. Silakan coba lagi."
+            },
+            "actions": {
+                "openStaffApprovals": "Persetujuan staf",
+                "openQualityCovers": "Quality Cover",
+                "openReagentApprovals": "Persetujuan reagen",
+                "openLoo": "Workspace LOO",
+                "openReports": "Laporan"
+            },
+            "stats": {
+                "pendingStaff": {
+                    "title": "Persetujuan staf tertunda",
+                    "sub": "Menunggu keputusan Anda."
+                },
+                "qcToValidate": {
+                    "title": "QC untuk divalidasi",
+                    "sub": "Sudah diverifikasi OM, menunggu validasi LH."
+                },
+                "reagentPending": {
+                    "title": "Persetujuan reagen",
+                    "sub": "Pengajuan menunggu approval."
+                },
+                "docs7d": {
+                    "title": "Dokumen (7h)",
+                    "sub": "Terbit dalam 7 hari terakhir."
+                }
+            },
+            "workQueue": {
+                "title": "Antrian kerja",
+                "subtitle": "Akses cepat ke tugas terpenting."
+            },
+            "queue": {
+                "staffApprovals": {
+                    "title": "Persetujuan staf",
+                    "subtitle": "Pendaftaran menunggu persetujuan."
+                },
+                "qualityCovers": {
+                    "title": "Validasi Quality Cover",
+                    "subtitle": "Validasi QC yang sudah diverifikasi."
+                },
+                "reagentApprovals": {
+                    "title": "Persetujuan reagen",
+                    "subtitle": "Approve/reject pengajuan."
+                },
+                "looWorkspace": {
+                    "title": "Workspace LOO",
+                    "subtitle": "Review approval & generate LOO."
+                },
+                "awaitingVerification": {
+                    "title": "Permintaan menunggu verifikasi",
+                    "subtitle": "Pantau antrian permintaan."
+                },
+                "needsAttention": {
+                    "title": "Perlu perhatian",
+                    "subtitle": "Returned / revisi / gagal inspeksi."
+                },
+                "reports": {
+                    "title": "Laporan",
+                    "subtitle": "Semua dokumen yang dihasilkan."
+                }
+            },
+            "recentStaff": {
+                "title": "Permintaan staf terbaru",
+                "subtitle": "Pendaftaran staf terbaru yang masih pending.",
+                "emptyTitle": "Tidak ada persetujuan staf",
+                "emptyBody": "Sudah aman, tidak ada yang tertunda."
+            },
+            "recentQc": {
+                "title": "Quality Cover terbaru",
+                "subtitle": "Item terbaru yang menunggu validasi.",
+                "emptyTitle": "Tidak ada QC untuk divalidasi",
+                "emptyBody": "Tidak ada item yang menunggu validasi LH."
+            },
+            "recentReagent": {
+                "title": "Persetujuan reagen terbaru",
+                "subtitle": "Pengajuan terbaru berstatus submitted.",
+                "emptyTitle": "Tidak ada pengajuan reagen submitted",
+                "emptyBody": "Tidak ada approval yang tertunda."
+            },
+            "recentDocs": {
+                "title": "Dokumen terbaru",
+                "subtitle": "PDF yang paling baru dihasilkan.",
+                "emptyTitle": "Belum ada dokumen",
+                "emptyBody": "Dokumen yang dihasilkan akan muncul di sini."
+            }
+        }
     },
     "parametersPage": {
         "title": "Daftar Parameter",

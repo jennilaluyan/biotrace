@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\loo\LooGeneratorPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
     CheckSquare,

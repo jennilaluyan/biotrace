@@ -121,9 +121,8 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const clientAuth = useClientAuth() as any;
 
     const navigate = useNavigate();
-    const location = useLocation();
-    const redirectAfterStaffLogin = (location.state as any)?.from?.pathname || "/samples";
-    const redirectAfterClientLogin = (location.state as any)?.from?.pathname || "/portal";
+    const staffLandingAfterLogin = "/dashboard";
+    const clientLandingAfterLogin = "/portal";
 
     // A1: scroll container refs (desktop has its own scroll container)
     const signUpContainerRef = useRef<HTMLDivElement | null>(null);
@@ -253,14 +252,13 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             const currentTenant = (tenantResolved ?? getTenant()) as Tenant;
 
             if (currentTenant === "portal") {
-                // ✅ Client login only
                 await clientAuth.loginClient(loginEmail, loginPassword);
-                navigate(redirectAfterClientLogin, { replace: true });
+                navigate(clientLandingAfterLogin, { replace: true });
                 return;
             }
 
             await login(loginEmail, loginPassword);
-            navigate(redirectAfterStaffLogin, { replace: true });
+            navigate(staffLandingAfterLogin, { replace: true });
         } catch (err: any) {
             const msg = extractApiMessage(err, t("auth.loginFailedFallback"));
             setLoginError(msg);

@@ -73,6 +73,7 @@
         }
     },
     "nav": {
+        "dashboard": "Dashboard",
         "clients": "Clients",
         "samples": "Samples",
         "requestQueue": "Request queue",
@@ -81,6 +82,392 @@
         "reports": "Reports",
         "audit": "Audit",
         "parameters": "Parameters"
+    },
+    "dashboard": {
+        "admin": {
+            "title": "Administrator Dashboard",
+            "subtitle": "Welcome{{name}}. Prioritize approvals, triage new requests, and keep documents moving.",
+            "hero": {
+                "title": "Workflow overview",
+                "body": "Use Work Queue to jump to the next actionable step. Counts reflect the last 30 days (requests) and recent documents."
+            },
+            "actions": {
+                "openQueue": "Open queue",
+                "clientApprovals": "Client approvals",
+                "openReports": "Open reports"
+            },
+            "stats": {
+                "pendingClients": {
+                    "title": "Pending client approvals",
+                    "sub": "New client registrations waiting for your decision."
+                },
+                "submitted": {
+                    "title": "New submissions",
+                    "sub": "Client requests submitted and ready to be reviewed."
+                },
+                "needsAttention": {
+                    "title": "Needs attention",
+                    "sub": "Returned/revision items that may block the workflow."
+                },
+                "docs7d": {
+                    "title": "Docs generated (7d)",
+                    "sub": "How many PDFs were generated in the last 7 days."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Actionable shortcuts based on current status."
+            },
+            "queue": {
+                "clientApprovals": {
+                    "title": "Client approvals",
+                    "subtitle": "Review pending registrations."
+                },
+                "newSubmissions": {
+                    "title": "Request queue",
+                    "subtitle": "New submissions to be reviewed."
+                },
+                "readyForDelivery": {
+                    "title": "Ready for delivery",
+                    "subtitle": "Requests that are ready to be delivered."
+                },
+                "physicallyReceived": {
+                    "title": "Physically received",
+                    "subtitle": "Requests already received at admin desk."
+                },
+                "needsAttention": {
+                    "title": "Needs attention",
+                    "subtitle": "Returned/revision items to unblock progress."
+                },
+                "documents": {
+                    "title": "Documents",
+                    "subtitle": "Browse generated PDFs."
+                }
+            },
+            "recentDocs": {
+                "title": "Recent documents",
+                "subtitle": "Latest generated PDFs across the system.",
+                "emptyTitle": "No documents yet",
+                "emptyBody": "Generated PDFs will appear here when available."
+            },
+            "recentRequests": {
+                "title": "Recent requests",
+                "subtitle": "Most recently updated requests in the queue.",
+                "requestLabel": "Request #{{id}}",
+                "updatedAt": "Updated",
+                "emptyTitle": "No requests yet",
+                "emptyBody": "New client submissions will appear here after they submit a request."
+            },
+            "errors": {
+                "loadFailed": "Failed to load dashboard data. Please try again."
+            }
+        },
+        "sampleCollector": {
+            "title": "Sample Collector Dashboard",
+            "subtitle": "Welcome{{name}}. Focus on pickup, inspection, and moving samples forward.",
+            "hero": {
+                "title": "Collector workflow overview",
+                "body": "Use Work Queue to jump to actionable requests (in transit, under inspection, returned). Data reflects the last 30 days."
+            },
+            "actions": {
+                "openQueue": "Open queue",
+                "openSamples": "Open samples"
+            },
+            "stats": {
+                "inTransit": {
+                    "title": "In transit to collector",
+                    "sub": "Items that should be received by the collector."
+                },
+                "underInspection": {
+                    "title": "Under inspection",
+                    "sub": "Requests currently in inspection stage."
+                },
+                "needsAttention": {
+                    "title": "Needs attention",
+                    "sub": "Returned/failed items that may block progress."
+                },
+                "intakePassed": {
+                    "title": "Intake passed",
+                    "sub": "Requests that passed intake checklist."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Shortcut based on request status."
+            },
+            "queue": {
+                "inTransit": {
+                    "title": "In transit",
+                    "subtitle": "Receive and continue the workflow."
+                },
+                "underInspection": {
+                    "title": "Under inspection",
+                    "subtitle": "Complete inspection steps."
+                },
+                "returnedToAdmin": {
+                    "title": "Returned to admin",
+                    "subtitle": "Items that need handback/coordination."
+                },
+                "intakePassed": {
+                    "title": "Intake passed",
+                    "subtitle": "Ready for the next stage."
+                },
+                "allQueue": {
+                    "title": "All requests",
+                    "subtitle": "Browse the full queue."
+                }
+            },
+            "recent": {
+                "title": "Recent requests",
+                "subtitle": "Most recently updated requests in the queue.",
+                "requestLabel": "Request #{{id}}",
+                "updatedAt": "Updated",
+                "emptyTitle": "No requests yet",
+                "emptyBody": "Requests will appear here after clients submit them."
+            },
+            "errors": {
+                "loadFailed": "Failed to load dashboard data. Please try again."
+            }
+        },
+        "analyst": {
+            "title": "Analyst Dashboard",
+            "subtitle": "Welcome{{name}}. Focus on receiving, crosschecking, testing, and keeping results moving.",
+            "hero": {
+                "title": "Analyst workflow overview",
+                "body": "Use the Work Queue to jump to your next actionable step (receive, crosscheck, reagent prep, testing)."
+            },
+            "actions": {
+                "openSamples": "Open samples",
+                "openReports": "Open reports"
+            },
+            "stats": {
+                "awaitingReceive": {
+                    "title": "Awaiting receive",
+                    "sub": "Samples delivered by collector but not received by analyst yet."
+                },
+                "crosscheckPending": {
+                    "title": "Crosscheck pending",
+                    "sub": "Received samples that still require crosscheck."
+                },
+                "readyForReagent": {
+                    "title": "Ready for reagent request",
+                    "sub": "Crosscheck passed and ready to prepare reagent request."
+                },
+                "inTesting": {
+                    "title": "In testing",
+                    "sub": "Reagent approved and testing is currently in progress."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Actionable shortcuts based on current stage."
+            },
+            "queue": {
+                "awaitingReceive": {
+                    "title": "Awaiting receive",
+                    "subtitle": "Confirm you have received the physical sample."
+                },
+                "crosscheckPending": {
+                    "title": "Crosscheck pending",
+                    "subtitle": "Verify physical label vs lab code and submit result."
+                },
+                "readyForReagent": {
+                    "title": "Ready for reagent",
+                    "subtitle": "Prepare reagent request after crosscheck passes."
+                },
+                "inTesting": {
+                    "title": "In testing",
+                    "subtitle": "Continue testing workflow until completed."
+                }
+            },
+            "recent": {
+                "title": "Recent samples",
+                "subtitle": "Most recently updated samples.",
+                "updatedAt": "Updated",
+                "emptyTitle": "No samples yet",
+                "emptyBody": "Samples will appear here once they enter the lab workflow."
+            },
+            "errors": {
+                "loadFailed": "Failed to load dashboard data. Please try again."
+            }
+        },
+        "operationalManager": {
+            "title": "Operational Manager Dashboard",
+            "subtitle": "Welcome{{name}}. Keep approvals moving and unblock the workflow.",
+            "hero": {
+                "title": "Operations overview",
+                "body": "Focus on LOO approvals, reagent approvals, and Quality Cover verification. Stats reflect the last 30 days (queue) and recent documents."
+            },
+            "actions": {
+                "openLoo": "Open LOO workspace",
+                "openReagentApprovals": "Reagent approvals",
+                "openQualityCovers": "Quality cover (verify)",
+                "openReports": "Open reports"
+            },
+            "stats": {
+                "looCandidates": {
+                    "title": "LOO candidates",
+                    "sub": "Eligible samples listed in LOO workspace."
+                },
+                "reagentPending": {
+                    "title": "Reagent approvals (pending)",
+                    "sub": "Submitted requests waiting for your decision."
+                },
+                "qcToVerify": {
+                    "title": "Quality covers to verify",
+                    "sub": "Submitted QC drafts awaiting OM verification."
+                },
+                "docs7d": {
+                    "title": "Docs generated (7d)",
+                    "sub": "How many PDFs were generated in the last 7 days."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Shortcuts based on what needs attention now."
+            },
+            "queue": {
+                "requestSubmissions": {
+                    "title": "Request submissions",
+                    "subtitle": "New submissions in the queue."
+                },
+                "looWorkspace": {
+                    "title": "LOO workspace",
+                    "subtitle": "Approve and generate Letters of Order."
+                },
+                "reagentApprovals": {
+                    "title": "Reagent approvals",
+                    "subtitle": "Approve/reject submitted reagent requests."
+                },
+                "qualityCovers": {
+                    "title": "Quality covers",
+                    "subtitle": "Verify submitted quality covers."
+                },
+                "needsAttention": {
+                    "title": "Needs attention",
+                    "subtitle": "Returned/revision items blocking progress."
+                },
+                "reports": {
+                    "title": "Reports",
+                    "subtitle": "Browse generated PDFs."
+                }
+            },
+            "recentReagent": {
+                "title": "Recent reagent approvals",
+                "subtitle": "Latest submitted requests waiting for approval.",
+                "emptyTitle": "No pending approvals",
+                "emptyBody": "Submitted reagent requests will appear here."
+            },
+            "recentQc": {
+                "title": "Recent quality covers",
+                "subtitle": "Latest submitted QC drafts waiting for verification.",
+                "emptyTitle": "No quality covers in inbox",
+                "emptyBody": "Submitted quality covers will appear here."
+            },
+            "recentDocs": {
+                "title": "Recent documents",
+                "subtitle": "Latest generated PDFs across the system.",
+                "emptyTitle": "No documents yet",
+                "emptyBody": "Generated PDFs will appear here when available."
+            },
+            "errors": {
+                "loadFailed": "Failed to load dashboard data. Please try again."
+            }
+        },
+        "laboratoryHead": {
+            "title": "Laboratory Head dashboard",
+            "subtitle": "Overview for today{{name}}.",
+            "hero": {
+                "title": "Quality & approvals",
+                "body": "Monitor pending approvals and validate Quality Covers efficiently."
+            },
+            "errors": {
+                "loadFailed": "Failed to load dashboard data. Please try again."
+            },
+            "actions": {
+                "openStaffApprovals": "Staff approvals",
+                "openQualityCovers": "Quality Covers",
+                "openReagentApprovals": "Reagent approvals",
+                "openLoo": "LOO workspace",
+                "openReports": "Reports"
+            },
+            "stats": {
+                "pendingStaff": {
+                    "title": "Pending staff approvals",
+                    "sub": "Waiting for your decision."
+                },
+                "qcToValidate": {
+                    "title": "QC to validate",
+                    "sub": "Verified by OM, waiting LH validation."
+                },
+                "reagentPending": {
+                    "title": "Reagent approvals",
+                    "sub": "Submitted requests waiting approval."
+                },
+                "docs7d": {
+                    "title": "Documents (7d)",
+                    "sub": "Generated in the last 7 days."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Jump to the most important work items."
+            },
+            "queue": {
+                "staffApprovals": {
+                    "title": "Staff approvals",
+                    "subtitle": "Pending registrations."
+                },
+                "qualityCovers": {
+                    "title": "Quality Cover validation",
+                    "subtitle": "Validate verified QC."
+                },
+                "reagentApprovals": {
+                    "title": "Reagent approvals",
+                    "subtitle": "Approve/reject requests."
+                },
+                "looWorkspace": {
+                    "title": "LOO workspace",
+                    "subtitle": "Review approvals & generate LOO."
+                },
+                "awaitingVerification": {
+                    "title": "Requests awaiting verification",
+                    "subtitle": "Monitor request queue."
+                },
+                "needsAttention": {
+                    "title": "Needs attention",
+                    "subtitle": "Returned / revision / failed inspection."
+                },
+                "reports": {
+                    "title": "Reports",
+                    "subtitle": "All generated documents."
+                }
+            },
+            "recentStaff": {
+                "title": "Recent staff requests",
+                "subtitle": "Latest pending staff registrations.",
+                "emptyTitle": "No pending staff approvals",
+                "emptyBody": "You’re all caught up."
+            },
+            "recentQc": {
+                "title": "Recent Quality Covers",
+                "subtitle": "Latest items waiting validation.",
+                "emptyTitle": "No Quality Covers to validate",
+                "emptyBody": "Nothing waiting for LH validation."
+            },
+            "recentReagent": {
+                "title": "Recent reagent approvals",
+                "subtitle": "Latest submitted requests.",
+                "emptyTitle": "No submitted reagent requests",
+                "emptyBody": "No pending approvals found."
+            },
+            "recentDocs": {
+                "title": "Recent documents",
+                "subtitle": "Latest generated PDFs.",
+                "emptyTitle": "No documents yet",
+                "emptyBody": "Generated documents will appear here."
+            }
+        }
     },
     "parametersPage": {
         "title": "Parameters",

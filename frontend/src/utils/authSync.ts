@@ -1,4 +1,3 @@
-// frontend/src/utils/authSync.ts
 type Actor = "staff" | "client";
 type Action = "login" | "logout" | "session_expired" | "refresh";
 
