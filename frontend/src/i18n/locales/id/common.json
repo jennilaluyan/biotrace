@@ -73,6 +73,7 @@
         }
     },
     "nav": {
+        "dashboard": "Dashboard",
         "clients": "Klien",
         "samples": "Sampel",
         "requestQueue": "Antrian Permintaan",
@@ -90,6 +91,86 @@
         "openNavigation": "Buka navigasi",
         "closeSidebar": "Tutup sidebar",
         "parameters": "Parameters"
+    },
+    "dashboard": {
+        "admin": {
+            "title": "Dashboard Administrator",
+            "subtitle": "Selamat datang{{name}}. Prioritaskan approval, cek request baru, dan jaga dokumen tetap berjalan.",
+            "hero": {
+                "title": "Ringkasan alur",
+                "body": "Pakai Work Queue untuk lompat ke langkah yang bisa dikerjakan sekarang. Angka request dihitung dari 30 hari terakhir, dokumen tampil terbaru."
+            },
+            "actions": {
+                "openQueue": "Buka antrian",
+                "clientApprovals": "Persetujuan klien",
+                "openReports": "Buka laporan"
+            },
+            "stats": {
+                "pendingClients": {
+                    "title": "Persetujuan klien tertunda",
+                    "sub": "Pendaftaran klien baru yang menunggu keputusan admin."
+                },
+                "submitted": {
+                    "title": "Request baru",
+                    "sub": "Permintaan klien yang sudah dikirim dan siap ditinjau."
+                },
+                "needsAttention": {
+                    "title": "Perlu perhatian",
+                    "sub": "Item returned/revisi yang bisa menghambat workflow."
+                },
+                "docs7d": {
+                    "title": "Dokumen dibuat (7h)",
+                    "sub": "Jumlah PDF yang digenerate dalam 7 hari terakhir."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Shortcut berdasarkan status yang bisa dieksekusi."
+            },
+            "queue": {
+                "clientApprovals": {
+                    "title": "Persetujuan klien",
+                    "subtitle": "Tinjau pendaftaran yang menunggu."
+                },
+                "newSubmissions": {
+                    "title": "Antrian permintaan",
+                    "subtitle": "Submission baru untuk ditinjau."
+                },
+                "readyForDelivery": {
+                    "title": "Siap diantar",
+                    "subtitle": "Request yang sudah siap untuk pengantaran."
+                },
+                "physicallyReceived": {
+                    "title": "Diterima fisik",
+                    "subtitle": "Request yang sudah diterima di meja admin."
+                },
+                "needsAttention": {
+                    "title": "Perlu perhatian",
+                    "subtitle": "Item returned/revisi untuk membuka hambatan."
+                },
+                "documents": {
+                    "title": "Dokumen",
+                    "subtitle": "Lihat PDF yang sudah digenerate."
+                }
+            },
+            "recentDocs": {
+                "title": "Dokumen terbaru",
+                "subtitle": "PDF yang paling baru digenerate di sistem.",
+                "emptyTitle": "Belum ada dokumen",
+                "emptyBody": "PDF yang digenerate akan muncul di sini saat tersedia."
+            },
+            "recentRequests": {
+                "title": "Request terbaru",
+                "subtitle": "Request yang paling baru diupdate di antrian.",
+                "requestLabel": "Request #{{id}}",
+                "updatedAt": "Diperbarui",
+                "emptyTitle": "Belum ada request",
+                "emptyBody": "Submission klien akan muncul di sini setelah mereka mengirim request."
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat data dashboard. Silakan coba lagi."
+            }
+        }
     },
     "parametersPage": {
         "title": "Daftar Parameter",

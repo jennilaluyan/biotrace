@@ -119,6 +119,8 @@ export const AppLayout = () => {
 
     const adminItems: NavItem[] = isAdmin
         ? [
+            { label: t("nav.dashboard"), path: "/dashboard", icon: "reports" as const },
+
             { label: t("nav.clientApprovals"), path: "/clients/approvals", icon: "approval" as const },
             { label: t("nav.requestQueue"), path: "/samples/requests", icon: "inbox" as const },
         ]
@@ -193,6 +195,7 @@ export const AppLayout = () => {
     const endPaths = useMemo(
         () =>
             new Set<string>([
+                "/dashboard",
                 "/samples",
                 "/clients",
                 "/portal",

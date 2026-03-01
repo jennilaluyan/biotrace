@@ -73,6 +73,7 @@
         }
     },
     "nav": {
+        "dashboard": "Dashboard",
         "clients": "Clients",
         "samples": "Samples",
         "requestQueue": "Request queue",
@@ -81,6 +82,86 @@
         "reports": "Reports",
         "audit": "Audit",
         "parameters": "Parameters"
+    },
+    "dashboard": {
+        "admin": {
+            "title": "Administrator Dashboard",
+            "subtitle": "Welcome{{name}}. Prioritize approvals, triage new requests, and keep documents moving.",
+            "hero": {
+                "title": "Workflow overview",
+                "body": "Use Work Queue to jump to the next actionable step. Counts reflect the last 30 days (requests) and recent documents."
+            },
+            "actions": {
+                "openQueue": "Open queue",
+                "clientApprovals": "Client approvals",
+                "openReports": "Open reports"
+            },
+            "stats": {
+                "pendingClients": {
+                    "title": "Pending client approvals",
+                    "sub": "New client registrations waiting for your decision."
+                },
+                "submitted": {
+                    "title": "New submissions",
+                    "sub": "Client requests submitted and ready to be reviewed."
+                },
+                "needsAttention": {
+                    "title": "Needs attention",
+                    "sub": "Returned/revision items that may block the workflow."
+                },
+                "docs7d": {
+                    "title": "Docs generated (7d)",
+                    "sub": "How many PDFs were generated in the last 7 days."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Actionable shortcuts based on current status."
+            },
+            "queue": {
+                "clientApprovals": {
+                    "title": "Client approvals",
+                    "subtitle": "Review pending registrations."
+                },
+                "newSubmissions": {
+                    "title": "Request queue",
+                    "subtitle": "New submissions to be reviewed."
+                },
+                "readyForDelivery": {
+                    "title": "Ready for delivery",
+                    "subtitle": "Requests that are ready to be delivered."
+                },
+                "physicallyReceived": {
+                    "title": "Physically received",
+                    "subtitle": "Requests already received at admin desk."
+                },
+                "needsAttention": {
+                    "title": "Needs attention",
+                    "subtitle": "Returned/revision items to unblock progress."
+                },
+                "documents": {
+                    "title": "Documents",
+                    "subtitle": "Browse generated PDFs."
+                }
+            },
+            "recentDocs": {
+                "title": "Recent documents",
+                "subtitle": "Latest generated PDFs across the system.",
+                "emptyTitle": "No documents yet",
+                "emptyBody": "Generated PDFs will appear here when available."
+            },
+            "recentRequests": {
+                "title": "Recent requests",
+                "subtitle": "Most recently updated requests in the queue.",
+                "requestLabel": "Request #{{id}}",
+                "updatedAt": "Updated",
+                "emptyTitle": "No requests yet",
+                "emptyBody": "New client submissions will appear here after they submit a request."
+            },
+            "errors": {
+                "loadFailed": "Failed to load dashboard data. Please try again."
+            }
+        }
     },
     "parametersPage": {
         "title": "Parameters",

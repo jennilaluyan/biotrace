@@ -27,6 +27,8 @@ import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
 import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
 import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
 
+import AdminDashboardPage from "../pages/dashboard/AdminDashboardPage";
+
 import ReagentApprovalDetailPage from "../pages/reagents/ReagentApprovalDetailPage";
 import ReagentApprovalInboxPage from "../pages/reagents/ReagentApprovalInboxPage";
 import ReagentRequestBuilderPage from "../pages/reagents/ReagentRequestBuilderPage";
@@ -131,6 +133,16 @@ export const AppRouter = () => {
             <Route element={<ProtectedRoute />}>
                 <Route element={<StaffLastRouteTracker />}>
                     <Route element={<AppLayout />}>
+                        {/* Dashboard */}
+                        <Route
+                            path="/dashboard"
+                            element={
+                                <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN]}>
+                                    <AdminDashboardPage />
+                                </RoleGuard>
+                            }
+                        />
+
                         {/* Clients */}
                         <Route
                             path="/clients/approvals"
