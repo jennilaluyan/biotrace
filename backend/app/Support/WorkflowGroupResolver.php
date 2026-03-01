@@ -7,27 +7,25 @@ use App\Enums\WorkflowGroup;
 final class WorkflowGroupResolver
 {
     private const RANGE_PCR = [1, 11];
-    private const RANGE_WGS = [12, 17];
-    private const RANGE_ANTIGEN = [18, 18];
-    private const RANGE_19_22 = [19, 22];
-    private const RANGE_23_32 = [23, 32];
+    private const RANGE_SEQUENCING = [12, 17];
+    private const RANGE_RAPID = [18, 19];
+    private const RANGE_MICROBIOLOGY = [20, 32];
 
     public static function resolveFromParameterIds(array $parameterIds): ?WorkflowGroup
     {
         $ids = self::normalizeIds($parameterIds);
         if (count($ids) === 0) return null;
 
-        $hasWgs = self::anyInRange($ids, self::RANGE_WGS);
+        $hasSequencing = self::anyInRange($ids, self::RANGE_SEQUENCING);
         $hasPcr = self::anyInRange($ids, self::RANGE_PCR);
-        $hasAntigen = self::anyInRange($ids, self::RANGE_ANTIGEN);
-        $has23  = self::anyInRange($ids, self::RANGE_23_32);
-        $has19  = self::anyInRange($ids, self::RANGE_19_22);
+        $hasMicro = self::anyInRange($ids, self::RANGE_MICROBIOLOGY);
+        $hasRapid = self::anyInRange($ids, self::RANGE_RAPID);
 
-        if ($hasWgs) return WorkflowGroup::WGS_SARS_COV_2;
-        if ($hasPcr) return WorkflowGroup::PCR_SARS_COV_2;
-        if ($hasAntigen) return WorkflowGroup::ANTIGEN;
-        if ($has23)  return WorkflowGroup::GROUP_23_32;
-        if ($has19)  return WorkflowGroup::GROUP_19_22;
+        // Priority: sequencing > pcr > microbiology > rapid
+        if ($hasSequencing) return WorkflowGroup::SEQUENCING;
+        if ($hasPcr) return WorkflowGroup::PCR;
+        if ($hasMicro) return WorkflowGroup::MICROBIOLOGY;
+        if ($hasRapid) return WorkflowGroup::RAPID;
 
         return null;
     }

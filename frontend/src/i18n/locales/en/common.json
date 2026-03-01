@@ -75,20 +75,99 @@
     "nav": {
         "clients": "Clients",
         "samples": "Samples",
-        "requestQueue": "Request Queue",
-        "looWorkspace": "LOO Workspace",
-        "reagentApprovals": "Reagent Approvals",
-        "qualityCoverVerify": "Quality Cover (Verify)",
-        "qualityCoverValidate": "Quality Cover (Validate)",
-        "samplesArchive": "Samples Archive",
+        "requestQueue": "Request queue",
+        "looWorkspace": "LOO workspace",
+        "reagentApprovals": "Reagent approvals",
         "reports": "Reports",
-        "auditLogs": "Audit Logs",
-        "documentTemplates": "Document Templates",
-        "clientApprovals": "Client Approvals",
-        "staffApprovals": "Staff Approvals",
-        "myRequests": "My Requests",
-        "openNavigation": "Open navigation",
-        "closeSidebar": "Close sidebar"
+        "audit": "Audit",
+        "parameters": "Parameters"
+    },
+    "parametersPage": {
+        "title": "Parameters",
+        "subtitle": "Master list and staff requests in one place.",
+        "tabs": {
+            "parameters": "Parameters",
+            "requests": "Requests"
+        },
+        "filters": {
+            "searchParameters": "Search by name or code…",
+            "searchRequests": "Search request name…",
+            "status": "Status",
+            "all": "all",
+            "perPage": "Per page"
+        },
+        "table": {
+            "code": "Code",
+            "name": "Name",
+            "category": "Category",
+            "status": "Status",
+            "tag": "Tag",
+            "updatedAt": "Updated",
+            "requestName": "Request",
+            "requestedAt": "Requested",
+            "actions": "Actions"
+        },
+        "loading": {
+            "parameters": "Loading parameters…",
+            "requests": "Loading requests…"
+        },
+        "empty": {
+            "parameters": "No parameters found for this filter.",
+            "requests": "No requests found for this filter."
+        },
+        "pagination": {
+            "page": "Page",
+            "total": "Total",
+            "prev": "Previous",
+            "next": "Next"
+        },
+        "actions": {
+            "refresh": "Refresh",
+            "addRequest": "Add request",
+            "approve": "Approve",
+            "reject": "Reject"
+        },
+        "hints": {
+            "enterToSearch": "Tip: press Enter to apply search.",
+            "actionsRestricted": "No actions",
+            "alreadyDecided": "No actions (decided)",
+            "createComingSoon": "Create request modal will be added in Step 7.",
+            "approveRejectComingSoon": "Approve/Reject modals will be added in Step 8."
+        },
+        "errors": {
+            "loadParametersFailed": "Failed to load parameters.",
+            "loadRequestsFailed": "Failed to load requests.",
+            "approveFailed": "Failed to approve request.",
+            "rejectFailed": "Failed to reject request."
+        },
+        "decisionModal": {
+            "approveTitle": "Approve request",
+            "approveSubtitle": "This will create a new parameter code automatically.",
+            "approveHint": "Approve request “{{name}}”?",
+            "approveDefaultHint": "This will mark the request as approved and generate a new parameter.",
+            "rejectTitle": "Reject request",
+            "rejectSubtitle": "Please write a short rejection note for “{{name}}”.",
+            "rejectNoteRequired": "Rejection note (required)",
+            "rejectNotePlaceholder": "Write the reason for rejection…",
+            "rejectNoteHelp": "This note will be saved as audit evidence.",
+            "rejectNoteValidation": "Rejection note is required."
+        },
+        "requestModal": {
+            "title": "Add parameter request",
+            "subtitle": "Submit a request to be approved by OM/LH.",
+            "fields": {
+                "name": "Parameter name",
+                "category": "Category",
+                "reason": "Reason"
+            },
+            "placeholders": {
+                "name": "e.g. PCR Influenza A/B",
+                "reason": "Explain why this parameter is needed…"
+            },
+            "errors": {
+                "submitFailed": "Failed to submit request."
+            }
+        }
     },
     "portalRequestsPage": {
         "title": "Sample Requests",
@@ -658,6 +737,26 @@
                 "checkedBy": "Checked by",
                 "methodOfAnalysis": "Method of analysis"
             },
+            "sections": {
+                "results": "Results",
+                "resultsHint": "Analyst measurement output.",
+                "supporting": "Supporting documents",
+                "supportingHint": "Files uploaded by the analyst (if any)."
+            },
+            "supporting": {
+                "noFiles": "No supporting files uploaded.",
+                "open": "Open",
+                "download": "Download"
+            },
+            "pcr": {
+                "value": "Value",
+                "result": "Result",
+                "interpretation": "Interpretation"
+            },
+            "wgs": {
+                "lineage": "Lineage",
+                "variant": "Variant"
+            },
             "states": {
                 "loading": "Loading…",
                 "notFound": "Not found.",
@@ -677,6 +776,7 @@
                 "approveHintLh": "This is the final step. The cover will become validated. If tests exist, COA will be generated."
             },
             "flash": {
+                "verifiedOk": "Quality cover verified. Sent to LH inbox for validation.",
                 "validatedOk": "Quality cover validated. COA generated and saved in Reports.",
                 "validatedWarn": "Quality cover validated, but COA generation is still blocked (check tests/results).",
                 "rejected": "Quality cover rejected."
@@ -696,6 +796,25 @@
             },
             "states": {
                 "loading": "Loading quality cover…"
+            },
+            "supporting": {
+                "title": "Supporting documents",
+                "subtitle": "Optional. Upload any files (0..n): PDF, images, DOCX, XLSX, etc.",
+                "dropTitle": "Drag and drop files here",
+                "dropHint": "or browse from your computer",
+                "browse": "Browse files",
+                "driveUrl": "Google Drive link (optional)",
+                "notes": "Other notes (optional)",
+                "upload": "Upload supporting docs (0..n)",
+                "pending": "Pending upload",
+                "uploaded": "Uploaded",
+                "noFiles": "No supporting documents uploaded.",
+                "filesHint": "Files are uploaded when you click Save draft or Submit.",
+                "download": "Download",
+                "remove": "Remove",
+                "uploading": "Uploading…",
+                "removeFailed": "Failed to remove supporting document.",
+                "uploadFailed": "Failed to upload supporting documents."
             },
             "meta": {
                 "parameter": "Parameter",

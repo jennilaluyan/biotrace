@@ -163,6 +163,41 @@ function normalizePath(path: string) {
     return p;
 }
 
+function isFormData(body: unknown): body is FormData {
+    return typeof FormData !== "undefined" && body instanceof FormData;
+}
+
+function stripContentType(headers: Record<string, any>) {
+    const out: Record<string, any> = { ...(headers ?? {}) };
+    for (const k of Object.keys(out)) {
+        if (k.toLowerCase() === "content-type") {
+            delete out[k];
+        }
+    }
+    return out;
+}
+
+function buildHeaders(body: unknown, options?: AxiosRequestConfig) {
+    const merged: Record<string, any> = {
+        Accept: "application/json",
+        ...(options?.headers || {}),
+    };
+
+    // For FormData: DO NOT set Content-Type manually.
+    // Let axios/browser set multipart boundary.
+    if (isFormData(body)) {
+        return stripContentType(merged);
+    }
+
+    // For non-FormData: default JSON unless caller already set it.
+    const hasContentType = Object.keys(merged).some((k) => k.toLowerCase() === "content-type");
+    if (!hasContentType) {
+        merged["Content-Type"] = "application/json";
+    }
+
+    return merged;
+}
+
 export async function apiGet<T = any>(path: string, options?: AxiosRequestConfig) {
     return handleAxios<T>(http.get(normalizePath(path), options));
 }
@@ -170,12 +205,8 @@ export async function apiGet<T = any>(path: string, options?: AxiosRequestConfig
 export async function apiPost<T = any>(path: string, body?: unknown, options?: AxiosRequestConfig) {
     return handleAxios<T>(
         http.post(normalizePath(path), body, {
-            headers: {
-                "Content-Type": "application/json",
-                Accept: "application/json",
-                ...(options?.headers || {}),
-            },
             ...options,
+            headers: buildHeaders(body, options),
         })
     );
 }
@@ -183,12 +214,8 @@ export async function apiPost<T = any>(path: string, body?: unknown, options?: A
 export async function apiPatch<T = any>(path: string, body?: unknown, options?: AxiosRequestConfig) {
     return handleAxios<T>(
         http.patch(normalizePath(path), body, {
-            headers: {
-                "Content-Type": "application/json",
-                Accept: "application/json",
-                ...(options?.headers || {}),
-            },
             ...options,
+            headers: buildHeaders(body, options),
         })
     );
 }
@@ -196,12 +223,8 @@ export async function apiPatch<T = any>(path: string, body?: unknown, options?: 
 export async function apiPut<T = any>(path: string, body?: unknown, options?: AxiosRequestConfig) {
     return handleAxios<T>(
         http.put(normalizePath(path), body, {
-            headers: {
-                "Content-Type": "application/json",
-                Accept: "application/json",
-                ...(options?.headers || {}),
-            },
             ...options,
+            headers: buildHeaders(body, options),
         })
     );
 }
@@ -227,6 +250,88 @@ export async function apiGetBlob(path: string, options?: AxiosRequestConfig): Pr
         });
 
         return res.data as Blob;
+    } catch (err) {
+        const error = err as AxiosError;
+
+        if (error.response) {
+            let data: any = normalizeData(error.response.data);
+            let message = error.message;
+
+            if (typeof Blob !== "undefined" && data instanceof Blob) {
+                try {
+                    const text = await data.text();
+                    try {
+                        const json = JSON.parse(text);
+                        data = json;
+                        message = extractMessage(json, message);
+                    } catch {
+                        data = text;
+                        message = text || message;
+                    }
+                } catch {
+                    // ignore
+                }
+            } else {
+                message = extractMessage(data, message);
+            }
+
+            throw {
+                status: error.response.status,
+                data,
+                message,
+            };
+        }
+
+        throw err;
+    }
+}
+
+function parseContentDispositionFilename(v?: string): string | null {
+    if (!v) return null;
+
+    // filename*=UTF-8''...
+    const star = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(v);
+    if (star?.[1]) {
+        try {
+            return decodeURIComponent(star[1].trim());
+        } catch {
+            return star[1].trim();
+        }
+    }
+
+    // filename="..."
+    const quoted = /filename\s*=\s*"([^"]+)"/i.exec(v);
+    if (quoted?.[1]) return quoted[1].trim();
+
+    // filename=...
+    const plain = /filename\s*=\s*([^;]+)/i.exec(v);
+    if (plain?.[1]) return plain[1].trim().replace(/^"+|"+$/g, "");
+
+    return null;
+}
+
+export async function apiGetAnyBlob(
+    path: string,
+    options?: AxiosRequestConfig
+): Promise<{ blob: Blob; filename?: string | null; contentType?: string | null }> {
+    try {
+        const res = await http.get(normalizePath(path), {
+            ...options,
+            responseType: "blob",
+            headers: {
+                Accept: "*/*",
+                ...(options?.headers || {}),
+            },
+        });
+
+        const disp = (res.headers as any)?.["content-disposition"] ?? (res.headers as any)?.["Content-Disposition"];
+        const ct = (res.headers as any)?.["content-type"] ?? (res.headers as any)?.["Content-Type"] ?? null;
+
+        return {
+            blob: res.data as Blob,
+            filename: parseContentDispositionFilename(disp),
+            contentType: ct,
+        };
     } catch (err) {
         const error = err as AxiosError;
 

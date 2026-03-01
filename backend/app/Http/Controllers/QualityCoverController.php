@@ -17,9 +17,17 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
+use App\Services\FileStoreService;
+use App\Models\FileBlob;
+use Illuminate\Http\UploadedFile;
 
 class QualityCoverController extends Controller
 {
+    public function __construct(
+        private readonly FileStoreService $files,
+        private readonly ?CoaAutoGenerateService $coa = null,
+    ) {}
+
     /**
      * Role IDs used in your project (based on earlier rules):
      * - OM = 5
@@ -481,6 +489,9 @@ class QualityCoverController extends Controller
             'checkedBy:staff_id,name',
             'verifiedBy:staff_id,name',
             'validatedBy:staff_id,name',
+            'supportingFiles' => function ($q) {
+                $q->orderBy('id', 'asc');
+            },
         ]);
 
         return response()->json([
@@ -688,11 +699,19 @@ class QualityCoverController extends Controller
         if (array_key_exists('method_of_analysis', $payload)) {
             $cover->method_of_analysis = $payload['method_of_analysis'];
         }
+
+        if (array_key_exists('supporting_drive_url', $payload)) {
+            $cover->supporting_drive_url = $payload['supporting_drive_url'];
+        }
+
+        if (array_key_exists('supporting_notes', $payload)) {
+            $cover->supporting_notes = $payload['supporting_notes'];
+        }
+
         if (array_key_exists('qc_payload', $payload)) {
             $cover->qc_payload = $payload['qc_payload'];
         }
 
-        // ✅ parameter snapshot: set SEBELUM save
         $snap = $this->deriveParameterSnapshot($sample);
 
         if (array_key_exists('parameter_id', $payload)) {
@@ -718,9 +737,186 @@ class QualityCoverController extends Controller
             methodOfAnalysis: (string) ($cover->method_of_analysis ?? null),
         );
 
+        $cover->refresh();
+        if (method_exists($cover, 'supportingFiles')) {
+            $cover->load(['supportingFiles']);
+        }
+
         return response()->json([
             'message' => 'Draft saved.',
             'data' => $cover,
+        ]);
+    }
+
+    /**
+     * POST /api/v1/quality-covers/{qualityCover}/supporting-files
+     * Multipart:
+     * - files[]: (0..n) any file types
+     *
+     * Rules:
+     * - Only Analyst
+     * - Only when QC is draft
+     */
+    public function uploadSupportingFiles(Request $request, QualityCover $qualityCover): JsonResponse
+    {
+        /** @var Staff $staff */
+        $staff = Auth::user();
+        if (!$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
+        $this->assertAnalyst($staff);
+
+        if (!$this->files) {
+            return response()->json(['message' => 'FileStoreService not available.'], 500);
+        }
+
+        // Draft-only
+        if (($qualityCover->status ?? null) !== 'draft') {
+            throw new ConflictHttpException('Supporting docs can only be modified while QC is draft.');
+        }
+
+        // Ensure sample unlock gate consistent with QC workflow
+        $sample = Sample::query()->find((int) $qualityCover->sample_id);
+        if ($sample) {
+            $this->assertQualityCoverUnlockedOrFail($sample);
+        }
+
+        if (!Schema::hasTable('quality_cover_supporting_files')) {
+            return response()->json([
+                'message' => 'quality_cover_supporting_files table not found. Run migrations.',
+                'hint' => 'php artisan migrate',
+            ], 500);
+        }
+
+        // Must be multipart/form-data (otherwise Laravel won't produce UploadedFile objects)
+        $contentType = strtolower((string) $request->header('content-type', ''));
+        if (!str_contains($contentType, 'multipart/form-data')) {
+            return response()->json([
+                'message' => 'Supporting files must be uploaded as multipart/form-data.',
+                'hint' => 'Frontend: send FormData and DO NOT set Content-Type manually; let the browser/axios set the boundary.',
+            ], 415);
+        }
+
+        $raw = $request->file('files');
+
+        /** @var UploadedFile[] $incoming */
+        if ($raw instanceof UploadedFile) {
+            $incoming = [$raw];
+        } elseif (is_array($raw)) {
+            $incoming = $raw;
+        } else {
+            $incoming = [];
+        }
+
+        $v = Validator::make(['files' => $incoming], [
+            'files' => ['required', 'array', 'min:1', 'max:20'],
+            'files.*' => ['file', 'max:20480'], // 20MB each
+        ]);
+
+        if ($v->fails()) {
+            return response()->json([
+                'message' => 'Invalid supporting files payload.',
+                'errors' => $v->errors(),
+            ], 422);
+        }
+        $storedIds = [];
+
+        DB::transaction(function () use ($incoming, $qualityCover, $staff, &$storedIds) {
+            foreach ($incoming as $f) {
+                $bytes = @file_get_contents($f->getRealPath());
+                if ($bytes === false) continue;
+
+                $fileId = $this->files->storeBytes(
+                    bytes: $bytes,
+                    originalName: $f->getClientOriginalName(),
+                    mimeType: $f->getClientMimeType() ?: $f->getMimeType(),
+                    ext: $f->getClientOriginalExtension() ?: null,
+                    actorId: (int) $staff->staff_id,
+                    dedup: true
+                );
+
+                $storedIds[] = (int) $fileId;
+
+                DB::table('quality_cover_supporting_files')->updateOrInsert(
+                    [
+                        'quality_cover_id' => (int) $qualityCover->quality_cover_id,
+                        'file_id' => (int) $fileId,
+                    ],
+                    [
+                        'created_by_staff_id' => (int) $staff->staff_id,
+                        'updated_at' => now(),
+                    ]
+                );
+            }
+        });
+
+        $qualityCover = $qualityCover->fresh();
+
+        // Return ONLY file metadata (never include bytes)
+        $supportingFiles = DB::table('quality_cover_supporting_files as qcsf')
+            ->join('files as f', 'f.file_id', '=', 'qcsf.file_id')
+            ->where('qcsf.quality_cover_id', (int) $qualityCover->quality_cover_id)
+            ->orderBy('qcsf.file_id', 'asc')
+            ->get([
+                'f.file_id',
+                'f.original_name',
+                'f.mime_type',
+                'f.ext',
+                'f.size_bytes',
+                'f.created_at',
+            ]);
+
+        $data = $qualityCover->toArray();
+        $data['supporting_files'] = $supportingFiles;
+
+        return response()->json([
+            'message' => 'Supporting documents uploaded.',
+            'data' => $data,
+            'context' => [
+                'stored_file_ids' => $storedIds,
+            ],
+        ], 201);
+    }
+
+    /**
+     * DELETE /api/v1/quality-covers/{qualityCover}/supporting-files/{fileId}
+     * Detach only (do not delete from files table).
+     */
+    public function deleteSupportingFile(QualityCover $qualityCover, int $fileId): JsonResponse
+    {
+        /** @var Staff $staff */
+        $staff = Auth::user();
+        if (!$staff instanceof Staff) {
+            return response()->json(['message' => 'Authenticated staff not found.'], 500);
+        }
+
+        $this->assertAnalyst($staff);
+
+        if (($qualityCover->status ?? null) !== 'draft') {
+            throw new ConflictHttpException('Supporting docs can only be modified while QC is draft.');
+        }
+
+        if (!Schema::hasTable('quality_cover_supporting_files')) {
+            return response()->json([
+                'message' => 'quality_cover_supporting_files table not found. Run migrations.',
+                'hint' => 'php artisan migrate',
+            ], 500);
+        }
+
+        DB::table('quality_cover_supporting_files')
+            ->where('quality_cover_id', (int) $qualityCover->quality_cover_id)
+            ->where('file_id', (int) $fileId)
+            ->delete();
+
+        $qualityCover->refresh();
+        if (method_exists($qualityCover, 'supportingFiles')) {
+            $qualityCover->load(['supportingFiles']);
+        }
+
+        return response()->json([
+            'message' => 'Supporting document removed.',
+            'data' => $qualityCover,
         ]);
     }
 

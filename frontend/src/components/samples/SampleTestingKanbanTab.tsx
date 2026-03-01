@@ -41,7 +41,16 @@ type Props = {
 function deriveGroupFromBackend(sample: any): string {
     const g = sample?.workflow_group ?? sample?.workflowGroup ?? sample?.workflow_group_name ?? null;
     const s = String(g ?? "").trim().toLowerCase();
-    return s || "default";
+    if (!s) return "default";
+
+    // legacy -> new
+    if (s === "pcr_sars_cov_2") return "pcr";
+    if (s === "wgs_sars_cov_2") return "sequencing";
+    if (s === "antigen") return "rapid";
+    if (s === "group_19_22" || s === "group_23_32") return "microbiology";
+
+    // already new (or unknown)
+    return s;
 }
 
 function normalizeCard(c: any): TestingBoardCard {

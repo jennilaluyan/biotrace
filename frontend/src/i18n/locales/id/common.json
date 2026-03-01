@@ -88,7 +88,95 @@
         "staffApprovals": "Persetujuan Staf",
         "myRequests": "Permintaan Saya",
         "openNavigation": "Buka navigasi",
-        "closeSidebar": "Tutup sidebar"
+        "closeSidebar": "Tutup sidebar",
+        "parameters": "Parameters"
+    },
+    "parametersPage": {
+        "title": "Daftar Parameter",
+        "subtitle": "Master parameter dan permintaan staff dalam satu halaman.",
+        "tabs": {
+            "parameters": "Parameter",
+            "requests": "Permintaan"
+        },
+        "filters": {
+            "searchParameters": "Cari berdasarkan nama atau kode…",
+            "searchRequests": "Cari nama permintaan…",
+            "status": "Status",
+            "all": "semua",
+            "perPage": "Per halaman"
+        },
+        "table": {
+            "code": "Kode",
+            "name": "Nama",
+            "category": "Kategori",
+            "status": "Status",
+            "tag": "Tag",
+            "updatedAt": "Diupdate",
+            "requestName": "Permintaan",
+            "requestedAt": "Diajukan",
+            "actions": "Aksi"
+        },
+        "loading": {
+            "parameters": "Memuat daftar parameter…",
+            "requests": "Memuat daftar permintaan…"
+        },
+        "empty": {
+            "parameters": "Tidak ada parameter untuk filter saat ini.",
+            "requests": "Tidak ada permintaan untuk filter saat ini."
+        },
+        "pagination": {
+            "page": "Halaman",
+            "total": "Total",
+            "prev": "Sebelumnya",
+            "next": "Berikutnya"
+        },
+        "actions": {
+            "refresh": "Refresh",
+            "addRequest": "Tambah permintaan",
+            "approve": "Setujui",
+            "reject": "Tolak"
+        },
+        "hints": {
+            "enterToSearch": "Tips: tekan Enter untuk menerapkan pencarian.",
+            "actionsRestricted": "Tanpa aksi",
+            "alreadyDecided": "Tanpa aksi (sudah diputuskan)",
+            "createComingSoon": "Modal tambah permintaan dibuat di Step 7.",
+            "approveRejectComingSoon": "Modal approve/reject dibuat di Step 8."
+        },
+        "errors": {
+            "loadParametersFailed": "Gagal memuat daftar parameter.",
+            "loadRequestsFailed": "Gagal memuat daftar permintaan.",
+            "approveFailed": "Gagal menyetujui permintaan.",
+            "rejectFailed": "Gagal menolak permintaan."
+        },
+        "decisionModal": {
+            "approveTitle": "Setujui permintaan",
+            "approveSubtitle": "Ini akan membuat kode parameter baru secara otomatis.",
+            "approveHint": "Setujui permintaan “{{name}}”?",
+            "approveDefaultHint": "Permintaan akan disetujui dan sistem akan membuat parameter baru.",
+            "rejectTitle": "Tolak permintaan",
+            "rejectSubtitle": "Tuliskan alasan penolakan untuk “{{name}}”.",
+            "rejectNoteRequired": "Alasan penolakan (wajib)",
+            "rejectNotePlaceholder": "Tulis alasan penolakan…",
+            "rejectNoteHelp": "Catatan ini akan tersimpan sebagai bukti audit.",
+            "rejectNoteValidation": "Alasan penolakan wajib diisi."
+        },
+        "requestModal": {
+            "title": "Tambah permintaan parameter",
+            "subtitle": "Ajukan permintaan untuk disetujui OM/LH.",
+            "fields": {
+                "name": "Nama parameter",
+                "category": "Kategori",
+                "reason": "Alasan"
+            },
+            "placeholders": {
+                "name": "contoh: PCR Influenza A/B",
+                "reason": "Jelaskan kenapa parameter ini dibutuhkan…"
+            },
+            "errors": {
+                "submitFailed": "Gagal mengirim permintaan."
+            }
+        }
     },
     "portalRequestsPage": {
         "title": "Permintaan Sampel",
@@ -658,6 +746,26 @@
                 "checkedBy": "Dicek oleh",
                 "methodOfAnalysis": "Metode analisis"
             },
+            "sections": {
+                "results": "Hasil",
+                "resultsHint": "Output pengukuran dari analis.",
+                "supporting": "Dokumen pendukung",
+                "supportingHint": "File yang diupload oleh analis (jika ada)."
+            },
+            "supporting": {
+                "noFiles": "Belum ada file pendukung yang diupload.",
+                "open": "Buka",
+                "download": "Unduh"
+            },
+            "pcr": {
+                "value": "Nilai",
+                "result": "Hasil",
+                "interpretation": "Interpretasi"
+            },
+            "wgs": {
+                "lineage": "Lineage",
+                "variant": "Varian"
+            },
             "states": {
                 "loading": "Memuat…",
                 "notFound": "Tidak ditemukan.",
@@ -677,6 +785,7 @@
                 "approveHintLh": "Ini tahap akhir. Cover akan menjadi validated. Jika test tersedia, COA akan digenerate."
             },
             "flash": {
+                "verifiedOk": "Quality cover terverifikasi. Dikirim ke inbox LH untuk validasi.",
                 "validatedOk": "Quality cover berhasil divalidasi. COA digenerate dan tersimpan di halaman Laporan.",
                 "validatedWarn": "Quality cover divalidasi, tetapi COA masih diblok (cek test/hasil dulu).",
                 "rejected": "Quality cover berhasil ditolak."
@@ -696,6 +805,25 @@
             },
             "states": {
                 "loading": "Memuat quality cover…"
+            },
+            "supporting": {
+                "title": "Dokumen pendukung",
+                "subtitle": "Opsional. Upload file apa saja (0..n): PDF, gambar, DOCX, XLSX, dll.",
+                "dropTitle": "Seret & lepas file di sini",
+                "dropHint": "atau pilih dari komputer",
+                "browse": "Pilih file",
+                "driveUrl": "Link Google Drive (opsional)",
+                "notes": "Keterangan lain (opsional)",
+                "upload": "Upload dokumen pendukung (0..n)",
+                "pending": "Menunggu upload",
+                "uploaded": "Sudah diupload",
+                "noFiles": "Belum ada dokumen pendukung.",
+                "filesHint": "File akan diupload saat kamu klik Simpan draft atau Submit.",
+                "download": "Unduh",
+                "remove": "Hapus",
+                "uploading": "Mengupload…",
+                "removeFailed": "Gagal menghapus dokumen pendukung.",
+                "uploadFailed": "Gagal mengupload dokumen pendukung."
             },
             "meta": {
                 "parameter": "Parameter",

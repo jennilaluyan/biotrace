@@ -103,7 +103,7 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
             const res = await listParameters({
                 scope: "client",
                 page: 1,
-                per_page: 30,
+                per_page: 100,
                 q: (q ?? "").trim() || undefined,
             });
 

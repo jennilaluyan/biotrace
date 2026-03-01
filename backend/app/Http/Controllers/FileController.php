@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Staff;
 use App\Services\AuditEventService;
 use App\Services\FileStoreService;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +17,13 @@ class FileController extends Controller
         private readonly AuditEventService $audit,
     ) {}
 
+    /**
+     * GET /api/v1/files/{fileId}?download=1
+     *
+     * Streams a file if the authenticated user is allowed to access it.
+     * Access is determined by checking which domain entity references the file.
+     * All access attempts are audit-logged (allowed + denied).
+     */
     public function show(Request $request, int $fileId)
     {
         $user = Auth::user();
@@ -36,6 +43,7 @@ class FileController extends Controller
                 $fileId,
                 $actorId
             );
+
             return response()->json(['message' => $message], $status);
         }
 
@@ -55,8 +63,11 @@ class FileController extends Controller
     /**
      * Return tuple: [allowed(bool), httpStatus(int), message(string), ctx(array)]
      */
-    private function checkAccess($user, int $fileId): array
+    private function checkAccess(object $user, int $fileId): array
     {
+        /** @var Staff|null $staff */
+        $staff = $user instanceof Staff ? $user : null;
+
         $roleName = strtolower((string) ($user?->role?->name ?? $user?->role_name ?? ''));
         $roleId = (int) ($user?->role_id ?? 0);
 
@@ -67,19 +78,22 @@ class FileController extends Controller
             $roleName === 'system role';
 
         $isLabHead =
-            $roleId === 6 || // if your system uses 6 for LH (common in your codebase)
+            $roleId === 6 ||
             $roleName === 'lh' ||
             str_contains($roleName, 'lab head') ||
             str_contains($roleName, 'laboratory head');
 
         $isOm =
-            $roleId === 5 || // if your system uses 5 for OM (common in your codebase)
+            $roleId === 5 ||
             $roleName === 'om' ||
             str_contains($roleName, 'operational manager');
 
         $canSeeCoa = $isAdmin || $isLabHead || $isOm;
 
-        // 1) TEMPLATE FILES: document_versions.file_id => only Admin/LH
+        /**
+         * 1) TEMPLATE FILES: document_versions.file_id
+         * Restricted to Admin/LH.
+         */
         if (Schema::hasTable('document_versions') && Schema::hasColumn('document_versions', 'file_id')) {
             $isTemplate = DB::table('document_versions')->where('file_id', $fileId)->exists();
             if ($isTemplate) {
@@ -90,61 +104,189 @@ class FileController extends Controller
             }
         }
 
-        // 2) GENERATED DOCUMENTS: generated_documents.file_pdf_id / file_docx_id
-        if (Schema::hasTable('generated_documents')) {
-            $gd = DB::table('generated_documents')
-                ->where(function ($q) use ($fileId) {
-                    if (Schema::hasColumn('generated_documents', 'file_pdf_id')) {
-                        $q->orWhere('file_pdf_id', '=', $fileId);
-                    }
-                    if (Schema::hasColumn('generated_documents', 'file_docx_id')) {
-                        $q->orWhere('file_docx_id', '=', $fileId);
-                    }
-                })
-                ->orderByDesc('gen_doc_id')
+        /**
+         * 1b) QUALITY COVER SUPPORTING FILES
+         * Only staff can access.
+         * - Draft: visible only to owner (checked_by / uploaded_by) and Admin
+         * - Submitted+: visible to owner and reviewer roles (Admin/OM/LH)
+         */
+        if (
+            Schema::hasTable('quality_cover_supporting_files') &&
+            Schema::hasTable('quality_covers') &&
+            Schema::hasColumn('quality_cover_supporting_files', 'file_id') &&
+            Schema::hasColumn('quality_cover_supporting_files', 'quality_cover_id')
+        ) {
+            $qcRow = DB::table('quality_cover_supporting_files as qcsf')
+                ->join('quality_covers as qc', 'qc.quality_cover_id', '=', 'qcsf.quality_cover_id')
+                ->where('qcsf.file_id', (int) $fileId)
+                ->select([
+                    'qc.quality_cover_id',
+                    'qc.sample_id',
+                    'qc.status',
+                    'qc.checked_by_staff_id',
+                    'qcsf.created_by_staff_id',
+                ])
                 ->first();
 
-            if ($gd) {
-                $entityType = strtolower((string) ($gd->entity_type ?? ''));
-                $entityId = (int) ($gd->entity_id ?? 0);
-                $docCode = (string) ($gd->doc_code ?? '');
-
-                // 2a) COA/REPORT => require COA viewer roles (Admin/OM/LH)
-                if ($entityType === 'report') {
-                    if ($canSeeCoa) {
-                        return [true, 200, 'OK', ['kind' => 'generated', 'entity' => 'report', 'entity_id' => $entityId, 'doc_code' => $docCode]];
-                    }
-                    return [false, 403, 'Forbidden (COA access restricted).', ['kind' => 'generated', 'entity' => 'report', 'entity_id' => $entityId, 'doc_code' => $docCode]];
+            if ($qcRow) {
+                if (!$staff) {
+                    return [
+                        false,
+                        403,
+                        'Forbidden (quality cover supporting documents require staff access).',
+                        [
+                            'kind' => 'quality_cover_supporting_file',
+                            'reason' => 'requires_staff',
+                            'quality_cover_id' => (int) $qcRow->quality_cover_id,
+                            'sample_id' => (int) $qcRow->sample_id,
+                        ],
+                    ];
                 }
 
-                // 2b) LOO => must have at least ONE Ready sample (OM+LH approved)
-                if ($entityType === 'loo') {
-                    $ok = $this->looHasAnyReadySample($entityId);
-                    if ($ok) {
-                        return [true, 200, 'OK', ['kind' => 'generated', 'entity' => 'loo', 'entity_id' => $entityId, 'doc_code' => $docCode]];
-                    }
-                    return [false, 422, 'LOO cannot be viewed: no Ready sample (OM+LH approved).', ['kind' => 'generated', 'entity' => 'loo', 'entity_id' => $entityId, 'doc_code' => $docCode]];
+                $staffId = (int) $staff->staff_id;
+                $status = strtolower((string) ($qcRow->status ?? 'draft'));
+
+                $isOwner =
+                    ((int) ($qcRow->checked_by_staff_id ?? 0) === $staffId) ||
+                    ((int) ($qcRow->created_by_staff_id ?? 0) === $staffId);
+
+                $isReviewer = $isAdmin || $isOm || $isLabHead;
+
+                $allowed = $status === 'draft'
+                    ? ($isOwner || $isAdmin)
+                    : ($isOwner || $isReviewer);
+
+                if ($allowed) {
+                    return [
+                        true,
+                        200,
+                        'OK',
+                        [
+                            'kind' => 'quality_cover_supporting_file',
+                            'quality_cover_id' => (int) $qcRow->quality_cover_id,
+                            'sample_id' => (int) $qcRow->sample_id,
+                            'qc_status' => (string) ($qcRow->status ?? ''),
+                        ],
+                    ];
                 }
 
-                // 2c) REAGENT REQUEST => must be approved
-                if ($entityType === 'reagent_request') {
-                    $approved = $this->reagentRequestIsApproved($entityId);
-                    if ($approved) {
-                        return [true, 200, 'OK', ['kind' => 'generated', 'entity' => 'reagent_request', 'entity_id' => $entityId, 'doc_code' => $docCode]];
-                    }
-                    return [false, 422, 'Reagent Request is not approved.', ['kind' => 'generated', 'entity' => 'reagent_request', 'entity_id' => $entityId, 'doc_code' => $docCode]];
-                }
-
-                // unknown generated doc type => Admin/LH only
-                if ($isAdmin || $isLabHead) {
-                    return [true, 200, 'OK', ['kind' => 'generated', 'entity' => $entityType, 'entity_id' => $entityId, 'doc_code' => $docCode]];
-                }
-
-                return [false, 403, 'Forbidden.', ['kind' => 'generated', 'entity' => $entityType, 'entity_id' => $entityId, 'doc_code' => $docCode]];
+                return [
+                    false,
+                    403,
+                    'Forbidden (you are not allowed to access this quality cover supporting document).',
+                    [
+                        'kind' => 'quality_cover_supporting_file',
+                        'reason' => 'forbidden',
+                        'quality_cover_id' => (int) $qcRow->quality_cover_id,
+                        'sample_id' => (int) $qcRow->sample_id,
+                        'qc_status' => (string) ($qcRow->status ?? ''),
+                        'role_id' => $roleId,
+                        'role_name' => $roleName,
+                    ],
+                ];
             }
         }
 
-        // 3) REPORTS DIRECT LINK: reports.pdf_file_id => require COA viewer roles
+        /**
+         * 2) GENERATED DOCUMENTS: generated_documents.file_pdf_id / file_docx_id
+         */
+        if (Schema::hasTable('generated_documents')) {
+            $hasPdf = Schema::hasColumn('generated_documents', 'file_pdf_id');
+            $hasDocx = Schema::hasColumn('generated_documents', 'file_docx_id');
+
+            if ($hasPdf || $hasDocx) {
+                $gd = DB::table('generated_documents')
+                    ->where(function ($q) use ($fileId, $hasPdf, $hasDocx) {
+                        if ($hasPdf) $q->orWhere('file_pdf_id', '=', $fileId);
+                        if ($hasDocx) $q->orWhere('file_docx_id', '=', $fileId);
+                    })
+                    ->orderByDesc('gen_doc_id')
+                    ->first();
+
+                if ($gd) {
+                    $entityType = strtolower((string) ($gd->entity_type ?? ''));
+                    $entityId = (int) ($gd->entity_id ?? 0);
+                    $docCode = (string) ($gd->doc_code ?? '');
+
+                    // 2a) COA/REPORT => require COA viewer roles (Admin/OM/LH)
+                    if ($entityType === 'report') {
+                        if ($canSeeCoa) {
+                            return [true, 200, 'OK', [
+                                'kind' => 'generated',
+                                'entity' => 'report',
+                                'entity_id' => $entityId,
+                                'doc_code' => $docCode,
+                            ]];
+                        }
+                        return [false, 403, 'Forbidden (COA access restricted).', [
+                            'kind' => 'generated',
+                            'entity' => 'report',
+                            'entity_id' => $entityId,
+                            'doc_code' => $docCode,
+                        ]];
+                    }
+
+                    // 2b) LOO => must have at least ONE Ready sample (OM+LH approved)
+                    if ($entityType === 'loo') {
+                        $ok = $this->looHasAnyReadySample($entityId);
+                        if ($ok) {
+                            return [true, 200, 'OK', [
+                                'kind' => 'generated',
+                                'entity' => 'loo',
+                                'entity_id' => $entityId,
+                                'doc_code' => $docCode,
+                            ]];
+                        }
+                        return [false, 422, 'LOO cannot be viewed: no Ready sample (OM+LH approved).', [
+                            'kind' => 'generated',
+                            'entity' => 'loo',
+                            'entity_id' => $entityId,
+                            'doc_code' => $docCode,
+                        ]];
+                    }
+
+                    // 2c) REAGENT REQUEST => must be approved
+                    if ($entityType === 'reagent_request') {
+                        $approved = $this->reagentRequestIsApproved($entityId);
+                        if ($approved) {
+                            return [true, 200, 'OK', [
+                                'kind' => 'generated',
+                                'entity' => 'reagent_request',
+                                'entity_id' => $entityId,
+                                'doc_code' => $docCode,
+                            ]];
+                        }
+                        return [false, 422, 'Reagent Request is not approved.', [
+                            'kind' => 'generated',
+                            'entity' => 'reagent_request',
+                            'entity_id' => $entityId,
+                            'doc_code' => $docCode,
+                        ]];
+                    }
+
+                    // Unknown generated doc type => Admin/LH only
+                    if ($isAdmin || $isLabHead) {
+                        return [true, 200, 'OK', [
+                            'kind' => 'generated',
+                            'entity' => $entityType,
+                            'entity_id' => $entityId,
+                            'doc_code' => $docCode,
+                        ]];
+                    }
+
+                    return [false, 403, 'Forbidden.', [
+                        'kind' => 'generated',
+                        'entity' => $entityType,
+                        'entity_id' => $entityId,
+                        'doc_code' => $docCode,
+                    ]];
+                }
+            }
+        }
+
+        /**
+         * 3) REPORTS DIRECT LINK: reports.pdf_file_id => require COA viewer roles
+         */
         if (Schema::hasTable('reports') && Schema::hasColumn('reports', 'pdf_file_id')) {
             $rid = DB::table('reports')->where('pdf_file_id', $fileId)->value('report_id');
             if ($rid) {
@@ -155,14 +297,15 @@ class FileController extends Controller
             }
         }
 
-        // If file not referenced anywhere, treat as not found (safer than leaking)
+        /**
+         * If file not referenced anywhere, treat as not found (safer than leaking).
+         */
         return [false, 404, 'File not found.', ['kind' => 'unknown']];
     }
 
     private function looHasAnyReadySample(int $loId): bool
     {
         if ($loId <= 0) return false;
-
         if (!Schema::hasTable('loo_sample_approvals')) return false;
 
         $sampleIds = [];

@@ -21,6 +21,7 @@ import { ClientsPage } from "../pages/clients/ClientsPage";
 import { DocumentTemplatesPage } from "../pages/docs/DocumentTemplatesPage";
 
 import { LooGeneratorPage } from "../pages/loo/LooGeneratorPage";
+import ParametersPage from "../pages/parameters/ParametersPage";
 
 import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
 import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
@@ -232,6 +233,24 @@ export const AppRouter = () => {
                                     ]}
                                 >
                                     <SampleDetailPage />
+                                </RoleGuard>
+                            }
+                        />
+
+                        {/* Parameters */}
+                        <Route
+                            path="/parameters"
+                            element={
+                                <RoleGuard
+                                    allowedRoleIds={[
+                                        ROLE_ID.ADMIN,
+                                        ROLE_ID.LAB_HEAD,
+                                        ROLE_ID.OPERATIONAL_MANAGER,
+                                        ROLE_ID.ANALYST,
+                                        ROLE_ID.SAMPLE_COLLECTOR,
+                                    ]}
+                                >
+                                    <ParametersPage />
                                 </RoleGuard>
                             }
                         />

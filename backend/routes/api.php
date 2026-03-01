@@ -43,6 +43,8 @@ use App\Http\Controllers\EquipmentBookingController;
 use App\Http\Controllers\EquipmentCatalogController;
 use App\Http\Controllers\MethodController;
 use App\Http\Controllers\ParameterController;
+use App\Http\Controllers\ClientParameterController;
+use App\Http\Controllers\ParameterRequestController;
 use App\Http\Controllers\ReagentController;
 use App\Http\Controllers\ReagentRequestController;
 use App\Http\Controllers\ReagentRequestDocumentController;
@@ -155,7 +157,7 @@ Route::prefix('v1')->group(function () {
             Route::post('samples/{sample}/submit', [ClientSampleRequestController::class, 'submit'])->whereNumber('sample');
 
             // Parameters (portal)
-            Route::get('parameters', [ParameterController::class, 'index']);
+            Route::get('parameters', [ClientParameterController::class, 'index']);
         });
 
     /*
@@ -183,6 +185,14 @@ Route::prefix('v1')->group(function () {
         Route::post('parameters', [ParameterController::class, 'store']);
         Route::patch('parameters/{parameter}', [ParameterController::class, 'update']);
         Route::delete('parameters/{parameter}', [ParameterController::class, 'destroy']);
+
+        // Parameter Requests (Admin/Analyst)
+        Route::post('parameters/requests', [ParameterRequestController::class, 'store']);
+        Route::get('parameter-requests', [ParameterRequestController::class, 'index']);
+        Route::post('parameter-requests/{id}/approve', [ParameterRequestController::class, 'approve'])
+            ->whereNumber('id');
+        Route::post('parameter-requests/{id}/reject', [ParameterRequestController::class, 'reject'])
+            ->whereNumber('id');
 
         // Methods
         Route::get('methods', [MethodController::class, 'index']);
@@ -447,6 +457,12 @@ Route::prefix('v1')->group(function () {
 
         Route::get('quality-covers/{qualityCover}', [QualityCoverController::class, 'showById'])
             ->whereNumber('qualityCover');
+
+        Route::post('quality-covers/{qualityCover}/supporting-files', [QualityCoverController::class, 'uploadSupportingFiles'])
+            ->whereNumber('qualityCover');
+        Route::delete('quality-covers/{qualityCover}/supporting-files/{fileId}', [QualityCoverController::class, 'deleteSupportingFile'])
+            ->whereNumber('qualityCover')
+            ->whereNumber('fileId');
 
         /*
         |----------------------------------------------------------------------

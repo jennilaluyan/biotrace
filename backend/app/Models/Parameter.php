@@ -17,6 +17,7 @@ class Parameter extends Model
     protected $fillable = [
         'catalog_no',
         'code',
+        'workflow_group',
         'name',
         'unit',
         'unit_id',

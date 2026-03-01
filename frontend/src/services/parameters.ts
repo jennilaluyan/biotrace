@@ -64,8 +64,15 @@ function buildListUrl(params?: ListParams) {
     return `${basePath}${suffix}`;
 }
 
-export async function listParameters(params?: ListParams) {
-    return apiGet<any>(buildListUrl(params));
+export async function listParameters(params?: ListParams): Promise<Paginated<ParameterRow>> {
+    const res = await apiGet<any>(buildListUrl(params));
+
+    const maybeEnvelope = res as Partial<ApiEnvelope<any>>;
+    const inner = (maybeEnvelope && typeof maybeEnvelope === "object" && "data" in maybeEnvelope)
+        ? (maybeEnvelope as any).data
+        : res;
+
+    return inner as Paginated<ParameterRow>;
 }
 
 export async function createParameter(payload: ParameterPayload) {

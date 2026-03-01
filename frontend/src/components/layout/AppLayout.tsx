@@ -13,6 +13,7 @@ import {
     ShieldCheck,
     TestTube2,
     Users,
+    ClipboardList
 } from "lucide-react";
 
 import BiotraceLogo from "../../assets/biotrace-logo.png";
@@ -72,6 +73,7 @@ export const AppLayout = () => {
         ? [
             { label: t("nav.clients"), path: "/clients", icon: "users" as const },
             { label: t("nav.samples"), path: "/samples", icon: "samples" as const },
+            { label: t("nav.parameters"), path: "/parameters", icon: "samples" as const },
         ]
         : [];
 
@@ -194,6 +196,7 @@ export const AppLayout = () => {
                 "/samples",
                 "/clients",
                 "/portal",
+                "/parameters",
                 "/qa/parameters",
                 "/qa/methods",
                 "/qa/consumables-catalog",
