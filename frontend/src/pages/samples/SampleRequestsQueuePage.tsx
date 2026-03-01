@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Eye, RefreshCw, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -96,9 +96,15 @@ export default function SampleRequestsQueuePage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const [searchTerm, setSearchTerm] = useState("");
-    const [statusFilter, setStatusFilter] = useState<string>("");
-    const [dateFilter, setDateFilter] = useState<DateFilter>("all");
+    const location = useLocation();
+    const qs = useMemo(() => new URLSearchParams(location.search), [location.search]);
+
+    const [searchTerm, setSearchTerm] = useState(() => qs.get("q") ?? "");
+    const [statusFilter, setStatusFilter] = useState<string>(() => qs.get("request_status") ?? "");
+    const [dateFilter, setDateFilter] = useState<DateFilter>(() => {
+        const d = (qs.get("date") ?? "all") as DateFilter;
+        return d === "today" || d === "7d" || d === "30d" ? d : "all";
+    });
     const [currentPage, setCurrentPage] = useState(1);
 
     const [modalOpen, setModalOpen] = useState(false);

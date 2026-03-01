@@ -79,6 +79,8 @@ export const AppLayout = () => {
 
     const scOnlyItems: NavItem[] = isSampleCollector
         ? [
+            { label: t("nav.dashboard"), path: "/dashboard/sc", icon: "reports" as const },
+
             { label: t("nav.requestQueue"), path: "/samples/requests", icon: "inbox" as const },
             { label: t("nav.samples"), path: "/samples", icon: "samples" as const },
         ]
@@ -209,6 +211,7 @@ export const AppLayout = () => {
         () =>
             new Set<string>([
                 "/dashboard",
+                "/dashboard/sc",
                 "/samples",
                 "/clients",
                 "/portal",

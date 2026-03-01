@@ -172,6 +172,73 @@
             }
         }
     },
+    "sampleCollector": {
+        "title": "Dashboard Pengambil Sampel",
+        "subtitle": "Selamat datang{{name}}. Fokus pada penjemputan, inspeksi, dan melanjutkan alur sampel.",
+        "hero": {
+            "title": "Ringkasan alur collector",
+            "body": "Pakai Work Queue untuk lompat ke request yang bisa dikerjakan sekarang (dalam perjalanan, inspeksi, dikembalikan). Data dihitung dari 30 hari terakhir."
+        },
+        "actions": {
+            "openQueue": "Buka antrian",
+            "openSamples": "Buka sampel"
+        },
+        "stats": {
+            "inTransit": {
+                "title": "Dalam perjalanan ke collector",
+                "sub": "Item yang perlu diterima oleh collector."
+            },
+            "underInspection": {
+                "title": "Dalam inspeksi",
+                "sub": "Request yang sedang berada pada tahap inspeksi."
+            },
+            "needsAttention": {
+                "title": "Perlu perhatian",
+                "sub": "Item returned/failed yang bisa menghambat workflow."
+            },
+            "intakePassed": {
+                "title": "Intake lulus",
+                "sub": "Request yang sudah lulus intake checklist."
+            }
+        },
+        "workQueue": {
+            "title": "Work queue",
+            "subtitle": "Shortcut berdasarkan status request."
+        },
+        "queue": {
+            "inTransit": {
+                "title": "Dalam perjalanan",
+                "subtitle": "Terima barang dan lanjutkan workflow."
+            },
+            "underInspection": {
+                "title": "Dalam inspeksi",
+                "subtitle": "Selesaikan langkah inspeksi."
+            },
+            "returnedToAdmin": {
+                "title": "Kembali ke admin",
+                "subtitle": "Item yang perlu koordinasi/handback."
+            },
+            "intakePassed": {
+                "title": "Intake lulus",
+                "subtitle": "Siap ke tahap berikutnya."
+            },
+            "allQueue": {
+                "title": "Semua request",
+                "subtitle": "Lihat seluruh antrian."
+            }
+        },
+        "recent": {
+            "title": "Request terbaru",
+            "subtitle": "Request yang paling baru diupdate di antrian.",
+            "requestLabel": "Request #{{id}}",
+            "updatedAt": "Diperbarui",
+            "emptyTitle": "Belum ada request",
+            "emptyBody": "Request akan muncul di sini setelah klien mengirim permintaan."
+        },
+        "errors": {
+            "loadFailed": "Gagal memuat data dashboard. Silakan coba lagi."
+        }
+    },
     "parametersPage": {
         "title": "Daftar Parameter",
         "subtitle": "Master parameter dan permintaan staff dalam satu halaman.",
