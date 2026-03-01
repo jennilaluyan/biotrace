@@ -109,13 +109,12 @@ function HomeRedirect() {
         return <Navigate to="/login" replace />;
     }
 
-    // Backoffice tenant
     if (staff.loading) return null;
 
     if (staff.isAuthenticated) {
         const staffId = (staff as any)?.user?.id;
         const last = getLastRoute("staff", staffId);
-        return <Navigate to={last ?? "/samples"} replace />;
+        return <Navigate to={last ?? "/dashboard"} replace />;
     }
 
     return <Navigate to="/login" replace />;
