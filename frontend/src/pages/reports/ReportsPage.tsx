@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\reports\ReportsPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Eye, RefreshCw, Search, ChevronLeft, ChevronRight } from "lucide-react";

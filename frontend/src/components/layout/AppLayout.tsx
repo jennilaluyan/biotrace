@@ -69,13 +69,22 @@ export const AppLayout = () => {
         ? [{ label: t("nav.myRequests"), path: "/portal/requests", icon: "inbox" as const }]
         : [];
 
+    const isAnalyst = roleId === ROLE_ID.ANALYST;
+
+    const canSeeClients = isAdmin || isLabHead || isOperationalManager;
+
     const staffBaseItems: NavItem[] = isStaff
         ? [
-            { label: t("nav.clients"), path: "/clients", icon: "users" as const },
+            ...(canSeeClients ? [{ label: t("nav.clients"), path: "/clients", icon: "users" as const }] : []),
             { label: t("nav.samples"), path: "/samples", icon: "samples" as const },
             { label: t("nav.parameters"), path: "/parameters", icon: "samples" as const },
         ]
         : [];
+
+    const staffDashboardItem: NavItem[] =
+        isStaff && !isClient && !isAdmin && !isSampleCollector
+            ? [{ label: t("nav.dashboard"), path: "/dashboard", icon: "reports" as const }]
+            : [];
 
     const scOnlyItems: NavItem[] = isSampleCollector
         ? [
@@ -153,23 +162,13 @@ export const AppLayout = () => {
 
         if (isStaff) {
             return [
-                // Admin-first shortcuts (Dashboard/Approvals/Queue) pindah ke atas biar natural
                 ...adminItems,
-
-                // Core data
+                ...staffDashboardItem,
                 ...staffBaseItems,
-
-                // Workspaces & workflow
                 ...omLhItems,
-
-                // Reporting & history
                 ...archiveItems,
                 ...reportItems,
-
-                // Compliance
                 ...auditItems,
-
-                // Settings / admin config
                 ...settingsItems,
                 ...labHeadItems,
             ];
@@ -211,7 +210,6 @@ export const AppLayout = () => {
         () =>
             new Set<string>([
                 "/dashboard",
-                "/dashboard/sc",
                 "/samples",
                 "/clients",
                 "/portal",

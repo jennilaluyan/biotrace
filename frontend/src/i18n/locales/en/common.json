@@ -228,6 +228,68 @@
             "errors": {
                 "loadFailed": "Failed to load dashboard data. Please try again."
             }
+        },
+        "analyst": {
+            "title": "Analyst Dashboard",
+            "subtitle": "Welcome{{name}}. Focus on receiving, crosschecking, testing, and keeping results moving.",
+            "hero": {
+                "title": "Analyst workflow overview",
+                "body": "Use the Work Queue to jump to your next actionable step (receive, crosscheck, reagent prep, testing)."
+            },
+            "actions": {
+                "openSamples": "Open samples",
+                "openReports": "Open reports"
+            },
+            "stats": {
+                "awaitingReceive": {
+                    "title": "Awaiting receive",
+                    "sub": "Samples delivered by collector but not received by analyst yet."
+                },
+                "crosscheckPending": {
+                    "title": "Crosscheck pending",
+                    "sub": "Received samples that still require crosscheck."
+                },
+                "readyForReagent": {
+                    "title": "Ready for reagent request",
+                    "sub": "Crosscheck passed and ready to prepare reagent request."
+                },
+                "inTesting": {
+                    "title": "In testing",
+                    "sub": "Reagent approved and testing is currently in progress."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Actionable shortcuts based on current stage."
+            },
+            "queue": {
+                "awaitingReceive": {
+                    "title": "Awaiting receive",
+                    "subtitle": "Confirm you have received the physical sample."
+                },
+                "crosscheckPending": {
+                    "title": "Crosscheck pending",
+                    "subtitle": "Verify physical label vs lab code and submit result."
+                },
+                "readyForReagent": {
+                    "title": "Ready for reagent",
+                    "subtitle": "Prepare reagent request after crosscheck passes."
+                },
+                "inTesting": {
+                    "title": "In testing",
+                    "subtitle": "Continue testing workflow until completed."
+                }
+            },
+            "recent": {
+                "title": "Recent samples",
+                "subtitle": "Most recently updated samples.",
+                "updatedAt": "Updated",
+                "emptyTitle": "No samples yet",
+                "emptyBody": "Samples will appear here once they enter the lab workflow."
+            },
+            "errors": {
+                "loadFailed": "Failed to load dashboard data. Please try again."
+            }
         }
     },
     "parametersPage": {

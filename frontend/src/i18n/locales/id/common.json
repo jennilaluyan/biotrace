@@ -237,6 +237,68 @@
             "errors": {
                 "loadFailed": "Gagal memuat data dashboard. Silakan coba lagi."
             }
+        },
+        "analyst": {
+            "title": "Dashboard Analis",
+            "subtitle": "Selamat datang{{name}}. Fokus pada penerimaan, crosscheck, pengujian, dan menjaga alur hasil tetap berjalan.",
+            "hero": {
+                "title": "Ringkasan alur analis",
+                "body": "Pakai Work Queue untuk lompat ke langkah yang bisa dikerjakan sekarang (terima, crosscheck, siapkan reagen, uji)."
+            },
+            "actions": {
+                "openSamples": "Buka sampel",
+                "openReports": "Buka laporan"
+            },
+            "stats": {
+                "awaitingReceive": {
+                    "title": "Menunggu diterima",
+                    "sub": "Sampel sudah diantar collector tetapi belum diterima analis."
+                },
+                "crosscheckPending": {
+                    "title": "Crosscheck belum selesai",
+                    "sub": "Sampel yang sudah diterima dan masih perlu crosscheck."
+                },
+                "readyForReagent": {
+                    "title": "Siap buat permintaan reagen",
+                    "sub": "Crosscheck lulus dan siap buat permintaan reagen."
+                },
+                "inTesting": {
+                    "title": "Sedang diuji",
+                    "sub": "Reagen disetujui dan pengujian sedang berjalan."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Shortcut berdasarkan tahap yang sedang berjalan."
+            },
+            "queue": {
+                "awaitingReceive": {
+                    "title": "Menunggu diterima",
+                    "subtitle": "Konfirmasi penerimaan sampel fisik."
+                },
+                "crosscheckPending": {
+                    "title": "Crosscheck",
+                    "subtitle": "Cocokkan label fisik vs kode lab lalu submit hasil."
+                },
+                "readyForReagent": {
+                    "title": "Siap reagen",
+                    "subtitle": "Siapkan permintaan reagen setelah crosscheck lulus."
+                },
+                "inTesting": {
+                    "title": "Pengujian",
+                    "subtitle": "Lanjutkan workflow uji sampai selesai."
+                }
+            },
+            "recent": {
+                "title": "Sampel terbaru",
+                "subtitle": "Sampel yang paling baru diupdate.",
+                "updatedAt": "Diperbarui",
+                "emptyTitle": "Belum ada sampel",
+                "emptyBody": "Sampel akan muncul setelah masuk ke workflow lab."
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat data dashboard. Silakan coba lagi."
+            }
         }
     },
     "parametersPage": {
