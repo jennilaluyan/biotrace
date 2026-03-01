@@ -145,17 +145,30 @@ export const AppLayout = () => {
 
     const navItems: NavItem[] = (() => {
         if (isClient) return portalItems;
+
+        // Sample Collector: (dashboard belum ada untuk SC saat ini)
         if (isSampleCollector) return [...scOnlyItems, ...auditItems];
 
         if (isStaff) {
             return [
+                // Admin-first shortcuts (Dashboard/Approvals/Queue) pindah ke atas biar natural
+                ...adminItems,
+
+                // Core data
                 ...staffBaseItems,
+
+                // Workspaces & workflow
                 ...omLhItems,
+
+                // Reporting & history
                 ...archiveItems,
                 ...reportItems,
+
+                // Compliance
                 ...auditItems,
+
+                // Settings / admin config
                 ...settingsItems,
-                ...adminItems,
                 ...labHeadItems,
             ];
         }

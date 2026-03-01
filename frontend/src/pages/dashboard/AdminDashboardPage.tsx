@@ -235,7 +235,7 @@ export default function AdminDashboardPage() {
                 count: queueCounts.physicallyReceived,
                 icon: <CheckCircle2 size={18} />,
                 onOpen: () => navigate("/samples/requests?request_status=physically_received"),
-                tone: "ok",
+                tone: "neutral",
             },
             {
                 key: "needsAttention",
@@ -267,7 +267,7 @@ export default function AdminDashboardPage() {
                     <p className="text-sm text-gray-600 mt-1">{t("dashboard.admin.subtitle", { name: greetingName })}</p>
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap md:flex-nowrap md:justify-end">
                     <button
                         type="button"
                         className={cx("lims-icon-button", loading && "opacity-60 cursor-not-allowed")}
@@ -279,23 +279,25 @@ export default function AdminDashboardPage() {
                         {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
                     </button>
 
-                    <button
-                        type="button"
-                        className="btn-outline inline-flex items-center gap-2"
-                        onClick={() => navigate("/clients/approvals")}
-                    >
-                        <Users size={16} />
-                        {t("dashboard.admin.actions.clientApprovals")}
-                    </button>
+                    <div className="flex items-center gap-2 flex-wrap md:flex-nowrap">
+                        <button
+                            type="button"
+                            className="btn-outline h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap w-auto"
+                            onClick={() => navigate("/clients/approvals")}
+                        >
+                            <Users size={16} />
+                            {t("dashboard.admin.actions.clientApprovals")}
+                        </button>
 
-                    <button
-                        type="button"
-                        className="lims-btn-primary inline-flex items-center gap-2"
-                        onClick={() => navigate("/samples/requests")}
-                    >
-                        <Inbox size={16} />
-                        {t("dashboard.admin.actions.openQueue")}
-                    </button>
+                        <button
+                            type="button"
+                            className="lims-btn-primary h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap w-auto"
+                            onClick={() => navigate("/samples/requests")}
+                        >
+                            <Inbox size={16} />
+                            {t("dashboard.admin.actions.openQueue")}
+                        </button>
+                    </div>
                 </div>
             </div>
 
