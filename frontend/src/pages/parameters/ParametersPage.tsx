@@ -126,15 +126,19 @@ export default function ParametersPage() {
     const paramsRows = useMemo(() => pData?.data ?? [], [pData]);
     const reqRows = useMemo(() => rData?.data ?? [], [rData]);
 
+    type ApiEnvelope<T> = { data: T };
+
     const loadParameters = useCallback(async () => {
         setPLoading(true);
         setPError(null);
 
         try {
-            const res = await api.get<ParamPager>("/v1/parameters", {
+            const res = await api.get<ApiEnvelope<ParamPager>>("/v1/parameters", {
                 params: { q: pQ.trim() || undefined, page: pPage, per_page: pPerPage },
             });
-            setPData(res);
+
+            // unwrap envelope -> paginator
+            setPData(res.data);
         } catch (e: any) {
             setPError(getErrorMessage(e, t("parametersPage.errors.loadParametersFailed")));
         } finally {
