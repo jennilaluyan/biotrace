@@ -24,9 +24,10 @@ class ParameterPolicy
         if ($user instanceof Client) return true;
 
         return in_array($this->role($user), [
+            'Administrator',
             'Analyst',
             'Operational Manager',
-            'Lab Head',
+            'Laboratory Head',
         ], true);
     }
 
