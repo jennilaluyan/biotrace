@@ -373,6 +373,100 @@
             "errors": {
                 "loadFailed": "Failed to load dashboard data. Please try again."
             }
+        },
+        "laboratoryHead": {
+            "title": "Laboratory Head dashboard",
+            "subtitle": "Overview for today{{name}}.",
+            "hero": {
+                "title": "Quality & approvals",
+                "body": "Monitor pending approvals and validate Quality Covers efficiently."
+            },
+            "errors": {
+                "loadFailed": "Failed to load dashboard data. Please try again."
+            },
+            "actions": {
+                "openStaffApprovals": "Staff approvals",
+                "openQualityCovers": "Quality Covers",
+                "openReagentApprovals": "Reagent approvals",
+                "openLoo": "LOO workspace",
+                "openReports": "Reports"
+            },
+            "stats": {
+                "pendingStaff": {
+                    "title": "Pending staff approvals",
+                    "sub": "Waiting for your decision."
+                },
+                "qcToValidate": {
+                    "title": "QC to validate",
+                    "sub": "Verified by OM, waiting LH validation."
+                },
+                "reagentPending": {
+                    "title": "Reagent approvals",
+                    "sub": "Submitted requests waiting approval."
+                },
+                "docs7d": {
+                    "title": "Documents (7d)",
+                    "sub": "Generated in the last 7 days."
+                }
+            },
+            "workQueue": {
+                "title": "Work queue",
+                "subtitle": "Jump to the most important work items."
+            },
+            "queue": {
+                "staffApprovals": {
+                    "title": "Staff approvals",
+                    "subtitle": "Pending registrations."
+                },
+                "qualityCovers": {
+                    "title": "Quality Cover validation",
+                    "subtitle": "Validate verified QC."
+                },
+                "reagentApprovals": {
+                    "title": "Reagent approvals",
+                    "subtitle": "Approve/reject requests."
+                },
+                "looWorkspace": {
+                    "title": "LOO workspace",
+                    "subtitle": "Review approvals & generate LOO."
+                },
+                "awaitingVerification": {
+                    "title": "Requests awaiting verification",
+                    "subtitle": "Monitor request queue."
+                },
+                "needsAttention": {
+                    "title": "Needs attention",
+                    "subtitle": "Returned / revision / failed inspection."
+                },
+                "reports": {
+                    "title": "Reports",
+                    "subtitle": "All generated documents."
+                }
+            },
+            "recentStaff": {
+                "title": "Recent staff requests",
+                "subtitle": "Latest pending staff registrations.",
+                "emptyTitle": "No pending staff approvals",
+                "emptyBody": "You’re all caught up."
+            },
+            "recentQc": {
+                "title": "Recent Quality Covers",
+                "subtitle": "Latest items waiting validation.",
+                "emptyTitle": "No Quality Covers to validate",
+                "emptyBody": "Nothing waiting for LH validation."
+            },
+            "recentReagent": {
+                "title": "Recent reagent approvals",
+                "subtitle": "Latest submitted requests.",
+                "emptyTitle": "No submitted reagent requests",
+                "emptyBody": "No pending approvals found."
+            },
+            "recentDocs": {
+                "title": "Recent documents",
+                "subtitle": "Latest generated PDFs.",
+                "emptyTitle": "No documents yet",
+                "emptyBody": "Generated documents will appear here."
+            }
         }
     },
     "parametersPage": {

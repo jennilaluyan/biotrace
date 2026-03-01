@@ -382,6 +382,100 @@
             "errors": {
                 "loadFailed": "Gagal memuat data dashboard. Silakan coba lagi."
             }
+        },
+        "laboratoryHead": {
+            "title": "Dashboard Kepala Laboratorium",
+            "subtitle": "Ringkasan hari ini{{name}}.",
+            "hero": {
+                "title": "Mutu & persetujuan",
+                "body": "Pantau persetujuan yang tertunda dan lakukan validasi Quality Cover dengan cepat."
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat data dashboard. Silakan coba lagi."
+            },
+            "actions": {
+                "openStaffApprovals": "Persetujuan staf",
+                "openQualityCovers": "Quality Cover",
+                "openReagentApprovals": "Persetujuan reagen",
+                "openLoo": "Workspace LOO",
+                "openReports": "Laporan"
+            },
+            "stats": {
+                "pendingStaff": {
+                    "title": "Persetujuan staf tertunda",
+                    "sub": "Menunggu keputusan Anda."
+                },
+                "qcToValidate": {
+                    "title": "QC untuk divalidasi",
+                    "sub": "Sudah diverifikasi OM, menunggu validasi LH."
+                },
+                "reagentPending": {
+                    "title": "Persetujuan reagen",
+                    "sub": "Pengajuan menunggu approval."
+                },
+                "docs7d": {
+                    "title": "Dokumen (7h)",
+                    "sub": "Terbit dalam 7 hari terakhir."
+                }
+            },
+            "workQueue": {
+                "title": "Antrian kerja",
+                "subtitle": "Akses cepat ke tugas terpenting."
+            },
+            "queue": {
+                "staffApprovals": {
+                    "title": "Persetujuan staf",
+                    "subtitle": "Pendaftaran menunggu persetujuan."
+                },
+                "qualityCovers": {
+                    "title": "Validasi Quality Cover",
+                    "subtitle": "Validasi QC yang sudah diverifikasi."
+                },
+                "reagentApprovals": {
+                    "title": "Persetujuan reagen",
+                    "subtitle": "Approve/reject pengajuan."
+                },
+                "looWorkspace": {
+                    "title": "Workspace LOO",
+                    "subtitle": "Review approval & generate LOO."
+                },
+                "awaitingVerification": {
+                    "title": "Permintaan menunggu verifikasi",
+                    "subtitle": "Pantau antrian permintaan."
+                },
+                "needsAttention": {
+                    "title": "Perlu perhatian",
+                    "subtitle": "Returned / revisi / gagal inspeksi."
+                },
+                "reports": {
+                    "title": "Laporan",
+                    "subtitle": "Semua dokumen yang dihasilkan."
+                }
+            },
+            "recentStaff": {
+                "title": "Permintaan staf terbaru",
+                "subtitle": "Pendaftaran staf terbaru yang masih pending.",
+                "emptyTitle": "Tidak ada persetujuan staf",
+                "emptyBody": "Sudah aman, tidak ada yang tertunda."
+            },
+            "recentQc": {
+                "title": "Quality Cover terbaru",
+                "subtitle": "Item terbaru yang menunggu validasi.",
+                "emptyTitle": "Tidak ada QC untuk divalidasi",
+                "emptyBody": "Tidak ada item yang menunggu validasi LH."
+            },
+            "recentReagent": {
+                "title": "Persetujuan reagen terbaru",
+                "subtitle": "Pengajuan terbaru berstatus submitted.",
+                "emptyTitle": "Tidak ada pengajuan reagen submitted",
+                "emptyBody": "Tidak ada approval yang tertunda."
+            },
+            "recentDocs": {
+                "title": "Dokumen terbaru",
+                "subtitle": "PDF yang paling baru dihasilkan.",
+                "emptyTitle": "Belum ada dokumen",
+                "emptyBody": "Dokumen yang dihasilkan akan muncul di sini."
+            }
         }
     },
     "parametersPage": {
