@@ -8,6 +8,9 @@ import { clientSampleRequestService } from "../../services/sampleRequests";
 import { ClientRequestFormModal } from "../../components/portal/ClientRequestFormModal";
 import { useClientAuth } from "../../hooks/useClientAuth";
 
+import { getClientTracking } from "../../utils/clientTracking";
+import { openClientCoaPdf } from "../../services/clientCoa";
+
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
@@ -54,19 +57,22 @@ function humanizeToken(raw?: string | null) {
         .replace(/(^\w)|(\s+\w)/g, (m) => m.toUpperCase());
 }
 
-function statusChipClass(kind: "gray" | "primary" | "amber" | "indigo" | "emerald") {
-    switch (kind) {
-        case "primary":
-            return "bg-primary-soft/10 text-primary-soft";
-        case "amber":
-            return "bg-amber-50 text-amber-800";
-        case "indigo":
-            return "bg-indigo-50 text-indigo-700";
-        case "emerald":
-            return "bg-emerald-50 text-emerald-700";
-        default:
-            return "bg-gray-100 text-gray-700";
-    }
+const tr = getClientTracking(item, t);
+
+<span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold", tr.cls)}>
+    {tr.label}
+</span>
+
+{
+    tr.canDownloadCoa ? (
+        <button
+            type="button"
+            className="btn-outline"
+            onClick={() => openClientCoaPdf(Number(item.sample_id))}
+        >
+            {t("portal.actions.downloadCoa")}
+        </button>
+    ) : null
 }
 
 export default function ClientRequestsPage() {

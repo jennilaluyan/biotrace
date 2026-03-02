@@ -12,6 +12,9 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { getClientTracking } from "../../utils/clientTracking";
+import { openClientCoaPdf } from "../../services/clientCoa";
+
 import { clientSampleRequestService } from "../../services/sampleRequests";
 import type { Sample } from "../../services/samples";
 import { useClientAuth } from "../../hooks/useClientAuth";
@@ -44,31 +47,24 @@ function fmtDate(iso: string | null | undefined, locale: string) {
     }
 }
 
-type StatusChip = { label: string; cls: string };
+const tr = getClientTracking(item, t);
 
-function getStatusChip(raw: string | null | undefined, t: (k: string, opt?: any) => string): StatusChip {
-    const s = String(raw ?? "").trim().toLowerCase();
+// render:
+<span className={tr.cls}>{tr.label}</span>
 
-    // Palette consistent with SamplesPage chips (soft, readable, calm)
-    const base = "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold";
-
-    if (s === "draft") return { label: t("portal.status.draft"), cls: `${base} bg-slate-100 text-slate-700` };
-    if (s === "submitted") return { label: t("portal.status.submitted"), cls: `${base} bg-primary-soft/10 text-primary` };
-
-    if (s === "needs_revision")
-        return { label: t("portal.status.needsRevision"), cls: `${base} bg-amber-50 text-amber-800` };
-    if (s === "returned") return { label: t("portal.status.returned"), cls: `${base} bg-amber-50 text-amber-800` };
-
-    if (s === "ready_for_delivery")
-        return { label: t("portal.status.readyForDelivery"), cls: `${base} bg-indigo-50 text-indigo-700` };
-    if (s === "physically_received")
-        return { label: t("portal.status.physicallyReceived"), cls: `${base} bg-emerald-50 text-emerald-700` };
-
-    if (s === "pickup_required")
-        return { label: t("portal.status.pickupRequired"), cls: `${base} bg-rose-50 text-rose-700` };
-    if (s === "picked_up") return { label: t("portal.status.pickedUp"), cls: `${base} bg-slate-100 text-slate-700` };
-
-    return { label: raw ? String(raw) : t("portal.status.unknown"), cls: `${base} bg-slate-100 text-slate-700` };
+// if COA ready:
+{
+    tr.canDownloadCoa ? (
+        <button
+            type="button"
+            className="lims-icon-button"
+            onClick={() => openClientCoaPdf(Number(item.sample_id))}
+            title={t("portal.actions.downloadCoa")}
+        >
+            {/* you can use Download icon if already imported */}
+            {t("portal.actions.downloadCoa")}
+        </button>
+    ) : null
 }
 
 const StatCard = ({
