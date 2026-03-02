@@ -66,6 +66,7 @@ use App\Http\Controllers\CoaDownloadController;
 use App\Http\Controllers\PublicCoaVerificationController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ReportSignatureController;
+use App\Http\Controllers\ReportDeliveryController;
 
 // Documents
 use App\Http\Controllers\DocumentTemplateController;
@@ -486,6 +487,13 @@ Route::prefix('v1')->group(function () {
 
         Route::get('reports/documents', [\App\Http\Controllers\ReportDocumentsController::class, 'index']);
         Route::get('reports/documents/{type}/{id}/pdf', [\App\Http\Controllers\ReportDocumentsController::class, 'pdf']);
+
+        Route::post('reports/{report}/coa-check', [ReportDeliveryController::class, 'markCoaChecked'])
+            ->whereNumber('report');
+        Route::post('reports/{report}/release-coa', [ReportDeliveryController::class, 'releaseCoaToClient'])
+            ->whereNumber('report');
+        Route::get('client/samples/{sample}/coa', [\App\Http\Controllers\ClientSampleRequestController::class, 'downloadCoa'])
+            ->whereNumber('sample');
 
         // Documents
         Route::get('/document-templates', [DocumentTemplateController::class, 'index']);

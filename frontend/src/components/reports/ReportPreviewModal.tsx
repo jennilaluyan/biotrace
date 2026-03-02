@@ -1,4 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\components\reports\ReportPreviewModal.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { X, Loader2 } from "lucide-react";

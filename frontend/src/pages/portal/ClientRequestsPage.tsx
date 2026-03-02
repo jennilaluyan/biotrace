@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Eye, FilePlus2, RefreshCw, Search, X } from "lucide-react";
+import { Download, Eye, FilePlus2, RefreshCw, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { Sample } from "../../services/samples";
 import { clientSampleRequestService } from "../../services/sampleRequests";
 import { ClientRequestFormModal } from "../../components/portal/ClientRequestFormModal";
 import { useClientAuth } from "../../hooks/useClientAuth";
+import ClientCoaPreviewModal from "../../components/portal/ClientCoaPreviewModal";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -19,13 +20,6 @@ type ClientRequestItem = Sample & {
 };
 
 type FlashPayload = { type: "success" | "warning" | "error"; message: string };
-
-type StatusTone = {
-    label: string;
-    cls: string;
-    sub?: string;
-    raw?: string | null;
-};
 
 const fmtDate = (iso?: string | null) => {
     if (!iso) return "-";
@@ -42,16 +36,6 @@ function getRequestId(it: any): number | null {
 
 function stableKey(it: any, idx: number) {
     return String(it?.sample_id ?? it?.id ?? it?.lab_sample_code ?? idx);
-}
-
-function humanizeToken(raw?: string | null) {
-    const s = String(raw ?? "").trim();
-    if (!s) return "";
-    return s
-        .replace(/_/g, " ")
-        .replace(/\s+/g, " ")
-        .toLowerCase()
-        .replace(/(^\w)|(\s+\w)/g, (m) => m.toUpperCase());
 }
 
 function statusChipClass(kind: "gray" | "primary" | "amber" | "indigo" | "emerald") {
@@ -85,6 +69,15 @@ export default function ClientRequestsPage() {
 
     const [flash, setFlash] = useState<FlashPayload | null>(null);
 
+    // ✅ COA preview modal (client)
+    const [coaPreviewOpen, setCoaPreviewOpen] = useState(false);
+    const [coaPreviewSampleId, setCoaPreviewSampleId] = useState<number | null>(null);
+
+    const openCoaPreview = (sampleId: number) => {
+        setCoaPreviewSampleId(sampleId);
+        setCoaPreviewOpen(true);
+    };
+
     useEffect(() => {
         const st = (location.state as any) ?? {};
         if (st?.openCreate) setCreateOpen(true);
@@ -96,7 +89,6 @@ export default function ClientRequestsPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // auto dismiss flash
     useEffect(() => {
         if (!flash) return;
         const timer = window.setTimeout(() => setFlash(null), 8000);
@@ -108,94 +100,24 @@ export default function ClientRequestsPage() {
             e?.data?.message ??
             e?.data?.error ??
             (typeof e?.message === "string" ? e.message : null) ??
-            t("portalRequestsPage.errors.loadFailed"),
+            t("portalRequestsPage.errors.loadFailed", "Failed to load requests."),
         [t]
     );
 
-    const mapRequestStatus = useCallback(
-        (raw?: string | null): { label: string; cls: string } => {
+    const mapStatus = useCallback(
+        (raw?: string | null) => {
             const s = String(raw ?? "").trim().toLowerCase();
 
-            if (!s) {
-                return {
-                    label: t("portalRequestsPage.status.unknown"),
-                    cls: statusChipClass("gray"),
-                };
-            }
+            if (!s) return { label: t("portalRequestsPage.status.unknown", "Unknown"), cls: statusChipClass("gray") };
+            if (s === "draft") return { label: t("portalRequestsPage.status.draft", "Draft"), cls: statusChipClass("gray") };
+            if (s === "submitted") return { label: t("portalRequestsPage.status.submitted", "Submitted"), cls: statusChipClass("primary") };
+            if (s === "returned" || s === "needs_revision") return { label: t("portalRequestsPage.status.needsRevision", "Needs revision"), cls: statusChipClass("amber") };
+            if (s === "ready_for_delivery") return { label: t("portalRequestsPage.status.readyForDelivery", "Ready for delivery"), cls: statusChipClass("indigo") };
+            if (s === "physically_received") return { label: t("portalRequestsPage.status.physicallyReceived", "Physically received"), cls: statusChipClass("emerald") };
 
-            // known client-facing statuses
-            if (s === "draft")
-                return { label: t("portalRequestsPage.status.draft"), cls: statusChipClass("gray") };
-
-            if (s === "submitted")
-                return { label: t("portalRequestsPage.status.submitted"), cls: statusChipClass("primary") };
-
-            if (s === "returned" || s === "needs_revision")
-                return { label: t("portalRequestsPage.status.needsRevision"), cls: statusChipClass("amber") };
-
-            if (s === "ready_for_delivery")
-                return { label: t("portalRequestsPage.status.readyForDelivery"), cls: statusChipClass("indigo") };
-
-            if (s === "physically_received")
-                return { label: t("portalRequestsPage.status.physicallyReceived"), cls: statusChipClass("emerald") };
-
-            // fallback for internal-ish tokens that sometimes leak into portal list
-            const nice = humanizeToken(s);
-
-            // heuristic tone
-            const isBad = /(reject|deny|fail|return|revision)/i.test(s);
-            const isGood = /(approve|validated|received|completed|done)/i.test(s);
-            const isWaiting = /(submit|await|pending|review|queue|intake|assign)/i.test(s);
-
-            const cls = isBad
-                ? statusChipClass("amber")
-                : isGood
-                    ? statusChipClass("emerald")
-                    : isWaiting
-                        ? statusChipClass("indigo")
-                        : statusChipClass("gray");
-
-            return { label: nice || String(raw), cls };
+            return { label: String(raw), cls: statusChipClass("gray") };
         },
         [t]
-    );
-
-    /**
-     * ✅ Client-visible status:
-     * - Picked Up when client_picked_up_at exists
-     * - Pickup Required when returned/needs_revision AND admin has received it back AND not picked up yet
-     * - Otherwise fallback to request_status mapping
-     */
-    const deriveClientStatus = useCallback(
-        (it: ClientRequestItem): StatusTone => {
-            const pickedAt = it.client_picked_up_at ?? null;
-            const waitingSince = it.admin_received_from_collector_at ?? it.collector_returned_to_admin_at ?? null;
-
-            const rs = String((it as any).request_status ?? "").toLowerCase();
-
-            if (pickedAt) {
-                return {
-                    label: t("portalRequestsPage.status.pickedUp"),
-                    cls: statusChipClass("emerald"),
-                    sub: t("portalRequestsPage.sub.pickedUpAt", { date: fmtDate(pickedAt) }),
-                    raw: rs,
-                };
-            }
-
-            const isReturnedFamily = rs === "returned" || rs === "needs_revision";
-            if (isReturnedFamily && waitingSince) {
-                return {
-                    label: t("portalRequestsPage.status.pickupRequired"),
-                    cls: statusChipClass("amber"),
-                    sub: t("portalRequestsPage.sub.waitingSince", { date: fmtDate(waitingSince) }),
-                    raw: rs,
-                };
-            }
-
-            const mapped = mapRequestStatus((it as any).request_status ?? null);
-            return { label: mapped.label, cls: mapped.cls, raw: rs };
-        },
-        [t, mapRequestStatus]
     );
 
     const load = useCallback(async () => {
@@ -214,7 +136,6 @@ export default function ClientRequestsPage() {
     }, [getErrMsg]);
 
     useEffect(() => {
-        let cancelled = false;
         if (authLoading) return;
 
         if (!isClientAuthenticated) {
@@ -222,15 +143,7 @@ export default function ClientRequestsPage() {
             return;
         }
 
-        const run = async () => {
-            if (cancelled) return;
-            await load();
-        };
-
-        run();
-        return () => {
-            cancelled = true;
-        };
+        void load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [authLoading, isClientAuthenticated, navigate, load]);
 
@@ -238,14 +151,8 @@ export default function ClientRequestsPage() {
         let list = items;
 
         const sf = statusFilter.toLowerCase();
-
         if (sf !== "all") {
-            if (sf === "pickup_required") {
-                list = list.filter((it) => deriveClientStatus(it).label.toLowerCase() === t("portalRequestsPage.status.pickupRequired").toLowerCase());
-            } else if (sf === "picked_up") {
-                list = list.filter((it) => deriveClientStatus(it).label.toLowerCase() === t("portalRequestsPage.status.pickedUp").toLowerCase());
-            } else if (sf === "needs_revision") {
-                // unify returned + needs_revision
+            if (sf === "needs_revision") {
                 list = list.filter((it) => {
                     const rs = String((it as any).request_status ?? "").toLowerCase();
                     return rs === "needs_revision" || rs === "returned";
@@ -259,13 +166,14 @@ export default function ClientRequestsPage() {
         if (!term) return list;
 
         return list.filter((it) => {
-            const d = deriveClientStatus(it);
+            const rid = getRequestId(it);
+            const st = mapStatus((it as any).request_status ?? null);
+
             const hay = [
-                String((it as any).sample_id ?? ""),
+                String(rid ?? ""),
                 (it as any).lab_sample_code,
                 (it as any).request_status,
-                d.label,
-                d.sub,
+                st.label,
                 (it as any).sample_type,
                 (it as any).additional_notes,
             ]
@@ -275,26 +183,21 @@ export default function ClientRequestsPage() {
 
             return hay.includes(term);
         });
-    }, [items, searchTerm, statusFilter, deriveClientStatus, t]);
+    }, [items, searchTerm, statusFilter, mapStatus]);
 
     const clearFilters = () => {
         setSearchTerm("");
         setStatusFilter("all");
     };
 
-    const resultMeta = useMemo(() => {
-        const total = items.length;
-        const shown = filtered.length;
-        return { total, shown };
-    }, [items.length, filtered.length]);
+    const resultMeta = useMemo(() => ({ total: items.length, shown: filtered.length }), [items.length, filtered.length]);
 
     return (
         <div className="min-h-[60vh]">
-            {/* Header */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("portalRequestsPage.title")}</h1>
-                    <p className="text-sm text-gray-600 mt-1">{t("portalRequestsPage.subtitle")}</p>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("portalRequestsPage.title", "Sample Requests")}</h1>
+                    <p className="text-sm text-gray-600 mt-1">{t("portalRequestsPage.subtitle", "Create, submit, and track your requests.")}</p>
                 </div>
 
                 <button
@@ -303,11 +206,10 @@ export default function ClientRequestsPage() {
                     className="lims-btn-primary self-start md:self-auto inline-flex items-center gap-2"
                 >
                     <FilePlus2 size={16} />
-                    {t("portalRequestsPage.newRequest")}
+                    {t("portalRequestsPage.newRequest", "New request")}
                 </button>
             </div>
 
-            {/* Flash banner */}
             {flash ? (
                 <div
                     className={cx(
@@ -318,24 +220,17 @@ export default function ClientRequestsPage() {
                     )}
                 >
                     <div className="leading-relaxed">{flash.message}</div>
-                    <button
-                        type="button"
-                        onClick={() => setFlash(null)}
-                        className="lims-icon-button"
-                        aria-label={t("close")}
-                        title={t("close")}
-                    >
+                    <button type="button" onClick={() => setFlash(null)} className="lims-icon-button" aria-label={t("close", "Close")} title={t("close", "Close")}>
                         <X size={16} />
                     </button>
                 </div>
             ) : null}
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Filter bar (match SamplesPage style) */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="request-search">
-                            {t("portalRequestsPage.filters.searchLabel")}
+                            {t("portalRequestsPage.filters.searchLabel", "Search")}
                         </label>
 
                         <div className="relative">
@@ -348,7 +243,7 @@ export default function ClientRequestsPage() {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder={t("portalRequestsPage.filters.searchPlaceholder")}
+                                placeholder={t("portalRequestsPage.filters.searchPlaceholder", "Search by id, status, sample type…")}
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
@@ -356,7 +251,7 @@ export default function ClientRequestsPage() {
 
                     <div className="w-full md:w-60">
                         <label className="sr-only" htmlFor="request-status-filter">
-                            {t("status")}
+                            {t("status", "Status")}
                         </label>
 
                         <select
@@ -365,14 +260,12 @@ export default function ClientRequestsPage() {
                             onChange={(e) => setStatusFilter(e.target.value)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
-                            <option value="all">{t("portalRequestsPage.filters.allStatus")}</option>
-                            <option value="draft">{t("portalRequestsPage.status.draft")}</option>
-                            <option value="submitted">{t("portalRequestsPage.status.submitted")}</option>
-                            <option value="needs_revision">{t("portalRequestsPage.status.needsRevision")}</option>
-                            <option value="ready_for_delivery">{t("portalRequestsPage.status.readyForDelivery")}</option>
-                            <option value="physically_received">{t("portalRequestsPage.status.physicallyReceived")}</option>
-                            <option value="pickup_required">{t("portalRequestsPage.status.pickupRequired")}</option>
-                            <option value="picked_up">{t("portalRequestsPage.status.pickedUp")}</option>
+                            <option value="all">{t("portalRequestsPage.filters.allStatus", "All statuses")}</option>
+                            <option value="draft">{t("portalRequestsPage.status.draft", "Draft")}</option>
+                            <option value="submitted">{t("portalRequestsPage.status.submitted", "Submitted")}</option>
+                            <option value="needs_revision">{t("portalRequestsPage.status.needsRevision", "Needs revision")}</option>
+                            <option value="ready_for_delivery">{t("portalRequestsPage.status.readyForDelivery", "Ready for delivery")}</option>
+                            <option value="physically_received">{t("portalRequestsPage.status.physicallyReceived", "Physically received")}</option>
                         </select>
                     </div>
 
@@ -381,8 +274,8 @@ export default function ClientRequestsPage() {
                             type="button"
                             className="lims-icon-button"
                             onClick={load}
-                            aria-label={t("refresh")}
-                            title={t("refresh")}
+                            aria-label={t("refresh", "Refresh")}
+                            title={t("refresh", "Refresh")}
                             disabled={loading}
                         >
                             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
@@ -392,8 +285,8 @@ export default function ClientRequestsPage() {
                             type="button"
                             className="lims-icon-button"
                             onClick={clearFilters}
-                            aria-label={t("clearFilters")}
-                            title={t("clearFilters")}
+                            aria-label={t("clearFilters", "Clear filters")}
+                            title={t("clearFilters", "Clear filters")}
                             disabled={loading && !searchTerm && statusFilter === "all"}
                         >
                             <X size={16} />
@@ -402,32 +295,26 @@ export default function ClientRequestsPage() {
                 </div>
 
                 <div className="px-4 md:px-6 py-4">
-                    {loading ? <div className="text-sm text-gray-600">{t("portalRequestsPage.loading")}</div> : null}
+                    {loading ? <div className="text-sm text-gray-600">{t("portalRequestsPage.loading", "Loading…")}</div> : null}
 
                     {error && !loading ? (
-                        <div className="text-sm text-rose-900 bg-rose-50 border border-rose-200 px-4 py-3 rounded-2xl mb-4">
-                            {error}
-                        </div>
+                        <div className="text-sm text-rose-900 bg-rose-50 border border-rose-200 px-4 py-3 rounded-2xl mb-4">{error}</div>
                     ) : null}
 
                     {!loading && !error ? (
                         <>
                             <div className="text-xs text-gray-600 mb-3">
-                                {t("portalRequestsPage.meta.showing", { shown: resultMeta.shown, total: resultMeta.total })}
+                                {t("portalRequestsPage.meta.showing", "Showing {{shown}} of {{total}}", { shown: resultMeta.shown, total: resultMeta.total })}
                             </div>
 
                             {filtered.length === 0 ? (
                                 <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-5 text-sm text-gray-700">
-                                    <div className="font-semibold text-gray-900">{t("portalRequestsPage.empty.title")}</div>
-                                    <div className="text-sm text-gray-600 mt-1">{t("portalRequestsPage.empty.body")}</div>
+                                    <div className="font-semibold text-gray-900">{t("portalRequestsPage.empty.title", "No requests")}</div>
+                                    <div className="text-sm text-gray-600 mt-1">{t("portalRequestsPage.empty.body", "Create a request to start.")}</div>
 
-                                    <button
-                                        type="button"
-                                        className="lims-btn-primary mt-4 inline-flex items-center gap-2"
-                                        onClick={() => setCreateOpen(true)}
-                                    >
+                                    <button type="button" className="lims-btn-primary mt-4 inline-flex items-center gap-2" onClick={() => setCreateOpen(true)}>
                                         <FilePlus2 size={16} />
-                                        {t("portalRequestsPage.empty.cta")}
+                                        {t("portalRequestsPage.empty.cta", "Create request")}
                                     </button>
                                 </div>
                             ) : (
@@ -435,12 +322,12 @@ export default function ClientRequestsPage() {
                                     <table className="min-w-full text-sm">
                                         <thead className="bg-white text-gray-700 border-b border-gray-100">
                                             <tr>
-                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.request")}</th>
-                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.sampleType")}</th>
-                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.scheduledDelivery")}</th>
-                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.status")}</th>
-                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.updated")}</th>
-                                                <th className="text-right font-semibold px-4 py-3">{t("actions")}</th>
+                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.request", "Request")}</th>
+                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.sampleType", "Sample type")}</th>
+                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.scheduledDelivery", "Scheduled delivery")}</th>
+                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.status", "Status")}</th>
+                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.updated", "Updated")}</th>
+                                                <th className="text-right font-semibold px-4 py-3">{t("actions", "Actions")}</th>
                                             </tr>
                                         </thead>
 
@@ -449,7 +336,9 @@ export default function ClientRequestsPage() {
                                                 const rid = getRequestId(it);
                                                 const updated = fmtDate(it.updated_at ?? it.created_at);
                                                 const sched = fmtDate(it.scheduled_delivery_at);
-                                                const st = deriveClientStatus(it as ClientRequestItem);
+                                                const st = mapStatus(it.request_status ?? null);
+
+                                                const coaSampleId = Number((it as any).sample_id ?? rid);
 
                                                 return (
                                                     <tr key={stableKey(it, idx)} className="hover:bg-gray-50">
@@ -461,29 +350,32 @@ export default function ClientRequestsPage() {
                                                         <td className="px-4 py-3 text-gray-700">{sched}</td>
 
                                                         <td className="px-4 py-3">
-                                                            <div className="flex flex-col gap-1">
-                                                                <span
-                                                                    className={cx(
-                                                                        "inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold",
-                                                                        st.cls
-                                                                    )}
-                                                                    title={st.raw ? String(st.raw) : undefined}
-                                                                >
-                                                                    {st.label}
-                                                                </span>
-                                                                {st.sub ? <span className="text-[11px] text-gray-500">{st.sub}</span> : null}
-                                                            </div>
+                                                            <span className={cx("inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold", st.cls)}>
+                                                                {st.label}
+                                                            </span>
                                                         </td>
 
                                                         <td className="px-4 py-3 text-gray-700">{updated}</td>
 
                                                         <td className="px-4 py-3">
-                                                            <div className="flex items-center justify-end">
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                {(it as any)?.coa_released_to_client_at && Number.isFinite(coaSampleId) ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        className="lims-icon-button"
+                                                                        onClick={() => openCoaPreview(coaSampleId)}
+                                                                        aria-label={t("portal.actions.downloadCoa", "Download COA")}
+                                                                        title={t("portal.actions.downloadCoa", "Download COA")}
+                                                                    >
+                                                                        <Download size={16} />
+                                                                    </button>
+                                                                ) : null}
+
                                                                 <button
                                                                     type="button"
                                                                     className={cx("lims-icon-button", !rid && "opacity-40 cursor-not-allowed")}
-                                                                    aria-label={t("portalRequestsPage.actions.open")}
-                                                                    title={t("portalRequestsPage.actions.open")}
+                                                                    aria-label={t("portalRequestsPage.actions.open", "Open")}
+                                                                    title={t("portalRequestsPage.actions.open", "Open")}
                                                                     disabled={!rid}
                                                                     onClick={() => rid && navigate(`/portal/requests/${rid}`)}
                                                                 >
@@ -508,9 +400,19 @@ export default function ClientRequestsPage() {
                 onClose={() => setCreateOpen(false)}
                 onCreated={async () => {
                     setCreateOpen(false);
-                    setFlash({ type: "success", message: t("portalRequestsPage.flash.created") });
+                    setFlash({ type: "success", message: t("portalRequestsPage.flash.created", "Request created.") });
                     await load();
                 }}
+            />
+
+            <ClientCoaPreviewModal
+                open={coaPreviewOpen}
+                onClose={() => {
+                    setCoaPreviewOpen(false);
+                    setCoaPreviewSampleId(null);
+                }}
+                sampleId={coaPreviewSampleId}
+                title={t("portal.coa.previewTitle", "COA Preview")}
             />
         </div>
     );

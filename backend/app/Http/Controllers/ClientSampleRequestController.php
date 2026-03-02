@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 
 class ClientSampleRequestController extends Controller
 {
@@ -143,8 +144,12 @@ class ClientSampleRequestController extends Controller
 
         $rows = $query->orderByDesc('sample_id')->paginate(15);
 
+        // ✅ Attach COA info for client tracking (no extra endpoint needed)
+        $items = $rows->items();
+        $items = $this->attachCoaInfo($items);
+
         return response()->json([
-            'data' => $rows->items(),
+            'data' => $items,
             'meta' => [
                 'current_page' => $rows->currentPage(),
                 'last_page' => $rows->lastPage(),
@@ -164,8 +169,11 @@ class ClientSampleRequestController extends Controller
 
         $sample->load(['requestedParameters']);
 
+        $fresh = $sample->fresh()->load(['requestedParameters']);
+        $arr = $this->attachCoaInfo([$fresh]);
+
         return response()->json([
-            'data' => $sample->fresh()->load(['requestedParameters']),
+            'data' => $arr[0],
         ], 200);
     }
 
@@ -342,6 +350,159 @@ class ClientSampleRequestController extends Controller
         return response()->json([
             'data' => $sample,
         ], 200);
+    }
+
+    /**
+     * GET /api/v1/client/samples/{sample}/coa
+     * Client can download COA only AFTER admin releases it.
+     */
+    public function downloadCoa(Request $request, Sample $sample)
+    {
+        $client = $this->currentClientOr403();
+        $this->assertOwnedByClient($client, $sample);
+
+        $sampleId = (int) ($sample->sample_id ?? $sample->getKey());
+
+        // Find latest COA-ish report for this sample
+        $q = DB::table('reports')->where('sample_id', $sampleId);
+
+        // Prefer doc_code filter if exists
+        if (Schema::hasColumn('reports', 'doc_code')) {
+            $q->where('doc_code', 'like', 'COA%');
+        }
+
+        // Must be locked/final
+        $q->where('is_locked', true);
+
+        // Must be released by admin (if fields exist)
+        if (Schema::hasColumn('reports', 'coa_released_to_client_at')) {
+            $q->whereNotNull('coa_released_to_client_at');
+        }
+
+        $report = $q->orderByDesc('generated_at')->orderByDesc('report_id')->first();
+
+        if (!$report) {
+            return response()->json(['message' => 'COA is not available yet.'], 404);
+        }
+
+        // Prefer files table via pdf_file_id if present
+        if (Schema::hasColumn('reports', 'pdf_file_id') && !empty($report->pdf_file_id)) {
+            $file = DB::table('files')->where('file_id', (int) $report->pdf_file_id)->first();
+            if (!$file) return response()->json(['message' => 'COA file not found.'], 404);
+
+            $filename = 'COA_' . preg_replace('/[^A-Za-z0-9_\-]/', '_', (string) ($report->report_no ?? $sampleId)) . '.pdf';
+
+            $headers = [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'inline; filename="' . $filename . '"',
+                'X-Content-Type-Options' => 'nosniff',
+            ];
+
+            // ✅ PostgreSQL / some drivers can return BYTEA/BLOB as a resource stream
+            if (is_resource($file->bytes)) {
+                return response()->streamDownload(
+                    function () use ($file) {
+                        try {
+                            @rewind($file->bytes);
+                        } catch (\Throwable $e) {
+                            // ignore
+                        }
+
+                        fpassthru($file->bytes);
+
+                        try {
+                            @fclose($file->bytes);
+                        } catch (\Throwable $e) {
+                            // ignore
+                        }
+                    },
+                    $filename,
+                    $headers
+                );
+            }
+
+            // ✅ If it's already raw bytes string, normal response is fine
+            return response((string) $file->bytes, 200, $headers);
+        }
+
+        // Fallback: pdf_url from storage/public
+        $pdfUrl = (string) ($report->pdf_url ?? '');
+        if (!$pdfUrl) return response()->json(['message' => 'COA PDF unavailable.'], 404);
+
+        // If already absolute URL, redirect (still gated because endpoint is gated)
+        if (preg_match('/^https?:\/\//i', $pdfUrl)) {
+            return redirect()->away($pdfUrl);
+        }
+
+        // Relative -> disk public
+        $disk = config('filesystems.default') ?: 'public';
+        $tryDisks = array_values(array_unique(['public', $disk]));
+
+        foreach ($tryDisks as $d) {
+            try {
+                if (Storage::disk($d)->exists($pdfUrl)) {
+                    $path = Storage::disk($d)->path($pdfUrl);
+                    return response()->download($path);
+                }
+            } catch (\Throwable $e) {
+                // keep trying
+            }
+        }
+
+        return response()->json(['message' => 'COA file not found on disk.'], 404);
+    }
+
+    /**
+     * Attach COA tracking fields onto sample payload(s) for portal UI.
+     *
+     * Adds:
+     * - coa_report_id
+     * - coa_generated_at
+     * - coa_is_locked
+     * - coa_checked_at
+     * - coa_released_to_client_at
+     * - coa_release_note
+     */
+    private function attachCoaInfo(array $samples): array
+    {
+        $ids = [];
+        foreach ($samples as $s) {
+            $sid = (int) ($s->sample_id ?? $s->getKey() ?? 0);
+            if ($sid > 0) $ids[] = $sid;
+        }
+        $ids = array_values(array_unique($ids));
+        if (empty($ids)) return $samples;
+
+        $q = DB::table('reports')->whereIn('sample_id', $ids);
+
+        if (Schema::hasColumn('reports', 'doc_code')) {
+            $q->where('doc_code', 'like', 'COA%');
+        }
+
+        $reports = $q->orderByDesc('generated_at')->orderByDesc('report_id')->get();
+
+        $bySample = [];
+        foreach ($reports as $r) {
+            $sid = (int) ($r->sample_id ?? 0);
+            if ($sid > 0 && !isset($bySample[$sid])) {
+                $bySample[$sid] = $r; // first = latest because order desc
+            }
+        }
+
+        foreach ($samples as $s) {
+            $sid = (int) ($s->sample_id ?? $s->getKey() ?? 0);
+            $r = $bySample[$sid] ?? null;
+
+            $s->coa_report_id = $r?->report_id ?? null;
+            $s->coa_generated_at = $r?->generated_at ?? null;
+            $s->coa_is_locked = $r ? (bool) ($r->is_locked ?? false) : false;
+
+            $s->coa_checked_at = Schema::hasColumn('reports', 'coa_checked_at') ? ($r?->coa_checked_at ?? null) : null;
+            $s->coa_released_to_client_at = Schema::hasColumn('reports', 'coa_released_to_client_at') ? ($r?->coa_released_to_client_at ?? null) : null;
+            $s->coa_release_note = Schema::hasColumn('reports', 'coa_release_note') ? ($r?->coa_release_note ?? null) : null;
+        }
+
+        return $samples;
     }
 
     // ... ensureSystemStaffId() as-is (unchanged)
