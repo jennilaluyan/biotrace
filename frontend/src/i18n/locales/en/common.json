@@ -669,6 +669,9 @@
     "portal": {
         "dashboard": "Dashboard",
         "sampleRequests": "Sample Requests",
+        "actions": {
+            "downloadCoa": "Download COA"
+        },
         "status": {
             "all": "All statuses",
             "draft": "Draft",
@@ -679,6 +682,13 @@
             "physicallyReceived": "Physically received",
             "pickupRequired": "Pickup required",
             "pickedUp": "Picked up",
+            "inProgress": "Testing in progress",
+            "testingCompleted": "Testing completed",
+            "verified": "Verified (Operational Manager)",
+            "validated": "Validated (Lab Head)",
+            "reported": "Reported",
+            "coaPendingAdmin": "COA generated (waiting admin release)",
+            "coaAvailable": "COA available",
             "unknown": "Unknown"
         },
         "dashboardPage": {
@@ -1524,7 +1534,14 @@
         "loadingPdf": "Loading PDF…",
         "failedPreview": "Failed to preview PDF",
         "failedToLoadPdf": "Failed to load PDF.",
-        "noPdf": "No PDF to preview."
+        "noPdf": "No PDF to preview.",
+        "checkCoaTitle": "Mark COA as Checked",
+        "checkCoaBody": "This will mark the COA as checked by Admin.",
+        "checkCoaAction": "Mark checked",
+        "releaseCoaTitle": "Release COA to Client",
+        "releaseCoaAction": "Release",
+        "releaseNoteLabel": "Optional note for client",
+        "releaseNotePlaceholder": "e.g. Please review page 1, note on result X…"
     },
     "reportsPage": {
         "title": "Reports",

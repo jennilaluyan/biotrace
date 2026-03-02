@@ -678,6 +678,9 @@
     "portal": {
         "dashboard": "Beranda",
         "sampleRequests": "Permintaan Sampel",
+        "actions": {
+            "downloadCoa": "Unduh COA"
+        },
         "status": {
             "all": "Semua status",
             "draft": "Draf",
@@ -688,7 +691,14 @@
             "physicallyReceived": "Diterima fisik",
             "pickupRequired": "Perlu diambil",
             "pickedUp": "Sudah diambil",
-            "unknown": "Tidak diketahui"
+            "unknown": "Tidak diketahui",
+            "inProgress": "Pengujian sedang berjalan",
+            "testingCompleted": "Pengujian selesai",
+            "verified": "Diverifikasi (Operational Manager)",
+            "validated": "Divalidasi (Lab Head)",
+            "reported": "Dilaporkan",
+            "coaPendingAdmin": "COA sudah dibuat (menunggu admin rilis)",
+            "coaAvailable": "COA tersedia"
         },
         "dashboardPage": {
             "title": "Beranda",
@@ -1533,7 +1543,14 @@
         "loadingPdf": "Memuat PDF…",
         "failedPreview": "Gagal menampilkan pratinjau PDF",
         "failedToLoadPdf": "Gagal memuat PDF.",
-        "noPdf": "Tidak ada PDF untuk ditampilkan."
+        "noPdf": "Tidak ada PDF untuk ditampilkan.",
+        "checkCoaTitle": "Tandai COA Sudah Dicek",
+        "checkCoaBody": "Aksi ini menandai COA sudah dicek oleh Admin.",
+        "checkCoaAction": "Tandai dicek",
+        "releaseCoaTitle": "Rilis COA ke Client",
+        "releaseCoaAction": "Rilis",
+        "releaseNoteLabel": "Catatan opsional untuk client",
+        "releaseNotePlaceholder": "Contoh: Mohon perhatikan halaman 1, catatan hasil X…"
     },
     "reportsPage": {
         "title": "Laporan",
