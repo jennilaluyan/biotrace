@@ -6,6 +6,7 @@ import {
     Calendar,
     Check,
     ChevronDown,
+    Download,
     FileText,
     Info,
     Loader2,
@@ -20,6 +21,7 @@ import type { Sample } from "../../services/samples";
 import { clientSampleRequestService } from "../../services/sampleRequests";
 import { listParameters, type ParameterRow } from "../../services/parameters";
 import { formatDateTimeLocal } from "../../utils/date";
+import { openClientCoaPdf } from "../../services/clientCoa";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -36,7 +38,6 @@ const getValidationMessage = (e: any, fallback: string) => {
     return e?.data?.message ?? e?.data?.error ?? fallback;
 };
 
-// Helper untuk status warna badge
 const statusTone = (raw?: string | null) => {
     const s = (raw ?? "").toLowerCase();
     if (s === "draft") return "bg-gray-100 text-gray-700 border-gray-200";
@@ -48,13 +49,11 @@ const statusTone = (raw?: string | null) => {
     return "bg-gray-100 text-gray-700 border-gray-200";
 };
 
-// Helper untuk input datetime-local HTML5
 function datetimeLocalFromIso(iso?: string | null): string {
     if (!iso) return "";
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "";
 
-    // Format YYYY-MM-DDTHH:mm manually to avoid timezone shifts from toISOString()
     const pad = (n: number) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -97,13 +96,11 @@ export default function ClientRequestDetailPage() {
     const [error, setError] = useState<string | null>(null);
     const [info, setInfo] = useState<string | null>(null);
 
-    // form state
     const [sampleType, setSampleType] = useState("");
     const [scheduledDeliveryAt, setScheduledDeliveryAt] = useState("");
     const [examinationPurpose, setExaminationPurpose] = useState("");
     const [additionalNotes, setAdditionalNotes] = useState("");
 
-    // parameters state
     const [paramQuery, setParamQuery] = useState("");
     const [paramLoading, setParamLoading] = useState(false);
     const [paramItems, setParamItems] = useState<ParameterRow[]>([]);
@@ -127,7 +124,6 @@ export default function ClientRequestDetailPage() {
         return note || null;
     }, [data]);
 
-    // Load parameters list
     const loadParams = async (q?: string) => {
         try {
             setParamLoading(true);
@@ -146,7 +142,6 @@ export default function ClientRequestDetailPage() {
         }
     };
 
-    // Hydrate form data from API response
     const hydrateForm = (s: Sample) => {
         setSampleType(String((s as any).sample_type ?? ""));
         setScheduledDeliveryAt(datetimeLocalFromIso((s as any).scheduled_delivery_at ?? null));
@@ -182,7 +177,6 @@ export default function ClientRequestDetailPage() {
             setData(s);
             hydrateForm(s);
 
-            // keep params list warm for search UX
             if (!silent) await loadParams("");
         } catch (e: any) {
             setError(getValidationMessage(e, t("portalRequestDetail.errors.loadFailed", "Failed to load request detail.")));
@@ -289,8 +283,6 @@ export default function ClientRequestDetailPage() {
         }
     };
 
-    // --- RENDERERS ---
-
     if (loading) {
         return (
             <div className="min-h-[60vh] flex items-center justify-center">
@@ -331,12 +323,17 @@ export default function ClientRequestDetailPage() {
     const statusLower = statusLabel.toLowerCase();
     const requestIdLabel = (data as any).sample_id ?? numericId;
 
+    // COA state (backend must attach these fields)
+    const coaReleasedAt = (data as any)?.coa_released_to_client_at ?? null;
+    const coaCheckedAt = (data as any)?.coa_checked_at ?? null;
+    const coaNote = String((data as any)?.coa_release_note ?? "").trim() || null;
+    const canDownloadCoa = !!coaReleasedAt;
+
     const showHelpDraft = canEdit && (statusLower === "draft" || statusLower === "");
     const showHelpSubmitted = !canEdit && statusLower === "submitted";
 
     return (
         <div className="min-h-[60vh] pb-20">
-            {/* Breadcrumb */}
             <div className="px-0 py-2">
                 <nav className="lims-breadcrumb">
                     <button
@@ -352,7 +349,6 @@ export default function ClientRequestDetailPage() {
                 </nav>
             </div>
 
-            {/* Header Area */}
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between px-0 py-2 mb-2">
                 <div>
                     <div className="mt-1 flex items-center gap-3 flex-wrap">
@@ -380,17 +376,13 @@ export default function ClientRequestDetailPage() {
                     </div>
                 </div>
 
-                {/* Actions */}
                 <div className="flex items-center gap-3 flex-wrap">
                     {canEdit ? (
                         <button
                             type="button"
                             onClick={saveDraft}
                             disabled={saving}
-                            className={cx(
-                                "btn-outline inline-flex items-center gap-2 min-w-[120px]",
-                                saving && "opacity-60 cursor-not-allowed"
-                            )}
+                            className={cx("btn-outline inline-flex items-center gap-2 min-w-[120px]", saving && "opacity-60 cursor-not-allowed")}
                         >
                             {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                             {saving ? t("saving", "Saving…") : t("saveDraft", "Save draft")}
@@ -413,7 +405,6 @@ export default function ClientRequestDetailPage() {
                 </div>
             </div>
 
-            {/* Global Alerts */}
             {error ? (
                 <div className="mb-4 text-sm text-rose-900 bg-rose-50 border border-rose-200 px-4 py-3 rounded-2xl flex items-start gap-2">
                     <Info size={18} className="shrink-0 mt-0.5" />
@@ -456,19 +447,60 @@ export default function ClientRequestDetailPage() {
                 </div>
             ) : null}
 
-            {/* Main Form Card */}
+            {(coaReleasedAt || coaCheckedAt) ? (
+                <div
+                    className={cx(
+                        "mb-6 rounded-2xl border px-5 py-4 shadow-sm",
+                        canDownloadCoa ? "border-emerald-200 bg-emerald-50" : "border-indigo-200 bg-indigo-50"
+                    )}
+                >
+                    <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                            <div className={cx("font-semibold", canDownloadCoa ? "text-emerald-900" : "text-indigo-900")}>
+                                {t("portal.coa.title", "Certificate of Analysis (COA)")}
+                            </div>
+
+                            <div className={cx("text-sm mt-1", canDownloadCoa ? "text-emerald-800" : "text-indigo-800")}>
+                                {canDownloadCoa
+                                    ? t("portal.coa.available", "COA sudah tersedia dan bisa diunduh.")
+                                    : t("portal.coa.checkedPending", "COA sudah dicek, menunggu rilis admin.")}
+                            </div>
+
+                            {coaReleasedAt ? (
+                                <div className={cx("text-xs mt-2", canDownloadCoa ? "text-emerald-700" : "text-indigo-700")}>
+                                    {t("portal.coa.releasedAt", "Dirilis: {{at}}", { at: formatDateTimeLocal(coaReleasedAt) })}
+                                </div>
+                            ) : null}
+
+                            {coaNote ? (
+                                <div className={cx("text-xs mt-2 whitespace-pre-wrap", canDownloadCoa ? "text-emerald-700" : "text-indigo-700")}>
+                                    {t("portal.coa.note", "Catatan:")} {coaNote}
+                                </div>
+                            ) : null}
+                        </div>
+
+                        {canDownloadCoa ? (
+                            <button
+                                type="button"
+                                className="lims-btn-primary inline-flex items-center gap-2 shrink-0"
+                                onClick={() => openClientCoaPdf(Number(requestIdLabel))}
+                            >
+                                <Download size={16} />
+                                {t("portal.actions.downloadCoa", "Download COA")}
+                            </button>
+                        ) : null}
+                    </div>
+                </div>
+            ) : null}
+
             <div className="lims-detail-shell">
                 <div className="border-b border-gray-100 pb-4 mb-6">
                     <h2 className="text-base font-semibold text-gray-900">{t("portal.requestDetail.sections.detailsTitle", "Request details")}</h2>
-                    <p className="text-xs text-gray-500 mt-1">
-                        {t("portal.requestDetail.sections.detailsSub", "Editable while Draft / Returned.")}
-                    </p>
+                    <p className="text-xs text-gray-500 mt-1">{t("portal.requestDetail.sections.detailsSub", "Editable while Draft / Returned.")}</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Left Column: Basic Info */}
                     <div className="space-y-6">
-                        {/* Sample Type */}
                         <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                                 {t("portal.requestDetail.fields.sampleType", "Sample type")} <span className="text-rose-600">*</span>
@@ -487,7 +519,6 @@ export default function ClientRequestDetailPage() {
                             </div>
                         </div>
 
-                        {/* Scheduled Delivery */}
                         <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                                 {t("portal.requestDetail.fields.scheduledDelivery", "Scheduled delivery")} <span className="text-rose-600">*</span>
@@ -504,12 +535,9 @@ export default function ClientRequestDetailPage() {
                                     className="w-full rounded-xl border border-gray-300 pl-10 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 transition-all"
                                 />
                             </div>
-                            <p className="mt-1.5 text-[11px] text-gray-500">
-                                {t("portalRequestDetail.helpers.deliveryHint", "Use a realistic time you can deliver the sample.")}
-                            </p>
+                            <p className="mt-1.5 text-[11px] text-gray-500">{t("portalRequestDetail.helpers.deliveryHint", "Use a realistic time you can deliver the sample.")}</p>
                         </div>
 
-                        {/* Notes */}
                         <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                                 {t("portal.requestDetail.fields.additionalNotes", "Additional notes")}
@@ -530,9 +558,7 @@ export default function ClientRequestDetailPage() {
                         </div>
                     </div>
 
-                    {/* Right Column: Parameters & Purpose */}
                     <div className="space-y-6">
-                        {/* Parameter Picker */}
                         <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                                 {t("portal.requestDetail.fields.parameter", "Parameter")} <span className="text-rose-600">*</span>
@@ -627,7 +653,6 @@ export default function ClientRequestDetailPage() {
                             </div>
                         </div>
 
-                        {/* Purpose */}
                         <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                                 {t("portal.requestDetail.fields.examinationPurpose", "Examination purpose")}

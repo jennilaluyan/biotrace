@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowRight, CheckCircle2, Clock, FilePlus2, List, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Download, FilePlus2, List, Loader2, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { clientSampleRequestService } from "../../services/sampleRequests";
 import type { Sample } from "../../services/samples";
 import { useClientAuth } from "../../hooks/useClientAuth";
+import { openClientCoaPdf } from "../../services/clientCoa";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -37,11 +38,6 @@ function fmtDate(iso: string | null | undefined, locale: string) {
 
 type StatusChip = { label: string; cls: string };
 
-/**
- * Client-facing request statuses only (simple + stable).
- * Deep tracking sampai COA akan kita “hook” dari backend field tambahan (next step),
- * tapi ini minimal aman dulu biar page compile & clean.
- */
 function getStatusChip(raw: string | null | undefined, t: (k: string, opt?: any) => string): StatusChip {
     const s = String(raw ?? "").trim().toLowerCase();
     const base = "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold";
@@ -75,7 +71,9 @@ const StatCard = ({
         <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
                 <div className="text-xs text-gray-500">{title}</div>
-                <div className="text-2xl font-semibold text-gray-900 mt-1">{loading ? <span className="text-gray-400">—</span> : value}</div>
+                <div className="text-2xl font-semibold text-gray-900 mt-1">
+                    {loading ? <span className="text-gray-400">—</span> : value}
+                </div>
                 {subtitle ? <div className="text-xs text-gray-500 mt-2">{subtitle}</div> : null}
             </div>
 
@@ -133,7 +131,10 @@ export default function ClientDashboardPage() {
         const submitted = byStatus["submitted"] ?? 0;
         const needsAction = (byStatus["returned"] ?? 0) + (byStatus["needs_revision"] ?? 0);
 
-        return { total, drafts, submitted, needsAction };
+        // COA released count (if backend attaches this field)
+        const coaAvailable = items.filter((it: any) => !!it?.coa_released_to_client_at).length;
+
+        return { total, drafts, submitted, needsAction, coaAvailable };
     }, [items]);
 
     const recent = useMemo(() => {
@@ -152,8 +153,12 @@ export default function ClientDashboardPage() {
         <div className="min-h-[60vh]">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div className="min-w-0">
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("portal.dashboardPage.title", "Dashboard")}</h1>
-                    <p className="text-sm text-gray-600 mt-1">{t("portal.dashboardPage.subtitle", { name: greetingName })}</p>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                        {t("portal.dashboardPage.title", "Dashboard")}
+                    </h1>
+                    <p className="text-sm text-gray-600 mt-1">
+                        {t("portal.dashboardPage.subtitle", { name: greetingName })}
+                    </p>
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
@@ -177,7 +182,11 @@ export default function ClientDashboardPage() {
                         {t("portal.dashboardPage.cta.createRequest", "New request")}
                     </button>
 
-                    <button type="button" className="btn-outline inline-flex items-center gap-2" onClick={() => navigate("/portal/requests")}>
+                    <button
+                        type="button"
+                        className="btn-outline inline-flex items-center gap-2"
+                        onClick={() => navigate("/portal/requests")}
+                    >
                         <List size={16} />
                         {t("portal.dashboardPage.cta.viewAll", "View all")}
                     </button>
@@ -191,18 +200,53 @@ export default function ClientDashboardPage() {
                             <Clock size={18} />
                         </div>
                         <div className="min-w-0">
-                            <div className="text-xs font-semibold tracking-wide text-gray-500 uppercase">{t("portal.dashboardPage.flowTitle", "Workflow at a glance")}</div>
-                            <div className="text-sm text-gray-700 mt-1">{t("portal.dashboardPage.flowHint", "Draft → Submitted → Admin review → Delivery → Physically received.")}</div>
+                            <div className="text-xs font-semibold tracking-wide text-gray-500 uppercase">
+                                {t("portal.dashboardPage.flowTitle", "Workflow at a glance")}
+                            </div>
+                            <div className="text-sm text-gray-700 mt-1">
+                                {t("portal.dashboardPage.flowHint", "Draft → Submitted → Admin review → Delivery → Physically received.")}
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                <StatCard title={t("portal.dashboardPage.stats.totalTitle", "Total requests")} value={stats.total} subtitle={t("portal.dashboardPage.stats.totalSub", "All requests you’ve created.")} icon={<List size={18} />} loading={loading} />
-                <StatCard title={t("portal.dashboardPage.stats.draftTitle", "Draft")} value={stats.drafts} subtitle={t("portal.dashboardPage.stats.draftSub", "Requests you can still edit.")} icon={<FilePlus2 size={18} />} loading={loading} />
-                <StatCard title={t("portal.dashboardPage.stats.submittedTitle", "Submitted")} value={stats.submitted} subtitle={t("portal.dashboardPage.stats.submittedSub", "Waiting for admin review.")} icon={<Clock size={18} />} loading={loading} />
-                <StatCard title={t("portal.dashboardPage.stats.needsActionTitle", "Needs action")} value={stats.needsAction} subtitle={t("portal.dashboardPage.stats.needsActionSub", "Returned for revision.")} icon={<AlertTriangle size={18} />} loading={loading} />
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+                <StatCard
+                    title={t("portal.dashboardPage.stats.totalTitle", "Total requests")}
+                    value={stats.total}
+                    subtitle={t("portal.dashboardPage.stats.totalSub", "All requests you’ve created.")}
+                    icon={<List size={18} />}
+                    loading={loading}
+                />
+                <StatCard
+                    title={t("portal.dashboardPage.stats.draftTitle", "Draft")}
+                    value={stats.drafts}
+                    subtitle={t("portal.dashboardPage.stats.draftSub", "Requests you can still edit.")}
+                    icon={<FilePlus2 size={18} />}
+                    loading={loading}
+                />
+                <StatCard
+                    title={t("portal.dashboardPage.stats.submittedTitle", "Submitted")}
+                    value={stats.submitted}
+                    subtitle={t("portal.dashboardPage.stats.submittedSub", "Waiting for admin review.")}
+                    icon={<Clock size={18} />}
+                    loading={loading}
+                />
+                <StatCard
+                    title={t("portal.dashboardPage.stats.needsActionTitle", "Needs action")}
+                    value={stats.needsAction}
+                    subtitle={t("portal.dashboardPage.stats.needsActionSub", "Returned for revision.")}
+                    icon={<AlertTriangle size={18} />}
+                    loading={loading}
+                />
+                <StatCard
+                    title={t("portal.dashboardPage.stats.coaTitle", "COA tersedia")}
+                    value={stats.coaAvailable}
+                    subtitle={t("portal.dashboardPage.stats.coaSub", "COA yang sudah bisa diunduh.")}
+                    icon={<Download size={18} />}
+                    loading={loading}
+                />
             </div>
 
             {errorKey ? (
@@ -225,8 +269,12 @@ export default function ClientDashboardPage() {
             <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                     <div className="px-4 md:px-6 py-4 border-b border-gray-100">
-                        <div className="text-sm font-semibold text-gray-900">{t("portal.dashboardPage.recent.title", "Recent requests")}</div>
-                        <div className="text-xs text-gray-500 mt-1">{t("portal.dashboardPage.recent.subtitle", "Jump back into what you worked on recently.")}</div>
+                        <div className="text-sm font-semibold text-gray-900">
+                            {t("portal.dashboardPage.recent.title", "Recent requests")}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                            {t("portal.dashboardPage.recent.subtitle", "Jump back into what you worked on recently.")}
+                        </div>
                     </div>
 
                     <div className="px-4 md:px-6 py-4">
@@ -234,8 +282,12 @@ export default function ClientDashboardPage() {
                             <div className="text-sm text-gray-600">{t("loading", "Loading…")}</div>
                         ) : recent.length === 0 ? (
                             <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-5 text-sm text-gray-700">
-                                <div className="font-semibold text-gray-900">{t("portal.dashboardPage.recent.emptyTitle", "No requests yet")}</div>
-                                <div className="text-sm text-gray-600 mt-1">{t("portal.dashboardPage.recent.emptyBody", "Create your first request to start the workflow.")}</div>
+                                <div className="font-semibold text-gray-900">
+                                    {t("portal.dashboardPage.recent.emptyTitle", "No requests yet")}
+                                </div>
+                                <div className="text-sm text-gray-600 mt-1">
+                                    {t("portal.dashboardPage.recent.emptyBody", "Create your first request to start the workflow.")}
+                                </div>
 
                                 <button
                                     type="button"
@@ -257,7 +309,9 @@ export default function ClientDashboardPage() {
                                         <li key={String(rid ?? idx)} className="py-3 flex items-center justify-between gap-3">
                                             <div className="min-w-0">
                                                 <div className="flex items-center gap-2 flex-wrap">
-                                                    <div className="font-medium text-gray-900">{t("portal.requestDetail.title", { id: rid ?? "—" })}</div>
+                                                    <div className="font-medium text-gray-900">
+                                                        {t("portal.requestDetail.title", { id: rid ?? "—" })}
+                                                    </div>
                                                     <span className={chip.cls}>{chip.label}</span>
                                                 </div>
                                                 <div className="text-xs text-gray-500 mt-1">
@@ -265,16 +319,30 @@ export default function ClientDashboardPage() {
                                                 </div>
                                             </div>
 
-                                            <button
-                                                type="button"
-                                                className={cx("lims-icon-button", !rid && "opacity-50 cursor-not-allowed")}
-                                                onClick={() => rid && navigate(`/portal/requests/${rid}`)}
-                                                disabled={!rid}
-                                                aria-label={t("portal.dashboardPage.recent.openAria", "Open request")}
-                                                title={t("open", "Open")}
-                                            >
-                                                <ArrowRight size={16} />
-                                            </button>
+                                            <div className="flex items-center gap-2">
+                                                {(it as any)?.coa_released_to_client_at && rid ? (
+                                                    <button
+                                                        type="button"
+                                                        className="lims-icon-button"
+                                                        onClick={() => openClientCoaPdf(Number((it as any).sample_id ?? rid))}
+                                                        aria-label={t("portal.actions.downloadCoa", "Download COA")}
+                                                        title={t("portal.actions.downloadCoa", "Download COA")}
+                                                    >
+                                                        <Download size={16} />
+                                                    </button>
+                                                ) : null}
+
+                                                <button
+                                                    type="button"
+                                                    className={cx("lims-icon-button", !rid && "opacity-50 cursor-not-allowed")}
+                                                    onClick={() => rid && navigate(`/portal/requests/${rid}`)}
+                                                    disabled={!rid}
+                                                    aria-label={t("portal.dashboardPage.recent.openAria", "Open request")}
+                                                    title={t("open", "Open")}
+                                                >
+                                                    <ArrowRight size={16} />
+                                                </button>
+                                            </div>
                                         </li>
                                     );
                                 })}
@@ -285,8 +353,12 @@ export default function ClientDashboardPage() {
 
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                     <div className="px-4 md:px-6 py-4 border-b border-gray-100">
-                        <div className="text-sm font-semibold text-gray-900">{t("portal.dashboardPage.tips.title", "Tips to avoid delays")}</div>
-                        <div className="text-xs text-gray-500 mt-1">{t("portal.dashboardPage.tips.subtitle", "Small habits that keep your request moving.")}</div>
+                        <div className="text-sm font-semibold text-gray-900">
+                            {t("portal.dashboardPage.tips.title", "Tips to avoid delays")}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                            {t("portal.dashboardPage.tips.subtitle", "Small habits that keep your request moving.")}
+                        </div>
                     </div>
 
                     <div className="px-4 md:px-6 py-4 space-y-3 text-sm text-gray-700">

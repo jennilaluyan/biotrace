@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Eye, FilePlus2, RefreshCw, Search, X } from "lucide-react";
+import { Download, Eye, FilePlus2, RefreshCw, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { Sample } from "../../services/samples";
 import { clientSampleRequestService } from "../../services/sampleRequests";
 import { ClientRequestFormModal } from "../../components/portal/ClientRequestFormModal";
 import { useClientAuth } from "../../hooks/useClientAuth";
+import { openClientCoaPdf } from "../../services/clientCoa";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -346,7 +347,19 @@ export default function ClientRequestsPage() {
                                                         <td className="px-4 py-3 text-gray-700">{updated}</td>
 
                                                         <td className="px-4 py-3">
-                                                            <div className="flex items-center justify-end">
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                {(it as any)?.coa_released_to_client_at && rid ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        className="lims-icon-button"
+                                                                        onClick={() => openClientCoaPdf(Number((it as any).sample_id ?? rid))}
+                                                                        aria-label={t("portal.actions.downloadCoa", "Download COA")}
+                                                                        title={t("portal.actions.downloadCoa", "Download COA")}
+                                                                    >
+                                                                        <Download size={16} />
+                                                                    </button>
+                                                                ) : null}
+
                                                                 <button
                                                                     type="button"
                                                                     className={cx("lims-icon-button", !rid && "opacity-40 cursor-not-allowed")}
