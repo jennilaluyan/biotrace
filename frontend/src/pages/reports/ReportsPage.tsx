@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Eye, RefreshCw, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Eye, RefreshCw, Search, ChevronLeft, ChevronRight, Send, CheckCircle2 } from "lucide-react";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
@@ -10,6 +10,8 @@ import { formatDateTimeLocal } from "../../utils/date";
 import { fetchReports, type ReportRow } from "../../services/reports";
 import { listReportDocuments, type ReportDocumentRow } from "../../services/reportDocuments";
 import { ReportPreviewModal } from "../../components/reports/ReportPreviewModal";
+import { CoaReleaseModal } from "../../components/reports/CoaReleaseModal";
+import { releaseCoaToClient, markCoaChecked } from "../../services/reportDelivery";
 
 type DateFilter = "all" | "today" | "7d" | "30d";
 
@@ -18,16 +20,17 @@ const DOC_PAGE_SIZE = 12; // UI pagination (gabungan semua dokumen)
 type UnifiedDoc = {
     key: string;
     documentName: string;
-    typeCode: string; // small label under document name
+    typeCode: string;
     codeOrNumber: string;
     generatedAt: string | null;
     status: string | null;
-
-    // actions
     kind: "pdf_url" | "report_preview";
     pdfUrl?: string | null;
     reportId?: number | null;
+    coa_released_to_client_at?: string | null;
+    coa_checked_at?: string | null;
 };
+
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -234,6 +237,7 @@ export const ReportsPage = () => {
         );
         setPreviewOpen(true);
     };
+
 
     if (!canViewReports) {
         return (
