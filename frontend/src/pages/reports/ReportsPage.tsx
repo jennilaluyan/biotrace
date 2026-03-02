@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Eye, RefreshCw, Search, ChevronLeft, ChevronRight, Send, CheckCircle2 } from "lucide-react";
+import {
+    Eye,
+    RefreshCw,
+    Search,
+    ChevronLeft,
+    ChevronRight,
+    Send,
+    CheckCircle2,
+} from "lucide-react";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
@@ -14,8 +22,7 @@ import { CoaReleaseModal } from "../../components/reports/CoaReleaseModal";
 import { releaseCoaToClient, markCoaChecked } from "../../services/reportDelivery";
 
 type DateFilter = "all" | "today" | "7d" | "30d";
-
-const DOC_PAGE_SIZE = 12; // UI pagination (gabungan semua dokumen)
+const DOC_PAGE_SIZE = 12;
 
 type UnifiedDoc = {
     key: string;
@@ -27,10 +34,11 @@ type UnifiedDoc = {
     kind: "pdf_url" | "report_preview";
     pdfUrl?: string | null;
     reportId?: number | null;
+
+    // delivery fields (from ReportRow)
     coa_released_to_client_at?: string | null;
     coa_checked_at?: string | null;
 };
-
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -64,9 +72,18 @@ function normalizeText(v: any): string | null {
     return raw ? raw : null;
 }
 
-function formatStatusLabel(value: any, t: any): string {
-    const s = String(value ?? "").trim().toLowerCase();
+function isCoaDoc(d: UnifiedDoc): boolean {
+    return String(d.typeCode ?? "").toUpperCase() === "COA";
+}
 
+function formatStatusLabel(d: UnifiedDoc, t: any): string {
+    // COA delivery-aware label
+    if (isCoaDoc(d)) {
+        if (d.coa_released_to_client_at) return t("reports.coaDelivery.released", "Released to client");
+        if ((d.status ?? "").toLowerCase() === "locked") return t("reports.coaDelivery.pendingAdmin", "Generated (pending admin)");
+    }
+
+    const s = String(d.status ?? "").trim().toLowerCase();
     if (s === "locked") return t("reports.status.locked", "Locked");
     if (s === "draft") return t("reports.status.draft", "Draft");
     if (s === "generated") return t("reports.status.generated", "Generated");
@@ -85,29 +102,30 @@ export const ReportsPage = () => {
     const roleLabel = getUserRoleLabel(user);
 
     const canViewReports = !!roleId && roleId !== ROLE_ID.CLIENT;
+    const isAdmin = roleId === ROLE_ID.ADMIN;
 
-    // ---- state ----
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // sources
+    // data sources
     const [reportDocs, setReportDocs] = useState<ReportDocumentRow[]>([]);
     const [coaRows, setCoaRows] = useState<ReportRow[]>([]);
 
     // filters
     const [searchTerm, setSearchTerm] = useState("");
     const [dateFilter, setDateFilter] = useState<DateFilter>("all");
-
-    // UI pagination (gabungan)
     const [page, setPage] = useState(1);
 
-    // preview modals
+    // preview
     const [previewReportId, setPreviewReportId] = useState<number | null>(null);
     const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
-    const [previewTitle, setPreviewTitle] = useState<string>(
-        t(["reports.pdfPreviewTitle", "reports.previewTitle"], "PDF Preview")
-    );
+    const [previewTitle, setPreviewTitle] = useState<string>("PDF Preview");
     const [previewOpen, setPreviewOpen] = useState(false);
+
+    // COA admin modal
+    const [coaModalOpen, setCoaModalOpen] = useState(false);
+    const [coaModalMode, setCoaModalMode] = useState<"check" | "release">("release");
+    const [coaTargetReportId, setCoaTargetReportId] = useState<number | null>(null);
 
     const load = async () => {
         try {
@@ -120,7 +138,7 @@ export const ReportsPage = () => {
                 listReportDocuments(),
                 fetchReports({
                     page: 1,
-                    per_page: 200, // ambil banyak supaya COA bisa “nyatu” di list atas
+                    per_page: 200,
                     q,
                     date: dateFilter !== "all" ? dateFilter : undefined,
                 }),
@@ -138,23 +156,23 @@ export const ReportsPage = () => {
 
     useEffect(() => {
         if (!canViewReports) return;
-        load();
+        void load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [canViewReports]);
 
-    // ---- derived (unified table) ----
     const unifiedDocs: UnifiedDoc[] = useMemo(() => {
         const docsFromEndpoint: UnifiedDoc[] = (reportDocs ?? []).map((d) => {
             const docFallback = t(["document", "common.document"], "Document");
             const docName = (d.document_name ?? d.type ?? docFallback).trim() || docFallback;
 
             const typeCode = (String(d.type ?? "").trim().toUpperCase() || "DOC") as string;
-            const code = String(d.document_code ?? d.number ?? t(["na", "common.na"], "—")).trim() || t(["na", "common.na"], "—");
+            const code =
+                String(d.document_code ?? d.number ?? t(["na", "common.na"], "—")).trim() || t(["na", "common.na"], "—");
 
             const url = (d.download_url ?? d.file_url ?? null) as any;
 
             return {
-                key: `doc:${typeCode}:${d.id}`,
+                key: `doc:${typeCode}:${(d as any).id ?? code}`,
                 documentName: docName,
                 typeCode,
                 codeOrNumber: code,
@@ -165,7 +183,6 @@ export const ReportsPage = () => {
             };
         });
 
-        // ✅ COA (dari reports endpoint) => masuk bareng list atas
         const docsFromCoa: UnifiedDoc[] = (coaRows ?? []).map((r: any) => {
             const code = r.report_no ?? (typeof r.report_id === "number" ? `#${r.report_id}` : t(["na", "common.na"], "—"));
             const generatedAt = (r.generated_at ?? r.created_at ?? null) as string | null;
@@ -186,10 +203,11 @@ export const ReportsPage = () => {
                 status,
                 kind: "report_preview",
                 reportId: typeof r.report_id === "number" ? r.report_id : null,
+                coa_released_to_client_at: (r.coa_released_to_client_at ?? null) as any,
+                coa_checked_at: (r.coa_checked_at ?? null) as any,
             };
         });
 
-        // merge + filter + sort
         const all = [...docsFromEndpoint, ...docsFromCoa];
 
         const q = searchTerm.trim().toLowerCase();
@@ -238,7 +256,6 @@ export const ReportsPage = () => {
         setPreviewOpen(true);
     };
 
-
     if (!canViewReports) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center">
@@ -261,7 +278,7 @@ export const ReportsPage = () => {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Header (old design) */}
+            {/* Header */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
                     <h1 className="text-lg md:text-xl font-bold text-gray-900">
@@ -285,7 +302,7 @@ export const ReportsPage = () => {
             </div>
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Filter bar (old design) */}
+                {/* Filter bar */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="doc-search">
@@ -306,12 +323,9 @@ export const ReportsPage = () => {
                                     setPage(1);
                                 }}
                                 onKeyDown={(e) => {
-                                    if (e.key === "Enter") load();
+                                    if (e.key === "Enter") void load();
                                 }}
-                                placeholder={t(
-                                    "reports.filters.searchPlaceholder",
-                                    "Search by document name / code / status…"
-                                )}
+                                placeholder={t("reports.filters.searchPlaceholder", "Search by document name / code / status…")}
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
@@ -392,6 +406,10 @@ export const ReportsPage = () => {
                                                 (d.kind === "report_preview" && !d.reportId) ||
                                                 (d.kind === "pdf_url" && !String(d.pdfUrl ?? "").trim());
 
+                                            const canCoaOps = isAdmin && isCoaDoc(d) && !!d.reportId;
+                                            const alreadyReleased = !!d.coa_released_to_client_at;
+                                            const alreadyChecked = !!d.coa_checked_at;
+
                                             return (
                                                 <tr key={d.key} className="hover:bg-gray-50">
                                                     <td className="px-4 py-3 text-gray-900">
@@ -408,11 +426,45 @@ export const ReportsPage = () => {
                                                     </td>
 
                                                     <td className="px-4 py-3 text-gray-700">
-                                                        {formatStatusLabel(d.status, t)}
+                                                        {formatStatusLabel(d, t)}
                                                     </td>
 
                                                     <td className="px-4 py-3">
                                                         <div className="flex items-center justify-end gap-2">
+                                                            {canCoaOps ? (
+                                                                <>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="lims-icon-button disabled:opacity-40 disabled:cursor-not-allowed"
+                                                                        aria-label={t("reports.checkCoaAction", "Mark checked")}
+                                                                        title={alreadyChecked ? t("reports.checkCoaDone", "Already checked") : t("reports.checkCoaAction", "Mark checked")}
+                                                                        disabled={alreadyChecked}
+                                                                        onClick={() => {
+                                                                            setCoaTargetReportId(d.reportId!);
+                                                                            setCoaModalMode("check");
+                                                                            setCoaModalOpen(true);
+                                                                        }}
+                                                                    >
+                                                                        <CheckCircle2 size={16} />
+                                                                    </button>
+
+                                                                    <button
+                                                                        type="button"
+                                                                        className="lims-icon-button disabled:opacity-40 disabled:cursor-not-allowed"
+                                                                        aria-label={t("reports.releaseCoaAction", "Release")}
+                                                                        title={alreadyReleased ? t("reports.releaseCoaDone", "Already released") : t("reports.releaseCoaAction", "Release")}
+                                                                        disabled={alreadyReleased}
+                                                                        onClick={() => {
+                                                                            setCoaTargetReportId(d.reportId!);
+                                                                            setCoaModalMode("release");
+                                                                            setCoaModalOpen(true);
+                                                                        }}
+                                                                    >
+                                                                        <Send size={16} />
+                                                                    </button>
+                                                                </>
+                                                            ) : null}
+
                                                             <button
                                                                 type="button"
                                                                 className="lims-icon-button disabled:opacity-40 disabled:cursor-not-allowed"
@@ -432,14 +484,14 @@ export const ReportsPage = () => {
                                 </table>
                             </div>
 
-                            {/* Pagination (old design) */}
+                            {/* Pagination */}
                             <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
                                 <div className="text-xs text-gray-600">
-                                    {t(
-                                        "reports.pagination.showing",
-                                        "Showing {{from}} to {{to}} of {{total}}",
-                                        { from, to, total }
-                                    )}
+                                    {t("reports.pagination.showing", "Showing {{from}} to {{to}} of {{total}}", {
+                                        from,
+                                        to,
+                                        total,
+                                    })}
                                 </div>
 
                                 <div className="flex items-center gap-2">
@@ -478,8 +530,33 @@ export const ReportsPage = () => {
                 </div>
             </div>
 
+            {/* COA Admin Modal */}
+            <CoaReleaseModal
+                open={coaModalOpen}
+                mode={coaModalMode}
+                onClose={() => setCoaModalOpen(false)}
+                onSubmit={async (note) => {
+                    if (!coaTargetReportId) return;
+
+                    try {
+                        if (coaModalMode === "check") {
+                            await markCoaChecked(coaTargetReportId);
+                        } else {
+                            await releaseCoaToClient(coaTargetReportId, note || null);
+                        }
+                        await load();
+                    } catch (e: any) {
+                        setError(getErrorMessage(e) || t("reports.actionFailed", "Action failed."));
+                    }
+                }}
+            />
+
             {/* COA preview (by reportId) */}
-            <ReportPreviewModal open={previewReportId !== null} reportId={previewReportId} onClose={() => setPreviewReportId(null)} />
+            <ReportPreviewModal
+                open={previewReportId !== null}
+                reportId={previewReportId}
+                onClose={() => setPreviewReportId(null)}
+            />
 
             {/* PDF preview (by url) */}
             <ReportPreviewModal

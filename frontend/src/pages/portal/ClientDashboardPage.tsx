@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
     AlertTriangle,
     ArrowRight,
     CheckCircle2,
     Clock,
+    Download,
     FilePlus2,
     List,
     Loader2,
@@ -23,13 +25,26 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
+type ClientSampleItem = Sample & {
+    request_status?: string | null;
+    current_status?: string | null;
+
+    coa_is_locked?: boolean;
+    coa_released_to_client_at?: string | null;
+    coa_checked_at?: string | null;
+    coa_release_note?: string | null;
+
+    created_at?: string | null;
+    updated_at?: string | null;
+};
+
 function getRequestId(it: any): number | null {
     const raw = it?.sample_id ?? it?.id ?? it?.request_id;
     const n = Number(raw);
     return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function fmtDate(iso: string | null | undefined, locale: string) {
+function fmtDateTime(iso: string | null | undefined, locale: string) {
     if (!iso) return "—";
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return String(iso);
@@ -47,26 +62,6 @@ function fmtDate(iso: string | null | undefined, locale: string) {
     }
 }
 
-const tr = getClientTracking(item, t);
-
-// render:
-<span className={tr.cls}>{tr.label}</span>
-
-// if COA ready:
-{
-    tr.canDownloadCoa ? (
-        <button
-            type="button"
-            className="lims-icon-button"
-            onClick={() => openClientCoaPdf(Number(item.sample_id))}
-            title={t("portal.actions.downloadCoa")}
-        >
-            {/* you can use Download icon if already imported */}
-            {t("portal.actions.downloadCoa")}
-        </button>
-    ) : null
-}
-
 const StatCard = ({
     title,
     value,
@@ -77,7 +72,7 @@ const StatCard = ({
     title: string;
     value: string | number;
     subtitle?: string;
-    icon?: React.ReactNode;
+    icon?: ReactNode;
     loading?: boolean;
 }) => (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
@@ -105,7 +100,7 @@ export default function ClientDashboardPage() {
 
     const { client, loading: authLoading, isClientAuthenticated } = useClientAuth() as any;
 
-    const [items, setItems] = useState<Sample[]>([]);
+    const [items, setItems] = useState<ClientSampleItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [errorKey, setErrorKey] = useState<string | null>(null);
 
@@ -114,7 +109,7 @@ export default function ClientDashboardPage() {
             setErrorKey(null);
             setLoading(true);
             const res = await clientSampleRequestService.list({ page: 1, per_page: 100 });
-            setItems(res.data ?? []);
+            setItems((res?.data ?? []) as ClientSampleItem[]);
         } catch {
             setItems([]);
             setErrorKey("portal.dashboardPage.errors.loadFailed");
@@ -135,15 +130,16 @@ export default function ClientDashboardPage() {
     const stats = useMemo(() => {
         const total = items.length;
 
-        const byStatus = items.reduce<Record<string, number>>((acc, s) => {
+        // Keep this lightweight: count by request_status (early pipeline)
+        const byReq = items.reduce<Record<string, number>>((acc, s) => {
             const k = String((s as any).request_status ?? "unknown").toLowerCase();
             acc[k] = (acc[k] ?? 0) + 1;
             return acc;
         }, {});
 
-        const drafts = byStatus["draft"] ?? 0;
-        const submitted = byStatus["submitted"] ?? 0;
-        const needsAction = (byStatus["returned"] ?? 0) + (byStatus["needs_revision"] ?? 0);
+        const drafts = byReq["draft"] ?? 0;
+        const submitted = byReq["submitted"] ?? 0;
+        const needsAction = (byReq["returned"] ?? 0) + (byReq["needs_revision"] ?? 0);
 
         return { total, drafts, submitted, needsAction };
     }, [items]);
@@ -162,10 +158,12 @@ export default function ClientDashboardPage() {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Page header (match SamplesPage rhythm) */}
+            {/* Header */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div className="min-w-0">
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("portal.dashboardPage.title")}</h1>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                        {t("portal.dashboardPage.title")}
+                    </h1>
                     <p className="text-sm text-gray-600 mt-1">
                         {t("portal.dashboardPage.subtitle", { name: greetingName })}
                     </p>
@@ -203,7 +201,7 @@ export default function ClientDashboardPage() {
                 </div>
             </div>
 
-            {/* Hero / Guidance */}
+            {/* Flow hint */}
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="px-4 md:px-6 py-4">
                     <div className="flex items-start gap-3">
@@ -253,7 +251,7 @@ export default function ClientDashboardPage() {
                 />
             </div>
 
-            {/* Error banner */}
+            {/* Error */}
             {errorKey ? (
                 <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
                     <div className="flex items-start gap-3">
@@ -280,8 +278,12 @@ export default function ClientDashboardPage() {
                 {/* Recent */}
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                     <div className="px-4 md:px-6 py-4 border-b border-gray-100">
-                        <div className="text-sm font-semibold text-gray-900">{t("portal.dashboardPage.recent.title")}</div>
-                        <div className="text-xs text-gray-500 mt-1">{t("portal.dashboardPage.recent.subtitle")}</div>
+                        <div className="text-sm font-semibold text-gray-900">
+                            {t("portal.dashboardPage.recent.title")}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                            {t("portal.dashboardPage.recent.subtitle")}
+                        </div>
                     </div>
 
                     <div className="px-4 md:px-6 py-4">
@@ -289,8 +291,12 @@ export default function ClientDashboardPage() {
                             <div className="text-sm text-gray-600">{t("loading")}</div>
                         ) : recent.length === 0 ? (
                             <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-5 text-sm text-gray-700">
-                                <div className="font-semibold text-gray-900">{t("portal.dashboardPage.recent.emptyTitle")}</div>
-                                <div className="text-sm text-gray-600 mt-1">{t("portal.dashboardPage.recent.emptyBody")}</div>
+                                <div className="font-semibold text-gray-900">
+                                    {t("portal.dashboardPage.recent.emptyTitle")}
+                                </div>
+                                <div className="text-sm text-gray-600 mt-1">
+                                    {t("portal.dashboardPage.recent.emptyBody")}
+                                </div>
 
                                 <button
                                     type="button"
@@ -305,36 +311,51 @@ export default function ClientDashboardPage() {
                             <ul className="divide-y divide-gray-100">
                                 {recent.map((it: any, idx: number) => {
                                     const rid = getRequestId(it);
-                                    const chip = getStatusChip(it.request_status ?? null, t);
-                                    const updated = fmtDate(it.updated_at ?? it.created_at, i18n.language || "en");
+                                    const tr = getClientTracking(it, t);
+                                    const updated = fmtDateTime(it.updated_at ?? it.created_at, i18n.language || "en");
 
                                     return (
-                                        <li key={String(rid ?? idx)} className="py-3 flex items-center justify-between gap-3">
+                                        <li
+                                            key={String(rid ?? idx)}
+                                            className="py-3 flex items-center justify-between gap-3"
+                                        >
                                             <div className="min-w-0">
                                                 <div className="flex items-center gap-2 flex-wrap">
                                                     <div className="font-medium text-gray-900">
                                                         {t("portal.requestDetail.title", { id: rid ?? "—" })}
                                                     </div>
-                                                    <span className={chip.cls}>{chip.label}</span>
+                                                    <span className={tr.cls}>{tr.label}</span>
                                                 </div>
+
                                                 <div className="text-xs text-gray-500 mt-1">
                                                     {t("portal.dashboardPage.recent.updated")}: {updated}
                                                 </div>
                                             </div>
 
-                                            <button
-                                                type="button"
-                                                className={cx(
-                                                    "lims-icon-button",
-                                                    !rid && "opacity-50 cursor-not-allowed"
-                                                )}
-                                                onClick={() => rid && navigate(`/portal/requests/${rid}`)}
-                                                disabled={!rid}
-                                                aria-label={t("portal.dashboardPage.recent.openAria")}
-                                                title={t("open")}
-                                            >
-                                                <ArrowRight size={16} />
-                                            </button>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                {tr.canDownloadCoa && rid ? (
+                                                    <button
+                                                        type="button"
+                                                        className="lims-icon-button"
+                                                        onClick={() => openClientCoaPdf(Number(it.sample_id ?? rid))}
+                                                        aria-label={t("portal.actions.downloadCoa")}
+                                                        title={t("portal.actions.downloadCoa")}
+                                                    >
+                                                        <Download size={16} />
+                                                    </button>
+                                                ) : null}
+
+                                                <button
+                                                    type="button"
+                                                    className={cx("lims-icon-button", !rid && "opacity-50 cursor-not-allowed")}
+                                                    onClick={() => rid && navigate(`/portal/requests/${rid}`)}
+                                                    disabled={!rid}
+                                                    aria-label={t("portal.dashboardPage.recent.openAria")}
+                                                    title={t("open")}
+                                                >
+                                                    <ArrowRight size={16} />
+                                                </button>
+                                            </div>
                                         </li>
                                     );
                                 })}
@@ -346,8 +367,12 @@ export default function ClientDashboardPage() {
                 {/* Tips */}
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                     <div className="px-4 md:px-6 py-4 border-b border-gray-100">
-                        <div className="text-sm font-semibold text-gray-900">{t("portal.dashboardPage.tips.title")}</div>
-                        <div className="text-xs text-gray-500 mt-1">{t("portal.dashboardPage.tips.subtitle")}</div>
+                        <div className="text-sm font-semibold text-gray-900">
+                            {t("portal.dashboardPage.tips.title")}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                            {t("portal.dashboardPage.tips.subtitle")}
+                        </div>
                     </div>
 
                     <div className="px-4 md:px-6 py-4 space-y-3 text-sm text-gray-700">

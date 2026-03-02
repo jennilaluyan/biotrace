@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Eye, FilePlus2, RefreshCw, Search, X } from "lucide-react";
+import { Download, Eye, FilePlus2, RefreshCw, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { Sample } from "../../services/samples";
@@ -16,19 +16,30 @@ function cx(...arr: Array<string | false | null | undefined>) {
 }
 
 type ClientRequestItem = Sample & {
+    // pickup-related timestamps (optional)
     admin_received_from_collector_at?: string | null;
     collector_returned_to_admin_at?: string | null;
     client_picked_up_at?: string | null;
+
+    // tracking fields (optional; attached by backend)
+    request_status?: string | null;
+    current_status?: string | null;
+
+    coa_is_locked?: boolean;
+    coa_released_to_client_at?: string | null;
+    coa_checked_at?: string | null;
+    coa_release_note?: string | null;
+
+    created_at?: string | null;
+    updated_at?: string | null;
+
+    scheduled_delivery_at?: string | null;
+    lab_sample_code?: string | null;
+    sample_type?: string | null;
+    additional_notes?: string | null;
 };
 
 type FlashPayload = { type: "success" | "warning" | "error"; message: string };
-
-type StatusTone = {
-    label: string;
-    cls: string;
-    sub?: string;
-    raw?: string | null;
-};
 
 const fmtDate = (iso?: string | null) => {
     if (!iso) return "-";
@@ -47,32 +58,70 @@ function stableKey(it: any, idx: number) {
     return String(it?.sample_id ?? it?.id ?? it?.lab_sample_code ?? idx);
 }
 
-function humanizeToken(raw?: string | null) {
-    const s = String(raw ?? "").trim();
-    if (!s) return "";
-    return s
-        .replace(/_/g, " ")
-        .replace(/\s+/g, " ")
-        .toLowerCase()
-        .replace(/(^\w)|(\s+\w)/g, (m) => m.toUpperCase());
-}
+type EffectiveStatus = {
+    code:
+    | "draft"
+    | "submitted"
+    | "needs_revision"
+    | "returned"
+    | "ready_for_delivery"
+    | "physically_received"
+    | "in_progress"
+    | "testing_completed"
+    | "verified"
+    | "validated"
+    | "coa_pending_admin"
+    | "coa_available"
+    | "reported"
+    | "pickup_required"
+    | "picked_up"
+    | "unknown";
+    label: string;
+    cls: string;
+    sub?: string;
+    canDownloadCoa: boolean;
+};
 
-const tr = getClientTracking(item, t);
+function deriveEffectiveStatus(it: ClientRequestItem, t: any): EffectiveStatus {
+    // Special pickup states override normal mapping
+    const rs = String((it as any).request_status ?? "").toLowerCase();
+    const pickedAt = it.client_picked_up_at ?? null;
+    const waitingSince = it.admin_received_from_collector_at ?? it.collector_returned_to_admin_at ?? null;
+    const isReturnedFamily = rs === "returned" || rs === "needs_revision";
 
-<span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold", tr.cls)}>
-    {tr.label}
-</span>
+    if (pickedAt) {
+        return {
+            code: "picked_up",
+            label: t("portal.status.pickedUp"),
+            cls: "bg-emerald-50 text-emerald-700",
+            sub: t("portalRequestsPage.sub.pickedUpAt", { date: fmtDate(pickedAt) }),
+            canDownloadCoa: false,
+        };
+    }
 
-{
-    tr.canDownloadCoa ? (
-        <button
-            type="button"
-            className="btn-outline"
-            onClick={() => openClientCoaPdf(Number(item.sample_id))}
-        >
-            {t("portal.actions.downloadCoa")}
-        </button>
-    ) : null
+    if (isReturnedFamily && waitingSince) {
+        return {
+            code: "pickup_required",
+            label: t("portal.status.pickupRequired"),
+            cls: "bg-amber-50 text-amber-800",
+            sub: t("portalRequestsPage.sub.waitingSince", { date: fmtDate(waitingSince) }),
+            canDownloadCoa: false,
+        };
+    }
+
+    const tr = getClientTracking(it, t);
+
+    // Make class compatible with table pill style
+    const cls = tr.cls
+        .replace("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold", "")
+        .trim();
+
+    return {
+        code: tr.code as any,
+        label: tr.label,
+        cls: cls || "bg-slate-100 text-slate-700",
+        canDownloadCoa: tr.canDownloadCoa,
+    };
 }
 
 export default function ClientRequestsPage() {
@@ -102,7 +151,6 @@ export default function ClientRequestsPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // auto dismiss flash
     useEffect(() => {
         if (!flash) return;
         const timer = window.setTimeout(() => setFlash(null), 8000);
@@ -118,99 +166,12 @@ export default function ClientRequestsPage() {
         [t]
     );
 
-    const mapRequestStatus = useCallback(
-        (raw?: string | null): { label: string; cls: string } => {
-            const s = String(raw ?? "").trim().toLowerCase();
-
-            if (!s) {
-                return {
-                    label: t("portalRequestsPage.status.unknown"),
-                    cls: statusChipClass("gray"),
-                };
-            }
-
-            // known client-facing statuses
-            if (s === "draft")
-                return { label: t("portalRequestsPage.status.draft"), cls: statusChipClass("gray") };
-
-            if (s === "submitted")
-                return { label: t("portalRequestsPage.status.submitted"), cls: statusChipClass("primary") };
-
-            if (s === "returned" || s === "needs_revision")
-                return { label: t("portalRequestsPage.status.needsRevision"), cls: statusChipClass("amber") };
-
-            if (s === "ready_for_delivery")
-                return { label: t("portalRequestsPage.status.readyForDelivery"), cls: statusChipClass("indigo") };
-
-            if (s === "physically_received")
-                return { label: t("portalRequestsPage.status.physicallyReceived"), cls: statusChipClass("emerald") };
-
-            // fallback for internal-ish tokens that sometimes leak into portal list
-            const nice = humanizeToken(s);
-
-            // heuristic tone
-            const isBad = /(reject|deny|fail|return|revision)/i.test(s);
-            const isGood = /(approve|validated|received|completed|done)/i.test(s);
-            const isWaiting = /(submit|await|pending|review|queue|intake|assign)/i.test(s);
-
-            const cls = isBad
-                ? statusChipClass("amber")
-                : isGood
-                    ? statusChipClass("emerald")
-                    : isWaiting
-                        ? statusChipClass("indigo")
-                        : statusChipClass("gray");
-
-            return { label: nice || String(raw), cls };
-        },
-        [t]
-    );
-
-    /**
-     * ✅ Client-visible status:
-     * - Picked Up when client_picked_up_at exists
-     * - Pickup Required when returned/needs_revision AND admin has received it back AND not picked up yet
-     * - Otherwise fallback to request_status mapping
-     */
-    const deriveClientStatus = useCallback(
-        (it: ClientRequestItem): StatusTone => {
-            const pickedAt = it.client_picked_up_at ?? null;
-            const waitingSince = it.admin_received_from_collector_at ?? it.collector_returned_to_admin_at ?? null;
-
-            const rs = String((it as any).request_status ?? "").toLowerCase();
-
-            if (pickedAt) {
-                return {
-                    label: t("portalRequestsPage.status.pickedUp"),
-                    cls: statusChipClass("emerald"),
-                    sub: t("portalRequestsPage.sub.pickedUpAt", { date: fmtDate(pickedAt) }),
-                    raw: rs,
-                };
-            }
-
-            const isReturnedFamily = rs === "returned" || rs === "needs_revision";
-            if (isReturnedFamily && waitingSince) {
-                return {
-                    label: t("portalRequestsPage.status.pickupRequired"),
-                    cls: statusChipClass("amber"),
-                    sub: t("portalRequestsPage.sub.waitingSince", { date: fmtDate(waitingSince) }),
-                    raw: rs,
-                };
-            }
-
-            const mapped = mapRequestStatus((it as any).request_status ?? null);
-            return { label: mapped.label, cls: mapped.cls, raw: rs };
-        },
-        [t, mapRequestStatus]
-    );
-
     const load = useCallback(async () => {
         try {
             setError(null);
             setLoading(true);
-
             const res = await clientSampleRequestService.list({ page: 1, per_page: 100 });
-            setItems((res.data ?? []) as ClientRequestItem[]);
+            setItems((res?.data ?? []) as ClientRequestItem[]);
         } catch (e: any) {
             setError(getErrMsg(e));
             setItems([]);
@@ -220,7 +181,6 @@ export default function ClientRequestsPage() {
     }, [getErrMsg]);
 
     useEffect(() => {
-        let cancelled = false;
         if (authLoading) return;
 
         if (!isClientAuthenticated) {
@@ -228,52 +188,38 @@ export default function ClientRequestsPage() {
             return;
         }
 
-        const run = async () => {
-            if (cancelled) return;
-            await load();
-        };
-
-        run();
-        return () => {
-            cancelled = true;
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        void load();
     }, [authLoading, isClientAuthenticated, navigate, load]);
 
     const filtered = useMemo(() => {
         let list = items;
 
         const sf = statusFilter.toLowerCase();
-
         if (sf !== "all") {
-            if (sf === "pickup_required") {
-                list = list.filter((it) => deriveClientStatus(it).label.toLowerCase() === t("portalRequestsPage.status.pickupRequired").toLowerCase());
-            } else if (sf === "picked_up") {
-                list = list.filter((it) => deriveClientStatus(it).label.toLowerCase() === t("portalRequestsPage.status.pickedUp").toLowerCase());
-            } else if (sf === "needs_revision") {
-                // unify returned + needs_revision
-                list = list.filter((it) => {
-                    const rs = String((it as any).request_status ?? "").toLowerCase();
-                    return rs === "needs_revision" || rs === "returned";
-                });
-            } else {
-                list = list.filter((it) => String((it as any).request_status ?? "").toLowerCase() === sf);
-            }
+            list = list.filter((it) => {
+                const st = deriveEffectiveStatus(it, t);
+                if (sf === "needs_revision") {
+                    // unify returned + needs_revision
+                    return st.code === "needs_revision" || st.code === "returned" || String((it as any).request_status ?? "").toLowerCase() === "returned";
+                }
+                return st.code === sf;
+            });
         }
 
         const term = searchTerm.trim().toLowerCase();
         if (!term) return list;
 
         return list.filter((it) => {
-            const d = deriveClientStatus(it);
+            const st = deriveEffectiveStatus(it, t);
             const hay = [
                 String((it as any).sample_id ?? ""),
-                (it as any).lab_sample_code,
+                it.lab_sample_code,
                 (it as any).request_status,
-                d.label,
-                d.sub,
-                (it as any).sample_type,
-                (it as any).additional_notes,
+                (it as any).current_status,
+                st.label,
+                st.sub,
+                it.sample_type,
+                it.additional_notes,
             ]
                 .filter(Boolean)
                 .join(" ")
@@ -281,7 +227,7 @@ export default function ClientRequestsPage() {
 
             return hay.includes(term);
         });
-    }, [items, searchTerm, statusFilter, deriveClientStatus, t]);
+    }, [items, searchTerm, statusFilter, t]);
 
     const clearFilters = () => {
         setSearchTerm("");
@@ -313,7 +259,7 @@ export default function ClientRequestsPage() {
                 </button>
             </div>
 
-            {/* Flash banner */}
+            {/* Flash */}
             {flash ? (
                 <div
                     className={cx(
@@ -337,7 +283,7 @@ export default function ClientRequestsPage() {
             ) : null}
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Filter bar (match SamplesPage style) */}
+                {/* Filters */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="request-search">
@@ -360,7 +306,7 @@ export default function ClientRequestsPage() {
                         </div>
                     </div>
 
-                    <div className="w-full md:w-60">
+                    <div className="w-full md:w-72">
                         <label className="sr-only" htmlFor="request-status-filter">
                             {t("status")}
                         </label>
@@ -371,14 +317,24 @@ export default function ClientRequestsPage() {
                             onChange={(e) => setStatusFilter(e.target.value)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
-                            <option value="all">{t("portalRequestsPage.filters.allStatus")}</option>
-                            <option value="draft">{t("portalRequestsPage.status.draft")}</option>
-                            <option value="submitted">{t("portalRequestsPage.status.submitted")}</option>
-                            <option value="needs_revision">{t("portalRequestsPage.status.needsRevision")}</option>
-                            <option value="ready_for_delivery">{t("portalRequestsPage.status.readyForDelivery")}</option>
-                            <option value="physically_received">{t("portalRequestsPage.status.physicallyReceived")}</option>
-                            <option value="pickup_required">{t("portalRequestsPage.status.pickupRequired")}</option>
-                            <option value="picked_up">{t("portalRequestsPage.status.pickedUp")}</option>
+                            <option value="all">{t("portal.status.all")}</option>
+
+                            <option value="draft">{t("portal.status.draft")}</option>
+                            <option value="submitted">{t("portal.status.submitted")}</option>
+                            <option value="needs_revision">{t("portal.status.needsRevision")}</option>
+                            <option value="ready_for_delivery">{t("portal.status.readyForDelivery")}</option>
+                            <option value="physically_received">{t("portal.status.physicallyReceived")}</option>
+
+                            <option value="in_progress">{t("portal.status.inProgress")}</option>
+                            <option value="testing_completed">{t("portal.status.testingCompleted")}</option>
+                            <option value="verified">{t("portal.status.verified")}</option>
+                            <option value="validated">{t("portal.status.validated")}</option>
+
+                            <option value="coa_pending_admin">{t("portal.status.coaPendingAdmin")}</option>
+                            <option value="coa_available">{t("portal.status.coaAvailable")}</option>
+
+                            <option value="pickup_required">{t("portal.status.pickupRequired")}</option>
+                            <option value="picked_up">{t("portal.status.pickedUp")}</option>
                         </select>
                     </div>
 
@@ -407,6 +363,7 @@ export default function ClientRequestsPage() {
                     </div>
                 </div>
 
+                {/* Content */}
                 <div className="px-4 md:px-6 py-4">
                     {loading ? <div className="text-sm text-gray-600">{t("portalRequestsPage.loading")}</div> : null}
 
@@ -455,7 +412,8 @@ export default function ClientRequestsPage() {
                                                 const rid = getRequestId(it);
                                                 const updated = fmtDate(it.updated_at ?? it.created_at);
                                                 const sched = fmtDate(it.scheduled_delivery_at);
-                                                const st = deriveClientStatus(it as ClientRequestItem);
+
+                                                const st = deriveEffectiveStatus(it as ClientRequestItem, t);
 
                                                 return (
                                                     <tr key={stableKey(it, idx)} className="hover:bg-gray-50">
@@ -473,7 +431,6 @@ export default function ClientRequestsPage() {
                                                                         "inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold",
                                                                         st.cls
                                                                     )}
-                                                                    title={st.raw ? String(st.raw) : undefined}
                                                                 >
                                                                     {st.label}
                                                                 </span>
@@ -484,7 +441,19 @@ export default function ClientRequestsPage() {
                                                         <td className="px-4 py-3 text-gray-700">{updated}</td>
 
                                                         <td className="px-4 py-3">
-                                                            <div className="flex items-center justify-end">
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                {st.canDownloadCoa && rid ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        className="lims-icon-button"
+                                                                        aria-label={t("portal.actions.downloadCoa")}
+                                                                        title={t("portal.actions.downloadCoa")}
+                                                                        onClick={() => openClientCoaPdf(Number(it.sample_id ?? rid))}
+                                                                    >
+                                                                        <Download size={16} />
+                                                                    </button>
+                                                                ) : null}
+
                                                                 <button
                                                                     type="button"
                                                                     className={cx("lims-icon-button", !rid && "opacity-40 cursor-not-allowed")}
