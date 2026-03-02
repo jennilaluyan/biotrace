@@ -7,7 +7,7 @@ import type { Sample } from "../../services/samples";
 import { clientSampleRequestService } from "../../services/sampleRequests";
 import { ClientRequestFormModal } from "../../components/portal/ClientRequestFormModal";
 import { useClientAuth } from "../../hooks/useClientAuth";
-import { openClientCoaPdf } from "../../services/clientCoa";
+import ClientCoaPreviewModal from "../../components/portal/ClientCoaPreviewModal";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -68,6 +68,15 @@ export default function ClientRequestsPage() {
     const [createOpen, setCreateOpen] = useState(false);
 
     const [flash, setFlash] = useState<FlashPayload | null>(null);
+
+    // ✅ COA preview modal (client)
+    const [coaPreviewOpen, setCoaPreviewOpen] = useState(false);
+    const [coaPreviewSampleId, setCoaPreviewSampleId] = useState<number | null>(null);
+
+    const openCoaPreview = (sampleId: number) => {
+        setCoaPreviewSampleId(sampleId);
+        setCoaPreviewOpen(true);
+    };
 
     useEffect(() => {
         const st = (location.state as any) ?? {};
@@ -329,6 +338,8 @@ export default function ClientRequestsPage() {
                                                 const sched = fmtDate(it.scheduled_delivery_at);
                                                 const st = mapStatus(it.request_status ?? null);
 
+                                                const coaSampleId = Number((it as any).sample_id ?? rid);
+
                                                 return (
                                                     <tr key={stableKey(it, idx)} className="hover:bg-gray-50">
                                                         <td className="px-4 py-3">
@@ -348,11 +359,11 @@ export default function ClientRequestsPage() {
 
                                                         <td className="px-4 py-3">
                                                             <div className="flex items-center justify-end gap-2">
-                                                                {(it as any)?.coa_released_to_client_at && rid ? (
+                                                                {(it as any)?.coa_released_to_client_at && Number.isFinite(coaSampleId) ? (
                                                                     <button
                                                                         type="button"
                                                                         className="lims-icon-button"
-                                                                        onClick={() => openClientCoaPdf(Number((it as any).sample_id ?? rid))}
+                                                                        onClick={() => openCoaPreview(coaSampleId)}
                                                                         aria-label={t("portal.actions.downloadCoa", "Download COA")}
                                                                         title={t("portal.actions.downloadCoa", "Download COA")}
                                                                     >
@@ -392,6 +403,16 @@ export default function ClientRequestsPage() {
                     setFlash({ type: "success", message: t("portalRequestsPage.flash.created", "Request created.") });
                     await load();
                 }}
+            />
+
+            <ClientCoaPreviewModal
+                open={coaPreviewOpen}
+                onClose={() => {
+                    setCoaPreviewOpen(false);
+                    setCoaPreviewSampleId(null);
+                }}
+                sampleId={coaPreviewSampleId}
+                title={t("portal.coa.previewTitle", "COA Preview")}
             />
         </div>
     );

@@ -392,10 +392,37 @@ class ClientSampleRequestController extends Controller
 
             $filename = 'COA_' . preg_replace('/[^A-Za-z0-9_\-]/', '_', (string) ($report->report_no ?? $sampleId)) . '.pdf';
 
-            return response($file->bytes, 200, [
+            $headers = [
                 'Content-Type' => 'application/pdf',
                 'Content-Disposition' => 'inline; filename="' . $filename . '"',
-            ]);
+                'X-Content-Type-Options' => 'nosniff',
+            ];
+
+            // ✅ PostgreSQL / some drivers can return BYTEA/BLOB as a resource stream
+            if (is_resource($file->bytes)) {
+                return response()->streamDownload(
+                    function () use ($file) {
+                        try {
+                            @rewind($file->bytes);
+                        } catch (\Throwable $e) {
+                            // ignore
+                        }
+
+                        fpassthru($file->bytes);
+
+                        try {
+                            @fclose($file->bytes);
+                        } catch (\Throwable $e) {
+                            // ignore
+                        }
+                    },
+                    $filename,
+                    $headers
+                );
+            }
+
+            // ✅ If it's already raw bytes string, normal response is fine
+            return response((string) $file->bytes, 200, $headers);
         }
 
         // Fallback: pdf_url from storage/public
@@ -414,7 +441,8 @@ class ClientSampleRequestController extends Controller
         foreach ($tryDisks as $d) {
             try {
                 if (Storage::disk($d)->exists($pdfUrl)) {
-                    return Storage::disk($d)->download($pdfUrl);
+                    $path = Storage::disk($d)->path($pdfUrl);
+                    return response()->download($path);
                 }
             } catch (\Throwable $e) {
                 // keep trying

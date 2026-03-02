@@ -1,3 +1,5 @@
+// L:\Campus\Final Countdown\biotrace\frontend\src\pages\portal\ClientRequestDetailPage.tsx
+
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -21,7 +23,7 @@ import type { Sample } from "../../services/samples";
 import { clientSampleRequestService } from "../../services/sampleRequests";
 import { listParameters, type ParameterRow } from "../../services/parameters";
 import { formatDateTimeLocal } from "../../utils/date";
-import { openClientCoaPdf } from "../../services/clientCoa";
+import ClientCoaPreviewModal from "../../components/portal/ClientCoaPreviewModal";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -107,6 +109,15 @@ export default function ClientRequestDetailPage() {
     const [selectedParamId, setSelectedParamId] = useState<number | null>(null);
     const [paramPickerOpen, setParamPickerOpen] = useState(true);
 
+    // ✅ COA preview modal (client)
+    const [coaPreviewOpen, setCoaPreviewOpen] = useState(false);
+    const [coaPreviewSampleId, setCoaPreviewSampleId] = useState<number | null>(null);
+
+    const openCoaPreview = (sampleId: number) => {
+        setCoaPreviewSampleId(sampleId);
+        setCoaPreviewOpen(true);
+    };
+
     const effectiveStatus = useMemo(() => String((data as any)?.request_status ?? ""), [data]);
 
     const canEdit = useMemo(() => {
@@ -123,6 +134,11 @@ export default function ClientRequestDetailPage() {
         const note = String((data as any)?.request_return_note ?? "").trim();
         return note || null;
     }, [data]);
+
+    const coaSampleId = useMemo(() => {
+        const sid = Number((data as any)?.sample_id);
+        return Number.isFinite(sid) && sid > 0 ? sid : numericId;
+    }, [data, numericId]);
 
     const loadParams = async (q?: string) => {
         try {
@@ -323,7 +339,6 @@ export default function ClientRequestDetailPage() {
     const statusLower = statusLabel.toLowerCase();
     const requestIdLabel = (data as any).sample_id ?? numericId;
 
-    // COA state (backend must attach these fields)
     const coaReleasedAt = (data as any)?.coa_released_to_client_at ?? null;
     const coaCheckedAt = (data as any)?.coa_checked_at ?? null;
     const coaNote = String((data as any)?.coa_release_note ?? "").trim() || null;
@@ -483,7 +498,7 @@ export default function ClientRequestDetailPage() {
                             <button
                                 type="button"
                                 className="lims-btn-primary inline-flex items-center gap-2 shrink-0"
-                                onClick={() => openClientCoaPdf(Number(requestIdLabel))}
+                                onClick={() => Number.isFinite(coaSampleId) && openCoaPreview(coaSampleId as number)}
                             >
                                 <Download size={16} />
                                 {t("portal.actions.downloadCoa", "Download COA")}
@@ -669,6 +684,16 @@ export default function ClientRequestDetailPage() {
                     </div>
                 </div>
             </div>
+
+            <ClientCoaPreviewModal
+                open={coaPreviewOpen}
+                onClose={() => {
+                    setCoaPreviewOpen(false);
+                    setCoaPreviewSampleId(null);
+                }}
+                sampleId={coaPreviewSampleId}
+                title={t("portal.coa.previewTitle", "COA Preview")}
+            />
         </div>
     );
 }

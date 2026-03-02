@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { clientSampleRequestService } from "../../services/sampleRequests";
 import type { Sample } from "../../services/samples";
 import { useClientAuth } from "../../hooks/useClientAuth";
-import { openClientCoaPdf } from "../../services/clientCoa";
+import ClientCoaPreviewModal from "../../components/portal/ClientCoaPreviewModal";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -93,6 +93,15 @@ export default function ClientDashboardPage() {
     const [loading, setLoading] = useState(true);
     const [errorKey, setErrorKey] = useState<string | null>(null);
 
+    // ✅ COA preview modal (client)
+    const [coaPreviewOpen, setCoaPreviewOpen] = useState(false);
+    const [coaPreviewSampleId, setCoaPreviewSampleId] = useState<number | null>(null);
+
+    const openCoaPreview = (sampleId: number) => {
+        setCoaPreviewSampleId(sampleId);
+        setCoaPreviewOpen(true);
+    };
+
     const load = useCallback(async () => {
         try {
             setErrorKey(null);
@@ -156,9 +165,7 @@ export default function ClientDashboardPage() {
                     <h1 className="text-lg md:text-xl font-bold text-gray-900">
                         {t("portal.dashboardPage.title", "Dashboard")}
                     </h1>
-                    <p className="text-sm text-gray-600 mt-1">
-                        {t("portal.dashboardPage.subtitle", { name: greetingName })}
-                    </p>
+                    <p className="text-sm text-gray-600 mt-1">{t("portal.dashboardPage.subtitle", { name: greetingName })}</p>
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
@@ -305,13 +312,13 @@ export default function ClientDashboardPage() {
                                     const chip = getStatusChip(it.request_status ?? null, t);
                                     const updated = fmtDate(it.updated_at ?? it.created_at, i18n.language || "en");
 
+                                    const coaSampleId = Number((it as any).sample_id ?? rid);
+
                                     return (
                                         <li key={String(rid ?? idx)} className="py-3 flex items-center justify-between gap-3">
                                             <div className="min-w-0">
                                                 <div className="flex items-center gap-2 flex-wrap">
-                                                    <div className="font-medium text-gray-900">
-                                                        {t("portal.requestDetail.title", { id: rid ?? "—" })}
-                                                    </div>
+                                                    <div className="font-medium text-gray-900">{t("portal.requestDetail.title", { id: rid ?? "—" })}</div>
                                                     <span className={chip.cls}>{chip.label}</span>
                                                 </div>
                                                 <div className="text-xs text-gray-500 mt-1">
@@ -320,11 +327,11 @@ export default function ClientDashboardPage() {
                                             </div>
 
                                             <div className="flex items-center gap-2">
-                                                {(it as any)?.coa_released_to_client_at && rid ? (
+                                                {(it as any)?.coa_released_to_client_at && Number.isFinite(coaSampleId) ? (
                                                     <button
                                                         type="button"
                                                         className="lims-icon-button"
-                                                        onClick={() => openClientCoaPdf(Number((it as any).sample_id ?? rid))}
+                                                        onClick={() => openCoaPreview(coaSampleId)}
                                                         aria-label={t("portal.actions.downloadCoa", "Download COA")}
                                                         title={t("portal.actions.downloadCoa", "Download COA")}
                                                     >
@@ -379,6 +386,16 @@ export default function ClientDashboardPage() {
                     </div>
                 </div>
             </div>
+
+            <ClientCoaPreviewModal
+                open={coaPreviewOpen}
+                onClose={() => {
+                    setCoaPreviewOpen(false);
+                    setCoaPreviewSampleId(null);
+                }}
+                sampleId={coaPreviewSampleId}
+                title={t("portal.coa.previewTitle", "COA Preview")}
+            />
         </div>
     );
 }
