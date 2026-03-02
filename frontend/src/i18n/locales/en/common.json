@@ -1988,7 +1988,8 @@
                 "actions": {
                     "open": "Open",
                     "accept": "Accept",
-                    "return": "Return"
+                    "return": "Return",
+                    "received": "Received"
                 }
             },
             "requestDetail": {

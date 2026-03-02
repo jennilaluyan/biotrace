@@ -447,7 +447,7 @@ export default function SampleRequestsQueuePage() {
                                                                         onClick={() => openModal(r, "return")}
                                                                         title={t("samples.pages.queue.actions.return", { defaultValue: "Return request to client" })}
                                                                     >
-                                                                        {t("samples.pages.queue.actions.returnBtn", { defaultValue: "Return" })}
+                                                                        {t("samples.pages.queue.actions.return", { defaultValue: "Return" })}
                                                                     </button>
 
                                                                     <button
@@ -461,7 +461,7 @@ export default function SampleRequestsQueuePage() {
                                                                         onClick={() => openModal(r, "received")}
                                                                         title={t("samples.pages.queue.actions.received", { defaultValue: "Mark physically received" })}
                                                                     >
-                                                                        {t("samples.pages.queue.actions.receivedBtn", { defaultValue: "Received" })}
+                                                                        {t("samples.pages.queue.actions.received", { defaultValue: "Received" })}
                                                                     </button>
                                                                 </>
                                                             ) : null}

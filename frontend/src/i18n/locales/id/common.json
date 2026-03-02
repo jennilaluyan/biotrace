@@ -1994,7 +1994,8 @@
                 "actions": {
                     "open": "Buka",
                     "accept": "Terima",
-                    "return": "Kembalikan"
+                    "return": "Kembalikan",
+                    "received": "Diterima"
                 }
             },
             "requestDetail": {
