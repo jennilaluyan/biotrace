@@ -492,6 +492,8 @@ Route::prefix('v1')->group(function () {
             ->whereNumber('report');
         Route::post('reports/{report}/release-coa', [ReportDeliveryController::class, 'releaseCoaToClient'])
             ->whereNumber('report');
+        Route::get('client/samples/{sample}/coa', [\App\Http\Controllers\ClientSampleRequestController::class, 'downloadCoa'])
+            ->whereNumber('sample');
 
         // Documents
         Route::get('/document-templates', [DocumentTemplateController::class, 'index']);
