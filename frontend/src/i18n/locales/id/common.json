@@ -574,7 +574,7 @@
             "loadFailed": "Gagal memuat daftar request."
         },
         "flash": {
-            "created": "Request berhasil dibuat. Lengkapi data wajib, lalu kirim."
+            "created": "Request berhasil dibuat."
         },
         "filters": {
             "searchLabel": "Cari request",
@@ -705,8 +705,7 @@
             "subtitle": "Selamat datang{{name}}. Buat dan lacak permintaan sampel Anda di sini.",
             "cta": {
                 "openRequests": "Buka permintaan",
-                "createRequest": "Permintaan baru",
-                "viewAll": "Lihat semua"
+                "createRequest": "Permintaan baru"
             },
             "stats": {
                 "totalTitle": "Total permintaan",

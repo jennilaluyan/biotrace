@@ -565,7 +565,7 @@
             "loadFailed": "Failed to load sample requests."
         },
         "flash": {
-            "created": "Request created. Complete the required fields, then submit."
+            "created": "Request created."
         },
         "filters": {
             "searchLabel": "Search requests",
@@ -696,8 +696,7 @@
             "subtitle": "Welcome{{name}}. Create and track your sample requests here.",
             "cta": {
                 "openRequests": "Open requests",
-                "createRequest": "New request",
-                "viewAll": "View all"
+                "createRequest": "New request"
             },
             "stats": {
                 "totalTitle": "Total requests",

@@ -188,15 +188,6 @@ export default function ClientDashboardPage() {
                         <FilePlus2 size={16} />
                         {t("portal.dashboardPage.cta.createRequest", "New request")}
                     </button>
-
-                    <button
-                        type="button"
-                        className="btn-outline inline-flex items-center gap-2"
-                        onClick={() => navigate("/portal/requests")}
-                    >
-                        <List size={16} />
-                        {t("portal.dashboardPage.cta.viewAll", "View all")}
-                    </button>
                 </div>
             </div>
 
