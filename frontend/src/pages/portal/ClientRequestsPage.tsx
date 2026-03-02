@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Download, Eye, FilePlus2, RefreshCw, Search, X } from "lucide-react";
+import { Eye, FilePlus2, RefreshCw, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { Sample } from "../../services/samples";
@@ -8,35 +8,14 @@ import { clientSampleRequestService } from "../../services/sampleRequests";
 import { ClientRequestFormModal } from "../../components/portal/ClientRequestFormModal";
 import { useClientAuth } from "../../hooks/useClientAuth";
 
-import { getClientTracking } from "../../utils/clientTracking";
-import { openClientCoaPdf } from "../../services/clientCoa";
-
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
 type ClientRequestItem = Sample & {
-    // pickup-related timestamps (optional)
     admin_received_from_collector_at?: string | null;
     collector_returned_to_admin_at?: string | null;
     client_picked_up_at?: string | null;
-
-    // tracking fields (optional; attached by backend)
-    request_status?: string | null;
-    current_status?: string | null;
-
-    coa_is_locked?: boolean;
-    coa_released_to_client_at?: string | null;
-    coa_checked_at?: string | null;
-    coa_release_note?: string | null;
-
-    created_at?: string | null;
-    updated_at?: string | null;
-
-    scheduled_delivery_at?: string | null;
-    lab_sample_code?: string | null;
-    sample_type?: string | null;
-    additional_notes?: string | null;
 };
 
 type FlashPayload = { type: "success" | "warning" | "error"; message: string };
@@ -58,70 +37,19 @@ function stableKey(it: any, idx: number) {
     return String(it?.sample_id ?? it?.id ?? it?.lab_sample_code ?? idx);
 }
 
-type EffectiveStatus = {
-    code:
-    | "draft"
-    | "submitted"
-    | "needs_revision"
-    | "returned"
-    | "ready_for_delivery"
-    | "physically_received"
-    | "in_progress"
-    | "testing_completed"
-    | "verified"
-    | "validated"
-    | "coa_pending_admin"
-    | "coa_available"
-    | "reported"
-    | "pickup_required"
-    | "picked_up"
-    | "unknown";
-    label: string;
-    cls: string;
-    sub?: string;
-    canDownloadCoa: boolean;
-};
-
-function deriveEffectiveStatus(it: ClientRequestItem, t: any): EffectiveStatus {
-    // Special pickup states override normal mapping
-    const rs = String((it as any).request_status ?? "").toLowerCase();
-    const pickedAt = it.client_picked_up_at ?? null;
-    const waitingSince = it.admin_received_from_collector_at ?? it.collector_returned_to_admin_at ?? null;
-    const isReturnedFamily = rs === "returned" || rs === "needs_revision";
-
-    if (pickedAt) {
-        return {
-            code: "picked_up",
-            label: t("portal.status.pickedUp"),
-            cls: "bg-emerald-50 text-emerald-700",
-            sub: t("portalRequestsPage.sub.pickedUpAt", { date: fmtDate(pickedAt) }),
-            canDownloadCoa: false,
-        };
+function statusChipClass(kind: "gray" | "primary" | "amber" | "indigo" | "emerald") {
+    switch (kind) {
+        case "primary":
+            return "bg-primary-soft/10 text-primary-soft";
+        case "amber":
+            return "bg-amber-50 text-amber-800";
+        case "indigo":
+            return "bg-indigo-50 text-indigo-700";
+        case "emerald":
+            return "bg-emerald-50 text-emerald-700";
+        default:
+            return "bg-gray-100 text-gray-700";
     }
-
-    if (isReturnedFamily && waitingSince) {
-        return {
-            code: "pickup_required",
-            label: t("portal.status.pickupRequired"),
-            cls: "bg-amber-50 text-amber-800",
-            sub: t("portalRequestsPage.sub.waitingSince", { date: fmtDate(waitingSince) }),
-            canDownloadCoa: false,
-        };
-    }
-
-    const tr = getClientTracking(it, t);
-
-    // Make class compatible with table pill style
-    const cls = tr.cls
-        .replace("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold", "")
-        .trim();
-
-    return {
-        code: tr.code as any,
-        label: tr.label,
-        cls: cls || "bg-slate-100 text-slate-700",
-        canDownloadCoa: tr.canDownloadCoa,
-    };
 }
 
 export default function ClientRequestsPage() {
@@ -162,7 +90,23 @@ export default function ClientRequestsPage() {
             e?.data?.message ??
             e?.data?.error ??
             (typeof e?.message === "string" ? e.message : null) ??
-            t("portalRequestsPage.errors.loadFailed"),
+            t("portalRequestsPage.errors.loadFailed", "Failed to load requests."),
+        [t]
+    );
+
+    const mapStatus = useCallback(
+        (raw?: string | null) => {
+            const s = String(raw ?? "").trim().toLowerCase();
+
+            if (!s) return { label: t("portalRequestsPage.status.unknown", "Unknown"), cls: statusChipClass("gray") };
+            if (s === "draft") return { label: t("portalRequestsPage.status.draft", "Draft"), cls: statusChipClass("gray") };
+            if (s === "submitted") return { label: t("portalRequestsPage.status.submitted", "Submitted"), cls: statusChipClass("primary") };
+            if (s === "returned" || s === "needs_revision") return { label: t("portalRequestsPage.status.needsRevision", "Needs revision"), cls: statusChipClass("amber") };
+            if (s === "ready_for_delivery") return { label: t("portalRequestsPage.status.readyForDelivery", "Ready for delivery"), cls: statusChipClass("indigo") };
+            if (s === "physically_received") return { label: t("portalRequestsPage.status.physicallyReceived", "Physically received"), cls: statusChipClass("emerald") };
+
+            return { label: String(raw), cls: statusChipClass("gray") };
+        },
         [t]
     );
 
@@ -170,8 +114,9 @@ export default function ClientRequestsPage() {
         try {
             setError(null);
             setLoading(true);
+
             const res = await clientSampleRequestService.list({ page: 1, per_page: 100 });
-            setItems((res?.data ?? []) as ClientRequestItem[]);
+            setItems((res.data ?? []) as ClientRequestItem[]);
         } catch (e: any) {
             setError(getErrMsg(e));
             setItems([]);
@@ -189,6 +134,7 @@ export default function ClientRequestsPage() {
         }
 
         void load();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [authLoading, isClientAuthenticated, navigate, load]);
 
     const filtered = useMemo(() => {
@@ -196,30 +142,30 @@ export default function ClientRequestsPage() {
 
         const sf = statusFilter.toLowerCase();
         if (sf !== "all") {
-            list = list.filter((it) => {
-                const st = deriveEffectiveStatus(it, t);
-                if (sf === "needs_revision") {
-                    // unify returned + needs_revision
-                    return st.code === "needs_revision" || st.code === "returned" || String((it as any).request_status ?? "").toLowerCase() === "returned";
-                }
-                return st.code === sf;
-            });
+            if (sf === "needs_revision") {
+                list = list.filter((it) => {
+                    const rs = String((it as any).request_status ?? "").toLowerCase();
+                    return rs === "needs_revision" || rs === "returned";
+                });
+            } else {
+                list = list.filter((it) => String((it as any).request_status ?? "").toLowerCase() === sf);
+            }
         }
 
         const term = searchTerm.trim().toLowerCase();
         if (!term) return list;
 
         return list.filter((it) => {
-            const st = deriveEffectiveStatus(it, t);
+            const rid = getRequestId(it);
+            const st = mapStatus((it as any).request_status ?? null);
+
             const hay = [
-                String((it as any).sample_id ?? ""),
-                it.lab_sample_code,
+                String(rid ?? ""),
+                (it as any).lab_sample_code,
                 (it as any).request_status,
-                (it as any).current_status,
                 st.label,
-                st.sub,
-                it.sample_type,
-                it.additional_notes,
+                (it as any).sample_type,
+                (it as any).additional_notes,
             ]
                 .filter(Boolean)
                 .join(" ")
@@ -227,26 +173,21 @@ export default function ClientRequestsPage() {
 
             return hay.includes(term);
         });
-    }, [items, searchTerm, statusFilter, t]);
+    }, [items, searchTerm, statusFilter, mapStatus]);
 
     const clearFilters = () => {
         setSearchTerm("");
         setStatusFilter("all");
     };
 
-    const resultMeta = useMemo(() => {
-        const total = items.length;
-        const shown = filtered.length;
-        return { total, shown };
-    }, [items.length, filtered.length]);
+    const resultMeta = useMemo(() => ({ total: items.length, shown: filtered.length }), [items.length, filtered.length]);
 
     return (
         <div className="min-h-[60vh]">
-            {/* Header */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("portalRequestsPage.title")}</h1>
-                    <p className="text-sm text-gray-600 mt-1">{t("portalRequestsPage.subtitle")}</p>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("portalRequestsPage.title", "Sample Requests")}</h1>
+                    <p className="text-sm text-gray-600 mt-1">{t("portalRequestsPage.subtitle", "Create, submit, and track your requests.")}</p>
                 </div>
 
                 <button
@@ -255,11 +196,10 @@ export default function ClientRequestsPage() {
                     className="lims-btn-primary self-start md:self-auto inline-flex items-center gap-2"
                 >
                     <FilePlus2 size={16} />
-                    {t("portalRequestsPage.newRequest")}
+                    {t("portalRequestsPage.newRequest", "New request")}
                 </button>
             </div>
 
-            {/* Flash */}
             {flash ? (
                 <div
                     className={cx(
@@ -270,24 +210,17 @@ export default function ClientRequestsPage() {
                     )}
                 >
                     <div className="leading-relaxed">{flash.message}</div>
-                    <button
-                        type="button"
-                        onClick={() => setFlash(null)}
-                        className="lims-icon-button"
-                        aria-label={t("close")}
-                        title={t("close")}
-                    >
+                    <button type="button" onClick={() => setFlash(null)} className="lims-icon-button" aria-label={t("close", "Close")} title={t("close", "Close")}>
                         <X size={16} />
                     </button>
                 </div>
             ) : null}
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Filters */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="request-search">
-                            {t("portalRequestsPage.filters.searchLabel")}
+                            {t("portalRequestsPage.filters.searchLabel", "Search")}
                         </label>
 
                         <div className="relative">
@@ -300,15 +233,15 @@ export default function ClientRequestsPage() {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder={t("portalRequestsPage.filters.searchPlaceholder")}
+                                placeholder={t("portalRequestsPage.filters.searchPlaceholder", "Search by id, status, sample type…")}
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
                     </div>
 
-                    <div className="w-full md:w-72">
+                    <div className="w-full md:w-60">
                         <label className="sr-only" htmlFor="request-status-filter">
-                            {t("status")}
+                            {t("status", "Status")}
                         </label>
 
                         <select
@@ -317,24 +250,12 @@ export default function ClientRequestsPage() {
                             onChange={(e) => setStatusFilter(e.target.value)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
-                            <option value="all">{t("portal.status.all")}</option>
-
-                            <option value="draft">{t("portal.status.draft")}</option>
-                            <option value="submitted">{t("portal.status.submitted")}</option>
-                            <option value="needs_revision">{t("portal.status.needsRevision")}</option>
-                            <option value="ready_for_delivery">{t("portal.status.readyForDelivery")}</option>
-                            <option value="physically_received">{t("portal.status.physicallyReceived")}</option>
-
-                            <option value="in_progress">{t("portal.status.inProgress")}</option>
-                            <option value="testing_completed">{t("portal.status.testingCompleted")}</option>
-                            <option value="verified">{t("portal.status.verified")}</option>
-                            <option value="validated">{t("portal.status.validated")}</option>
-
-                            <option value="coa_pending_admin">{t("portal.status.coaPendingAdmin")}</option>
-                            <option value="coa_available">{t("portal.status.coaAvailable")}</option>
-
-                            <option value="pickup_required">{t("portal.status.pickupRequired")}</option>
-                            <option value="picked_up">{t("portal.status.pickedUp")}</option>
+                            <option value="all">{t("portalRequestsPage.filters.allStatus", "All statuses")}</option>
+                            <option value="draft">{t("portalRequestsPage.status.draft", "Draft")}</option>
+                            <option value="submitted">{t("portalRequestsPage.status.submitted", "Submitted")}</option>
+                            <option value="needs_revision">{t("portalRequestsPage.status.needsRevision", "Needs revision")}</option>
+                            <option value="ready_for_delivery">{t("portalRequestsPage.status.readyForDelivery", "Ready for delivery")}</option>
+                            <option value="physically_received">{t("portalRequestsPage.status.physicallyReceived", "Physically received")}</option>
                         </select>
                     </div>
 
@@ -343,8 +264,8 @@ export default function ClientRequestsPage() {
                             type="button"
                             className="lims-icon-button"
                             onClick={load}
-                            aria-label={t("refresh")}
-                            title={t("refresh")}
+                            aria-label={t("refresh", "Refresh")}
+                            title={t("refresh", "Refresh")}
                             disabled={loading}
                         >
                             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
@@ -354,8 +275,8 @@ export default function ClientRequestsPage() {
                             type="button"
                             className="lims-icon-button"
                             onClick={clearFilters}
-                            aria-label={t("clearFilters")}
-                            title={t("clearFilters")}
+                            aria-label={t("clearFilters", "Clear filters")}
+                            title={t("clearFilters", "Clear filters")}
                             disabled={loading && !searchTerm && statusFilter === "all"}
                         >
                             <X size={16} />
@@ -363,34 +284,27 @@ export default function ClientRequestsPage() {
                     </div>
                 </div>
 
-                {/* Content */}
                 <div className="px-4 md:px-6 py-4">
-                    {loading ? <div className="text-sm text-gray-600">{t("portalRequestsPage.loading")}</div> : null}
+                    {loading ? <div className="text-sm text-gray-600">{t("portalRequestsPage.loading", "Loading…")}</div> : null}
 
                     {error && !loading ? (
-                        <div className="text-sm text-rose-900 bg-rose-50 border border-rose-200 px-4 py-3 rounded-2xl mb-4">
-                            {error}
-                        </div>
+                        <div className="text-sm text-rose-900 bg-rose-50 border border-rose-200 px-4 py-3 rounded-2xl mb-4">{error}</div>
                     ) : null}
 
                     {!loading && !error ? (
                         <>
                             <div className="text-xs text-gray-600 mb-3">
-                                {t("portalRequestsPage.meta.showing", { shown: resultMeta.shown, total: resultMeta.total })}
+                                {t("portalRequestsPage.meta.showing", "Showing {{shown}} of {{total}}", { shown: resultMeta.shown, total: resultMeta.total })}
                             </div>
 
                             {filtered.length === 0 ? (
                                 <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-5 text-sm text-gray-700">
-                                    <div className="font-semibold text-gray-900">{t("portalRequestsPage.empty.title")}</div>
-                                    <div className="text-sm text-gray-600 mt-1">{t("portalRequestsPage.empty.body")}</div>
+                                    <div className="font-semibold text-gray-900">{t("portalRequestsPage.empty.title", "No requests")}</div>
+                                    <div className="text-sm text-gray-600 mt-1">{t("portalRequestsPage.empty.body", "Create a request to start.")}</div>
 
-                                    <button
-                                        type="button"
-                                        className="lims-btn-primary mt-4 inline-flex items-center gap-2"
-                                        onClick={() => setCreateOpen(true)}
-                                    >
+                                    <button type="button" className="lims-btn-primary mt-4 inline-flex items-center gap-2" onClick={() => setCreateOpen(true)}>
                                         <FilePlus2 size={16} />
-                                        {t("portalRequestsPage.empty.cta")}
+                                        {t("portalRequestsPage.empty.cta", "Create request")}
                                     </button>
                                 </div>
                             ) : (
@@ -398,12 +312,12 @@ export default function ClientRequestsPage() {
                                     <table className="min-w-full text-sm">
                                         <thead className="bg-white text-gray-700 border-b border-gray-100">
                                             <tr>
-                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.request")}</th>
-                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.sampleType")}</th>
-                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.scheduledDelivery")}</th>
-                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.status")}</th>
-                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.updated")}</th>
-                                                <th className="text-right font-semibold px-4 py-3">{t("actions")}</th>
+                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.request", "Request")}</th>
+                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.sampleType", "Sample type")}</th>
+                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.scheduledDelivery", "Scheduled delivery")}</th>
+                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.status", "Status")}</th>
+                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.updated", "Updated")}</th>
+                                                <th className="text-right font-semibold px-4 py-3">{t("actions", "Actions")}</th>
                                             </tr>
                                         </thead>
 
@@ -412,8 +326,7 @@ export default function ClientRequestsPage() {
                                                 const rid = getRequestId(it);
                                                 const updated = fmtDate(it.updated_at ?? it.created_at);
                                                 const sched = fmtDate(it.scheduled_delivery_at);
-
-                                                const st = deriveEffectiveStatus(it as ClientRequestItem, t);
+                                                const st = mapStatus(it.request_status ?? null);
 
                                                 return (
                                                     <tr key={stableKey(it, idx)} className="hover:bg-gray-50">
@@ -425,40 +338,20 @@ export default function ClientRequestsPage() {
                                                         <td className="px-4 py-3 text-gray-700">{sched}</td>
 
                                                         <td className="px-4 py-3">
-                                                            <div className="flex flex-col gap-1">
-                                                                <span
-                                                                    className={cx(
-                                                                        "inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold",
-                                                                        st.cls
-                                                                    )}
-                                                                >
-                                                                    {st.label}
-                                                                </span>
-                                                                {st.sub ? <span className="text-[11px] text-gray-500">{st.sub}</span> : null}
-                                                            </div>
+                                                            <span className={cx("inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold", st.cls)}>
+                                                                {st.label}
+                                                            </span>
                                                         </td>
 
                                                         <td className="px-4 py-3 text-gray-700">{updated}</td>
 
                                                         <td className="px-4 py-3">
-                                                            <div className="flex items-center justify-end gap-2">
-                                                                {st.canDownloadCoa && rid ? (
-                                                                    <button
-                                                                        type="button"
-                                                                        className="lims-icon-button"
-                                                                        aria-label={t("portal.actions.downloadCoa")}
-                                                                        title={t("portal.actions.downloadCoa")}
-                                                                        onClick={() => openClientCoaPdf(Number(it.sample_id ?? rid))}
-                                                                    >
-                                                                        <Download size={16} />
-                                                                    </button>
-                                                                ) : null}
-
+                                                            <div className="flex items-center justify-end">
                                                                 <button
                                                                     type="button"
                                                                     className={cx("lims-icon-button", !rid && "opacity-40 cursor-not-allowed")}
-                                                                    aria-label={t("portalRequestsPage.actions.open")}
-                                                                    title={t("portalRequestsPage.actions.open")}
+                                                                    aria-label={t("portalRequestsPage.actions.open", "Open")}
+                                                                    title={t("portalRequestsPage.actions.open", "Open")}
                                                                     disabled={!rid}
                                                                     onClick={() => rid && navigate(`/portal/requests/${rid}`)}
                                                                 >
@@ -483,7 +376,7 @@ export default function ClientRequestsPage() {
                 onClose={() => setCreateOpen(false)}
                 onCreated={async () => {
                     setCreateOpen(false);
-                    setFlash({ type: "success", message: t("portalRequestsPage.flash.created") });
+                    setFlash({ type: "success", message: t("portalRequestsPage.flash.created", "Request created.") });
                     await load();
                 }}
             />
