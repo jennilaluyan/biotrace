@@ -24,6 +24,9 @@ class ParameterRequest extends Model
         'decided_at',
         'decision_note',
         'approved_parameter_id',
+        'request_type',
+        'parameter_id',
+        'payload',
     ];
 
     protected $casts = [
@@ -34,6 +37,8 @@ class ParameterRequest extends Model
         'approved_parameter_id' => 'integer',
         'requested_by' => 'integer',
         'decided_by' => 'integer',
+        'parameter_id' => 'integer',
+        'payload' => 'array',
     ];
 
     public function requester()

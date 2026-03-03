@@ -12,6 +12,7 @@ use App\Models\Parameter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use App\Http\Requests\ParameterRequestRejectRequest;
+use App\Support\AuditDiffBuilder;
 
 class ParameterRequestController extends Controller
 {
@@ -79,42 +80,66 @@ class ParameterRequestController extends Controller
 
         $staff = $request->user();
         $staffId = (int) ($staff?->staff_id ?? 0);
-
         $data = $request->validated();
 
-        // Default category (keep deterministic)
-        $category = strtolower(trim((string) ($data['category'] ?? 'microbiology')));
-        if ($category === '') $category = 'microbiology';
+        $targetId = isset($data['parameter_id']) ? (int) $data['parameter_id'] : 0;
 
-        $row = ParameterRequest::create([
-            'parameter_name' => trim((string) $data['parameter_name']),
-            'category' => $category,
-            'reason' => $data['reason'] ?? null,
-            'status' => 'pending',
-            'requested_by' => $staffId,
-            'requested_at' => now(),
-        ]);
+        // ✅ UPDATE REQUEST FLOW
+        if ($targetId > 0) {
+            $param = Parameter::query()->find($targetId);
+            if (!$param) {
+                return ApiResponse::error('Parameter not found.', 'not_found', 404, ['resource' => 'parameter_requests']);
+            }
 
-        AuditLogger::write(
-            action: 'PARAMETER_REQUEST_SUBMITTED',
-            staffId: $staffId,
-            entityName: 'parameter_requests',
-            entityId: (int) $row->id,
-            oldValues: null,
-            newValues: [
-                'parameter_name' => $row->parameter_name,
-                'category' => $row->category,
-                'reason' => $row->reason,
-                'status' => $row->status,
-            ]
-        );
+            $payload = array_filter([
+                'name' => isset($data['name']) ? trim((string) $data['name']) : null,
+                'workflow_group' => $data['workflow_group'] ?? null,
+                'status' => $data['status'] ?? null,
+                'tag' => $data['tag'] ?? null,
+            ], fn($v) => $v !== null && $v !== '');
 
-        return ApiResponse::success(
-            $row,
-            'Parameter request submitted.',
-            201,
-            ['resource' => 'parameter_requests']
-        );
+            if (!$payload) {
+                return ApiResponse::error('No changes submitted.', 'no_changes', 422, ['resource' => 'parameter_requests']);
+            }
+
+            $row = ParameterRequest::create([
+                'request_type' => 'update',
+                'parameter_id' => $param->parameter_id,
+                'payload' => $payload,
+
+                // for list display (simple, UI-friendly)
+                'parameter_name' => $payload['name'] ?? $param->name,
+                'category' => $payload['workflow_group'] ?? ($param->workflow_group ?? 'microbiology'),
+
+                'reason' => $data['reason'] ?? null,
+                'status' => 'pending',
+                'requested_by' => $staffId,
+                'requested_at' => now(),
+            ]);
+
+            $before = $param->only(['name', 'workflow_group', 'status', 'tag']);
+            $after = [
+                'name' => $payload['name'] ?? $param->name,
+                'workflow_group' => $payload['workflow_group'] ?? $param->workflow_group,
+                'status' => $payload['status'] ?? $param->status,
+                'tag' => $payload['tag'] ?? $param->tag,
+            ];
+
+            AuditLogger::write(
+                action: 'PARAMETER_UPDATE_REQUEST_SUBMITTED',
+                staffId: $staffId,
+                entityName: 'parameter_requests',
+                entityId: (int) $row->id,
+                oldValues: AuditDiffBuilder::fromArrays($before, $after),
+                newValues: [
+                    'request_type' => 'update',
+                    'parameter_id' => (int) $param->parameter_id,
+                    'payload' => $payload,
+                ]
+            );
+
+            return ApiResponse::success($row, 'Parameter update request submitted.', 201, ['resource' => 'parameter_requests']);
+        }
     }
 
     public function approve(Request $request, int $id): JsonResponse
@@ -176,6 +201,68 @@ class ParameterRequestController extends Controller
 
             $nextNo = (int) ($seq->next_number ?? 33);
             if ($nextNo < 33) $nextNo = 33;
+
+            if ((string) $req->request_type === 'update') {
+                $param = Parameter::query()
+                    ->where('parameter_id', (int) $req->parameter_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$param) abort(404, 'Target parameter not found.');
+
+                $before = $param->only(['name', 'workflow_group', 'status', 'tag']);
+
+                $payload = is_array($req->payload) ? $req->payload : [];
+                $apply = array_intersect_key($payload, array_flip(['name', 'workflow_group', 'status', 'tag']));
+
+                $param->fill($apply);
+
+                if ($param->isDirty()) {
+                    $param->save();
+                }
+
+                $after = $param->fresh()->only(['name', 'workflow_group', 'status', 'tag']);
+                $diff = AuditDiffBuilder::fromArrays($before, $after);
+
+                $oldReq = [
+                    'status' => (string) $req->status,
+                    'decided_by' => $req->decided_by,
+                    'decided_at' => $req->decided_at,
+                ];
+
+                $req->status = 'approved';
+                $req->decided_by = $actorId;
+                $req->decided_at = now();
+                $req->approved_parameter_id = (int) $param->parameter_id; // target id
+                $req->save();
+
+                AuditLogger::write(
+                    action: 'PARAMETER_UPDATE_REQUEST_APPROVED',
+                    staffId: $actorId,
+                    entityName: 'parameter_requests',
+                    entityId: (int) $req->id,
+                    oldValues: $oldReq,
+                    newValues: [
+                        'status' => 'approved',
+                        'request_type' => 'update',
+                        'parameter_id' => (int) $param->parameter_id,
+                    ]
+                );
+
+                AuditLogger::write(
+                    action: 'PARAMETER_UPDATED_FROM_REQUEST',
+                    staffId: $actorId,
+                    entityName: 'parameters',
+                    entityId: (int) $param->parameter_id,
+                    oldValues: $diff,
+                    newValues: null
+                );
+
+                return [
+                    'request' => $req->fresh(),
+                    'parameter' => $param->fresh(),
+                ];
+            }
 
             // allocate
             DB::table('parameter_code_sequences')

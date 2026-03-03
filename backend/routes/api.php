@@ -130,7 +130,7 @@ Route::prefix('v1')->group(function () {
         | Master Data (QA)
         |------------------------------------------------------------------
         */
-        Route::apiResource('parameters', ParameterController::class)->only(['index', 'store', 'update', 'destroy']);
+        Route::apiResource('parameters', ParameterController::class)->only(['index', 'store', 'destroy']);
 
         Route::post('parameters/requests', [ParameterRequestController::class, 'store']);
         Route::get('parameter-requests', [ParameterRequestController::class, 'index']);
