@@ -97,11 +97,11 @@ export const NotFoundPage = () => {
                             </button>
 
                             <Link
-                                to="/"
+                                to="/dashboard"
                                 className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95"
                             >
                                 <Home className="h-4 w-4" />
-                                {t("notFound.home", { defaultValue: "Home" })}
+                                {t("nav.dashboard", { defaultValue: "Dashboard" })}
                             </Link>
                         </div>
                     </div>
