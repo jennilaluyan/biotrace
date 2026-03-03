@@ -21,14 +21,14 @@ type ClientRequestItem = Sample & {
 
 type FlashPayload = { type: "success" | "warning" | "error"; message: string };
 
-const fmtDate = (iso?: string | null) => {
+function fmtDate(iso?: string | null) {
     if (!iso) return "-";
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return String(iso);
     return d.toLocaleString();
-};
+}
 
-function getRequestId(it: any): number | null {
+function getSampleId(it: any): number | null {
     const raw = it?.sample_id ?? it?.id ?? it?.request_id;
     const n = Number(raw);
     return Number.isFinite(n) && n > 0 ? n : null;
@@ -36,6 +36,65 @@ function getRequestId(it: any): number | null {
 
 function stableKey(it: any, idx: number) {
     return String(it?.sample_id ?? it?.id ?? it?.lab_sample_code ?? idx);
+}
+
+/**
+ * ✅ Fix #1:
+ * - Build a per-client request number mapping (1..n) from the client's own list.
+ * - UI shows this number as "Request ID", while navigation still uses backend sample_id.
+ */
+function buildClientRequestNumberMap(items: any[]) {
+    const rows = items
+        .map((it) => ({
+            id: getSampleId(it),
+            createdAt: it?.created_at ?? it?.createdAt ?? null,
+        }))
+        .filter((x) => Number.isFinite(Number(x.id)) && Number(x.id) > 0) as Array<{ id: number; createdAt: string | null }>;
+
+    rows.sort((a, b) => {
+        const ta = a.createdAt ? new Date(a.createdAt).getTime() : Number.NaN;
+        const tb = b.createdAt ? new Date(b.createdAt).getTime() : Number.NaN;
+
+        if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+        return a.id - b.id; // stable fallback
+    });
+
+    const map = new Map<number, number>();
+    rows.forEach((r, idx) => map.set(r.id, idx + 1));
+    return map;
+}
+
+/**
+ * ✅ Fix #3:
+ * - Status labels in UI: lower-case, spaces, and keep it short (prefer 1 word).
+ * - Value used for filtering is still the real backend status.
+ */
+function normalizeStatusKey(raw?: string | null) {
+    return String(raw ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+}
+
+function isIndonesian(locale: string) {
+    return String(locale || "").toLowerCase().startsWith("id");
+}
+
+function shortRequestStatusLabel(raw?: string | null, locale = "en") {
+    const k = normalizeStatusKey(raw);
+    const id = isIndonesian(locale);
+
+    // request_status short labels
+    const map: Record<string, { en: string; id: string }> = {
+        draft: { en: "draft", id: "draf" },
+        submitted: { en: "submitted", id: "terkirim" },
+        needs_revision: { en: "revision", id: "revisi" },
+        returned: { en: "revision", id: "revisi" },
+        ready_for_delivery: { en: "delivery", id: "pengantaran" },
+        physically_received: { en: "received", id: "diterima" },
+        pickup_required: { en: "pickup", id: "ambil" },
+        picked_up: { en: "picked", id: "diambil" },
+    };
+
+    if (map[k]) return (id ? map[k].id : map[k].en).toLowerCase();
+    return (k || "unknown").replace(/_/g, " ").toLowerCase();
 }
 
 function statusChipClass(kind: "gray" | "primary" | "amber" | "indigo" | "emerald") {
@@ -53,8 +112,22 @@ function statusChipClass(kind: "gray" | "primary" | "amber" | "indigo" | "emeral
     }
 }
 
+function requestStatusChip(raw?: string | null, locale = "en") {
+    const k = normalizeStatusKey(raw);
+
+    if (k === "draft") return { label: shortRequestStatusLabel(k, locale), cls: statusChipClass("gray") };
+    if (k === "submitted") return { label: shortRequestStatusLabel(k, locale), cls: statusChipClass("primary") };
+    if (k === "returned" || k === "needs_revision") return { label: shortRequestStatusLabel(k, locale), cls: statusChipClass("amber") };
+    if (k === "ready_for_delivery") return { label: shortRequestStatusLabel(k, locale), cls: statusChipClass("indigo") };
+    if (k === "physically_received") return { label: shortRequestStatusLabel(k, locale), cls: statusChipClass("emerald") };
+
+    return { label: shortRequestStatusLabel(raw, locale), cls: statusChipClass("gray") };
+}
+
 export default function ClientRequestsPage() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const locale = i18n.language || "en";
+
     const navigate = useNavigate();
     const location = useLocation();
     const { loading: authLoading, isClientAuthenticated } = useClientAuth() as any;
@@ -104,28 +177,13 @@ export default function ClientRequestsPage() {
         [t]
     );
 
-    const mapStatus = useCallback(
-        (raw?: string | null) => {
-            const s = String(raw ?? "").trim().toLowerCase();
-
-            if (!s) return { label: t("portalRequestsPage.status.unknown", "Unknown"), cls: statusChipClass("gray") };
-            if (s === "draft") return { label: t("portalRequestsPage.status.draft", "Draft"), cls: statusChipClass("gray") };
-            if (s === "submitted") return { label: t("portalRequestsPage.status.submitted", "Submitted"), cls: statusChipClass("primary") };
-            if (s === "returned" || s === "needs_revision") return { label: t("portalRequestsPage.status.needsRevision", "Needs revision"), cls: statusChipClass("amber") };
-            if (s === "ready_for_delivery") return { label: t("portalRequestsPage.status.readyForDelivery", "Ready for delivery"), cls: statusChipClass("indigo") };
-            if (s === "physically_received") return { label: t("portalRequestsPage.status.physicallyReceived", "Physically received"), cls: statusChipClass("emerald") };
-
-            return { label: String(raw), cls: statusChipClass("gray") };
-        },
-        [t]
-    );
-
     const load = useCallback(async () => {
         try {
             setError(null);
             setLoading(true);
 
-            const res = await clientSampleRequestService.list({ page: 1, per_page: 100 });
+            // Uses server pagination; UI-side filtering is done locally.
+            const res = await clientSampleRequestService.list({ page: 1, per_page: 200 });
             setItems((res.data ?? []) as ClientRequestItem[]);
         } catch (e: any) {
             setError(getErrMsg(e));
@@ -147,18 +205,20 @@ export default function ClientRequestsPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [authLoading, isClientAuthenticated, navigate, load]);
 
+    const requestNoBySampleId = useMemo(() => buildClientRequestNumberMap(items), [items]);
+
     const filtered = useMemo(() => {
         let list = items;
 
-        const sf = statusFilter.toLowerCase();
+        const sf = String(statusFilter || "all").toLowerCase();
         if (sf !== "all") {
             if (sf === "needs_revision") {
                 list = list.filter((it) => {
-                    const rs = String((it as any).request_status ?? "").toLowerCase();
+                    const rs = normalizeStatusKey((it as any).request_status ?? "");
                     return rs === "needs_revision" || rs === "returned";
                 });
             } else {
-                list = list.filter((it) => String((it as any).request_status ?? "").toLowerCase() === sf);
+                list = list.filter((it) => normalizeStatusKey((it as any).request_status ?? "") === sf);
             }
         }
 
@@ -166,11 +226,14 @@ export default function ClientRequestsPage() {
         if (!term) return list;
 
         return list.filter((it) => {
-            const rid = getRequestId(it);
-            const st = mapStatus((it as any).request_status ?? null);
+            const sid = getSampleId(it);
+            const requestNo = sid ? requestNoBySampleId.get(sid) : null;
+
+            const st = requestStatusChip((it as any).request_status ?? null, locale);
 
             const hay = [
-                String(rid ?? ""),
+                String(requestNo ?? ""),
+                String(sid ?? ""),
                 (it as any).lab_sample_code,
                 (it as any).request_status,
                 st.label,
@@ -183,7 +246,7 @@ export default function ClientRequestsPage() {
 
             return hay.includes(term);
         });
-    }, [items, searchTerm, statusFilter, mapStatus]);
+    }, [items, searchTerm, statusFilter, requestNoBySampleId, locale]);
 
     const clearFilters = () => {
         setSearchTerm("");
@@ -196,8 +259,12 @@ export default function ClientRequestsPage() {
         <div className="min-h-[60vh]">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("portalRequestsPage.title", "Sample Requests")}</h1>
-                    <p className="text-sm text-gray-600 mt-1">{t("portalRequestsPage.subtitle", "Create, submit, and track your requests.")}</p>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                        {t("portalRequestsPage.title", "Sample Requests")}
+                    </h1>
+                    <p className="text-sm text-gray-600 mt-1">
+                        {t("portalRequestsPage.subtitle", "Create, submit, and track your requests.")}
+                    </p>
                 </div>
 
                 <button
@@ -220,7 +287,13 @@ export default function ClientRequestsPage() {
                     )}
                 >
                     <div className="leading-relaxed">{flash.message}</div>
-                    <button type="button" onClick={() => setFlash(null)} className="lims-icon-button" aria-label={t("close", "Close")} title={t("close", "Close")}>
+                    <button
+                        type="button"
+                        onClick={() => setFlash(null)}
+                        className="lims-icon-button"
+                        aria-label={t("close", "Close")}
+                        title={t("close", "Close")}
+                    >
                         <X size={16} />
                     </button>
                 </div>
@@ -243,7 +316,7 @@ export default function ClientRequestsPage() {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder={t("portalRequestsPage.filters.searchPlaceholder", "Search by id, status, sample type…")}
+                                placeholder={t("portalRequestsPage.filters.searchPlaceholder", "Search by request ID, status, sample type…")}
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
@@ -260,12 +333,12 @@ export default function ClientRequestsPage() {
                             onChange={(e) => setStatusFilter(e.target.value)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
-                            <option value="all">{t("portalRequestsPage.filters.allStatus", "All statuses")}</option>
-                            <option value="draft">{t("portalRequestsPage.status.draft", "Draft")}</option>
-                            <option value="submitted">{t("portalRequestsPage.status.submitted", "Submitted")}</option>
-                            <option value="needs_revision">{t("portalRequestsPage.status.needsRevision", "Needs revision")}</option>
-                            <option value="ready_for_delivery">{t("portalRequestsPage.status.readyForDelivery", "Ready for delivery")}</option>
-                            <option value="physically_received">{t("portalRequestsPage.status.physicallyReceived", "Physically received")}</option>
+                            <option value="all">{shortRequestStatusLabel("all", locale)}</option>
+                            <option value="draft">{shortRequestStatusLabel("draft", locale)}</option>
+                            <option value="submitted">{shortRequestStatusLabel("submitted", locale)}</option>
+                            <option value="needs_revision">{shortRequestStatusLabel("needs_revision", locale)}</option>
+                            <option value="ready_for_delivery">{shortRequestStatusLabel("ready_for_delivery", locale)}</option>
+                            <option value="physically_received">{shortRequestStatusLabel("physically_received", locale)}</option>
                         </select>
                     </div>
 
@@ -298,21 +371,34 @@ export default function ClientRequestsPage() {
                     {loading ? <div className="text-sm text-gray-600">{t("portalRequestsPage.loading", "Loading…")}</div> : null}
 
                     {error && !loading ? (
-                        <div className="text-sm text-rose-900 bg-rose-50 border border-rose-200 px-4 py-3 rounded-2xl mb-4">{error}</div>
+                        <div className="text-sm text-rose-900 bg-rose-50 border border-rose-200 px-4 py-3 rounded-2xl mb-4">
+                            {error}
+                        </div>
                     ) : null}
 
                     {!loading && !error ? (
                         <>
                             <div className="text-xs text-gray-600 mb-3">
-                                {t("portalRequestsPage.meta.showing", "Showing {{shown}} of {{total}}", { shown: resultMeta.shown, total: resultMeta.total })}
+                                {t("portalRequestsPage.meta.showing", "Showing {{shown}} of {{total}}", {
+                                    shown: resultMeta.shown,
+                                    total: resultMeta.total,
+                                })}
                             </div>
 
                             {filtered.length === 0 ? (
                                 <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-5 text-sm text-gray-700">
-                                    <div className="font-semibold text-gray-900">{t("portalRequestsPage.empty.title", "No requests")}</div>
-                                    <div className="text-sm text-gray-600 mt-1">{t("portalRequestsPage.empty.body", "Create a request to start.")}</div>
+                                    <div className="font-semibold text-gray-900">
+                                        {t("portalRequestsPage.empty.title", "No requests")}
+                                    </div>
+                                    <div className="text-sm text-gray-600 mt-1">
+                                        {t("portalRequestsPage.empty.body", "Create a request to start.")}
+                                    </div>
 
-                                    <button type="button" className="lims-btn-primary mt-4 inline-flex items-center gap-2" onClick={() => setCreateOpen(true)}>
+                                    <button
+                                        type="button"
+                                        className="lims-btn-primary mt-4 inline-flex items-center gap-2"
+                                        onClick={() => setCreateOpen(true)}
+                                    >
                                         <FilePlus2 size={16} />
                                         {t("portalRequestsPage.empty.cta", "Create request")}
                                     </button>
@@ -333,17 +419,21 @@ export default function ClientRequestsPage() {
 
                                         <tbody className="divide-y divide-gray-100">
                                             {filtered.map((it: any, idx: number) => {
-                                                const rid = getRequestId(it);
+                                                const sid = getSampleId(it);
+                                                const requestNo = sid ? requestNoBySampleId.get(sid) : null;
+
                                                 const updated = fmtDate(it.updated_at ?? it.created_at);
                                                 const sched = fmtDate(it.scheduled_delivery_at);
-                                                const st = mapStatus(it.request_status ?? null);
+                                                const st = requestStatusChip(it.request_status ?? null, locale);
 
-                                                const coaSampleId = Number((it as any).sample_id ?? rid);
+                                                const coaSampleId = Number((it as any).sample_id ?? sid);
 
                                                 return (
                                                     <tr key={stableKey(it, idx)} className="hover:bg-gray-50">
                                                         <td className="px-4 py-3">
-                                                            <div className="font-medium text-gray-900">#{rid ?? "-"}</div>
+                                                            <div className="font-medium text-gray-900">
+                                                                #{requestNo ?? "-"}
+                                                            </div>
                                                         </td>
 
                                                         <td className="px-4 py-3 text-gray-700">{it.sample_type ?? "-"}</td>
@@ -373,11 +463,11 @@ export default function ClientRequestsPage() {
 
                                                                 <button
                                                                     type="button"
-                                                                    className={cx("lims-icon-button", !rid && "opacity-40 cursor-not-allowed")}
+                                                                    className={cx("lims-icon-button", !sid && "opacity-40 cursor-not-allowed")}
                                                                     aria-label={t("portalRequestsPage.actions.open", "Open")}
                                                                     title={t("portalRequestsPage.actions.open", "Open")}
-                                                                    disabled={!rid}
-                                                                    onClick={() => rid && navigate(`/portal/requests/${rid}`)}
+                                                                    disabled={!sid}
+                                                                    onClick={() => sid && navigate(`/portal/requests/${sid}`)}
                                                                 >
                                                                     <Eye size={16} />
                                                                 </button>
@@ -400,7 +490,10 @@ export default function ClientRequestsPage() {
                 onClose={() => setCreateOpen(false)}
                 onCreated={async () => {
                     setCreateOpen(false);
-                    setFlash({ type: "success", message: t("portalRequestsPage.flash.created", "Request created.") });
+
+                    // Created via modal => already submitted (Fix #2)
+                    setFlash({ type: "success", message: t("portalRequestsPage.flash.submitted", "Request submitted.") });
+
                     await load();
                 }}
             />

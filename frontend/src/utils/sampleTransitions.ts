@@ -40,18 +40,18 @@ export function getAllowedSampleStatusTargets(
 export function sampleStatusLabel(status: SampleStatus): string {
     switch (status) {
         case "received":
-            return "Received";
+            return "received";
         case "in_progress":
-            return "In Progress";
+            return "processing";
         case "testing_completed":
-            return "Testing Completed";
+            return "completed";
         case "verified":
-            return "Verified";
+            return "verified";
         case "validated":
-            return "Validated";
+            return "validated";
         case "reported":
-            return "Reported";
+            return "reported";
         default:
-            return status;
+            return String(status).replace(/_/g, " ").toLowerCase();
     }
 }

@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Download, FilePlus2, List, Loader2, RefreshCw } from "lucide-react";
+import {
+    AlertTriangle,
+    ArrowRight,
+    CheckCircle2,
+    Clock,
+    Download,
+    FilePlus2,
+    List,
+    Loader2,
+    RefreshCw,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { clientSampleRequestService } from "../../services/sampleRequests";
@@ -12,10 +23,64 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
-function getRequestId(it: any): number | null {
+function getSampleId(it: any): number | null {
     const raw = it?.sample_id ?? it?.id ?? it?.request_id;
     const n = Number(raw);
     return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * ✅ Fix #1:
+ * Build a per-client "Request ID" shown in UI (1..n),
+ * while still using backend `sample_id` for navigation/API.
+ */
+function buildClientRequestNumberMap(items: any[]) {
+    const rows = items
+        .map((it) => ({
+            id: getSampleId(it),
+            createdAt: it?.created_at ?? null,
+        }))
+        .filter((x) => Number.isFinite(Number(x.id)) && Number(x.id) > 0) as Array<{
+            id: number;
+            createdAt: string | null;
+        }>;
+
+    rows.sort((a, b) => {
+        const ta = a.createdAt ? new Date(a.createdAt).getTime() : Number.NaN;
+        const tb = b.createdAt ? new Date(b.createdAt).getTime() : Number.NaN;
+
+        // earliest-first so numbering is stable
+        if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+        return a.id - b.id;
+    });
+
+    const map = new Map<number, number>();
+    rows.forEach((r, idx) => map.set(r.id, idx + 1));
+    return map;
+}
+
+/**
+ * ✅ Fix #3:
+ * Human label for request status:
+ * - lower-case
+ * - spaces (not underscore)
+ * - prefer 1 word where possible
+ */
+function shortRequestStatusLabel(raw?: string | null, locale = "en") {
+    const k = String(raw ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+    const isId = String(locale || "").toLowerCase().startsWith("id");
+
+    const map: Record<string, { en: string; id: string }> = {
+        draft: { en: "draft", id: "draf" },
+        submitted: { en: "submitted", id: "terkirim" },
+        needs_revision: { en: "revision", id: "revisi" },
+        returned: { en: "revision", id: "revisi" },
+        ready_for_delivery: { en: "delivery", id: "pengantaran" },
+        physically_received: { en: "received", id: "diterima" },
+    };
+
+    if (map[k]) return (isId ? map[k].id : map[k].en).toLowerCase();
+    return (k || "unknown").replace(/_/g, " ").toLowerCase();
 }
 
 function fmtDate(iso: string | null | undefined, locale: string) {
@@ -38,55 +103,58 @@ function fmtDate(iso: string | null | undefined, locale: string) {
 
 type StatusChip = { label: string; cls: string };
 
-function getStatusChip(raw: string | null | undefined, t: (k: string, opt?: any) => string): StatusChip {
+function getStatusChip(raw: string | null | undefined, locale: string): StatusChip {
     const s = String(raw ?? "").trim().toLowerCase();
     const base = "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold";
 
-    if (s === "draft") return { label: t("portal.status.draft", "Draft"), cls: `${base} bg-slate-100 text-slate-700` };
-    if (s === "submitted") return { label: t("portal.status.submitted", "Submitted"), cls: `${base} bg-primary-soft/10 text-primary` };
+    if (s === "draft") return { label: shortRequestStatusLabel("draft", locale), cls: `${base} bg-slate-100 text-slate-700` };
+    if (s === "submitted") return { label: shortRequestStatusLabel("submitted", locale), cls: `${base} bg-primary-soft/10 text-primary` };
     if (s === "needs_revision" || s === "returned")
-        return { label: t("portal.status.needsRevision", "Needs revision"), cls: `${base} bg-amber-50 text-amber-800` };
+        return { label: shortRequestStatusLabel("needs_revision", locale), cls: `${base} bg-amber-50 text-amber-800` };
     if (s === "ready_for_delivery")
-        return { label: t("portal.status.readyForDelivery", "Ready for delivery"), cls: `${base} bg-indigo-50 text-indigo-700` };
+        return { label: shortRequestStatusLabel("ready_for_delivery", locale), cls: `${base} bg-indigo-50 text-indigo-700` };
     if (s === "physically_received")
-        return { label: t("portal.status.physicallyReceived", "Physically received"), cls: `${base} bg-emerald-50 text-emerald-700` };
+        return { label: shortRequestStatusLabel("physically_received", locale), cls: `${base} bg-emerald-50 text-emerald-700` };
 
-    return { label: raw ? String(raw) : t("portal.status.unknown", "Unknown"), cls: `${base} bg-slate-100 text-slate-700` };
+    return {
+        label: shortRequestStatusLabel(raw ?? "unknown", locale),
+        cls: `${base} bg-slate-100 text-slate-700`,
+    };
 }
 
-const StatCard = ({
-    title,
-    value,
-    subtitle,
-    icon,
-    loading,
-}: {
+function StatCard(props: {
     title: string;
     value: string | number;
     subtitle?: string;
-    icon?: React.ReactNode;
+    icon?: ReactNode;
     loading?: boolean;
-}) => (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-        <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-                <div className="text-xs text-gray-500">{title}</div>
-                <div className="text-2xl font-semibold text-gray-900 mt-1">
-                    {loading ? <span className="text-gray-400">—</span> : value}
-                </div>
-                {subtitle ? <div className="text-xs text-gray-500 mt-2">{subtitle}</div> : null}
-            </div>
+}) {
+    const { title, value, subtitle, icon, loading } = props;
 
-            {icon ? (
-                <div className="shrink-0 rounded-2xl border border-gray-200 bg-gray-50 p-2 text-gray-700">{icon}</div>
-            ) : null}
+    return (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <div className="text-xs text-gray-500">{title}</div>
+                    <div className="text-2xl font-semibold text-gray-900 mt-1">
+                        {loading ? <span className="text-gray-400">—</span> : value}
+                    </div>
+                    {subtitle ? <div className="text-xs text-gray-500 mt-2">{subtitle}</div> : null}
+                </div>
+
+                {icon ? (
+                    <div className="shrink-0 rounded-2xl border border-gray-200 bg-gray-50 p-2 text-gray-700">{icon}</div>
+                ) : null}
+            </div>
         </div>
-    </div>
-);
+    );
+}
 
 export default function ClientDashboardPage() {
     const navigate = useNavigate();
     const { t, i18n } = useTranslation();
+    const locale = i18n.language || "en";
+
     const { client, loading: authLoading, isClientAuthenticated } = useClientAuth() as any;
 
     const [items, setItems] = useState<Sample[]>([]);
@@ -97,16 +165,18 @@ export default function ClientDashboardPage() {
     const [coaPreviewOpen, setCoaPreviewOpen] = useState(false);
     const [coaPreviewSampleId, setCoaPreviewSampleId] = useState<number | null>(null);
 
-    const openCoaPreview = (sampleId: number) => {
+    const openCoaPreview = useCallback((sampleId: number) => {
         setCoaPreviewSampleId(sampleId);
         setCoaPreviewOpen(true);
-    };
+    }, []);
 
     const load = useCallback(async () => {
         try {
             setErrorKey(null);
             setLoading(true);
-            const res = await clientSampleRequestService.list({ page: 1, per_page: 100 });
+
+            // keep it high so numbering stays correct for clients with many requests
+            const res = await clientSampleRequestService.list({ page: 1, per_page: 200 });
             setItems(res.data ?? []);
         } catch {
             setItems([]);
@@ -126,6 +196,8 @@ export default function ClientDashboardPage() {
 
         void load();
     }, [authLoading, isClientAuthenticated, navigate, load]);
+
+    const requestNoBySampleId = useMemo(() => buildClientRequestNumberMap(items), [items]);
 
     const stats = useMemo(() => {
         const total = items.length;
@@ -165,7 +237,9 @@ export default function ClientDashboardPage() {
                     <h1 className="text-lg md:text-xl font-bold text-gray-900">
                         {t("portal.dashboardPage.title", "Dashboard")}
                     </h1>
-                    <p className="text-sm text-gray-600 mt-1">{t("portal.dashboardPage.subtitle", { name: greetingName })}</p>
+                    <p className="text-sm text-gray-600 mt-1">
+                        {t("portal.dashboardPage.subtitle", { name: greetingName })}
+                    </p>
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
@@ -299,17 +373,21 @@ export default function ClientDashboardPage() {
                         ) : (
                             <ul className="divide-y divide-gray-100">
                                 {recent.map((it: any, idx: number) => {
-                                    const rid = getRequestId(it);
-                                    const chip = getStatusChip(it.request_status ?? null, t);
-                                    const updated = fmtDate(it.updated_at ?? it.created_at, i18n.language || "en");
+                                    const sampleId = getSampleId(it);
+                                    const requestNo = sampleId ? requestNoBySampleId.get(sampleId) : null;
 
-                                    const coaSampleId = Number((it as any).sample_id ?? rid);
+                                    const chip = getStatusChip(it.request_status ?? null, locale);
+                                    const updated = fmtDate(it.updated_at ?? it.created_at, locale);
+
+                                    const coaSampleId = Number((it as any).sample_id ?? sampleId);
 
                                     return (
-                                        <li key={String(rid ?? idx)} className="py-3 flex items-center justify-between gap-3">
+                                        <li key={String(sampleId ?? idx)} className="py-3 flex items-center justify-between gap-3">
                                             <div className="min-w-0">
                                                 <div className="flex items-center gap-2 flex-wrap">
-                                                    <div className="font-medium text-gray-900">{t("portal.requestDetail.title", { id: rid ?? "—" })}</div>
+                                                    <div className="font-medium text-gray-900">
+                                                        {t("portal.requestDetail.title", { id: requestNo ?? "—" })}
+                                                    </div>
                                                     <span className={chip.cls}>{chip.label}</span>
                                                 </div>
                                                 <div className="text-xs text-gray-500 mt-1">
@@ -332,9 +410,9 @@ export default function ClientDashboardPage() {
 
                                                 <button
                                                     type="button"
-                                                    className={cx("lims-icon-button", !rid && "opacity-50 cursor-not-allowed")}
-                                                    onClick={() => rid && navigate(`/portal/requests/${rid}`)}
-                                                    disabled={!rid}
+                                                    className={cx("lims-icon-button", !sampleId && "opacity-50 cursor-not-allowed")}
+                                                    onClick={() => sampleId && navigate(`/portal/requests/${sampleId}`)}
+                                                    disabled={!sampleId}
                                                     aria-label={t("portal.dashboardPage.recent.openAria", "Open request")}
                                                     title={t("open", "Open")}
                                                 >
@@ -362,17 +440,23 @@ export default function ClientDashboardPage() {
                     <div className="px-4 md:px-6 py-4 space-y-3 text-sm text-gray-700">
                         <div className="flex gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
                             <CheckCircle2 size={18} className="mt-0.5 text-gray-700" />
-                            <div className="min-w-0">{t("portal.dashboardPage.tips.items.requiredFields", "Fill required fields before submitting.")}</div>
+                            <div className="min-w-0">
+                                {t("portal.dashboardPage.tips.items.requiredFields", "Fill required fields before submitting.")}
+                            </div>
                         </div>
 
                         <div className="flex gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
                             <AlertTriangle size={18} className="mt-0.5 text-gray-700" />
-                            <div className="min-w-0">{t("portal.dashboardPage.tips.items.revise", "If returned, revise then submit again.")}</div>
+                            <div className="min-w-0">
+                                {t("portal.dashboardPage.tips.items.revise", "If returned, revise then submit again.")}
+                            </div>
                         </div>
 
                         <div className="flex gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
                             <Clock size={18} className="mt-0.5 text-gray-700" />
-                            <div className="min-w-0">{t("portal.dashboardPage.tips.items.timezone", "Times shown in your local timezone.")}</div>
+                            <div className="min-w-0">
+                                {t("portal.dashboardPage.tips.items.timezone", "Times shown in your local timezone.")}
+                            </div>
                         </div>
                     </div>
                 </div>

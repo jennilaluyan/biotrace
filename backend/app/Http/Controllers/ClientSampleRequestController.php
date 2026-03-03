@@ -142,9 +142,12 @@ class ClientSampleRequestController extends Controller
             }
         }
 
-        $rows = $query->orderByDesc('sample_id')->paginate(15);
+        $perPage = (int) $request->get('per_page', 15);
+        if ($perPage < 1) $perPage = 15;
+        if ($perPage > 200) $perPage = 200;
 
-        // ✅ Attach COA info for client tracking (no extra endpoint needed)
+        $rows = $query->orderByDesc('sample_id')->paginate($perPage);
+
         $items = $rows->items();
         $items = $this->attachCoaInfo($items);
 

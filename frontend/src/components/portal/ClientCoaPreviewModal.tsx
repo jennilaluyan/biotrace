@@ -299,7 +299,7 @@ export const ClientCoaPreviewModal: React.FC<Props> = ({
 
                                 <pre
                                     className={cx(
-                                        "text-xs border rounded-lg p-3 overflow-auto max-h-[40vh] text-left whitespace-pre-wrap break-words",
+                                        "text-xs border rounded-lg p-3 overflow-auto max-h-[40vh] text-left whitespace-pre-wrap wrap-break-word",
                                         errorKind === "warn"
                                             ? "bg-amber-50 border-amber-200 text-amber-900"
                                             : "bg-white border-gray-200 text-gray-900"

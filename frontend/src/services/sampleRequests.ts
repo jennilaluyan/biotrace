@@ -45,6 +45,12 @@ function unwrapPaginatedFlexible<T>(res: any): PaginatedResponse<T> {
     return { data: [], meta: { current_page: 1, last_page: 1, per_page: 10, total: 0 } };
 }
 
+function getSampleId(sample: any): number | null {
+    const raw = sample?.sample_id ?? sample?.id ?? sample?.request_id;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 export const clientSampleRequestService = {
     // GET /v1/client/samples
     async list(params: ClientSampleListParams = {}): Promise<PaginatedResponse<Sample>> {
@@ -83,5 +89,12 @@ export const clientSampleRequestService = {
     async submit(id: number, payload: ClientSampleDraftPayload): Promise<Sample> {
         const res = await apiPost<any>(`/v1/client/samples/${id}/submit`, payload);
         return unwrapData<Sample>(res);
+    },
+
+    async createAndSubmit(payload: ClientSampleDraftPayload): Promise<Sample> {
+        const draft = await this.createDraft(payload);
+        const sid = getSampleId(draft);
+        if (!sid) throw new Error("Created request has no valid sample_id.");
+        return this.submit(sid, payload);
     },
 };

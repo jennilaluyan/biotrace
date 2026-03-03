@@ -1,5 +1,3 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\portal\ClientRequestDetailPage.tsx
-
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -27,6 +25,31 @@ import ClientCoaPreviewModal from "../../components/portal/ClientCoaPreviewModal
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
+}
+
+function normalizeStatusKey(raw?: string | null) {
+    return String(raw ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+}
+
+/**
+ * ✅ Fix #3:
+ * Status label is shown as lower-case and short (prefer 1 word).
+ */
+function shortRequestStatusLabel(raw?: string | null, locale = "en") {
+    const k = normalizeStatusKey(raw);
+    const isId = String(locale || "").toLowerCase().startsWith("id");
+
+    const map: Record<string, { en: string; id: string }> = {
+        draft: { en: "draft", id: "draf" },
+        submitted: { en: "submitted", id: "terkirim" },
+        needs_revision: { en: "revision", id: "revisi" },
+        returned: { en: "revision", id: "revisi" },
+        ready_for_delivery: { en: "delivery", id: "pengantaran" },
+        physically_received: { en: "received", id: "diterima" },
+    };
+
+    if (map[k]) return (isId ? map[k].id : map[k].en).toLowerCase();
+    return (k || "unknown").replace(/_/g, " ").toLowerCase();
 }
 
 const getValidationMessage = (e: any, fallback: string) => {
@@ -79,7 +102,9 @@ function parameterLabel(p: any) {
 }
 
 export default function ClientRequestDetailPage() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const locale = i18n.language || "en";
+
     const { id } = useParams();
     const navigate = useNavigate();
 
@@ -97,6 +122,9 @@ export default function ClientRequestDetailPage() {
 
     const [error, setError] = useState<string | null>(null);
     const [info, setInfo] = useState<string | null>(null);
+
+    // ✅ Fix #1: show UI request id (1..n) for this client
+    const [clientRequestNo, setClientRequestNo] = useState<number | null>(null);
 
     const [sampleType, setSampleType] = useState("");
     const [scheduledDeliveryAt, setScheduledDeliveryAt] = useState("");
@@ -139,6 +167,37 @@ export default function ClientRequestDetailPage() {
         const sid = Number((data as any)?.sample_id);
         return Number.isFinite(sid) && sid > 0 ? sid : numericId;
     }, [data, numericId]);
+
+    // ✅ Fix #1: compute per-client request number mapping (1..n)
+    useEffect(() => {
+        const run = async () => {
+            if (!Number.isFinite(numericId)) return;
+
+            try {
+                const res = await clientSampleRequestService.list({ page: 1, per_page: 200 });
+                const rows = (res.data ?? [])
+                    .map((it: any) => ({
+                        id: Number(it?.sample_id ?? it?.id),
+                        createdAt: it?.created_at ?? null,
+                    }))
+                    .filter((x: any) => Number.isFinite(x.id) && x.id > 0);
+
+                rows.sort((a: any, b: any) => {
+                    const ta = a.createdAt ? new Date(a.createdAt).getTime() : Number.NaN;
+                    const tb = b.createdAt ? new Date(b.createdAt).getTime() : Number.NaN;
+                    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+                    return a.id - b.id;
+                });
+
+                const idx = rows.findIndex((r: any) => r.id === numericId);
+                setClientRequestNo(idx >= 0 ? idx + 1 : null);
+            } catch {
+                setClientRequestNo(null);
+            }
+        };
+
+        void run();
+    }, [numericId]);
 
     const loadParams = async (q?: string) => {
         try {
@@ -205,11 +264,13 @@ export default function ClientRequestDetailPage() {
 
     useEffect(() => {
         let cancelled = false;
+
         const run = async () => {
             if (cancelled) return;
             await load();
         };
-        run();
+
+        void run();
         return () => {
             cancelled = true;
         };
@@ -220,8 +281,10 @@ export default function ClientRequestDetailPage() {
         if (!selectedParamId) return null;
         const fromList = paramItems.find((p) => Number(p.parameter_id) === selectedParamId);
         if (fromList) return parameterLabel(fromList);
+
         const fromPayload = requestedParameterRows.find((p: any) => Number(p?.parameter_id) === selectedParamId);
         if (fromPayload) return parameterLabel(fromPayload);
+
         return t("portalRequestDetail.parameterFallback", "Parameter #{{id}}", { id: selectedParamId });
     }, [selectedParamId, paramItems, requestedParameterRows, t]);
 
@@ -245,13 +308,16 @@ export default function ClientRequestDetailPage() {
             setError(t("portalRequestDetail.errors.sampleTypeRequired", "Sample type is required."));
             return;
         }
+
         try {
             setInfo(null);
             setError(null);
             setSaving(true);
+
             const updated = await clientSampleRequestService.updateDraft(numericId, buildPayload());
             setData(updated);
             hydrateForm(updated);
+
             setInfo(t("portalRequestDetail.info.draftSaved", "Draft saved."));
         } catch (e: any) {
             setError(getValidationMessage(e, t("portalRequestDetail.errors.saveFailed", "Failed to save draft.")));
@@ -281,6 +347,7 @@ export default function ClientRequestDetailPage() {
             setError(null);
             setSubmitting(true);
 
+            // ✅ Fix #2 still holds: detail submit uses submit endpoint (not draft).
             await clientSampleRequestService.submit(numericId, buildPayload() as any);
 
             navigate("/portal/requests", {
@@ -288,7 +355,11 @@ export default function ClientRequestDetailPage() {
                 state: {
                     flash: {
                         type: "success",
-                        message: t("portalRequestDetail.flash.submitted", "Request #{{id}} submitted successfully.", { id: (data as any)?.sample_id ?? numericId }),
+                        message: t(
+                            "portalRequestDetail.flash.submitted",
+                            "Request #{{id}} submitted successfully.",
+                            { id: clientRequestNo ?? numericId }
+                        ),
                     },
                 },
             });
@@ -324,20 +395,29 @@ export default function ClientRequestDetailPage() {
                             {t("portal.requestDetail.breadcrumbRequests", "Sample Requests")}
                         </button>
                         <span className="lims-breadcrumb-separator">›</span>
-                        <span className="lims-breadcrumb-current">{t("portal.requestDetail.breadcrumbCurrent", "Request detail")}</span>
+                        <span className="lims-breadcrumb-current">
+                            {t("portal.requestDetail.breadcrumbCurrent", "Request detail")}
+                        </span>
                     </nav>
                 </div>
+
                 <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-                    <div className="text-sm text-rose-700">{error ?? t("portal.requestDetail.states.notFound", "Request not found.")}</div>
+                    <div className="text-sm text-rose-700">
+                        {error ?? t("portal.requestDetail.states.notFound", "Request not found.")}
+                    </div>
                 </div>
             </div>
         );
     }
 
     const updatedAt = (data as any).updated_at ?? (data as any).created_at;
-    const statusLabel = effectiveStatus || "Unknown";
-    const statusLower = statusLabel.toLowerCase();
-    const requestIdLabel = (data as any).sample_id ?? numericId;
+
+    // ✅ Fix #1: UI ID uses clientRequestNo (1..n)
+    const requestIdLabel = clientRequestNo ?? numericId;
+
+    // ✅ Fix #3: status label is short, lower-case
+    const statusText = shortRequestStatusLabel(effectiveStatus || "unknown", locale);
+    const statusLower = normalizeStatusKey(effectiveStatus);
 
     const coaReleasedAt = (data as any)?.coa_released_to_client_at ?? null;
     const coaCheckedAt = (data as any)?.coa_checked_at ?? null;
@@ -360,7 +440,9 @@ export default function ClientRequestDetailPage() {
                         {t("portal.requestDetail.breadcrumbRequests", "Sample Requests")}
                     </button>
                     <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">{t("portal.requestDetail.breadcrumbCurrent", "Request detail")}</span>
+                    <span className="lims-breadcrumb-current">
+                        {t("portal.requestDetail.breadcrumbCurrent", "Request detail")}
+                    </span>
                 </nav>
             </div>
 
@@ -370,13 +452,22 @@ export default function ClientRequestDetailPage() {
                         <h1 className="text-xl md:text-2xl font-bold text-gray-900">
                             {t("portalRequestDetail.title", "Request #{{id}}", { id: requestIdLabel })}
                         </h1>
-                        <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border", statusTone(statusLabel))}>
-                            {t(`portal.status.${statusLower}`, statusLabel)}
+
+                        <span
+                            className={cx(
+                                "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border",
+                                statusTone(effectiveStatus)
+                            )}
+                        >
+                            {statusText}
                         </span>
 
                         <button
                             type="button"
-                            className={cx("lims-icon-button bg-transparent border-transparent hover:bg-gray-100", refreshing && "opacity-60 cursor-not-allowed")}
+                            className={cx(
+                                "lims-icon-button bg-transparent border-transparent hover:bg-gray-100",
+                                refreshing && "opacity-60 cursor-not-allowed"
+                            )}
                             onClick={() => load({ silent: true })}
                             disabled={refreshing || submitting || saving}
                             aria-label={t("refresh", "Refresh")}
@@ -397,7 +488,10 @@ export default function ClientRequestDetailPage() {
                             type="button"
                             onClick={saveDraft}
                             disabled={saving}
-                            className={cx("btn-outline inline-flex items-center gap-2 min-w-[120px]", saving && "opacity-60 cursor-not-allowed")}
+                            className={cx(
+                                "btn-outline inline-flex items-center gap-2 min-w-[120px]",
+                                saving && "opacity-60 cursor-not-allowed"
+                            )}
                         >
                             {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                             {saving ? t("saving", "Saving…") : t("saveDraft", "Save draft")}
@@ -410,7 +504,8 @@ export default function ClientRequestDetailPage() {
                         disabled={!canSubmit}
                         className={cx(
                             "lims-btn-primary inline-flex items-center gap-2 min-w-[120px] shadow-sm",
-                            (!canSubmit || submitting) && "opacity-60 cursor-not-allowed bg-gray-400 border-gray-400 text-white"
+                            (!canSubmit || submitting) &&
+                            "opacity-60 cursor-not-allowed bg-gray-400 border-gray-400 text-white"
                         )}
                         aria-disabled={!canSubmit || submitting}
                     >
@@ -446,9 +541,14 @@ export default function ClientRequestDetailPage() {
 
             {showHelpDraft ? (
                 <div className="mb-6 rounded-2xl border border-gray-200 bg-linear-to-r from-gray-50 to-white px-5 py-4 text-sm text-gray-700 shadow-sm">
-                    <div className="font-semibold text-gray-900 mb-1">{t("portalRequestDetail.helpers.readyTitle", "Ready to submit?")}</div>
+                    <div className="font-semibold text-gray-900 mb-1">
+                        {t("portalRequestDetail.helpers.readyTitle", "Ready to submit?")}
+                    </div>
                     <div className="text-gray-600">
-                        {t("portalRequestDetail.helpers.readyBody", "Fill sample type, scheduled delivery, and pick one parameter, then submit for admin review.")}
+                        {t(
+                            "portalRequestDetail.helpers.readyBody",
+                            "Fill sample type, scheduled delivery, and pick one parameter, then submit for admin review."
+                        )}
                     </div>
                 </div>
             ) : null}
@@ -457,7 +557,10 @@ export default function ClientRequestDetailPage() {
                 <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4 text-sm text-blue-900 flex items-start gap-3">
                     <Info size={18} className="shrink-0 mt-0.5" />
                     <div>
-                        {t("portalRequestDetail.helpers.submittedBody", "This request is submitted and waiting for admin review. Editing is disabled to prevent conflicting changes.")}
+                        {t(
+                            "portalRequestDetail.helpers.submittedBody",
+                            "This request is submitted and waiting for admin review. Editing is disabled to prevent conflicting changes."
+                        )}
                     </div>
                 </div>
             ) : null}
@@ -510,8 +613,12 @@ export default function ClientRequestDetailPage() {
 
             <div className="lims-detail-shell">
                 <div className="border-b border-gray-100 pb-4 mb-6">
-                    <h2 className="text-base font-semibold text-gray-900">{t("portal.requestDetail.sections.detailsTitle", "Request details")}</h2>
-                    <p className="text-xs text-gray-500 mt-1">{t("portal.requestDetail.sections.detailsSub", "Editable while Draft / Returned.")}</p>
+                    <h2 className="text-base font-semibold text-gray-900">
+                        {t("portal.requestDetail.sections.detailsTitle", "Request details")}
+                    </h2>
+                    <p className="text-xs text-gray-500 mt-1">
+                        {t("portal.requestDetail.sections.detailsSub", "Editable while Draft / Returned.")}
+                    </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -550,7 +657,9 @@ export default function ClientRequestDetailPage() {
                                     className="w-full rounded-xl border border-gray-300 pl-10 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 transition-all"
                                 />
                             </div>
-                            <p className="mt-1.5 text-[11px] text-gray-500">{t("portalRequestDetail.helpers.deliveryHint", "Use a realistic time you can deliver the sample.")}</p>
+                            <p className="mt-1.5 text-[11px] text-gray-500">
+                                {t("portalRequestDetail.helpers.deliveryHint", "Use a realistic time you can deliver the sample.")}
+                            </p>
                         </div>
 
                         <div>
@@ -635,6 +744,7 @@ export default function ClientRequestDetailPage() {
                                                 {paramItems.map((p) => {
                                                     const pid = Number(p.parameter_id);
                                                     const checked = selectedParamId === pid;
+
                                                     return (
                                                         <li key={pid}>
                                                             <button
@@ -656,6 +766,7 @@ export default function ClientRequestDetailPage() {
                                                                         {p.unit ? t("portal.requestDetail.parameterPicker.unit", "Unit: {{unit}}", { unit: p.unit }) : "—"}
                                                                     </div>
                                                                 </div>
+
                                                                 {checked && <Check size={14} className="text-primary shrink-0" />}
                                                             </button>
                                                         </li>
