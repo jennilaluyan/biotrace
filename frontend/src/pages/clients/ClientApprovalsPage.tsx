@@ -1,29 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-    Search,
-    RefreshCw,
-    UserCheck,
-    UserX,
-    X,
-    AlertTriangle,
-    Building2,
-    User,
-    Mail,
-    Phone,
-    MapPin,
-    BadgeCheck,
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { BadgeCheck, Check, Eye, Loader2, RefreshCw, Search, X, AlertTriangle } from "lucide-react";
 
 import { clientApprovalsService, type ClientApplication } from "../../services/clientApprovals";
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 
-type TypeFilter = "all" | "individual" | "institution";
+import ClientApprovalDecisionModal from "../../components/clients/ClientApprovalDecisionModal";
 
-type ModalMode = "approve" | "reject";
-type ModalState =
-    | { open: false }
-    | { open: true; mode: ModalMode; item: ClientApplication };
+type TypeFilter = "all" | "individual" | "institution";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -33,21 +19,46 @@ function typeLabel(t: ClientApplication["type"]) {
     return t === "institution" ? "Institution" : "Individual";
 }
 
-function typeIcon(t: ClientApplication["type"]) {
-    return t === "institution" ? <Building2 className="h-4 w-4" /> : <User className="h-4 w-4" />;
+type ApiErrorLike = {
+    response?: { data?: any };
+    data?: any;
+    message?: string;
+};
+
+function getApiMessage(err: unknown, fallback: string) {
+    const e = err as ApiErrorLike;
+    const data = e?.response?.data ?? e?.data;
+
+    const details = data?.details ?? data?.errors;
+    if (details && typeof details === "object") {
+        const k = Object.keys(details)[0];
+        const v = k ? details[k] : undefined;
+        if (Array.isArray(v) && v[0]) return String(v[0]);
+        if (typeof v === "string" && v) return v;
+    }
+
+    return data?.message ?? data?.error ?? (typeof e?.message === "string" ? e.message : null) ?? fallback;
 }
 
-function primaryContact(c: ClientApplication) {
-    return c.email || c.phone || c.contact_person_email || c.contact_person_phone || "-";
-}
+function unwrapList<T>(res: any): T[] {
+    const x = res?.data ?? res;
+    if (Array.isArray(x)) return x;
 
-function detailsText(c: ClientApplication) {
-    if (c.type === "institution") return c.institution_name || "-";
-    if (c.national_id) return `NIK: ${c.national_id}`;
-    return c.address_domicile || c.address_ktp || "-";
+    if (x && typeof x === "object") {
+        const candidates = [(x as any).data, (x as any).items, (x as any).rows, (x as any).results];
+        for (const c of candidates) {
+            if (Array.isArray(c)) return c;
+            if (c && typeof c === "object" && Array.isArray((c as any).data)) return (c as any).data;
+        }
+    }
+
+    return [];
 }
 
 export const ClientApprovalsPage = () => {
+    const { t } = useTranslation();
+    const navigate = useNavigate();
+
     const { user } = useAuth();
     const roleId = getUserRoleId(user);
     const roleLabel = getUserRoleLabel(user);
@@ -56,65 +67,49 @@ export const ClientApprovalsPage = () => {
 
     const [items, setItems] = useState<ClientApplication[]>([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [pageError, setPageError] = useState<string | null>(null);
 
     const [searchTerm, setSearchTerm] = useState("");
     const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
 
-    const [modal, setModal] = useState<ModalState>({ open: false });
-    const [actionLoading, setActionLoading] = useState(false);
-    const [rejectReason, setRejectReason] = useState("");
+    const [modalOpen, setModalOpen] = useState(false);
+    const [modalMode, setModalMode] = useState<"approve" | "reject">("approve");
+    const [selected, setSelected] = useState<ClientApplication | null>(null);
+    const [modalBusy, setModalBusy] = useState(false);
+    const [modalError, setModalError] = useState<string | null>(null);
 
-    const firstActionRef = useRef<HTMLButtonElement | null>(null);
-
-    const load = async () => {
+    const load = useCallback(async () => {
         try {
             setLoading(true);
-            setError(null);
-            const data = await clientApprovalsService.listPending();
-            setItems(data);
-        } catch (err: any) {
-            setError(err?.data?.message ?? err?.data?.error ?? "Failed to load pending client applications.");
+            setPageError(null);
+
+            const res = await clientApprovalsService.listPending();
+            setItems(unwrapList<ClientApplication>(res));
+        } catch (err) {
+            setItems([]);
+            setPageError(getApiMessage(err, t("clients.approvals.errors.loadFailed", "Failed to load pending client applications.")));
         } finally {
             setLoading(false);
         }
-    };
+    }, [t]);
 
     useEffect(() => {
         if (!canApproveClients) {
             setLoading(false);
             return;
         }
-        load();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canApproveClients]);
 
-    useEffect(() => {
-        if (modal.open) {
-            // lightweight focus management for better accessibility
-            const t = window.setTimeout(() => firstActionRef.current?.focus(), 0);
-            return () => window.clearTimeout(t);
-        }
-    }, [modal.open]);
+        void load();
+    }, [canApproveClients, load]);
 
     const filtered = useMemo(() => {
+        const term = searchTerm.trim().toLowerCase();
+
         return items.filter((c) => {
             if (typeFilter !== "all" && c.type !== typeFilter) return false;
-            if (!searchTerm.trim()) return true;
+            if (!term) return true;
 
-            const term = searchTerm.toLowerCase();
-            const haystack = [
-                c.name,
-                c.email,
-                c.phone,
-                c.institution_name,
-                c.contact_person_name,
-                c.contact_person_email,
-                c.contact_person_phone,
-                c.address_ktp,
-                c.address_domicile,
-                c.national_id,
-            ]
+            const haystack = [c.name, c.email, c.institution_name, c.contact_person_name]
                 .filter(Boolean)
                 .join(" ")
                 .toLowerCase();
@@ -123,46 +118,61 @@ export const ClientApprovalsPage = () => {
         });
     }, [items, searchTerm, typeFilter]);
 
-    const openApprove = (item: ClientApplication) => {
-        setError(null);
-        setRejectReason("");
-        setModal({ open: true, mode: "approve", item });
-    };
+    const pendingCount = filtered.length;
 
-    const openReject = (item: ClientApplication) => {
-        setError(null);
-        setRejectReason("");
-        setModal({ open: true, mode: "reject", item });
-    };
+    const openApprove = useCallback((item: ClientApplication) => {
+        setModalMode("approve");
+        setSelected(item);
+        setModalError(null);
+        setModalOpen(true);
+    }, []);
 
-    const closeModal = () => {
-        if (actionLoading) return;
-        setModal({ open: false });
-        setRejectReason("");
-    };
+    const openReject = useCallback((item: ClientApplication) => {
+        setModalMode("reject");
+        setSelected(item);
+        setModalError(null);
+        setModalOpen(true);
+    }, []);
 
-    const confirmModalAction = async () => {
-        if (!modal.open) return;
+    const closeModal = useCallback(() => {
+        if (modalBusy) return;
+        setModalOpen(false);
+        setSelected(null);
+        setModalError(null);
+    }, [modalBusy]);
+
+    const onConfirmModal = useCallback(async () => {
+        const id = selected?.client_application_id;
+        if (!id) return;
 
         try {
-            setActionLoading(true);
-            setError(null);
+            setModalBusy(true);
+            setModalError(null);
 
-            if (modal.mode === "approve") {
-                await clientApprovalsService.approve(modal.item.client_application_id);
+            if (modalMode === "approve") {
+                await clientApprovalsService.approve(id);
             } else {
-                const reason = rejectReason.trim() ? rejectReason.trim() : undefined;
-                await clientApprovalsService.reject(modal.item.client_application_id, reason);
+                // Requirement: no rejection note
+                await clientApprovalsService.reject(id);
             }
 
+            setModalOpen(false);
+            setSelected(null);
+
             await load();
-            closeModal();
-        } catch (err: any) {
-            setError(err?.data?.message ?? err?.data?.error ?? "Action failed. Please try again.");
+        } catch (err) {
+            const fallback =
+                modalMode === "approve"
+                    ? t("clients.approvals.errors.approveFailed", "Approve failed. Please try again.")
+                    : t("clients.approvals.errors.rejectFailed", "Reject failed. Please try again.");
+
+            setModalError(getApiMessage(err, fallback));
         } finally {
-            setActionLoading(false);
+            setModalBusy(false);
         }
-    };
+    }, [selected, modalMode, load, t]);
+
+    const busyRowId = modalBusy ? selected?.client_application_id ?? null : null;
 
     if (!canApproveClients) {
         return (
@@ -177,12 +187,13 @@ export const ClientApprovalsPage = () => {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Page header */}
             <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between px-0 py-2">
                 <div>
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">Client approvals</h1>
+                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                        {t("clients.approvals.title", "Client approvals")}
+                    </h1>
                     <p className="text-xs text-gray-500 mt-1">
-                        Review new client registrations. Approving creates an active client account.
+                        {t("clients.approvals.subtitle", "Review new client registrations. Approving creates an active client account.")}
                     </p>
                 </div>
 
@@ -190,7 +201,8 @@ export const ClientApprovalsPage = () => {
                     <div className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-full px-3 py-1 inline-flex items-center gap-2">
                         <BadgeCheck className="h-4 w-4 text-gray-500" />
                         <span>
-                            Pending: <span className="font-semibold text-gray-900">{filtered.length}</span>
+                            {t("clients.approvals.pending", "Pending")}:{" "}
+                            <span className="font-semibold text-gray-900">{pendingCount}</span>
                         </span>
                     </div>
 
@@ -200,18 +212,17 @@ export const ClientApprovalsPage = () => {
                         className="btn-outline inline-flex items-center gap-2"
                         disabled={loading}
                     >
-                        <RefreshCw className={cx("h-4 w-4", loading && "animate-spin")} />
-                        Refresh
+                        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                        {t("common.refresh", "Refresh")}
                     </button>
                 </div>
             </div>
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Filters */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="pending-client-search">
-                            Search pending clients
+                            {t("common.search", "Search")}
                         </label>
                         <div className="relative">
                             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
@@ -222,7 +233,7 @@ export const ClientApprovalsPage = () => {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder="Search name, email, phone, institution…"
+                                placeholder={t("clients.approvals.searchPlaceholder", "Search name, email, institution…")}
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
@@ -230,7 +241,7 @@ export const ClientApprovalsPage = () => {
 
                     <div className="w-full md:w-56">
                         <label className="sr-only" htmlFor="pending-client-type-filter">
-                            Client type
+                            {t("clients.approvals.typeFilter", "Client type")}
                         </label>
                         <select
                             id="pending-client-type-filter"
@@ -238,31 +249,35 @@ export const ClientApprovalsPage = () => {
                             onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
-                            <option value="all">All types</option>
-                            <option value="individual">Individual</option>
-                            <option value="institution">Institution</option>
+                            <option value="all">{t("common.all", "All")}</option>
+                            <option value="individual">{t("clients.badges.individual", "Individual")}</option>
+                            <option value="institution">{t("clients.badges.institution", "Institution")}</option>
                         </select>
                     </div>
                 </div>
 
-                {/* Body */}
                 <div className="px-4 md:px-6 py-4">
-                    {error && (
+                    {pageError && (
                         <div className="text-sm text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-xl mb-4">
-                            {error}
+                            {pageError}
                         </div>
                     )}
 
                     {loading ? (
-                        <div className="text-sm text-gray-600">Loading pending applications…</div>
+                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            {t("loading", "Loading...")}
+                        </div>
                     ) : filtered.length === 0 ? (
                         <div className="py-10 text-center">
                             <div className="mx-auto h-10 w-10 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-600">
                                 <BadgeCheck className="h-5 w-5" />
                             </div>
-                            <div className="mt-3 text-sm font-semibold text-gray-900">No pending applications</div>
+                            <div className="mt-3 text-sm font-semibold text-gray-900">
+                                {t("clients.approvals.emptyTitle", "No pending applications")}
+                            </div>
                             <div className="mt-1 text-xs text-gray-500">
-                                New client registrations will appear here for review.
+                                {t("clients.approvals.emptyBody", "New client registrations will appear here for review.")}
                             </div>
                         </div>
                     ) : (
@@ -270,17 +285,17 @@ export const ClientApprovalsPage = () => {
                             <table className="min-w-full text-sm">
                                 <thead className="bg-gray-50">
                                     <tr className="text-xs text-gray-500 uppercase tracking-wide">
-                                        <th className="px-4 py-3 text-left">Applicant</th>
-                                        <th className="px-4 py-3 text-left">Type</th>
-                                        <th className="px-4 py-3 text-left">Contact</th>
-                                        <th className="px-4 py-3 text-left">Details</th>
-                                        <th className="px-4 py-3 text-right">Actions</th>
+                                        <th className="px-4 py-3 text-left">{t("clients.approvals.table.name", "Name")}</th>
+                                        <th className="px-4 py-3 text-left">{t("clients.approvals.table.type", "Type")}</th>
+                                        <th className="px-4 py-3 text-left">{t("clients.approvals.table.email", "Email")}</th>
+                                        <th className="px-4 py-3 text-right">{t("common.actions", "Actions")}</th>
                                     </tr>
                                 </thead>
 
                                 <tbody>
                                     {filtered.map((c) => {
-                                        const isInstitution = c.type === "institution";
+                                        const busy = busyRowId === c.client_application_id;
+
                                         return (
                                             <tr
                                                 key={c.client_application_id}
@@ -288,99 +303,58 @@ export const ClientApprovalsPage = () => {
                                             >
                                                 <td className="px-4 py-3">
                                                     <div className="font-medium text-gray-900">{c.name}</div>
-                                                    <div className="text-[11px] text-gray-500 inline-flex items-center gap-1">
-                                                        <span className="inline-flex items-center gap-1">
-                                                            <BadgeCheck className="h-3.5 w-3.5" />
-                                                            Pending review
-                                                        </span>
+                                                    <div className="mt-1 inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] text-amber-700">
+                                                        {t("clients.approvals.statusPending", "Pending review")}
                                                     </div>
                                                 </td>
 
                                                 <td className="px-4 py-3">
-                                                    <span className={isInstitution ? "lims-badge-institution" : "lims-badge-individual"}>
-                                                        <span className="inline-flex items-center gap-1.5">
-                                                            {typeIcon(c.type)}
-                                                            {typeLabel(c.type)}
-                                                        </span>
+                                                    <span
+                                                        className={cx(
+                                                            "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border",
+                                                            c.type === "institution"
+                                                                ? "bg-indigo-50 text-indigo-700 border-indigo-100"
+                                                                : "bg-emerald-50 text-emerald-700 border-emerald-100"
+                                                        )}
+                                                    >
+                                                        {typeLabel(c.type)}
                                                     </span>
                                                 </td>
 
                                                 <td className="px-4 py-3 text-gray-700">
-                                                    <div className="space-y-1">
-                                                        {c.email && (
-                                                            <div className="inline-flex items-center gap-2">
-                                                                <Mail className="h-4 w-4 text-gray-500" />
-                                                                <span className="break-all">{c.email}</span>
-                                                            </div>
-                                                        )}
-                                                        {c.phone && (
-                                                            <div className="inline-flex items-center gap-2">
-                                                                <Phone className="h-4 w-4 text-gray-500" />
-                                                                <span>{c.phone}</span>
-                                                            </div>
-                                                        )}
-                                                        {!c.email && !c.phone && <span>{primaryContact(c)}</span>}
-                                                    </div>
-                                                </td>
-
-                                                <td className="px-4 py-3 text-gray-700">
-                                                    <div className="space-y-1">
-                                                        {c.type === "institution" ? (
-                                                            <>
-                                                                <div className="inline-flex items-center gap-2">
-                                                                    <Building2 className="h-4 w-4 text-gray-500" />
-                                                                    <span className="font-medium text-gray-900">
-                                                                        {c.institution_name || "-"}
-                                                                    </span>
-                                                                </div>
-                                                                {(c.contact_person_name || c.contact_person_email || c.contact_person_phone) && (
-                                                                    <div className="text-xs text-gray-600">
-                                                                        PIC:{" "}
-                                                                        <span className="font-medium text-gray-900">
-                                                                            {c.contact_person_name || "-"}
-                                                                        </span>
-                                                                        {(c.contact_person_email || c.contact_person_phone) && (
-                                                                            <span className="text-gray-500">
-                                                                                {" "}
-                                                                                • {c.contact_person_email || c.contact_person_phone}
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                {c.national_id ? (
-                                                                    <div className="text-xs text-gray-700">NIK: {c.national_id}</div>
-                                                                ) : (
-                                                                    <div className="inline-flex items-start gap-2">
-                                                                        <MapPin className="h-4 w-4 text-gray-500 mt-0.5" />
-                                                                        <span className="text-xs">{detailsText(c)}</span>
-                                                                    </div>
-                                                                )}
-                                                            </>
-                                                        )}
-                                                    </div>
+                                                    {c.email ? <span className="break-all">{c.email}</span> : <span className="text-gray-400">—</span>}
                                                 </td>
 
                                                 <td className="px-4 py-3 text-right">
                                                     <div className="inline-flex items-center gap-2">
                                                         <button
                                                             type="button"
-                                                            className="lims-btn-primary inline-flex items-center gap-2"
-                                                            onClick={() => openApprove(c)}
+                                                            className="btn-outline inline-flex items-center gap-2"
+                                                            onClick={() => navigate(`/clients/approvals/${c.client_application_id}`)}
+                                                            disabled={busy}
                                                         >
-                                                            <UserCheck className="h-4 w-4" />
-                                                            Approve
+                                                            <Eye className="h-4 w-4" />
+                                                            {t("common.view", "View")}
                                                         </button>
 
                                                         <button
                                                             type="button"
-                                                            className="lims-btn-danger inline-flex items-center gap-2"
-                                                            onClick={() => openReject(c)}
+                                                            className="lims-btn-primary inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                            onClick={() => openApprove(c)}
+                                                            disabled={busy}
                                                         >
-                                                            <UserX className="h-4 w-4" />
-                                                            Reject
+                                                            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                                                            {busy ? t("common.processing", "Processing...") : t("common.approve", "Approve")}
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            className="lims-btn-danger inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                            onClick={() => openReject(c)}
+                                                            disabled={busy}
+                                                        >
+                                                            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                                                            {busy ? t("common.processing", "Processing...") : t("common.reject", "Reject")}
                                                         </button>
                                                     </div>
                                                 </td>
@@ -394,121 +368,15 @@ export const ClientApprovalsPage = () => {
                 </div>
             </div>
 
-            {/* Action modal */}
-            {modal.open && (
-                <div className="lims-modal-backdrop">
-                    <div className="lims-modal-panel">
-                        <div className="lims-modal-header">
-                            <div
-                                className={cx(
-                                    "h-9 w-9 flex items-center justify-center rounded-full",
-                                    modal.mode === "approve" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"
-                                )}
-                            >
-                                {modal.mode === "approve" ? <UserCheck className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
-                            </div>
-
-                            <div className="min-w-0">
-                                <h2 className="text-base font-semibold text-gray-900">
-                                    {modal.mode === "approve" ? "Approve client application?" : "Reject client application?"}
-                                </h2>
-                                <p className="text-xs text-gray-500">
-                                    {modal.mode === "approve"
-                                        ? "This will create an active client account and enable log in."
-                                        : "Rejected applications stay in the audit trail for traceability."}
-                                </p>
-                            </div>
-
-                            <button
-                                type="button"
-                                className="ml-auto lims-icon-button text-gray-600"
-                                onClick={closeModal}
-                                aria-label="Close modal"
-                                disabled={actionLoading}
-                            >
-                                <X className="h-4 w-4" />
-                            </button>
-                        </div>
-
-                        <div className="lims-modal-body">
-                            <div className="text-sm text-gray-800">
-                                <div className="font-semibold text-gray-900 truncate">{modal.item.name}</div>
-                                <div className="text-xs text-gray-500 mt-1 inline-flex items-center gap-2">
-                                    <span className={modal.item.type === "institution" ? "lims-badge-institution" : "lims-badge-individual"}>
-                                        {typeLabel(modal.item.type)}
-                                    </span>
-                                    <span className="truncate">
-                                        {modal.item.type === "institution" ? modal.item.institution_name || "-" : modal.item.email || modal.item.phone || "-"}
-                                    </span>
-                                </div>
-                            </div>
-
-                            {modal.mode === "reject" && (
-                                <div className="mt-4">
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                        Rejection reason <span className="text-gray-400">(optional)</span>
-                                    </label>
-                                    <textarea
-                                        value={rejectReason}
-                                        onChange={(e) => setRejectReason(e.target.value)}
-                                        placeholder="Add a short, specific reason to help the applicant fix it…"
-                                        className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent min-h-[88px]"
-                                        disabled={actionLoading}
-                                    />
-                                    <p className="text-[11px] text-gray-500 mt-1">
-                                        Tip: mention what’s missing (e.g., invalid NIK, incomplete institution PIC, mismatched email).
-                                    </p>
-                                </div>
-                            )}
-
-                            {error && (
-                                <div className="mt-4 text-sm text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-xl">
-                                    {error}
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="lims-modal-footer">
-                            <button
-                                type="button"
-                                className="btn-outline"
-                                onClick={closeModal}
-                                disabled={actionLoading}
-                                ref={firstActionRef}
-                            >
-                                Cancel
-                            </button>
-
-                            <button
-                                type="button"
-                                className={cx(
-                                    "inline-flex items-center gap-2",
-                                    modal.mode === "approve" ? "lims-btn-primary" : "lims-btn-danger"
-                                )}
-                                onClick={confirmModalAction}
-                                disabled={actionLoading}
-                            >
-                                {actionLoading ? (
-                                    <>
-                                        <RefreshCw className="h-4 w-4 animate-spin" />
-                                        Processing…
-                                    </>
-                                ) : modal.mode === "approve" ? (
-                                    <>
-                                        <UserCheck className="h-4 w-4" />
-                                        Approve
-                                    </>
-                                ) : (
-                                    <>
-                                        <UserX className="h-4 w-4" />
-                                        Reject
-                                    </>
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <ClientApprovalDecisionModal
+                open={modalOpen}
+                mode={modalMode}
+                item={selected}
+                busy={modalBusy}
+                error={modalError}
+                onClose={closeModal}
+                onConfirm={onConfirmModal}
+            />
         </div>
     );
 };

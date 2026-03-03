@@ -15,6 +15,7 @@ import { RegisterPage } from "../pages/auth/RegisterPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 
 import { ClientApprovalsPage } from "../pages/clients/ClientApprovalsPage";
+import { ClientApprovalDetailPage } from "../pages/clients/ClientApprovalDetailPage";
 import { ClientDetailPage } from "../pages/clients/ClientDetailPage";
 import { ClientsPage } from "../pages/clients/ClientsPage";
 
@@ -156,6 +157,14 @@ export const AppRouter = () => {
                             element={
                                 <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN]}>
                                     <ClientApprovalsPage />
+                                </RoleGuard>
+                            }
+                        />
+                        <Route
+                            path="/clients/approvals/:id"
+                            element={
+                                <RoleGuard allowedRoleIds={[ROLE_ID.ADMIN]}>
+                                    <ClientApprovalDetailPage />
                                 </RoleGuard>
                             }
                         />
