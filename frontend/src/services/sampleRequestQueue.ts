@@ -4,8 +4,10 @@ export type RequestStatus =
     | "draft"
     | "submitted"
     | "returned"
+    | "needs_revision"
     | "ready_for_delivery"
     | "physically_received"
+    | "rejected"
     | "in_transit_to_collector"
     | string;
 
@@ -37,7 +39,7 @@ export type SampleRequestQueueQuery = {
     page?: number;
     per_page?: number;
     q?: string;
-    request_status?: string; // ✅ match backend
+    request_status?: string; // match backend
     submitted_from?: string; // YYYY-MM-DD
     submitted_to?: string; // YYYY-MM-DD
     date?: string; // today|7d|30d (backend supports)

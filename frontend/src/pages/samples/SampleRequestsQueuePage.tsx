@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Eye, RefreshCw, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -6,10 +6,17 @@ import type { TFunction } from "i18next";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
-import { fetchSampleRequestsQueue, type Paginator, type SampleRequestQueueRow } from "../../services/sampleRequestQueue";
+import {
+    fetchSampleRequestsQueue,
+    type Paginator,
+    type SampleRequestQueueRow,
+} from "../../services/sampleRequestQueue";
 import { UpdateRequestStatusModal } from "../../components/samples/UpdateRequestStatusModal";
 
 type DateFilter = "all" | "today" | "7d" | "30d";
+type ModalAction = "accept" | "reject" | "received";
+type AdminQueueAction = ModalAction;
+
 const PAGE_SIZE = 15;
 
 function cx(...arr: Array<string | false | null | undefined>) {
@@ -26,17 +33,21 @@ function safeApiMessage(err: any, fallback: string) {
     return fallback;
 }
 
-const normalizeToken = (raw?: string | null) =>
-    String(raw ?? "")
+function normalizeToken(raw?: string | null) {
+    return String(raw ?? "")
         .trim()
         .toLowerCase()
         .replace(/\s+/g, "_");
+}
 
-const requestStatusChipLabel = (t: TFunction, raw?: string | null) => {
+/**
+ * Short label for queue “chip” (scan-friendly).
+ * Falls back to raw string if translation key doesn't exist.
+ */
+function requestStatusChipLabel(t: TFunction, raw?: string | null) {
     const k = normalizeToken(raw);
     if (!k) return "-";
 
-    // short “chip” labels (queue list needs scan-friendly text)
     const map: Record<string, string> = {
         ready_for_delivery: "requestStatus.readyForDelivery",
         physically_received: "requestStatus.receivedShort",
@@ -47,24 +58,30 @@ const requestStatusChipLabel = (t: TFunction, raw?: string | null) => {
         needs_revision: "requestStatus.needsRevision",
         returned: "requestStatus.returned",
         submitted: "requestStatus.submitted",
+        rejected: "requestStatus.rejected",
         intake_checklist_passed: "requestStatus.intakePassedShort",
     };
 
     const key = map[k] ?? `requestStatus.${k}`;
     const out = t(key);
     return out === key ? (raw ?? "-") : out;
-};
+}
 
-// OLD design tone (no border)
-const statusTone = (raw?: string | null) => {
+/**
+ * Status chip tone (OLD tone: no border).
+ */
+function statusTone(raw?: string | null) {
     const s = String(raw ?? "").toLowerCase();
     const k = s.replace(/_/g, " ").replace(/\s+/g, " ").trim();
 
     if (k === "draft") return "bg-gray-100 text-gray-700";
     if (k === "submitted") return "bg-blue-50 text-blue-700";
-    if (k === "needs revision" || k === "returned") return "bg-red-100 text-red-700";
     if (k === "ready for delivery") return "bg-indigo-50 text-indigo-700";
     if (k === "physically received") return "bg-green-100 text-green-800";
+
+    if (k === "needs revision" || k === "returned" || k === "rejected")
+        return "bg-red-100 text-red-700";
+
     if (k === "awaiting verification") return "bg-violet-100 text-violet-800";
     if (k === "in transit to collector") return "bg-amber-100 text-amber-800";
     if (k === "under inspection") return "bg-amber-100 text-amber-800";
@@ -72,12 +89,39 @@ const statusTone = (raw?: string | null) => {
     if (k === "intake checklist passed") return "bg-emerald-50 text-emerald-700";
 
     return "bg-gray-100 text-gray-700";
-};
+}
+
+/**
+ * Request ID resolver.
+ * Backend uses `sample_id` as primary identifier in the queue API.
+ */
+function getRequestId(row: SampleRequestQueueRow): number | null {
+    const raw = (row.sample_id ?? row.id) as any;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * ✅ New button rules:
+ * - submitted            => Accept + Reject
+ * - ready_for_delivery   => Received
+ * - physically_received+ => no action buttons (View only)
+ */
+function getAdminActionsForStatus(statusRaw?: string | null): AdminQueueAction[] {
+    const st = normalizeToken(statusRaw);
+
+    if (st === "submitted") return ["accept", "reject"];
+    if (st === "ready_for_delivery") return ["received"];
+
+    return [];
+}
 
 export default function SampleRequestsQueuePage() {
     const { t } = useTranslation();
 
     const navigate = useNavigate();
+    const location = useLocation();
+
     const { user } = useAuth();
     const roleId = getUserRoleId(user) ?? ROLE_ID.CLIENT;
     const roleLabel = getUserRoleLabel(user);
@@ -96,7 +140,6 @@ export default function SampleRequestsQueuePage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const location = useLocation();
     const qs = useMemo(() => new URLSearchParams(location.search), [location.search]);
 
     const [searchTerm, setSearchTerm] = useState(() => qs.get("q") ?? "");
@@ -107,17 +150,37 @@ export default function SampleRequestsQueuePage() {
     });
     const [currentPage, setCurrentPage] = useState(1);
 
+    // Modal
     const [modalOpen, setModalOpen] = useState(false);
-    const [modalAction, setModalAction] = useState<"return" | "approve" | "received">("return");
-    const [modalSampleId, setModalSampleId] = useState<number | null>(null);
+    const [modalAction, setModalAction] = useState<ModalAction>("accept");
+    const [modalRequestId, setModalRequestId] = useState<number | null>(null);
     const [modalCurrentStatus, setModalCurrentStatus] = useState<string | null>(null);
 
-    const loadQueue = async (opts?: { keepPage?: boolean }) => {
+    /**
+     * Prevent duplicate fetches when filters + page updates happen close together.
+     */
+    const lastFetchKeyRef = useRef<string>("");
+
+    const buildFetchKey = (page: number) =>
+        [
+            page,
+            searchTerm.trim(),
+            statusFilter.trim(),
+            dateFilter,
+        ].join("|");
+
+    const loadQueue = async (opts?: { page?: number; keepPage?: boolean }) => {
+        const page = opts?.page ?? (opts?.keepPage ? currentPage : 1);
+        const fetchKey = buildFetchKey(page);
+
+        // Skip exact duplicate request
+        if (lastFetchKeyRef.current === fetchKey && !opts?.keepPage) return;
+        lastFetchKeyRef.current = fetchKey;
+
         try {
             setLoading(true);
             setError(null);
 
-            const page = opts?.keepPage ? currentPage : 1;
             const data = await fetchSampleRequestsQueue({
                 page,
                 per_page: PAGE_SIZE,
@@ -127,9 +190,18 @@ export default function SampleRequestsQueuePage() {
             });
 
             setPager(data);
-            if (!opts?.keepPage) setCurrentPage(1);
+
+            // Keep state consistent with what we fetched
+            setCurrentPage(page);
         } catch (err: any) {
-            setError(safeApiMessage(err, t("samples.pages.queue.errors.loadFailed", { defaultValue: "Failed to load queue." })));
+            setError(
+                safeApiMessage(
+                    err,
+                    t("samples.pages.queue.errors.loadFailed", {
+                        defaultValue: "Failed to load queue.",
+                    })
+                )
+            );
         } finally {
             setLoading(false);
         }
@@ -137,13 +209,13 @@ export default function SampleRequestsQueuePage() {
 
     // first load
     useEffect(() => {
-        loadQueue();
+        loadQueue({ page: 1 });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // reload when filters change
+    // reload when filters change (reset to page 1)
     useEffect(() => {
-        loadQueue();
+        loadQueue({ page: 1 });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchTerm, statusFilter, dateFilter]);
 
@@ -162,7 +234,7 @@ export default function SampleRequestsQueuePage() {
      */
     const items = useMemo(() => {
         return rawItems.filter((r) => {
-            const st = String(r.request_status ?? "").toLowerCase();
+            const st = normalizeToken(r.request_status);
             if (st === "draft") return false;
             return !r.lab_sample_code;
         });
@@ -176,12 +248,18 @@ export default function SampleRequestsQueuePage() {
         setCurrentPage(page);
     };
 
-    const openModal = (row: SampleRequestQueueRow, action: "return" | "approve" | "received") => {
-        if (row.sample_id == null) {
-            setError(t("samples.pages.queue.errors.missingSampleId", { defaultValue: "Cannot open request: missing sample_id." }));
+    const openModal = (row: SampleRequestQueueRow, action: ModalAction) => {
+        const requestId = getRequestId(row);
+        if (!requestId) {
+            setError(
+                t("samples.pages.queue.errors.missingSampleId", {
+                    defaultValue: "Cannot open request: missing request id.",
+                })
+            );
             return;
         }
-        setModalSampleId(row.sample_id);
+
+        setModalRequestId(requestId);
         setModalCurrentStatus(row.request_status ?? null);
         setModalAction(action);
         setModalOpen(true);
@@ -189,7 +267,7 @@ export default function SampleRequestsQueuePage() {
 
     const closeModal = () => {
         setModalOpen(false);
-        setModalSampleId(null);
+        setModalRequestId(null);
         setModalCurrentStatus(null);
     };
 
@@ -206,7 +284,9 @@ export default function SampleRequestsQueuePage() {
     if (!canView) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center p-4">
-                <h1 className="text-2xl font-semibold text-gray-900 mb-2">{t("errors.accessDeniedTitle")}</h1>
+                <h1 className="text-2xl font-semibold text-gray-900 mb-2">
+                    {t("errors.accessDeniedTitle")}
+                </h1>
                 <p className="text-sm text-gray-600 text-center max-w-md">
                     {t("errors.accessDeniedBodyWithRole", { role: roleLabel })}
                 </p>
@@ -214,17 +294,22 @@ export default function SampleRequestsQueuePage() {
         );
     }
 
+    const isAdmin = roleId === ROLE_ID.ADMIN;
+
     return (
         <div className="min-h-[60vh]">
             {/* Header (OLD design) */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div className="flex flex-col">
                     <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                        {t("samples.pages.queue.title", { defaultValue: "Sample Requests Queue" })}
+                        {t("samples.pages.queue.title", {
+                            defaultValue: "Sample Requests Queue",
+                        })}
                     </h1>
                     <p className="text-sm text-gray-600">
                         {t("samples.pages.queue.subtitle", {
-                            defaultValue: "Requests here are not lab samples yet (no lab code).",
+                            defaultValue:
+                                "Requests here are not lab samples yet (no lab code).",
                         })}
                     </p>
                 </div>
@@ -280,32 +365,63 @@ export default function SampleRequestsQueuePage() {
                             onChange={(e) => setStatusFilter(e.target.value)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
-                            <option value="">{t("samples.pages.queue.filters.all", { defaultValue: "All statuses" })}</option>
+                            <option value="">
+                                {t("samples.pages.queue.filters.all", {
+                                    defaultValue: "All statuses",
+                                })}
+                            </option>
 
-                            <option value="submitted">{t("requestStatus.submitted", { defaultValue: "submitted" })}</option>
+                            <option value="submitted">
+                                {t("requestStatus.submitted", { defaultValue: "submitted" })}
+                            </option>
                             <option value="ready_for_delivery">
-                                {t("requestStatus.readyForDelivery", { defaultValue: "ready for delivery" })}
+                                {t("requestStatus.readyForDelivery", {
+                                    defaultValue: "ready for delivery",
+                                })}
                             </option>
                             <option value="physically_received">
-                                {t("requestStatus.physicallyReceived", { defaultValue: "physically received" })}
+                                {t("requestStatus.physicallyReceived", {
+                                    defaultValue: "physically received",
+                                })}
                             </option>
-                            <option value="returned">{t("requestStatus.returned", { defaultValue: "returned" })}</option>
-                            <option value="needs_revision">{t("requestStatus.needsRevision", { defaultValue: "needs revision" })}</option>
+
+                            <option value="returned">
+                                {t("requestStatus.returned", { defaultValue: "returned" })}
+                            </option>
+                            <option value="needs_revision">
+                                {t("requestStatus.needsRevision", {
+                                    defaultValue: "needs revision",
+                                })}
+                            </option>
+
+                            <option value="rejected">
+                                {t("requestStatus.rejected", { defaultValue: "rejected" })}
+                            </option>
 
                             <option value="in_transit_to_collector">
-                                {t("requestStatus.inTransitToCollector", { defaultValue: "in transit to collector" })}
+                                {t("requestStatus.inTransitToCollector", {
+                                    defaultValue: "in transit to collector",
+                                })}
                             </option>
                             <option value="under_inspection">
-                                {t("requestStatus.underInspection", { defaultValue: "under inspection" })}
+                                {t("requestStatus.underInspection", {
+                                    defaultValue: "under inspection",
+                                })}
                             </option>
                             <option value="returned_to_admin">
-                                {t("requestStatus.returnedToAdmin", { defaultValue: "returned to admin" })}
+                                {t("requestStatus.returnedToAdmin", {
+                                    defaultValue: "returned to admin",
+                                })}
                             </option>
                             <option value="intake_checklist_passed">
-                                {t("requestStatus.intakeChecklistPassed", { defaultValue: "intake checklist passed" })}
+                                {t("requestStatus.intakeChecklistPassed", {
+                                    defaultValue: "intake checklist passed",
+                                })}
                             </option>
                             <option value="awaiting_verification">
-                                {t("requestStatus.awaitingVerification", { defaultValue: "awaiting verification" })}
+                                {t("requestStatus.awaitingVerification", {
+                                    defaultValue: "awaiting verification",
+                                })}
                             </option>
                         </select>
                     </div>
@@ -331,7 +447,11 @@ export default function SampleRequestsQueuePage() {
 
                 {/* Body (OLD design) */}
                 <div className="px-4 md:px-6 py-4">
-                    {error && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
+                    {error && (
+                        <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">
+                            {error}
+                        </div>
+                    )}
 
                     {loading ? (
                         <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -340,7 +460,9 @@ export default function SampleRequestsQueuePage() {
                         </div>
                     ) : items.length === 0 ? (
                         <div className="text-sm text-gray-600">
-                            {t("samples.pages.queue.empty.body", { defaultValue: "No pending sample requests found." })}
+                            {t("samples.pages.queue.empty.body", {
+                                defaultValue: "No pending sample requests found.",
+                            })}
                         </div>
                     ) : (
                         <>
@@ -368,20 +490,20 @@ export default function SampleRequestsQueuePage() {
 
                                     <tbody className="divide-y divide-gray-100">
                                         {items.map((r, idx) => {
-                                            const rowId = r.sample_id;
-                                            const canAct = rowId != null;
-                                            const st = String(r.request_status ?? "").toLowerCase();
+                                            const requestId = getRequestId(r);
+                                            const canRowOpen = !!requestId;
 
-                                            const canApprove = canAct && (st === "submitted" || st === "returned" || st === "needs_revision");
-                                            const canReturn = canAct && (st === "submitted" || st === "returned" || st === "needs_revision");
-                                            const canReceived = canAct && st === "ready_for_delivery";
+                                            const actions = getAdminActionsForStatus(r.request_status);
+                                            const canAccept = isAdmin && canRowOpen && actions.includes("accept");
+                                            const canReject = isAdmin && canRowOpen && actions.includes("reject");
+                                            const canReceived = isAdmin && canRowOpen && actions.includes("received");
 
                                             const statusLabel = requestStatusChipLabel(t, r.request_status);
 
                                             return (
-                                                <tr key={rowId ?? `row-${idx}`} className="hover:bg-gray-50">
+                                                <tr key={requestId ?? `row-${idx}`} className="hover:bg-gray-50">
                                                     <td className="px-4 py-3 text-gray-900 font-semibold">
-                                                        {rowId != null ? `#${rowId}` : "-"}
+                                                        {requestId ? `#${requestId}` : "-"}
                                                     </td>
 
                                                     <td className="px-4 py-3 text-gray-700">{r.sample_type ?? "-"}</td>
@@ -407,63 +529,67 @@ export default function SampleRequestsQueuePage() {
 
                                                     <td className="px-4 py-3">
                                                         <div className="flex items-center justify-end gap-2">
-                                                            {/* View icon */}
+                                                            {/* View icon (always visible) */}
                                                             <button
                                                                 type="button"
                                                                 className="lims-icon-button"
-                                                                onClick={() => navigate(`/samples/requests/${rowId}`)}
+                                                                onClick={() => requestId && navigate(`/samples/requests/${requestId}`)}
                                                                 aria-label={t("view", { defaultValue: "View" })}
                                                                 title={t("view", { defaultValue: "View" })}
-                                                                disabled={!canAct}
+                                                                disabled={!canRowOpen}
                                                             >
                                                                 <Eye size={16} />
                                                             </button>
 
-                                                            {/* Admin-only actions */}
-                                                            {roleId === ROLE_ID.ADMIN ? (
-                                                                <>
-                                                                    <button
-                                                                        type="button"
-                                                                        className={cx(
-                                                                            "inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-semibold",
-                                                                            "bg-primary text-white hover:bg-primary/90",
-                                                                            !canApprove && "opacity-50 cursor-not-allowed"
-                                                                        )}
-                                                                        disabled={!canApprove}
-                                                                        onClick={() => openModal(r, "approve")}
-                                                                        title={t("samples.pages.queue.actions.accept", { defaultValue: "Approve request" })}
-                                                                    >
-                                                                        {t("approve", { defaultValue: "Approve" })}
-                                                                    </button>
+                                                            {/* ✅ New rule-based actions (Admin only) */}
+                                                            {canAccept ? (
+                                                                <button
+                                                                    type="button"
+                                                                    className={cx(
+                                                                        "inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-semibold",
+                                                                        "bg-primary text-white hover:bg-primary/90"
+                                                                    )}
+                                                                    onClick={() => openModal(r, "accept")}
+                                                                    title={t("samples.pages.queue.actions.accept", {
+                                                                        defaultValue: "Accept request",
+                                                                    })}
+                                                                >
+                                                                    {t("accept", { defaultValue: "Accept" })}
+                                                                </button>
+                                                            ) : null}
 
-                                                                    <button
-                                                                        type="button"
-                                                                        className={cx(
-                                                                            "inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-semibold border",
-                                                                            "border-red-200 text-red-700 hover:bg-red-50",
-                                                                            !canReturn && "opacity-50 cursor-not-allowed"
-                                                                        )}
-                                                                        disabled={!canReturn}
-                                                                        onClick={() => openModal(r, "return")}
-                                                                        title={t("samples.pages.queue.actions.return", { defaultValue: "Return request to client" })}
-                                                                    >
-                                                                        {t("samples.pages.queue.actions.return", { defaultValue: "Return" })}
-                                                                    </button>
+                                                            {canReject ? (
+                                                                <button
+                                                                    type="button"
+                                                                    className={cx(
+                                                                        "inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-semibold border",
+                                                                        "border-red-200 text-red-700 hover:bg-red-50"
+                                                                    )}
+                                                                    onClick={() => openModal(r, "reject")}
+                                                                    title={t("samples.pages.queue.actions.reject", {
+                                                                        defaultValue: "Reject request",
+                                                                    })}
+                                                                >
+                                                                    {t("reject", { defaultValue: "Reject" })}
+                                                                </button>
+                                                            ) : null}
 
-                                                                    <button
-                                                                        type="button"
-                                                                        className={cx(
-                                                                            "inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-semibold border",
-                                                                            "border-gray-300 text-gray-700 hover:bg-gray-50",
-                                                                            !canReceived && "opacity-50 cursor-not-allowed"
-                                                                        )}
-                                                                        disabled={!canReceived}
-                                                                        onClick={() => openModal(r, "received")}
-                                                                        title={t("samples.pages.queue.actions.received", { defaultValue: "Mark physically received" })}
-                                                                    >
-                                                                        {t("samples.pages.queue.actions.received", { defaultValue: "Received" })}
-                                                                    </button>
-                                                                </>
+                                                            {canReceived ? (
+                                                                <button
+                                                                    type="button"
+                                                                    className={cx(
+                                                                        "inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-semibold border",
+                                                                        "border-gray-300 text-gray-700 hover:bg-gray-50"
+                                                                    )}
+                                                                    onClick={() => openModal(r, "received")}
+                                                                    title={t("samples.pages.queue.actions.received", {
+                                                                        defaultValue: "Mark physically received",
+                                                                    })}
+                                                                >
+                                                                    {t("samples.pages.queue.actions.received", {
+                                                                        defaultValue: "Received",
+                                                                    })}
+                                                                </button>
                                                             ) : null}
                                                         </div>
                                                     </td>
@@ -511,7 +637,7 @@ export default function SampleRequestsQueuePage() {
                 {/* Modal */}
                 <UpdateRequestStatusModal
                     open={modalOpen}
-                    sampleId={modalSampleId}
+                    sampleId={modalRequestId}
                     action={modalAction}
                     currentStatus={modalCurrentStatus}
                     onClose={closeModal}

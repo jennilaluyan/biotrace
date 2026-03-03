@@ -14,7 +14,7 @@ class SampleRequestStatusController extends Controller
 {
     private function assertAdminOr403(Request $request): void
     {
-        // ✅ IMPORTANT: use sanctum request user (not web session) to avoid "System Staff" actor
+        // ✅ use sanctum request user (not web session)
         $user = $request->user() ?? Auth::guard('sanctum')->user();
 
         $roleName = strtolower((string) ($user?->role?->name ?? $user?->role_name ?? ''));
@@ -35,9 +35,9 @@ class SampleRequestStatusController extends Controller
     /**
      * POST /api/v1/samples/{sample}/request-status
      *
-     * Supports multiple client payload shapes (to stay compatible with frontend/service):
-     * - { action: "accept"|"return"|"received", note?: string }
-     * - { status: "ready_for_delivery"|"returned"|"physically_received", note?: string }
+     * Supported payload:
+     * - { action: "accept"|"reject"|"return"|"received", note?: string }
+     * - { status: "ready_for_delivery"|"rejected"|"returned"|"physically_received", note?: string }
      * - { request_status: "...", note?: string }
      * - { nextStatus: "...", note?: string }
      */
@@ -45,7 +45,7 @@ class SampleRequestStatusController extends Controller
     {
         $this->assertAdminOr403($request);
 
-        // ✅ Use request user (sanctum) to compute staffId (prevents "System Staff")
+        // ✅ Use request user (sanctum) to compute staffId
         $user = $request->user() ?? Auth::guard('sanctum')->user();
         $staffId = (int) (($user?->staff_id ?? null) ?: ($user?->id ?? 0));
 
@@ -60,14 +60,15 @@ class SampleRequestStatusController extends Controller
 
         $statusFromBody = strtolower(trim($statusFromBody));
 
-        // Map status-based payload into an "action" (for compatibility)
+        // Map status-based payload into an "action" (compat)
         if ($action === '' && $statusFromBody !== '') {
             if ($statusFromBody === 'ready_for_delivery') $action = 'accept';
+            if ($statusFromBody === 'rejected') $action = 'reject';
             if ($statusFromBody === 'returned' || $statusFromBody === 'needs_revision') $action = 'return';
             if ($statusFromBody === 'physically_received') $action = 'received';
         }
 
-        if (!in_array($action, ['accept', 'return', 'received'], true)) {
+        if (!in_array($action, ['accept', 'reject', 'return', 'received'], true)) {
             return response()->json(['message' => 'Invalid action.'], 422);
         }
 
@@ -77,30 +78,41 @@ class SampleRequestStatusController extends Controller
             return response()->json(['message' => 'Draft requests are not available in backoffice.'], 403);
         }
 
+        // ✅ idempotent handling for already-finished status
+        if ($action === 'reject' && $current === 'rejected') {
+            return response()->json(['data' => $sample->fresh()], 200);
+        }
+        if ($action === 'received' && $current === 'physically_received') {
+            return response()->json(['data' => $sample->fresh()], 200);
+        }
+        if ($action === 'accept' && $current === 'ready_for_delivery') {
+            return response()->json(['data' => $sample->fresh()], 200);
+        }
+
         // ✅ Capture old status BEFORE any mutation (for correct audit)
         $oldRequestStatus = (string) ($sample->request_status ?? '');
 
-        // Allowed transitions:
-        // - accept: from submitted/returned/needs_revision
-        // - return: from submitted/returned/needs_revision + fail-path (returned_to_admin/inspection_failed)
-        // - received: from ready_for_delivery (normal flow)
+        /**
+         * Allowed transitions (Admin, queue context):
+         * - accept:   submitted/returned/needs_revision -> ready_for_delivery
+         * - reject:   submitted/returned/needs_revision -> rejected
+         * - return:   legacy flow + fail-path
+         * - received: ready_for_delivery -> physically_received
+         */
         if ($action === 'received') {
             if ($current !== 'ready_for_delivery') {
-                // If it is already physically_received, treat as idempotent success
-                if ($current === 'physically_received') {
-                    $sample->load(['client', 'requestedParameters']);
-                    return response()->json(['data' => $sample->fresh()], 200);
-                }
-
                 return response()->json([
                     'message' => 'You are not allowed to mark physically received from the current status.',
                     'details' => ['request_status' => [$current]],
                 ], 422);
             }
         } else {
-            $allowedFrom = ($action === 'accept')
-                ? ['submitted', 'returned', 'needs_revision']
-                : ['submitted', 'returned', 'needs_revision', 'returned_to_admin', 'inspection_failed'];
+            $allowedFrom = match ($action) {
+                'accept' => ['submitted', 'returned', 'needs_revision'],
+                'reject' => ['submitted', 'returned', 'needs_revision'],
+                'return' => ['submitted', 'returned', 'needs_revision', 'returned_to_admin', 'inspection_failed'],
+                default => [],
+            };
 
             if (!in_array($current, $allowedFrom, true)) {
                 return response()->json([
@@ -112,10 +124,11 @@ class SampleRequestStatusController extends Controller
 
         $note = trim((string) $request->get('note', ''));
 
-        if ($action === 'return' && $note === '') {
+        // ✅ Reject needs reason, Return needs reason (legacy)
+        if (($action === 'reject' || $action === 'return') && $note === '') {
             return response()->json([
-                'message' => 'Return note is required.',
-                'details' => ['note' => ['Return note is required.']],
+                'message' => 'A note is required.',
+                'details' => ['note' => ['A note is required.']],
             ], 422);
         }
 
@@ -135,6 +148,21 @@ class SampleRequestStatusController extends Controller
                 }
                 if (Schema::hasColumn('samples', 'request_approved_at')) {
                     $sample->request_approved_at = $now;
+                }
+            }
+
+            if ($action === 'reject') {
+                if (Schema::hasColumn('samples', 'request_status')) {
+                    $sample->request_status = 'rejected';
+                }
+
+                // Reuse existing note column if present (schema-safe)
+                if (Schema::hasColumn('samples', 'request_return_note')) {
+                    $sample->request_return_note = $note;
+                }
+
+                if (Schema::hasColumn('samples', 'request_rejected_at')) {
+                    $sample->request_rejected_at = $now;
                 }
             }
 
@@ -172,14 +200,20 @@ class SampleRequestStatusController extends Controller
             if (Schema::hasTable('audit_logs')) {
                 $cols = array_flip(Schema::getColumnListing('audit_logs'));
 
+                $actionLabel = match ($action) {
+                    'accept' => 'REQUEST_ACCEPTED',
+                    'reject' => 'REQUEST_REJECTED',
+                    'return' => 'REQUEST_RETURNED',
+                    'received' => 'REQUEST_PHYSICALLY_RECEIVED',
+                    default => 'REQUEST_STATUS_UPDATED',
+                };
+
                 $payload = [
                     'entity_name' => 'samples',
                     'entity_id' => $sample->sample_id,
-                    'action' => $action === 'accept'
-                        ? 'REQUEST_ACCEPTED'
-                        : ($action === 'return' ? 'REQUEST_RETURNED' : 'REQUEST_PHYSICALLY_RECEIVED'),
+                    'action' => $actionLabel,
 
-                    // actor fields (schema-safe; masuk hanya kalau kolom ada)
+                    // actor fields (schema-safe)
                     'staff_id' => $staffId ?: null,
                     'performed_by' => $staffId ?: null,
                     'user_id' => $staffId ?: null,
@@ -187,15 +221,15 @@ class SampleRequestStatusController extends Controller
                     'timestamp' => $now,
                     'ip_address' => request()->ip(),
 
-                    'note' => $action === 'return' ? $note : null,
-                    'meta' => ($action === 'return' && $note !== '')
+                    'note' => in_array($action, ['reject', 'return'], true) ? $note : null,
+                    'meta' => (in_array($action, ['reject', 'return'], true) && $note !== '')
                         ? json_encode(['note' => $note])
                         : null,
 
                     'old_values' => json_encode(['request_status' => $oldRequestStatus]),
                     'new_values' => json_encode([
                         'request_status' => $sample->request_status,
-                        'note' => $action === 'return' ? $note : null,
+                        'note' => in_array($action, ['reject', 'return'], true) ? $note : null,
                     ]),
 
                     'created_at' => $now,

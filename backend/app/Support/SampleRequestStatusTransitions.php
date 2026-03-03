@@ -12,20 +12,27 @@ final class SampleRequestStatusTransitions
      * Workflow request/intake sebelum lab workflow.
      *
      * Roles:
-     * - Client: nanti via client portal (part 2), untuk sekarang backend staff saja.
-     * - Administrator: review, return, mark ready_for_delivery, mark physically_received (received at lab desk)
-     * - Sample Collector: checklist pass/fail (bisa trigger returned/rejected)
-     * - Laboratory Head: validate intake (trigger lab code generation later step)
+     * - Administrator: Accept/Reject request, mark ready_for_delivery, mark physically_received
+     * - Sample Collector: inspection flow
+     * - Operational Manager / Laboratory Head: verification & assignment flow
      */
     public const ROLE_TRANSITIONS = [
         'Administrator' => [
-            'submitted' => ['returned', 'ready_for_delivery'],
+            // ✅ New rule: first decision from client-submitted request
+            'submitted' => ['ready_for_delivery', 'rejected', 'returned'],
+
+            // Keep compatibility (older flow)
             'returned' => ['submitted'],
+
+            // Normal intake
             'ready_for_delivery' => ['physically_received'],
             'physically_received' => ['in_transit_to_collector'],
+
+            // Sample ID assignment flow
             'waiting_sample_id_assignment' => ['intake_validated', 'sample_id_pending_verification'],
             'sample_id_approved_for_assignment' => ['intake_validated'],
         ],
+
         'Sample Collector' => [
             'physically_received' => ['in_transit_to_collector', 'rejected'],
             'in_transit_to_collector' => ['under_inspection'],
