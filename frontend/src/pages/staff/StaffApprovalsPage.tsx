@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { RefreshCw, Check, X, Loader2, UserCheck } from "lucide-react";
 
@@ -11,22 +11,53 @@ import {
 import { getRoleLabelById } from "../../utils/roles";
 import { formatDate } from "../../utils/date";
 
-type ApiError = {
-    data?: { message?: string; error?: string };
+import StaffApprovalDecisionModal from "../../components/staff/StaffApprovalDecisionModal";
+
+type ApiErrorLike = {
+    data?: { message?: string; error?: string; details?: any; errors?: any };
     response?: { data?: any };
     message?: string;
 };
 
-const getApiMessage = (e: unknown) => {
-    const err = e as ApiError;
+function getApiMessage(err: unknown, fallback: string) {
+    const e = err as ApiErrorLike;
+    const data = e?.response?.data ?? e?.data;
+
+    const details = data?.details ?? data?.errors;
+    if (details && typeof details === "object") {
+        const k = Object.keys(details)[0];
+        const v = k ? details[k] : undefined;
+        if (Array.isArray(v) && v[0]) return String(v[0]);
+        if (typeof v === "string" && v) return v;
+    }
+
     return (
-        err?.data?.message ??
-        err?.response?.data?.message ??
-        err?.response?.data?.error ??
-        err?.message ??
-        null
+        data?.message ??
+        data?.error ??
+        (typeof e?.message === "string" ? e.message : null) ??
+        fallback
     );
-};
+}
+
+function unwrapList<T>(res: any): T[] {
+    const x = res?.data ?? res;
+    if (Array.isArray(x)) return x;
+
+    if (x && typeof x === "object") {
+        const candidates = [
+            (x as any).data,
+            (x as any).items,
+            (x as any).rows,
+            (x as any).results,
+        ];
+        for (const c of candidates) {
+            if (Array.isArray(c)) return c;
+            if (c && typeof c === "object" && Array.isArray((c as any).data)) return (c as any).data;
+        }
+    }
+
+    return [];
+}
 
 export const StaffApprovalsPage = () => {
     const { t } = useTranslation();
@@ -34,61 +65,89 @@ export const StaffApprovalsPage = () => {
     const [items, setItems] = useState<PendingStaff[]>([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState<string | null>(null);
-    const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
+
+    const [modalOpen, setModalOpen] = useState(false);
+    const [modalMode, setModalMode] = useState<"approve" | "reject">("approve");
+    const [selectedStaff, setSelectedStaff] = useState<PendingStaff | null>(null);
+    const [modalBusy, setModalBusy] = useState(false);
+    const [modalErr, setModalErr] = useState<string | null>(null);
 
     const total = useMemo(() => items.length, [items]);
 
-    const load = async () => {
+    const load = useCallback(async () => {
         setErr(null);
         setLoading(true);
+
         try {
             const res = await fetchPendingStaffs();
-            setItems(res.data ?? []);
+            setItems(unwrapList<PendingStaff>(res));
         } catch (e) {
-            setErr(getApiMessage(e) ?? t("staffApprovals.errors.loadFailed"));
+            setErr(getApiMessage(e, t("staffApprovals.errors.loadFailed")));
+            setItems([]);
         } finally {
             setLoading(false);
         }
-    };
+    }, [t]);
 
     useEffect(() => {
-        load();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        void load();
+    }, [load]);
+
+    const openApprove = useCallback((staff: PendingStaff) => {
+        setModalMode("approve");
+        setSelectedStaff(staff);
+        setModalErr(null);
+        setModalOpen(true);
     }, []);
 
-    const onApprove = async (staffId: number) => {
-        const ok = window.confirm(t("staffApprovals.confirm.approve"));
-        if (!ok) return;
+    const openReject = useCallback((staff: PendingStaff) => {
+        setModalMode("reject");
+        setSelectedStaff(staff);
+        setModalErr(null);
+        setModalOpen(true);
+    }, []);
 
-        try {
-            setErr(null);
-            setActionLoadingId(staffId);
-            await approveStaff(staffId);
-            await load();
-        } catch (e) {
-            setErr(getApiMessage(e) ?? t("staffApprovals.errors.approveFailed"));
-        } finally {
-            setActionLoadingId(null);
-        }
-    };
+    const closeModal = useCallback(() => {
+        if (modalBusy) return;
+        setModalOpen(false);
+        setSelectedStaff(null);
+        setModalErr(null);
+    }, [modalBusy]);
 
-    const onReject = async (staffId: number) => {
-        const ok = window.confirm(t("staffApprovals.confirm.reject"));
-        if (!ok) return;
+    const onConfirmModal = useCallback(
+        async (rejectNote?: string) => {
+            const staffId = selectedStaff?.staff_id;
+            if (!staffId) return;
 
-        const note = window.prompt(t("staffApprovals.confirm.rejectNotePrompt")) ?? undefined;
+            try {
+                setModalBusy(true);
+                setModalErr(null);
 
-        try {
-            setErr(null);
-            setActionLoadingId(staffId);
-            await rejectStaff(staffId, note);
-            await load();
-        } catch (e) {
-            setErr(getApiMessage(e) ?? t("staffApprovals.errors.rejectFailed"));
-        } finally {
-            setActionLoadingId(null);
-        }
-    };
+                if (modalMode === "approve") {
+                    await approveStaff(staffId);
+                } else {
+                    await rejectStaff(staffId, rejectNote);
+                }
+
+                setModalOpen(false);
+                setSelectedStaff(null);
+
+                await load();
+            } catch (e) {
+                const fallback =
+                    modalMode === "approve"
+                        ? t("staffApprovals.errors.approveFailed")
+                        : t("staffApprovals.errors.rejectFailed");
+
+                setModalErr(getApiMessage(e, fallback));
+            } finally {
+                setModalBusy(false);
+            }
+        },
+        [selectedStaff, modalMode, load, t]
+    );
+
+    const busyRowId = modalBusy ? selectedStaff?.staff_id ?? null : null;
 
     return (
         <div className="min-h-[60vh]">
@@ -164,7 +223,7 @@ export const StaffApprovalsPage = () => {
 
                                         <tbody>
                                             {items.map((s) => {
-                                                const busy = actionLoadingId === s.staff_id;
+                                                const busy = busyRowId === s.staff_id;
                                                 const roleName = s.role?.name || getRoleLabelById(s.role_id) || "—";
 
                                                 return (
@@ -190,7 +249,7 @@ export const StaffApprovalsPage = () => {
                                                                     type="button"
                                                                     disabled={busy}
                                                                     className="lims-btn-primary disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
-                                                                    onClick={() => onApprove(s.staff_id)}
+                                                                    onClick={() => openApprove(s)}
                                                                 >
                                                                     {busy ? (
                                                                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -204,7 +263,7 @@ export const StaffApprovalsPage = () => {
                                                                     type="button"
                                                                     disabled={busy}
                                                                     className="lims-btn-danger disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
-                                                                    onClick={() => onReject(s.staff_id)}
+                                                                    onClick={() => openReject(s)}
                                                                 >
                                                                     {busy ? (
                                                                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -226,6 +285,16 @@ export const StaffApprovalsPage = () => {
                     )}
                 </div>
             </div>
+
+            <StaffApprovalDecisionModal
+                open={modalOpen}
+                mode={modalMode}
+                staff={selectedStaff}
+                busy={modalBusy}
+                error={modalErr}
+                onClose={closeModal}
+                onConfirm={onConfirmModal}
+            />
         </div>
     );
 };
