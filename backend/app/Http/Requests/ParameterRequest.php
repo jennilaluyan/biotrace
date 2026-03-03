@@ -76,18 +76,20 @@ class ParameterRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        $trim = fn($v) => is_string($v) ? trim($v) : $v;
+        $trimStr = function (string $key) {
+            if (!$this->has($key)) return;
+            $this->merge([$key => trim((string) $this->input($key))]);
+        };
 
-        $this->merge([
-            'code' => $trim($this->input('code')),
-            'name' => $trim($this->input('name')),
-            'unit' => $trim($this->input('unit')),
-            'method_ref' => $trim($this->input('method_ref')),
-        ]);
+        $trimStr('code');
+        $trimStr('name');
+        $trimStr('unit');
+        $trimStr('method_ref');
 
         if ($this->has('workflow_group')) {
+            $wg = strtolower(trim((string) $this->input('workflow_group')));
             $this->merge([
-                'workflow_group' => strtolower(trim((string) $this->input('workflow_group'))),
+                'workflow_group' => $wg !== '' ? $wg : null
             ]);
         }
     }
