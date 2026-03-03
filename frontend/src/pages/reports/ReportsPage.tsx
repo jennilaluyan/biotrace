@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { CheckCircle2, ChevronLeft, ChevronRight, Eye, RefreshCw, Search, Send, X } from "lucide-react";
 
 import { useAuth } from "../../hooks/useAuth";
@@ -14,6 +15,7 @@ import { markCoaChecked, releaseCoaToClient } from "../../services/reportDeliver
 
 type DateFilter = "all" | "today" | "7d" | "30d";
 const DOC_PAGE_SIZE = 12;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 type UnifiedDoc = {
     key: string;
@@ -23,6 +25,7 @@ type UnifiedDoc = {
     codeOrNumber: string;
     generatedAt: string | null;
 
+    // NOTE: kept for search + badge display (even though the Status column is removed)
     status: string | null;
     pdfUrl: string | null;
 
@@ -53,28 +56,15 @@ function isWithinDateFilter(iso: string | null | undefined, filter: DateFilter):
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
     if (filter === "today") return t >= startOfToday;
-    if (filter === "7d") return t >= now.getTime() - 7 * 24 * 60 * 60 * 1000;
-    if (filter === "30d") return t >= now.getTime() - 30 * 24 * 60 * 60 * 1000;
+    if (filter === "7d") return t >= now.getTime() - 7 * MS_PER_DAY;
+    if (filter === "30d") return t >= now.getTime() - 30 * MS_PER_DAY;
 
     return true;
 }
 
-function normalizeText(v: any): string | null {
+function normalizeText(v: unknown): string | null {
     const raw = String(v ?? "").trim();
     return raw ? raw : null;
-}
-
-function formatStatusLabel(value: any, t: any): string {
-    const s = String(value ?? "").trim().toLowerCase();
-
-    if (s === "locked") return t("reports.status.locked", "Locked");
-    if (s === "draft") return t("reports.status.draft", "Draft");
-    if (s === "generated") return t("reports.status.generated", "Generated");
-    if (s === "approved") return t("reports.status.approved", "Approved");
-    if (s === "rejected") return t("reports.status.rejected", "Rejected");
-
-    if (!s) return t(["na", "common.na"], "—");
-    return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function isCoaDoc(doc: UnifiedDoc) {
@@ -83,14 +73,39 @@ function isCoaDoc(doc: UnifiedDoc) {
     return tc === "COA" || nm.startsWith("COA ");
 }
 
-function coaDeliveryLabel(checkedAt: string | null, releasedAt: string | null, t: any): string {
-    if (releasedAt) return t("reports.coa.delivery.released", "Released to client");
-    if (checkedAt) return t("reports.coa.delivery.checked", "Checked (pending send)");
-    return t("reports.coa.delivery.pending", "Generated (pending admin)");
+/**
+ * Returns short, compact labels (lowercase, ideally one word) to keep the UI clean.
+ * This is shown as a small badge under the Document column.
+ */
+function buildDocBadgeLabel(params: {
+    doc: UnifiedDoc;
+    t: TFunction;
+    checkedAt: string | null;
+    releasedAt: string | null;
+}): string | null {
+    const { doc, t, checkedAt, releasedAt } = params;
+
+    if (isCoaDoc(doc)) {
+        if (releasedAt) return t("reports.coa.delivery.releasedShort", { defaultValue: "released" });
+        if (checkedAt) return t("reports.coa.delivery.checkedShort", { defaultValue: "checked" });
+        return t("reports.coa.delivery.pendingShort", { defaultValue: "pending" });
+    }
+
+    const s = String(doc.status ?? "").trim().toLowerCase();
+    if (!s) return null;
+
+    if (s === "locked") return t("reports.status.lockedShort", { defaultValue: "locked" });
+    if (s === "draft") return t("reports.status.draftShort", { defaultValue: "draft" });
+    if (s === "generated") return t("reports.status.generatedShort", { defaultValue: "generated" });
+    if (s === "approved") return t("reports.status.approvedShort", { defaultValue: "approved" });
+    if (s === "rejected") return t("reports.status.rejectedShort", { defaultValue: "rejected" });
+
+    // Best-effort: keep it compact and predictable
+    return s.split(/\s+/).slice(0, 1).join(" ");
 }
 
 function unwrapUpdated(payload: any) {
-    // our service usually returns {data} or direct object; support both
+    // Service may return { data } or direct object; support both.
     return payload?.data ?? payload;
 }
 
@@ -108,9 +123,7 @@ export const ReportsPage = () => {
     const [error, setError] = useState<string | null>(null);
 
     // FE override for COA state (because /documents may not reflect latest immediately)
-    const [coaOverride, setCoaOverride] = useState<Record<number, { checkedAt?: string | null; releasedAt?: string | null }>>(
-        {}
-    );
+    const [coaOverride, setCoaOverride] = useState<Record<number, { checkedAt?: string | null; releasedAt?: string | null }>>({});
 
     const [reportDocs, setReportDocs] = useState<ReportDocumentRow[]>([]);
 
@@ -129,7 +142,7 @@ export const ReportsPage = () => {
     const [sendTarget, setSendTarget] = useState<UnifiedDoc | null>(null);
     const [actionBusy, setActionBusy] = useState(false);
 
-    const load = async () => {
+    const load = useCallback(async () => {
         try {
             setLoading(true);
             setError(null);
@@ -142,13 +155,12 @@ export const ReportsPage = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [t]);
 
     useEffect(() => {
         if (!canViewReports) return;
         void load();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canViewReports]);
+    }, [canViewReports, load]);
 
     const unifiedDocs: UnifiedDoc[] = useMemo(() => {
         const all: UnifiedDoc[] = (reportDocs ?? []).map((d: any) => {
@@ -177,12 +189,19 @@ export const ReportsPage = () => {
         });
 
         const q = searchTerm.trim().toLowerCase();
+
         const filtered = all.filter((x) => {
             if (!isWithinDateFilter(x.generatedAt, dateFilter)) return false;
             if (!q) return true;
 
-            const extra = isCoaDoc(x) ? `${x.coa_checked_at ?? ""} ${x.coa_released_to_client_at ?? ""}` : "";
-            const hay = `${x.documentName} ${x.typeCode} ${x.codeOrNumber} ${x.status ?? ""} ${extra}`.toLowerCase();
+            const coa = isCoaDoc(x);
+            const ov = x.reportId ? coaOverride[x.reportId] : undefined;
+            const effectiveCheckedAt = x.coa_checked_at ?? ov?.checkedAt ?? null;
+            const effectiveReleasedAt = x.coa_released_to_client_at ?? ov?.releasedAt ?? null;
+
+            const badge = buildDocBadgeLabel({ doc: x, t, checkedAt: effectiveCheckedAt, releasedAt: effectiveReleasedAt }) ?? "";
+            const hay = `${x.documentName} ${x.typeCode} ${x.codeOrNumber} ${badge}`.toLowerCase();
+
             return hay.includes(q);
         });
 
@@ -193,7 +212,7 @@ export const ReportsPage = () => {
         });
 
         return filtered;
-    }, [reportDocs, searchTerm, dateFilter, t]);
+    }, [reportDocs, searchTerm, dateFilter, t, coaOverride]);
 
     const total = unifiedDocs.length;
     const totalPages = Math.max(1, Math.ceil(total / DOC_PAGE_SIZE));
@@ -206,52 +225,59 @@ export const ReportsPage = () => {
     const from = total === 0 ? 0 : (clampedPage - 1) * DOC_PAGE_SIZE + 1;
     const to = Math.min(clampedPage * DOC_PAGE_SIZE, total);
 
-    const openDoc = (d: UnifiedDoc) => {
-        const raw = String(d.pdfUrl ?? "").trim();
-        if (!raw) return;
+    const openDoc = useCallback(
+        (d: UnifiedDoc) => {
+            const raw = String(d.pdfUrl ?? "").trim();
+            if (!raw) return;
 
-        const url = resolvePublicFileUrl(raw);
-        setPreviewPdfUrl(url);
-        setPreviewTitle(t("reports.previewDocTitle", "{{name}} — Preview", { name: d.documentName }));
-        setPreviewOpen(true);
-    };
+            const url = resolvePublicFileUrl(raw);
+            setPreviewPdfUrl(url);
+            setPreviewTitle(t("reports.previewDocTitle", "{{name}} — Preview", { name: d.documentName }));
+            setPreviewOpen(true);
+        },
+        [t]
+    );
 
-    const doCheck = async (d: UnifiedDoc) => {
-        if (!isAdmin) return;
-        if (!d.reportId) {
-            alert("Missing report_id for this COA row. Fix backend /v1/reports/documents to include report_id.");
-            return;
-        }
+    const doCheck = useCallback(
+        async (d: UnifiedDoc) => {
+            if (!isAdmin) return;
+            if (!d.reportId) {
+                // Keep it explicit: backend must include report_id for COA docs.
+                alert("Missing report_id for this COA row. Fix backend /v1/reports/documents to include report_id.");
+                return;
+            }
 
-        try {
-            setActionBusy(true);
+            try {
+                setActionBusy(true);
 
-            const raw = await markCoaChecked(d.reportId);
-            const updated = unwrapUpdated(raw);
+                const raw = await markCoaChecked(d.reportId);
+                const updated = unwrapUpdated(raw);
 
-            const rid = Number(updated?.report_id ?? d.reportId);
+                const rid = Number(updated?.report_id ?? d.reportId);
 
-            setCoaOverride((prev) => ({
-                ...prev,
-                [rid]: {
-                    ...(prev[rid] ?? {}),
-                    checkedAt: updated?.coa_checked_at ?? new Date().toISOString(),
-                },
-            }));
+                setCoaOverride((prev) => ({
+                    ...prev,
+                    [rid]: {
+                        ...(prev[rid] ?? {}),
+                        checkedAt: updated?.coa_checked_at ?? new Date().toISOString(),
+                    },
+                }));
 
-            await load();
-        } finally {
-            setActionBusy(false);
-        }
-    };
+                await load();
+            } finally {
+                setActionBusy(false);
+            }
+        },
+        [isAdmin, load]
+    );
 
-    const openSendModal = (d: UnifiedDoc) => {
+    const openSendModal = useCallback((d: UnifiedDoc) => {
         setSendTarget(d);
         setSendNote("");
         setSendOpen(true);
-    };
+    }, []);
 
-    const doSend = async () => {
+    const doSend = useCallback(async () => {
         if (!sendTarget) return;
         if (!isAdmin) return;
 
@@ -272,7 +298,7 @@ export const ReportsPage = () => {
                 ...prev,
                 [rid]: {
                     ...(prev[rid] ?? {}),
-                    // release endpoint may auto-check too
+                    // Release endpoint may auto-check too
                     checkedAt: updated?.coa_checked_at ?? prev[rid]?.checkedAt ?? new Date().toISOString(),
                     releasedAt: updated?.coa_released_to_client_at ?? new Date().toISOString(),
                 },
@@ -286,7 +312,7 @@ export const ReportsPage = () => {
         } finally {
             setActionBusy(false);
         }
-    };
+    }, [isAdmin, load, sendNote, sendTarget]);
 
     if (!canViewReports) {
         return (
@@ -310,9 +336,7 @@ export const ReportsPage = () => {
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div>
                     <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("reports.title", "Reports")}</h1>
-                    <p className="text-xs text-gray-500 mt-1">
-                        {t("reports.subtitle", "All PDF documents (LOO, Reagent Request, COA, etc).")}
-                    </p>
+                    <p className="text-xs text-gray-500 mt-1">{t("reports.subtitle", "All PDF documents (LOO, Reagent Request, COA, etc).")}</p>
                 </div>
 
                 <button
@@ -347,7 +371,7 @@ export const ReportsPage = () => {
                                     setSearchTerm(e.target.value);
                                     setPage(1);
                                 }}
-                                placeholder={t("reports.filters.searchPlaceholder", "Search by document name / code / status…")}
+                                placeholder={t("reports.filters.searchPlaceholder", "Search by document name / code…")}
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
@@ -393,7 +417,6 @@ export const ReportsPage = () => {
                                             <th className="text-left font-semibold px-4 py-3">{t("reports.table.document", "Document")}</th>
                                             <th className="text-left font-semibold px-4 py-3">{t("reports.table.codeNumber", "Code / Number")}</th>
                                             <th className="text-left font-semibold px-4 py-3">{t("reports.table.generated", "Generated")}</th>
-                                            <th className="text-left font-semibold px-4 py-3">{t("reports.table.status", "Status")}</th>
                                             <th className="text-right font-semibold px-4 py-3">{t(["actions", "common.actions"], "Actions")}</th>
                                         </tr>
                                     </thead>
@@ -401,19 +424,34 @@ export const ReportsPage = () => {
                                     <tbody className="divide-y divide-gray-100">
                                         {pageItems.map((d) => {
                                             const disabledView = !String(d.pdfUrl ?? "").trim();
-                                            const coa = isCoaDoc(d);
 
+                                            const coa = isCoaDoc(d);
                                             const ov = d.reportId ? coaOverride[d.reportId] : undefined;
+
                                             const effectiveCheckedAt = d.coa_checked_at ?? ov?.checkedAt ?? null;
                                             const effectiveReleasedAt = d.coa_released_to_client_at ?? ov?.releasedAt ?? null;
 
                                             const canCheck = isAdmin && coa && !effectiveCheckedAt && !!d.reportId && !actionBusy;
                                             const canSend = isAdmin && coa && !!effectiveCheckedAt && !effectiveReleasedAt && !!d.reportId && !actionBusy;
 
+                                            const badge = buildDocBadgeLabel({
+                                                doc: d,
+                                                t,
+                                                checkedAt: effectiveCheckedAt,
+                                                releasedAt: effectiveReleasedAt,
+                                            });
+
                                             return (
                                                 <tr key={d.key} className="hover:bg-gray-50">
                                                     <td className="px-4 py-3 text-gray-900">
-                                                        <div className="font-medium">{d.documentName}</div>
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <div className="font-medium">{d.documentName}</div>
+                                                            {badge ? (
+                                                                <span className="text-[11px] leading-5 px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border border-gray-200">
+                                                                    {badge}
+                                                                </span>
+                                                            ) : null}
+                                                        </div>
                                                         <div className="text-xs text-gray-500">{d.typeCode}</div>
                                                     </td>
 
@@ -423,10 +461,6 @@ export const ReportsPage = () => {
 
                                                     <td className="px-4 py-3 text-gray-700">
                                                         {d.generatedAt ? formatDateTimeLocal(d.generatedAt) : t(["na", "common.na"], "—")}
-                                                    </td>
-
-                                                    <td className="px-4 py-3 text-gray-700">
-                                                        {coa ? coaDeliveryLabel(effectiveCheckedAt, effectiveReleasedAt, t) : formatStatusLabel(d.status, t)}
                                                     </td>
 
                                                     <td className="px-4 py-3">
@@ -493,9 +527,7 @@ export const ReportsPage = () => {
                                         <ChevronLeft size={16} />
                                     </button>
 
-                                    <div className="text-xs text-gray-600">
-                                        {t("reports.pagination.page", "Page {{page}} / {{totalPages}}", { page: clampedPage, totalPages })}
-                                    </div>
+                                    <div className="text-xs text-gray-600">{t("reports.pagination.page", "Page {{page}} / {{totalPages}}", { page: clampedPage, totalPages })}</div>
 
                                     <button
                                         type="button"
@@ -527,18 +559,14 @@ export const ReportsPage = () => {
 
             {/* Inline send modal */}
             {sendOpen ? (
-                <div
-                    className="fixed inset-0 z-60 bg-black/40 flex items-center justify-center p-4"
-                    onClick={() => !actionBusy && setSendOpen(false)}
-                >
-                    <div
-                        className="bg-white w-full max-w-lg rounded-2xl shadow-lg border border-gray-200 overflow-hidden"
-                        onClick={(e) => e.stopPropagation()}
-                    >
+                <div className="fixed inset-0 z-60 bg-black/40 flex items-center justify-center p-4" onClick={() => !actionBusy && setSendOpen(false)}>
+                    <div className="bg-white w-full max-w-lg rounded-2xl shadow-lg border border-gray-200 overflow-hidden" onClick={(e) => e.stopPropagation()}>
                         <div className="px-4 py-3 border-b flex items-center justify-between">
-                            <div className="font-semibold text-sm text-gray-900">
-                                {t("reports.coa.release.title", "Release COA to client")}
+                            <div className="flex flex-col">
+                                <div className="font-semibold text-sm text-gray-900">{t("reports.coa.release.title", "Release COA to client")}</div>
+                                {sendTarget ? <div className="text-xs text-gray-500 mt-0.5">{sendTarget.documentName}</div> : null}
                             </div>
+
                             <button
                                 className="lims-icon-button"
                                 type="button"
@@ -550,9 +578,7 @@ export const ReportsPage = () => {
                         </div>
 
                         <div className="px-4 py-4">
-                            <div className="text-sm text-gray-700">
-                                {t("reports.coa.release.hint", "Optional note (will be saved as release note).")}
-                            </div>
+                            <div className="text-sm text-gray-700">{t("reports.coa.release.hint", "Optional note (will be saved as release note).")}</div>
 
                             <textarea
                                 value={sendNote}
@@ -564,20 +590,10 @@ export const ReportsPage = () => {
                             />
 
                             <div className="mt-4 flex items-center justify-end gap-2">
-                                <button
-                                    type="button"
-                                    className="btn-outline"
-                                    onClick={() => setSendOpen(false)}
-                                    disabled={actionBusy}
-                                >
+                                <button type="button" className="btn-outline" onClick={() => setSendOpen(false)} disabled={actionBusy}>
                                     {t("cancel", "Cancel")}
                                 </button>
-                                <button
-                                    type="button"
-                                    className="lims-btn-primary inline-flex items-center gap-2"
-                                    onClick={doSend}
-                                    disabled={actionBusy}
-                                >
+                                <button type="button" className="lims-btn-primary inline-flex items-center gap-2" onClick={doSend} disabled={actionBusy}>
                                     <Send size={16} />
                                     {t("reports.coa.release.action", "Release")}
                                 </button>
