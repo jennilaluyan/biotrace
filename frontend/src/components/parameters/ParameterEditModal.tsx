@@ -265,34 +265,22 @@ export default function ParameterEditModal({ open, row, onClose, onSaved }: Prop
                         </div>
                     </div>
 
-                    <div className="space-y-1">
-                        <label className="text-xs font-semibold text-gray-700">{t("parametersPage.editModal.fields.reason", { defaultValue: "Reason (optional)" })}</label>
-                        <textarea
-                            value={reason}
-                            onChange={(e) => setReason(e.target.value)}
-                            disabled={submitting}
-                            maxLength={2000}
-                            className="min-h-[110px] w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                            placeholder={t("parametersPage.editModal.placeholders.reason", { defaultValue: "Why do you want to change this parameter?" })}
-                        />
+                    <div className="lims-modal-footer">
+                        <button type="button" onClick={onClose} disabled={submitting} className="btn-outline disabled:opacity-50">
+                            {t("cancel")}
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={submit}
+                            disabled={!canSubmit}
+                            className={cx("lims-btn-primary gap-2", !canSubmit && "opacity-60 cursor-not-allowed")}
+                            title={t("parametersPage.editModal.actions.submit", { defaultValue: "Submit request" })}
+                        >
+                            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                            {submitting ? t("submitting") : t("parametersPage.editModal.actions.submit", { defaultValue: "Submit request" })}
+                        </button>
                     </div>
-                </div>
-
-                <div className="lims-modal-footer">
-                    <button type="button" onClick={onClose} disabled={submitting} className="btn-outline disabled:opacity-50">
-                        {t("cancel")}
-                    </button>
-
-                    <button
-                        type="button"
-                        onClick={submit}
-                        disabled={!canSubmit}
-                        className={cx("lims-btn-primary gap-2", !canSubmit && "opacity-60 cursor-not-allowed")}
-                        title={t("parametersPage.editModal.actions.submit", { defaultValue: "Submit request" })}
-                    >
-                        {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                        {submitting ? t("submitting") : t("parametersPage.editModal.actions.submit", { defaultValue: "Submit request" })}
-                    </button>
                 </div>
             </div>
         </div>
