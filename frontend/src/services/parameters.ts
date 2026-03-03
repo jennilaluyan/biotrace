@@ -18,31 +18,32 @@ export type Paginated<T> = {
     current_page: number;
     data: T[];
     from?: number | null;
-    last_page?: number;
-    per_page?: number;
+    last_page: number;
+    per_page: number;
     to?: number | null;
-    total?: number;
+    total: number;
 };
 
 export type ParameterRow = {
     parameter_id: number;
-    code?: string | null;
-    name?: string | null;
+    catalog_no?: number | null;
+    code: string;
+    name: string;
+    workflow_group?: string | null;
+
     unit?: string | null;
     unit_id?: number | null;
     method_ref?: string | null;
-    status?: string | null;
-    tag?: string | null;
+
+    status: "Active" | "Inactive";
+    tag: "Routine" | "Research";
+
+    created_at?: string;
+    updated_at?: string | null;
 };
 
-export type ParameterPayload = {
-    code?: string | null;
-    name: string;
-    unit?: string | null;
-    unit_id?: number | null;
-    method_ref?: string | null;
-    status?: string | null;
-    tag?: string | null;
+export type ParameterPayload = Partial<Omit<ParameterRow, "parameter_id" | "created_at" | "updated_at">> & {
+    name?: string;
 };
 
 type ListParams = { page?: number; per_page?: number; q?: string; scope?: "staff" | "client" };
@@ -54,32 +55,21 @@ function buildListUrl(params?: ListParams) {
     if (params?.q) qs.set("q", params.q);
 
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
-
-    // IMPORTANT:
-    // - staff uses: GET {API_VER}/parameters (auth:sanctum)
-    // - client portal SHOULD use: GET {API_VER}/client/parameters (auth:client_api)
-    //   (backend route must exist)
     const basePath = params?.scope === "client" ? `${API_VER}/client/parameters` : `${API_VER}/parameters`;
 
     return `${basePath}${suffix}`;
 }
 
 export async function listParameters(params?: ListParams): Promise<Paginated<ParameterRow>> {
-    const res = await apiGet<any>(buildListUrl(params));
-
-    const maybeEnvelope = res as Partial<ApiEnvelope<any>>;
-    const inner = (maybeEnvelope && typeof maybeEnvelope === "object" && "data" in maybeEnvelope)
-        ? (maybeEnvelope as any).data
-        : res;
-
-    return inner as Paginated<ParameterRow>;
+    const res = await apiGet<ApiEnvelope<Paginated<ParameterRow>>>(buildListUrl(params));
+    return res.data;
 }
 
 export async function createParameter(payload: ParameterPayload) {
     return apiPost<ApiEnvelope<ParameterRow>>(`${API_VER}/parameters`, payload);
 }
 
-export async function updateParameter(parameterId: number, payload: Partial<ParameterPayload>) {
+export async function updateParameter(parameterId: number, payload: ParameterPayload) {
     return apiPatch<ApiEnvelope<ParameterRow>>(`${API_VER}/parameters/${parameterId}`, payload);
 }
 

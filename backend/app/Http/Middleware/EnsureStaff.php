@@ -12,47 +12,35 @@ class EnsureStaff
 {
     public function handle(Request $request, Closure $next)
     {
-        // 1) PRIORITAS: Bearer token (biar tidak ketimpa cookie client / sesi lain)
+        // 1) Prioritas: Bearer token
         $bearer = $request->bearerToken();
         if ($bearer) {
             $pat = PersonalAccessToken::findToken($bearer);
 
             if ($pat && $pat->tokenable instanceof Staff) {
-                /** @var Staff $staff */
                 $staff = $pat->tokenable;
 
                 Auth::setUser($staff);
-                // kalau guard staff kamu namanya beda, ganti di sini
-                Auth::shouldUse('staff_api');
-
-                $request->setUserResolver(function () use ($staff) {
-                    return $staff;
-                });
+                $request->setUserResolver(fn() => $staff);
 
                 return $next($request);
             }
         }
 
-        // 2) FALLBACK: coba guard staff_api (atau guard staff kamu yang sebenarnya)
-        $staff = Auth::guard('staff_api')->user();
-        if ($staff instanceof Staff) {
-            Auth::shouldUse('staff_api');
-
-            $request->setUserResolver(function () use ($staff) {
-                return $staff;
-            });
-
+        // 2) Fallback: user dari auth middleware (auth:sanctum)
+        $u = $request->user();
+        if ($u instanceof Staff) {
             return $next($request);
         }
 
         return response()->json([
-            'status'  => 403,
-            'error'   => 'Forbidden',
-            'code'    => 'STAFF_ONLY',
+            'status' => 403,
+            'error' => 'Forbidden',
+            'code' => 'STAFF_ONLY',
             'message' => 'Staff authentication required.',
             'context' => [
                 'method' => $request->method(),
-                'path'   => $request->path(),
+                'path' => $request->path(),
             ],
         ], 403);
     }

@@ -521,20 +521,35 @@
             "refresh": "Refresh",
             "addRequest": "Tambah permintaan",
             "approve": "Setujui",
-            "reject": "Tolak"
+            "reject": "Tolak",
+            "edit": "Ubah"
         },
         "hints": {
             "enterToSearch": "Tips: tekan Enter untuk menerapkan pencarian.",
             "actionsRestricted": "Tanpa aksi",
-            "alreadyDecided": "Tanpa aksi (sudah diputuskan)",
-            "createComingSoon": "Modal tambah permintaan dibuat di Step 7.",
-            "approveRejectComingSoon": "Modal approve/reject dibuat di Step 8."
+            "alreadyDecided": "Tanpa aksi (sudah diputuskan)"
         },
         "errors": {
             "loadParametersFailed": "Gagal memuat daftar parameter.",
             "loadRequestsFailed": "Gagal memuat daftar permintaan.",
             "approveFailed": "Gagal menyetujui permintaan.",
-            "rejectFailed": "Gagal menolak permintaan."
+            "rejectFailed": "Gagal menolak permintaan.",
+            "updateParameterFailed": "Gagal mengubah parameter."
+        },
+        "editModal": {
+            "title": "Ubah parameter",
+            "subtitle": "Ubah nama, grup, status, dan tag.",
+            "fields": {
+                "code": "Kode",
+                "name": "Nama",
+                "workflowGroup": "Grup workflow",
+                "workflowGroupEmpty": "— (tanpa grup)",
+                "status": "Status",
+                "tag": "Tag"
+            },
+            "placeholders": {
+                "name": "contoh: PCR Influenza A/B"
+            }
         },
         "decisionModal": {
             "approveTitle": "Setujui permintaan",

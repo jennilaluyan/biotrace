@@ -9,40 +9,94 @@ class ParameterRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        // authz final tetap di Policy via controller authorize()
         return true;
     }
 
     public function rules(): array
     {
-        // untuk ignore unique saat update
-        $parameterId = $this->route('parameter')?->parameter_id
-            ?? $this->route('parameter');
+        $routeParam = $this->route('parameter');
+        $parameterId = is_object($routeParam) ? ($routeParam->parameter_id ?? null) : $routeParam;
+
+        $isCreate = $this->isMethod('post');
+
+        $codeRule = Rule::unique('parameters', 'code')->ignore($parameterId, 'parameter_id');
 
         return [
             'code' => [
-                'required',
+                $isCreate ? 'required' : 'sometimes',
                 'string',
                 'max:40',
-                Rule::unique('parameters', 'code')->ignore($parameterId, 'parameter_id'),
+                $codeRule,
             ],
-            'name' => ['required', 'string', 'max:150'],
 
-            'unit' => ['nullable', 'string', 'max:40'],
-            'unit_id' => ['nullable', 'integer', 'exists:units,unit_id'],
+            'name' => [
+                $isCreate ? 'required' : 'sometimes',
+                'string',
+                'max:150',
+            ],
 
-            'method_ref' => ['nullable', 'string', 'max:120'],
+            'workflow_group' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:20',
+                Rule::in(['pcr', 'sequencing', 'rapid', 'microbiology']),
+            ],
 
-            // sesuai DB CHECK constraint
-            'status' => ['required', Rule::in(['Active', 'Inactive'])],
-            'tag' => ['required', Rule::in(['Routine', 'Research'])],
+            'unit' => [
+                $isCreate ? 'required' : 'sometimes',
+                'string',
+                'max:40',
+            ],
+
+            'unit_id' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                'exists:units,unit_id',
+            ],
+
+            'method_ref' => [
+                $isCreate ? 'required' : 'sometimes',
+                'string',
+                'max:120',
+            ],
+
+            'status' => [
+                $isCreate ? 'required' : 'sometimes',
+                Rule::in(['Active', 'Inactive']),
+            ],
+
+            'tag' => [
+                $isCreate ? 'required' : 'sometimes',
+                Rule::in(['Routine', 'Research']),
+            ],
         ];
+    }
+
+    protected function prepareForValidation(): void
+    {
+        $trim = fn($v) => is_string($v) ? trim($v) : $v;
+
+        $this->merge([
+            'code' => $trim($this->input('code')),
+            'name' => $trim($this->input('name')),
+            'unit' => $trim($this->input('unit')),
+            'method_ref' => $trim($this->input('method_ref')),
+        ]);
+
+        if ($this->has('workflow_group')) {
+            $this->merge([
+                'workflow_group' => strtolower(trim((string) $this->input('workflow_group'))),
+            ]);
+        }
     }
 
     public function messages(): array
     {
         return [
             'code.unique' => 'Code already exists. Please use another code.',
+            'workflow_group.in' => 'Workflow group must be one of: pcr, sequencing, rapid, microbiology.',
             'status.in' => 'Status must be Active or Inactive.',
             'tag.in' => 'Tag must be Routine or Research.',
         ];

@@ -515,20 +515,35 @@
             "refresh": "Refresh",
             "addRequest": "Add request",
             "approve": "Approve",
-            "reject": "Reject"
+            "reject": "Reject",
+            "edit": "Edit"
         },
         "hints": {
             "enterToSearch": "Tip: press Enter to apply search.",
             "actionsRestricted": "No actions",
-            "alreadyDecided": "No actions (decided)",
-            "createComingSoon": "Create request modal will be added in Step 7.",
-            "approveRejectComingSoon": "Approve/Reject modals will be added in Step 8."
+            "alreadyDecided": "No actions (decided)"
         },
         "errors": {
             "loadParametersFailed": "Failed to load parameters.",
             "loadRequestsFailed": "Failed to load requests.",
             "approveFailed": "Failed to approve request.",
-            "rejectFailed": "Failed to reject request."
+            "rejectFailed": "Failed to reject request.",
+            "updateParameterFailed": "Failed to update parameter."
+        },
+        "editModal": {
+            "title": "Edit parameter",
+            "subtitle": "Update name, group, status, and tag.",
+            "fields": {
+                "code": "Code",
+                "name": "Name",
+                "workflowGroup": "Workflow group",
+                "workflowGroupEmpty": "— (no group)",
+                "status": "Status",
+                "tag": "Tag"
+            },
+            "placeholders": {
+                "name": "e.g. PCR Influenza A/B"
+            }
         },
         "decisionModal": {
             "approveTitle": "Approve request",

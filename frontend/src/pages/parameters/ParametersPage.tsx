@@ -1,15 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-    ChevronLeft,
-    ChevronRight,
-    RefreshCw,
-    Search,
-    ClipboardList,
-    FilePlus2,
-    Check,
-    X,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw, Search, ClipboardList, FilePlus2, Check, X, Pencil } from "lucide-react";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId } from "../../utils/roles";
@@ -27,6 +18,7 @@ import {
 
 import ParameterRequestCreateModal from "../../components/parameters/ParameterRequestCreateModal";
 import ParameterRequestDecisionModal from "../../components/parameters/ParameterRequestDecisionModal";
+import ParameterEditModal, { type ParameterEditRow } from "../../components/parameters/ParameterEditModal";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -39,19 +31,15 @@ type ParameterRow = {
     catalog_no?: number | null;
     code: string;
     name: string;
-    unit?: string | null;
-    unit_id?: number | null;
-    method_ref?: string | null;
     status: "Active" | "Inactive";
     tag: "Routine" | "Research";
     created_at?: string;
     updated_at?: string | null;
-
     workflow_group?: string | null;
-    category?: string | null;
 };
 
 type ParamPager = Paginator<ParameterRow>;
+type ApiEnvelope<T> = { data: T };
 
 function prettyCategory(v?: string | null) {
     const s = String(v ?? "").trim().toLowerCase();
@@ -93,9 +81,11 @@ export default function ParametersPage() {
     const canCreateRequest = roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.ANALYST;
     const canApproveReject = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
 
+    const canEditParameters = roleId === ROLE_ID.ANALYST;
+
     const [tab, setTab] = useState<TabKey>("parameters");
 
-    // Parameters tab state
+    // Parameters tab
     const [pQ, setPQ] = useState("");
     const [pPage, setPPage] = useState(1);
     const [pPerPage, setPPerPage] = useState(20);
@@ -103,7 +93,7 @@ export default function ParametersPage() {
     const [pError, setPError] = useState<string | null>(null);
     const [pData, setPData] = useState<ParamPager | null>(null);
 
-    // Requests tab state
+    // Requests tab
     const [rQ, setRQ] = useState("");
     const [rStatus, setRStatus] = useState<ParameterRequestStatus | "all">("pending");
     const [rPage, setRPage] = useState(1);
@@ -112,7 +102,6 @@ export default function ParametersPage() {
     const [rError, setRError] = useState<string | null>(null);
     const [rData, setRData] = useState<Paginator<ParameterRequestRow> | null>(null);
 
-    // Create modal
     const [createOpen, setCreateOpen] = useState(false);
 
     // Decision modal
@@ -123,10 +112,12 @@ export default function ParametersPage() {
     const [decisionSubmitting, setDecisionSubmitting] = useState(false);
     const [decisionError, setDecisionError] = useState<string | null>(null);
 
+    // Edit parameter modal
+    const [editOpen, setEditOpen] = useState(false);
+    const [editTarget, setEditTarget] = useState<ParameterEditRow | null>(null);
+
     const paramsRows = useMemo(() => pData?.data ?? [], [pData]);
     const reqRows = useMemo(() => rData?.data ?? [], [rData]);
-
-    type ApiEnvelope<T> = { data: T };
 
     const loadParameters = useCallback(async () => {
         setPLoading(true);
@@ -136,8 +127,6 @@ export default function ParametersPage() {
             const res = await api.get<ApiEnvelope<ParamPager>>("/v1/parameters", {
                 params: { q: pQ.trim() || undefined, page: pPage, per_page: pPerPage },
             });
-
-            // unwrap envelope -> paginator
             setPData(res.data);
         } catch (e: any) {
             setPError(getErrorMessage(e, t("parametersPage.errors.loadParametersFailed")));
@@ -147,12 +136,7 @@ export default function ParametersPage() {
     }, [pQ, pPage, pPerPage, t]);
 
     const refreshRequests = useCallback(
-        async (opts?: {
-            q?: string;
-            status?: ParameterRequestStatus | "all";
-            page?: number;
-            per_page?: number;
-        }) => {
+        async (opts?: { q?: string; status?: ParameterRequestStatus | "all"; page?: number; per_page?: number }) => {
             if (!canSeeRequestsTab) return;
 
             const q = (opts?.q ?? rQ).trim();
@@ -196,7 +180,6 @@ export default function ParametersPage() {
         setDecisionOpen(true);
     };
 
-    // allowForce: dipakai setelah sukses submit (walaupun decisionSubmitting masih true sampai finally)
     const closeDecision = (allowForce = false) => {
         if (decisionSubmitting && !allowForce) return;
         setDecisionOpen(false);
@@ -216,11 +199,8 @@ export default function ParametersPage() {
 
             if (decisionMode === "approve") {
                 await approveParameterRequest(id);
-
-                // approve bikin parameter baru => refresh dua tab
                 await refreshRequests();
                 await loadParameters();
-
                 closeDecision(true);
                 return;
             }
@@ -233,7 +213,6 @@ export default function ParametersPage() {
 
             await rejectParameterRequest(id, note);
             await refreshRequests();
-
             closeDecision(true);
         } catch (e: any) {
             setDecisionError(
@@ -247,27 +226,17 @@ export default function ParametersPage() {
         } finally {
             setDecisionSubmitting(false);
         }
-    }, [
-        decisionTarget,
-        decisionMode,
-        decisionNote,
-        refreshRequests,
-        loadParameters,
-        t,
-        decisionSubmitting,
-    ]);
+    }, [decisionTarget, decisionMode, decisionNote, refreshRequests, loadParameters, t]);
 
-    // Guard: Sample Collector tidak boleh nyangkut di tab requests
+    // Guard tab
     useEffect(() => {
         if (!canSeeRequestsTab && tab === "requests") setTab("parameters");
     }, [canSeeRequestsTab, tab]);
 
-    // Auto load parameters on pagination change
     useEffect(() => {
         loadParameters();
     }, [loadParameters]);
 
-    // Auto load requests on filters/pagination change
     useEffect(() => {
         if (!canSeeRequestsTab) return;
         refreshRequests();
@@ -278,51 +247,32 @@ export default function ParametersPage() {
         else refreshRequests();
     };
 
+    const openEdit = (row: ParameterRow) => {
+        if (!canEditParameters) return;
+
+        setEditTarget({
+            parameter_id: row.parameter_id,
+            code: row.code,
+            name: row.name,
+            workflow_group: row.workflow_group ?? null,
+            status: row.status,
+            tag: row.tag,
+        });
+
+        setEditOpen(true);
+    };
+
     return (
-        <div className="p-5 space-y-5">
-            <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
-                    <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                                <ClipboardList className="text-gray-700" size={18} />
-                                <h1 className="text-base sm:text-lg font-extrabold text-gray-900">
-                                    {t("parametersPage.title")}
-                                </h1>
-                            </div>
-                            <p className="mt-1 text-sm text-gray-600">{t("parametersPage.subtitle")}</p>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                            <button
-                                className={cx(
-                                    "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
-                                    "border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
-                                )}
-                                onClick={onRefreshClick}
-                                title={t("parametersPage.actions.refresh")}
-                            >
-                                <RefreshCw size={16} />
-                                <span className="hidden sm:inline">{t("parametersPage.actions.refresh")}</span>
-                            </button>
-
-                            {tab === "requests" && canCreateRequest ? (
-                                <button
-                                    className={cx(
-                                        "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                                        "bg-gray-900 text-white hover:bg-gray-800"
-                                    )}
-                                    onClick={() => setCreateOpen(true)}
-                                    title={t("parametersPage.actions.addRequest")}
-                                >
-                                    <FilePlus2 size={16} />
-                                    <span className="hidden sm:inline">{t("parametersPage.actions.addRequest")}</span>
-                                </button>
-                            ) : null}
-                        </div>
+        <div className="min-h-[60vh]">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between px-0 py-2">
+                <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                        <ClipboardList className="text-gray-700" size={18} />
+                        <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("parametersPage.title")}</h1>
                     </div>
+                    <p className="text-sm text-gray-600 mt-1">{t("parametersPage.subtitle")}</p>
 
-                    <div className="mt-4 flex items-center gap-2">
+                    <div className="mt-3 flex items-center gap-2">
                         <button
                             className={cx(
                                 "rounded-xl px-3 py-2 text-sm font-bold border",
@@ -351,15 +301,42 @@ export default function ParametersPage() {
                     </div>
                 </div>
 
-                <div className="px-5 py-5 space-y-4">
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        className="lims-icon-button"
+                        onClick={onRefreshClick}
+                        aria-label={t("parametersPage.actions.refresh")}
+                        title={t("parametersPage.actions.refresh")}
+                    >
+                        <RefreshCw size={16} className={cx((pLoading || rLoading) && "animate-spin")} />
+                    </button>
+
+                    {tab === "requests" && canCreateRequest ? (
+                        <button
+                            className={cx(
+                                "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                                "bg-gray-900 text-white hover:bg-gray-800"
+                            )}
+                            onClick={() => setCreateOpen(true)}
+                            title={t("parametersPage.actions.addRequest")}
+                        >
+                            <FilePlus2 size={16} />
+                            <span className="hidden sm:inline">{t("parametersPage.actions.addRequest")}</span>
+                        </button>
+                    ) : null}
+                </div>
+            </div>
+
+            <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white">
                     {tab === "parameters" ? (
-                        <>
-                            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                                <div className="relative w-full sm:max-w-md">
-                                    <Search
-                                        size={16}
-                                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                                    />
+                        <div className="flex flex-col md:flex-row gap-3 md:items-center">
+                            <div className="flex-1">
+                                <div className="relative">
+                                    <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
+                                        <Search className="h-4 w-4" />
+                                    </span>
                                     <input
                                         value={pQ}
                                         onChange={(e) => setPQ(e.target.value)}
@@ -370,135 +347,36 @@ export default function ParametersPage() {
                                             }
                                         }}
                                         placeholder={t("parametersPage.filters.searchParameters")}
-                                        className={cx(
-                                            "w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm",
-                                            "outline-none focus:ring-2 focus:ring-gray-200"
-                                        )}
+                                        className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                                     />
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs text-gray-600">{t("parametersPage.filters.perPage")}</span>
-                                    <select
-                                        className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm"
-                                        value={pPerPage}
-                                        onChange={(e) => {
-                                            setPPerPage(Number(e.target.value));
-                                            setPPage(1);
-                                        }}
-                                    >
-                                        {[10, 20, 50, 100].map((n) => (
-                                            <option key={n} value={n}>
-                                                {n}
-                                            </option>
-                                        ))}
-                                    </select>
                                 </div>
                             </div>
 
-                            {pError ? (
-                                <div className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-                                    {pError}
-                                </div>
-                            ) : null}
-
-                            <div className="overflow-x-auto rounded-2xl border border-gray-100">
-                                <table className="min-w-full text-sm">
-                                    <thead className="bg-gray-50">
-                                        <tr className="text-left text-gray-700">
-                                            <th className="px-4 py-3 font-bold">{t("parametersPage.table.code")}</th>
-                                            <th className="px-4 py-3 font-bold">{t("parametersPage.table.name")}</th>
-                                            <th className="px-4 py-3 font-bold">{t("parametersPage.table.category")}</th>
-                                            <th className="px-4 py-3 font-bold">{t("parametersPage.table.status")}</th>
-                                            <th className="px-4 py-3 font-bold">{t("parametersPage.table.tag")}</th>
-                                            <th className="px-4 py-3 font-bold">{t("parametersPage.table.updatedAt")}</th>
-                                        </tr>
-                                    </thead>
-
-                                    <tbody className="divide-y divide-gray-100 bg-white">
-                                        {pLoading ? (
-                                            <tr>
-                                                <td className="px-4 py-6 text-gray-600" colSpan={6}>
-                                                    {t("parametersPage.loading.parameters")}
-                                                </td>
-                                            </tr>
-                                        ) : paramsRows.length === 0 ? (
-                                            <tr>
-                                                <td className="px-4 py-6 text-gray-600" colSpan={6}>
-                                                    {t("parametersPage.empty.parameters")}
-                                                </td>
-                                            </tr>
-                                        ) : (
-                                            paramsRows.map((row) => {
-                                                const cat = row.workflow_group ?? row.category ?? null;
-
-                                                return (
-                                                    <tr key={row.parameter_id} className="hover:bg-gray-50">
-                                                        <td className="px-4 py-3 font-semibold text-gray-900">{row.code}</td>
-                                                        <td className="px-4 py-3 text-gray-800">{row.name}</td>
-                                                        <td className="px-4 py-3 text-gray-700">
-                                                            <span className={chipClass("neutral")}>{prettyCategory(cat)}</span>
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                            <span className={row.status === "Active" ? chipClass("good") : chipClass("bad")}>
-                                                                {row.status === "Active" ? "active" : "inactive"}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                            <span className={chipClass("neutral")}>
-                                                                {String(row.tag ?? "").toLowerCase()}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-4 py-3 text-gray-700">
-                                                            {row.updated_at ? formatDateTimeLocal(row.updated_at) : "—"}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })
-                                        )}
-                                    </tbody>
-                                </table>
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-600">{t("parametersPage.filters.perPage")}</span>
+                                <select
+                                    className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                    value={pPerPage}
+                                    onChange={(e) => {
+                                        setPPerPage(Number(e.target.value));
+                                        setPPage(1);
+                                    }}
+                                >
+                                    {[10, 20, 50, 100].map((n) => (
+                                        <option key={n} value={n}>
+                                            {n}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
-
-                            {pData && pData.last_page > 1 ? (
-                                <div className="flex items-center justify-between pt-2">
-                                    <div className="text-xs text-gray-600">
-                                        {t("parametersPage.pagination.page")} {pData.current_page} / {pData.last_page}
-                                        <span className="ml-2">• {t("parametersPage.pagination.total")} {pData.total}</span>
-                                    </div>
-
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            className="rounded-xl border border-gray-200 bg-white p-2 hover:bg-gray-50 disabled:opacity-50"
-                                            onClick={() => setPPage((x) => Math.max(1, x - 1))}
-                                            disabled={pData.current_page <= 1}
-                                            title={t("parametersPage.pagination.prev")}
-                                        >
-                                            <ChevronLeft size={16} />
-                                        </button>
-
-                                        <button
-                                            className="rounded-xl border border-gray-200 bg-white p-2 hover:bg-gray-50 disabled:opacity-50"
-                                            onClick={() => setPPage((x) => Math.min(pData.last_page, x + 1))}
-                                            disabled={pData.current_page >= pData.last_page}
-                                            title={t("parametersPage.pagination.next")}
-                                        >
-                                            <ChevronRight size={16} />
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : null}
-                        </>
-                    ) : null}
-
-                    {tab === "requests" && canSeeRequestsTab ? (
-                        <>
-                            <div className="flex flex-col lg:flex-row lg:items-center gap-3">
-                                <div className="relative w-full lg:max-w-md">
-                                    <Search
-                                        size={16}
-                                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                                    />
+                        </div>
+                    ) : tab === "requests" && canSeeRequestsTab ? (
+                        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+                            <div className="flex-1">
+                                <div className="relative">
+                                    <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
+                                        <Search className="h-4 w-4" />
+                                    </span>
                                     <input
                                         value={rQ}
                                         onChange={(e) => setRQ(e.target.value)}
@@ -509,68 +387,170 @@ export default function ParametersPage() {
                                             }
                                         }}
                                         placeholder={t("parametersPage.filters.searchRequests")}
-                                        className={cx(
-                                            "w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm",
-                                            "outline-none focus:ring-2 focus:ring-gray-200"
-                                        )}
+                                        className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                                     />
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs text-gray-600">{t("parametersPage.filters.status")}</span>
-                                    <select
-                                        className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm"
-                                        value={rStatus}
-                                        onChange={(e) => {
-                                            setRStatus(e.target.value as any);
-                                            setRPage(1);
-                                        }}
-                                    >
-                                        <option value="pending">pending</option>
-                                        <option value="approved">approved</option>
-                                        <option value="rejected">rejected</option>
-                                        <option value="all">{t("parametersPage.filters.all")}</option>
-                                    </select>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs text-gray-600">{t("parametersPage.filters.perPage")}</span>
-                                    <select
-                                        className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm"
-                                        value={rPerPage}
-                                        onChange={(e) => {
-                                            setRPerPage(Number(e.target.value));
-                                            setRPage(1);
-                                        }}
-                                    >
-                                        {[10, 20, 50, 100].map((n) => (
-                                            <option key={n} value={n}>
-                                                {n}
-                                            </option>
-                                        ))}
-                                    </select>
                                 </div>
                             </div>
 
-                            {rError ? (
-                                <div className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-                                    {rError}
-                                </div>
-                            ) : null}
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-600">{t("parametersPage.filters.status")}</span>
+                                <select
+                                    className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                    value={rStatus}
+                                    onChange={(e) => {
+                                        setRStatus(e.target.value as any);
+                                        setRPage(1);
+                                    }}
+                                >
+                                    <option value="pending">pending</option>
+                                    <option value="approved">approved</option>
+                                    <option value="rejected">rejected</option>
+                                    <option value="all">{t("parametersPage.filters.all")}</option>
+                                </select>
+                            </div>
 
-                            <div className="overflow-x-auto rounded-2xl border border-gray-100">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-600">{t("parametersPage.filters.perPage")}</span>
+                                <select
+                                    className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                    value={rPerPage}
+                                    onChange={(e) => {
+                                        setRPerPage(Number(e.target.value));
+                                        setRPage(1);
+                                    }}
+                                >
+                                    {[10, 20, 50, 100].map((n) => (
+                                        <option key={n} value={n}>
+                                            {n}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                    ) : null}
+                </div>
+
+                <div className="px-4 md:px-6 py-4">
+                    {tab === "parameters" ? (
+                        <>
+                            {pError ? <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{pError}</div> : null}
+
+                            <div className="overflow-x-auto">
                                 <table className="min-w-full text-sm">
-                                    <thead className="bg-gray-50">
-                                        <tr className="text-left text-gray-700">
-                                            <th className="px-4 py-3 font-bold">{t("parametersPage.table.requestName")}</th>
-                                            <th className="px-4 py-3 font-bold">{t("parametersPage.table.category")}</th>
-                                            <th className="px-4 py-3 font-bold">{t("parametersPage.table.status")}</th>
-                                            <th className="px-4 py-3 font-bold">{t("parametersPage.table.requestedAt")}</th>
-                                            <th className="px-4 py-3 font-bold text-right">{t("parametersPage.table.actions")}</th>
+                                    <thead className="bg-white text-gray-700 border-b border-gray-100">
+                                        <tr>
+                                            <th className="text-left font-semibold px-4 py-3">{t("parametersPage.table.code")}</th>
+                                            <th className="text-left font-semibold px-4 py-3">{t("parametersPage.table.name")}</th>
+                                            <th className="text-left font-semibold px-4 py-3">{t("parametersPage.table.category")}</th>
+                                            <th className="text-left font-semibold px-4 py-3">{t("parametersPage.table.status")}</th>
+                                            <th className="text-left font-semibold px-4 py-3">{t("parametersPage.table.tag")}</th>
+                                            <th className="text-left font-semibold px-4 py-3">{t("parametersPage.table.updatedAt")}</th>
+                                            {canEditParameters ? (
+                                                <th className="text-right font-semibold px-4 py-3">{t("parametersPage.table.actions")}</th>
+                                            ) : null}
                                         </tr>
                                     </thead>
 
-                                    <tbody className="divide-y divide-gray-100 bg-white">
+                                    <tbody className="divide-y divide-gray-100">
+                                        {pLoading ? (
+                                            <tr>
+                                                <td className="px-4 py-6 text-gray-600" colSpan={canEditParameters ? 7 : 6}>
+                                                    {t("parametersPage.loading.parameters")}
+                                                </td>
+                                            </tr>
+                                        ) : paramsRows.length === 0 ? (
+                                            <tr>
+                                                <td className="px-4 py-6 text-gray-600" colSpan={canEditParameters ? 7 : 6}>
+                                                    {t("parametersPage.empty.parameters")}
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            paramsRows.map((row) => (
+                                                <tr key={row.parameter_id} className="hover:bg-gray-50">
+                                                    <td className="px-4 py-3 font-semibold text-gray-900">{row.code}</td>
+                                                    <td className="px-4 py-3 text-gray-700">{row.name}</td>
+                                                    <td className="px-4 py-3 text-gray-700">
+                                                        <span className={chipClass("neutral")}>{prettyCategory(row.workflow_group)}</span>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <span className={row.status === "Active" ? chipClass("good") : chipClass("bad")}>
+                                                            {row.status === "Active" ? "active" : "inactive"}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <span className={chipClass("neutral")}>{String(row.tag ?? "").toLowerCase()}</span>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-gray-700">
+                                                        {row.updated_at ? formatDateTimeLocal(row.updated_at) : "—"}
+                                                    </td>
+
+                                                    {canEditParameters ? (
+                                                        <td className="px-4 py-3">
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    className="lims-icon-button"
+                                                                    aria-label={t("parametersPage.actions.edit")}
+                                                                    title={t("parametersPage.actions.edit")}
+                                                                    onClick={() => openEdit(row)}
+                                                                >
+                                                                    <Pencil size={16} />
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    ) : null}
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {pData && pData.last_page > 1 ? (
+                                <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
+                                    <div className="text-xs text-gray-600">
+                                        {t("parametersPage.pagination.page")} {pData.current_page} / {pData.last_page}
+                                        <span className="ml-2">• {t("parametersPage.pagination.total")} {pData.total}</span>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+                                            onClick={() => setPPage((x) => Math.max(1, x - 1))}
+                                            disabled={pData.current_page <= 1}
+                                            title={t("parametersPage.pagination.prev")}
+                                        >
+                                            <ChevronLeft size={16} />
+                                        </button>
+                                        <button
+                                            className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+                                            onClick={() => setPPage((x) => Math.min(pData.last_page, x + 1))}
+                                            disabled={pData.current_page >= pData.last_page}
+                                            title={t("parametersPage.pagination.next")}
+                                        >
+                                            <ChevronRight size={16} />
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : null}
+                        </>
+                    ) : tab === "requests" && canSeeRequestsTab ? (
+                        <>
+                            {rError ? <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{rError}</div> : null}
+
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full text-sm">
+                                    <thead className="bg-white text-gray-700 border-b border-gray-100">
+                                        <tr>
+                                            <th className="text-left font-semibold px-4 py-3">{t("parametersPage.table.requestName")}</th>
+                                            <th className="text-left font-semibold px-4 py-3">{t("parametersPage.table.category")}</th>
+                                            <th className="text-left font-semibold px-4 py-3">{t("parametersPage.table.status")}</th>
+                                            <th className="text-left font-semibold px-4 py-3">{t("parametersPage.table.requestedAt")}</th>
+                                            <th className="text-right font-semibold px-4 py-3">{t("parametersPage.table.actions")}</th>
+                                        </tr>
+                                    </thead>
+
+                                    <tbody className="divide-y divide-gray-100">
                                         {rLoading ? (
                                             <tr>
                                                 <td className="px-4 py-6 text-gray-600" colSpan={5}>
@@ -649,7 +629,7 @@ export default function ParametersPage() {
                             </div>
 
                             {rData && rData.last_page > 1 ? (
-                                <div className="flex items-center justify-between pt-2">
+                                <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
                                     <div className="text-xs text-gray-600">
                                         {t("parametersPage.pagination.page")} {rData.current_page} / {rData.last_page}
                                         <span className="ml-2">• {t("parametersPage.pagination.total")} {rData.total}</span>
@@ -657,7 +637,7 @@ export default function ParametersPage() {
 
                                     <div className="flex items-center gap-2">
                                         <button
-                                            className="rounded-xl border border-gray-200 bg-white p-2 hover:bg-gray-50 disabled:opacity-50"
+                                            className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
                                             onClick={() => setRPage((x) => Math.max(1, x - 1))}
                                             disabled={rData.current_page <= 1}
                                             title={t("parametersPage.pagination.prev")}
@@ -666,7 +646,7 @@ export default function ParametersPage() {
                                         </button>
 
                                         <button
-                                            className="rounded-xl border border-gray-200 bg-white p-2 hover:bg-gray-50 disabled:opacity-50"
+                                            className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
                                             onClick={() => setRPage((x) => Math.min(rData.last_page, x + 1))}
                                             disabled={rData.current_page >= rData.last_page}
                                             title={t("parametersPage.pagination.next")}
@@ -681,7 +661,7 @@ export default function ParametersPage() {
                 </div>
             </div>
 
-            <div className="text-xs text-gray-500">{t("parametersPage.hints.enterToSearch")}</div>
+            <div className="text-xs text-gray-500 mt-3">{t("parametersPage.hints.enterToSearch")}</div>
 
             <ParameterRequestCreateModal
                 open={createOpen}
@@ -721,6 +701,15 @@ export default function ParametersPage() {
                 onRejectNoteChange={setDecisionNote}
                 onClose={() => closeDecision(false)}
                 onConfirm={confirmDecision}
+            />
+
+            <ParameterEditModal
+                open={editOpen}
+                row={editTarget}
+                onClose={() => setEditOpen(false)}
+                onSaved={async () => {
+                    await loadParameters();
+                }}
             />
         </div>
     );
