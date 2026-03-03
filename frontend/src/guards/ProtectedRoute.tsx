@@ -11,9 +11,8 @@ export const ProtectedRoute = () => {
     if (loading) {
         return (
             <LoadingPage
-                label={t("auth.loadingSessionTitle", { defaultValue: "Loading…" })}
                 a11yHint={t("auth.loadingSessionA11y", {
-                    defaultValue: "Loading your session, please wait.",
+                    defaultValue: "Loading your session, analyzing molecular data, please wait.",
                 })}
             />
         );

@@ -1,10 +1,7 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { TestTube2 } from "lucide-react";
 
 type Props = {
-    /** Short label shown under the loader. Keep it minimal. */
-    label?: string;
     /**
      * Extra context for screen readers (not shown visually).
      * Useful when a loader appears during auth/session restore.
@@ -23,110 +20,131 @@ export default function LoadingPage(props: Props) {
     );
 
     return (
-        <div className="min-h-screen bg-cream flex items-center justify-center px-6">
+        <div className="min-h-screen bg-cream flex items-center justify-center px-6 overflow-hidden">
             <style>
                 {`
-                .bt-loader {
-                    width: 92px;
-                    height: 92px;
+                /* * Biomolecular DNA Helix Animation (Horizontal, Straight, Green & Red)
+                 */
+                .dna-container {
+                    display: flex;
+                    flex-direction: row;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 16px;
+                    perspective: 800px;
+                    /* Menghapus transform: rotate(-10deg) agar posisinya lurus / tidak miring */
+                }
+
+                .dna-pair {
                     position: relative;
-                    display: grid;
-                    place-items: center;
+                    width: 16px;
+                    height: 80px;
+                    transform-style: preserve-3d;
+                    animation: dna-spin 2.2s linear infinite;
                 }
 
-                /* Soft lab-ish backdrop (subtle grid + glow) */
-                .bt-bg {
+                .dna-line {
                     position: absolute;
-                    inset: -22px;
-                    border-radius: 28px;
-                    background:
-                        radial-gradient(closest-side, rgba(0,0,0,.06), transparent 70%),
-                        linear-gradient(to right, rgba(0,0,0,.03) 1px, transparent 1px),
-                        linear-gradient(to bottom, rgba(0,0,0,.03) 1px, transparent 1px);
-                    background-size: auto, 18px 18px, 18px 18px;
-                    filter: blur(.2px);
-                }
-
-                /* Conic ring using currentColor (so Tailwind text-primary controls it) */
-                .bt-ring {
-                    position: absolute;
-                    inset: 6px;
-                    border-radius: 999px;
-                    background: conic-gradient(from 0deg, currentColor 0 62deg, transparent 62deg 360deg);
-                    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 0);
-                    mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 0);
-                    opacity: .55;
-                    animation: bt-spin 1.05s linear infinite;
-                }
-
-                /* Inner glassy disc */
-                .bt-disc {
-                    position: absolute;
-                    inset: 18px;
-                    border-radius: 999px;
-                    background: rgba(255,255,255,.75);
-                    border: 1px solid rgba(0,0,0,.06);
-                    box-shadow: 0 10px 30px rgba(0,0,0,.06);
-                }
-
-                /* Tiny “molecules” orbiting */
-                .bt-orbit {
-                    position: absolute;
-                    inset: 0;
-                    animation: bt-spin 1.8s linear infinite;
-                }
-                .bt-dot {
-                    position: absolute;
-                    width: 6px;
-                    height: 6px;
-                    border-radius: 999px;
-                    background: currentColor;
-                    opacity: .35;
-                    top: 10px;
                     left: 50%;
+                    top: 10px;
+                    bottom: 10px;
+                    width: 2px;
+                    background: #94a3b8; /* Warna abu-abu netral untuk garis penghubung */
+                    opacity: 0.4;
                     transform: translateX(-50%);
                 }
-                .bt-dot:nth-child(2) { top: auto; bottom: 12px; opacity: .22; width: 7px; height: 7px; }
-                .bt-dot:nth-child(3) { top: 50%; left: 12px; transform: translateY(-50%); opacity: .18; width: 5px; height: 5px; }
 
-                .bt-icon {
-                    position: relative;
-                    z-index: 2;
-                    animation: bt-bob 1.25s ease-in-out infinite;
-                    opacity: .8;
+                .dna-dot {
+                    position: absolute;
+                    left: 50%;
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 50%;
+                    transform: translateX(-50%);
                 }
 
-                @keyframes bt-spin { to { transform: rotate(360deg); } }
-                @keyframes bt-bob {
-                    0%, 100% { transform: translateY(0); }
-                    50% { transform: translateY(-4px); }
+                .dna-dot.top {
+                    top: 0;
+                    background: #8DC63F; /* Hijau logo BIOTRACE */
+                    box-shadow: 0 0 10px #8DC63F;
+                    animation: dna-pulse-top 2.2s ease-in-out infinite;
+                }
+
+                .dna-dot.bottom {
+                    bottom: 0;
+                    background: #C60B2E; /* Merah sesuai gambar referensi */
+                    box-shadow: 0 0 10px #C60B2E;
+                    animation: dna-pulse-bottom 2.2s ease-in-out infinite;
+                }
+
+                /* Staggered Delays for the Helix effect (10 pasang DNA) */
+                .dna-pair:nth-child(1), .dna-pair:nth-child(1) .dna-dot { animation-delay: -0.0s; }
+                .dna-pair:nth-child(2), .dna-pair:nth-child(2) .dna-dot { animation-delay: -0.22s; }
+                .dna-pair:nth-child(3), .dna-pair:nth-child(3) .dna-dot { animation-delay: -0.44s; }
+                .dna-pair:nth-child(4), .dna-pair:nth-child(4) .dna-dot { animation-delay: -0.66s; }
+                .dna-pair:nth-child(5), .dna-pair:nth-child(5) .dna-dot { animation-delay: -0.88s; }
+                .dna-pair:nth-child(6), .dna-pair:nth-child(6) .dna-dot { animation-delay: -1.1s; }
+                .dna-pair:nth-child(7), .dna-pair:nth-child(7) .dna-dot { animation-delay: -1.32s; }
+                .dna-pair:nth-child(8), .dna-pair:nth-child(8) .dna-dot { animation-delay: -1.54s; }
+                .dna-pair:nth-child(9), .dna-pair:nth-child(9) .dna-dot { animation-delay: -1.76s; }
+                .dna-pair:nth-child(10), .dna-pair:nth-child(10) .dna-dot { animation-delay: -1.98s; }
+
+                @keyframes dna-spin {
+                    0% { transform: rotateX(0deg); }
+                    100% { transform: rotateX(360deg); }
+                }
+
+                @keyframes dna-pulse-top {
+                    0%, 100% { transform: translateX(-50%) scale(1); opacity: 1; }
+                    50% { transform: translateX(-50%) scale(0.6); opacity: 0.4; }
+                }
+
+                @keyframes dna-pulse-bottom {
+                    0%, 100% { transform: translateX(-50%) scale(0.6); opacity: 0.4; }
+                    50% { transform: translateX(-50%) scale(1); opacity: 1; }
+                }
+
+                /* Soft glowing background aura (Campuran Hijau) */
+                .dna-aura {
+                    position: absolute;
+                    width: 250px;
+                    height: 120px;
+                    background: radial-gradient(circle, #8DC63F 0%, transparent 60%);
+                    opacity: 0.1;
+                    filter: blur(20px);
+                    animation: aura-pulse 3s ease-in-out infinite alternate;
+                }
+
+                @keyframes aura-pulse {
+                    0% { transform: scale(0.9); opacity: 0.05; }
+                    100% { transform: scale(1.1); opacity: 0.15; }
                 }
 
                 @media (prefers-reduced-motion: reduce) {
-                    .bt-ring, .bt-orbit, .bt-icon { animation: none !important; }
+                    .dna-pair, .dna-dot, .dna-aura { animation: none !important; }
                 }
                 `}
             </style>
 
-            <div className="flex flex-col items-center">
-                <div
-                    className="text-primary bt-loader"
-                    role="status"
-                    aria-live="polite"
-                    aria-label={a11yHint}
-                >
-                    <div className="bt-bg" aria-hidden="true" />
-                    <div className="bt-ring" aria-hidden="true" />
-                    <div className="bt-disc" aria-hidden="true" />
-                    <div className="bt-orbit" aria-hidden="true">
-                        <div className="bt-dot" />
-                        <div className="bt-dot" />
-                        <div className="bt-dot" />
-                    </div>
+            <div
+                className="relative flex flex-col items-center justify-center"
+                role="status"
+                aria-live="polite"
+                aria-label={a11yHint}
+            >
+                <div className="dna-aura" aria-hidden="true" />
 
-                    <TestTube2 className="bt-icon h-9 w-9" aria-hidden="true" />
-                    <span className="sr-only">{a11yHint}</span>
+                <div className="dna-container" aria-hidden="true">
+                    {[...Array(10)].map((_, i) => (
+                        <div key={i} className="dna-pair">
+                            <div className="dna-line" />
+                            <div className="dna-dot top" />
+                            <div className="dna-dot bottom" />
+                        </div>
+                    ))}
                 </div>
+
+                <span className="sr-only">{a11yHint}</span>
             </div>
         </div>
     );
