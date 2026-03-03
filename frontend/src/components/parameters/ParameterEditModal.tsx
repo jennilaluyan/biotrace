@@ -72,13 +72,14 @@ export default function ParameterEditModal({ open, row, onClose, onSaved }: Prop
     if (!open || !row) return null;
 
     async function submit() {
-        if (!canSubmit) return;
+        const target = row;
+        if (!target || !canSubmit) return;
 
         setError(null);
         setSubmitting(true);
 
         try {
-            await updateParameter(row.parameter_id, {
+            await updateParameter(target.parameter_id, {
                 name: name.trim(),
                 workflow_group: workflowGroup ? workflowGroup : null,
                 status,

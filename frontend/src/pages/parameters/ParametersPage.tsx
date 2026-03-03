@@ -81,7 +81,7 @@ export default function ParametersPage() {
     const canCreateRequest = roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.ANALYST;
     const canApproveReject = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
 
-    const canEditParameters = roleId === ROLE_ID.ANALYST;
+    const canEditParameters = roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.ANALYST;
 
     const [tab, setTab] = useState<TabKey>("parameters");
 
@@ -315,8 +315,8 @@ export default function ParametersPage() {
                     {tab === "requests" && canCreateRequest ? (
                         <button
                             className={cx(
-                                "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                                "bg-gray-900 text-white hover:bg-gray-800"
+                                "lims-btn-primary gap-2",
+                                "disabled:opacity-50 disabled:cursor-not-allowed"
                             )}
                             onClick={() => setCreateOpen(true)}
                             title={t("parametersPage.actions.addRequest")}
@@ -593,8 +593,8 @@ export default function ParametersPage() {
                                                                     <>
                                                                         <button
                                                                             className={cx(
-                                                                                "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
-                                                                                "border-gray-200 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+                                                                                "lims-btn-primary gap-2",
+                                                                                "disabled:opacity-50 disabled:cursor-not-allowed"
                                                                             )}
                                                                             onClick={() => openApprove(row)}
                                                                             disabled={busy}
@@ -606,8 +606,8 @@ export default function ParametersPage() {
 
                                                                         <button
                                                                             className={cx(
-                                                                                "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
-                                                                                "border-gray-200 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+                                                                                "lims-btn-danger gap-2",
+                                                                                "disabled:opacity-50 disabled:cursor-not-allowed"
                                                                             )}
                                                                             onClick={() => openReject(row)}
                                                                             disabled={busy}
