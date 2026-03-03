@@ -73,7 +73,7 @@
         }
     },
     "nav": {
-        "dashboard": "Dashboard",
+        "dashboard": "Beranda",
         "clients": "Klien",
         "samples": "Sampel",
         "requestQueue": "Antrian Permintaan",
@@ -94,7 +94,7 @@
     },
     "dashboard": {
         "admin": {
-            "title": "Dashboard Administrator",
+            "title": "Beranda Administrator",
             "subtitle": "Selamat datang{{name}}. Prioritaskan approval, cek request baru, dan jaga dokumen tetap berjalan.",
             "hero": {
                 "title": "Ringkasan alur",
@@ -879,6 +879,7 @@
         "female": "Perempuan",
         "male": "Laki-laki",
         "other": "Lainnya",
+        "addressKtp": "Alamat (KTP)",
         "addressKtpOptional": "Alamat (KTP) (opsional)",
         "addressDomicileOptional": "Alamat (domisili) (opsional)",
         "institutionName": "Nama institusi",
@@ -911,8 +912,11 @@
         "nameRequired": "Nama wajib diisi.",
         "staffNameRequired": "Nama lengkap wajib diisi.",
         "phoneIncomplete": "Nomor telepon belum lengkap. Masukkan minimal 10 digit setelah +62.",
+        "phoneDigitsHint": "Wajib 9–13 digit (tanpa +62).",
+        "phoneDigitsRange": "Nomor telepon harus 9–13 digit (tanpa +62).",
+        "contactPhoneDigitsRange": "Nomor telepon PIC harus 9–13 digit (tanpa +62).",
         "nikInvalid": "NIK harus tepat 16 digit.",
-        "loginFailedFallback": "Login gagal. Silakan periksa email/kata sandi Anda.",
+        "loginFailedFallback": "Login gagal. Silakan coba lagi.",
         "registrationFailedFallback": "Pendaftaran gagal. Silakan periksa kembali data Anda.",
         "clientRegSubmitted": "Pendaftaran klien berhasil dikirim. Menunggu verifikasi admin.",
         "staffRegSubmitted": "Pendaftaran staf berhasil dikirim. Menunggu persetujuan Kepala Laboratorium.",
@@ -926,7 +930,32 @@
         "rightPanelPortalTitle": "Ajukan Pengujian Biomolekuler",
         "rightPanelStaffTitle": "Lacak Setiap Sampel",
         "rightPanelPortalSubtitle": "Buat akun klien dan ajukan permintaan sampel dengan alur kerja terstruktur sesuai ISO.",
-        "rightPanelStaffSubtitle": "Buat pengguna baru dan mulai alur biomolekuler dengan rekaman selaras ISO 17025."
+        "rightPanelStaffSubtitle": "Buat pengguna baru dan mulai alur biomolekuler dengan rekaman selaras ISO 17025.",
+        "networkError": "Terjadi masalah jaringan. Silakan coba lagi.",
+        "invalidEmailFormat": "Format email tidak valid.",
+        "accountNotFound": "Akun tidak ditemukan. Periksa kembali email Anda.",
+        "wrongPassword": "Kata sandi salah.",
+        "invalidCredentials": "Email atau kata sandi salah.",
+        "emailAlreadyUsed": "Email sudah terdaftar. Silakan login atau gunakan email lain.",
+        "passwordRuleHint": "Minimal 8 karakter, berisi huruf besar, huruf kecil, angka, dan simbol.",
+        "passwordRuleError": "Kata sandi lemah. Gunakan minimal 8 karakter dengan huruf besar, huruf kecil, angka, dan simbol.",
+        "requiredFieldsNote": "Kolom bertanda * wajib diisi.",
+        "institutionNameRequired": "Nama institusi wajib diisi.",
+        "ktpStreet": "Jalan / No. rumah",
+        "ktpStreetPlaceholder": "mis. Jl. Sam Ratulangi No.60",
+        "ktpRt": "RT",
+        "ktpRw": "RW",
+        "ktpVillage": "Kelurahan/Desa",
+        "ktpVillagePlaceholder": "mis. Lawangirung",
+        "ktpDistrict": "Kecamatan",
+        "ktpDistrictPlaceholder": "mis. Talawaan",
+        "ktpCity": "Kota/Kabupaten",
+        "ktpCityPlaceholder": "mis. Manado",
+        "ktpProvince": "Provinsi",
+        "ktpProvincePlaceholder": "mis. Sulawesi Utara",
+        "ktpPostalCode": "Kode pos",
+        "ktpAddressNote": "Alamat KTP wajib untuk kebutuhan administrasi dan verifikasi.",
+        "ktpAddressRequired": "Alamat KTP wajib diisi lengkap (jalan, RT/RW, kelurahan/desa, kecamatan, kota/kabupaten, provinsi, kode pos)."
     },
     "staff": {
         "approvals": {
@@ -1929,19 +1958,19 @@
             "physicalLabelCode": "Kode label fisik",
             "physicalLabelRequired": "Kode label fisik wajib diisi.",
             "expectedLabCodeMissing": "Kode lab seharusnya tidak tersedia.",
-            "mismatchUseFail": "Tidak cocok. Gunakan Fail dan isi alasan.",
-            "codesMatchUsePass": "Kodenya cocok. Gunakan Pass.",
-            "failReasonRequired": "Alasan wajib diisi untuk Fail.",
+            "mismatchUseFail": "Tidak cocok. Gunakan Gagal dan isi alasan.",
+            "codesMatchUsePass": "Kodenya cocok. Gunakan Lulus.",
+            "failReasonRequired": "Alasan wajib diisi untuk Gagal.",
             "submitCrosscheckFailed": "Gagal mengirim crosscheck.",
-            "reasonForFail": "Alasan (untuk fail)",
+            "reasonForFail": "Alasan (untuk gagal)",
             "reasonPlaceholder": "Jelaskan ketidaksesuaian…",
             "labelPlaceholder": "Ketik kode label…",
             "pass": "Lulus",
             "fail": "Gagal",
             "passed": "Lulus",
             "note": "Catatan",
-            "codesMatchHint": "Kodenya cocok. Gunakan Pass.",
-            "codesMismatchHint": "Kode tidak cocok. Gunakan Fail dan isi alasan.",
+            "codesMatchHint": "Kodenya cocok. Gunakan Lulus.",
+            "codesMismatchHint": "Kode tidak cocok. Gunakan Gagal dan isi alasan.",
             "enterBothCodesHint": "Masukkan kode label fisik untuk dibandingkan."
         },
         "pages": {
@@ -2159,7 +2188,7 @@
             "loading": "Memuat log audit…",
             "forbiddenTitle": "Akses ditolak",
             "forbiddenBody": "Peran kamu saat ini ({{role}}) tidak memiliki akses ke log audit.",
-            "backToDashboard": "Kembali ke dashboard",
+            "backToDashboard": "Kembali ke beranda",
             "filters": {
                 "title": "Filter",
                 "hint": "Tips: gunakan ID agar hasil lebih cepat mengerucut.",
@@ -2366,7 +2395,7 @@
     },
     "intakeChecklist": {
         "title": "Checklist intake",
-        "subtitle": "Semua item harus PASS. Jika ada FAIL, permintaan akan dikembalikan ke admin.",
+        "subtitle": "Semua item harus LULUS. Jika ada GAGAL, permintaan akan dikembalikan ke admin.",
         "sections": {
             "physicalCondition": "Kondisi fisik",
             "identity": "Identitas",
@@ -2374,10 +2403,10 @@
             "packing": "Pengemasan",
             "supportingDocs": "Dokumen pendukung"
         },
-        "progress": "Progres: {{decided}}/{{total}} • PASS: {{passed}} • FAIL: {{failed}}",
+        "progress": "Progres: {{decided}}/{{total}} • LULUS: {{passed}} • GAGAL: {{failed}}",
         "actions": {
-            "pass": "PASS",
-            "fail": "FAIL",
+            "pass": "LULUS",
+            "fail": "GAGAL",
             "submit": "Kirim checklist",
             "submitting": "Mengirim…"
         },
@@ -2390,11 +2419,11 @@
             "placeholder": "Tambahkan konteks bila perlu…"
         },
         "warning": {
-            "anyFail": "Ada item yang FAIL. Status permintaan akan menjadi {{status}} dan dikembalikan ke admin."
+            "anyFail": "Ada item yang GAGAL. Status permintaan akan menjadi {{status}} dan dikembalikan ke admin."
         },
         "validation": {
-            "pickDecision": "Pilih PASS atau FAIL.",
-            "failReasonRequired": "Wajib isi alasan saat FAIL.",
+            "pickDecision": "Pilih LULUS atau GAGAL.",
+            "failReasonRequired": "Wajib isi alasan saat GAGAL.",
             "fixHighlighted": "Lengkapi item yang disorot sebelum mengirim.",
             "incompleteTooltip": "Checklist belum lengkap."
         },

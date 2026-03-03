@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { useAuth } from "../../hooks/useAuth";
@@ -15,71 +15,101 @@ import BiotraceLogo from "../../assets/biotrace-logo.png";
 
 type Mode = "login" | "register";
 type Tenant = "portal" | "backoffice";
-
 type ClientType = "individual" | "institution";
 type Gender = "male" | "female" | "other";
+
+type AddressKtp = {
+    street: string;
+    rt: string;
+    rw: string;
+    village: string;
+    district: string;
+    city: string;
+    province: string;
+    postalCode: string;
+};
 
 interface AuthPageProps {
     initialMode?: Mode;
     tenant?: Tenant;
 }
 
-/** -------------------------
- * Helpers (A1–A4)
- * ------------------------*/
-function digitsOnly(s: string) {
-    return (s ?? "").replace(/\D+/g, "");
+function cx(...arr: Array<string | false | null | undefined>) {
+    return arr.filter(Boolean).join(" ");
 }
 
-// A2: NIK display format: 3232 - 3232 - 3232 - 3232
+function digitsOnly(s: string) {
+    return String(s ?? "").replace(/\D+/g, "");
+}
+
 function formatNIK(input: string) {
     const d = digitsOnly(input).slice(0, 16);
     const groups = d.match(/.{1,4}/g) ?? [];
     return groups.join(" - ");
 }
+
 function nikDigits(input: string) {
     return digitsOnly(input).slice(0, 16);
 }
+
 function isValidNIK(input: string) {
     return nikDigits(input).length === 16;
 }
 
-// A3: Phone display format: +62 812 5555 1234
-function formatPhoneDisplayPlus62(input: string) {
-    let d = digitsOnly(input);
+const PHONE_LOCAL_MIN = 9;
+const PHONE_LOCAL_MAX = 13;
 
-    // normalize common inputs
+function normalizePhoneDigitsTo62(input: string) {
+    let d = digitsOnly(input);
+    if (!d) return "62";
     if (d.startsWith("0")) d = "62" + d.slice(1);
     if (!d.startsWith("62")) d = "62" + d;
+    return d;
+}
 
-    // local digits after +62
-    const local = d.slice(2).slice(0, 13); // max 13 digits after +62
+function formatPhoneDisplayPlus62(input: string) {
+    const d = normalizePhoneDigitsTo62(input);
+    const local = d.slice(2).slice(0, PHONE_LOCAL_MAX);
 
-    // group local digits as 3-4-4-rest (example: 812 5555 1234)
     const g1 = local.slice(0, 3);
     const g2 = local.slice(3, 7);
     const g3 = local.slice(7, 11);
     const g4 = local.slice(11);
 
     const parts = [g1, g2, g3, g4].filter(Boolean);
-
     return "+62" + (parts.length ? " " + parts.join(" ") : "");
 }
 
 function phoneE164Plus62(displayPhone: string) {
     const d = digitsOnly(displayPhone);
     if (d.startsWith("62")) return "+62" + d.slice(2);
-    // if somehow not, treat as local digits
     return "+62" + d;
 }
 
-function isValidPhonePlus62(displayPhone: string) {
+function getLocalPhoneDigits(displayPhone: string) {
     const d = digitsOnly(displayPhone);
-    const local = d.startsWith("62") ? d.slice(2) : d;
-    return local.length >= 10 && local.length <= 13;
+    return d.startsWith("62") ? d.slice(2) : d;
 }
 
-// A4: Extract clear message from backend (Laravel-ish):
+function isValidPhonePlus62(displayPhone: string) {
+    const local = getLocalPhoneDigits(displayPhone);
+    return local.length >= PHONE_LOCAL_MIN && local.length <= PHONE_LOCAL_MAX;
+}
+
+function isValidEmailFormat(email: string) {
+    const s = String(email ?? "").trim();
+    if (!s) return false;
+    // Simple & practical email format check (client-side)
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9])[\S]{8,64}$/;
+
+function isValidPassword(pw: string) {
+    return PASSWORD_REGEX.test(String(pw ?? ""));
+}
+
+// Laravel-ish:
 // - { message, errors: {field: [msg]} }
 function extractApiMessage(err: any, fallback: string) {
     const data = err?.response?.data ?? err?.data;
@@ -95,13 +125,39 @@ function extractApiMessage(err: any, fallback: string) {
         }
 
         if (typeof data.message === "string" && data.message.trim()) return data.message;
-        if (typeof (data as any).error === "string" && (data as any).error.trim())
-            return (data as any).error;
+        if (typeof (data as any).error === "string" && (data as any).error.trim()) return (data as any).error;
     }
 
     if (typeof err?.message === "string" && err.message.trim()) return err.message;
 
     return fallback;
+}
+
+function buildKtpAddress(a: AddressKtp) {
+    const street = a.street.trim();
+    const rt = a.rt.trim();
+    const rw = a.rw.trim();
+    const village = a.village.trim();
+    const district = a.district.trim();
+    const city = a.city.trim();
+    const province = a.province.trim();
+    const postalCode = a.postalCode.trim();
+
+    // Consistent string for backend (still 1 field), but captured in detailed UI
+    return `${street}, RT ${rt}/RW ${rw}, Kel. ${village}, Kec. ${district}, ${city}, ${province} ${postalCode}`.trim();
+}
+
+function isKtpAddressComplete(a: AddressKtp) {
+    return (
+        a.street.trim() &&
+        a.rt.trim() &&
+        a.rw.trim() &&
+        a.village.trim() &&
+        a.district.trim() &&
+        a.city.trim() &&
+        a.province.trim() &&
+        a.postalCode.trim()
+    );
 }
 
 export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
@@ -118,13 +174,12 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const [showRegPasswordConfirmation, setShowRegPasswordConfirmation] = useState(false);
 
     const { login } = useAuth();
-    const clientAuth = useClientAuth() as any;
+    const clientAuth = useClientAuth();
 
     const navigate = useNavigate();
     const staffLandingAfterLogin = "/dashboard";
     const clientLandingAfterLogin = "/portal";
 
-    // A1: scroll container refs (desktop has its own scroll container)
     const signUpContainerRef = useRef<HTMLDivElement | null>(null);
     const signInContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -166,7 +221,18 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const [regNationalId, setRegNationalId] = useState("");
     const [regDob, setRegDob] = useState("");
     const [regGender, setRegGender] = useState<Gender>("female");
-    const [regAddressKtp, setRegAddressKtp] = useState("");
+
+    const [ktpAddress, setKtpAddress] = useState<AddressKtp>({
+        street: "",
+        rt: "",
+        rw: "",
+        village: "",
+        district: "",
+        city: "",
+        province: "",
+        postalCode: "",
+    });
+
     const [regAddressDomicile, setRegAddressDomicile] = useState("");
 
     const [regInstitutionName, setRegInstitutionName] = useState("");
@@ -180,14 +246,12 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             { id: ROLE_ID.ADMIN, label: t("roles.administrator") },
             { id: ROLE_ID.SAMPLE_COLLECTOR, label: t("roles.sampleCollector") },
             { id: ROLE_ID.ANALYST, label: t("roles.analyst") },
-            { id: ROLE_ID.OPERATIONAL_MANAGER, label: t("roles.operationalManager") }
+            { id: ROLE_ID.OPERATIONAL_MANAGER, label: t("roles.operationalManager") },
         ],
-        // re-render options when locale changes
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [i18n.resolvedLanguage, i18n.language]
     );
 
-    // A1: scroll correct container to top so alert is visible (success or error)
     const scrollRegisterToTop = () => {
         if (isMobile) {
             window.scrollTo({ top: 0, behavior: "smooth" });
@@ -217,7 +281,18 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         setRegNationalId("");
         setRegDob("");
         setRegGender("female");
-        setRegAddressKtp("");
+
+        setKtpAddress({
+            street: "",
+            rt: "",
+            rw: "",
+            village: "",
+            district: "",
+            city: "",
+            province: "",
+            postalCode: "",
+        });
+
         setRegAddressDomicile("");
 
         setRegInstitutionName("");
@@ -232,17 +307,124 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         setRegPasswordConfirmation("");
     };
 
-    // ✅ FIXED: portal login should NOT call staff login afterwards.
-    const handleLoginSubmit = async (e: React.FormEvent) => {
+    const labelClass = "block mb-1 text-left text-sm text-gray-700";
+    const requiredStar = <span className="ml-1 text-red-600">*</span>;
+
+    const Label = ({ text, required }: { text: string; required?: boolean }) => (
+        <label className={labelClass}>
+            {text}
+            {required ? requiredStar : null}
+        </label>
+    );
+
+    const getFriendlyAuthError = (err: any, kind: "login" | "register") => {
+        const status = err?.response?.status ?? err?.status;
+        const data = err?.response?.data ?? err?.data ?? {};
+        const raw = String(data?.message ?? extractApiMessage(err, "") ?? "").toLowerCase();
+
+        if (status === 0 || raw.includes("network error")) {
+            return t("auth.networkError", { defaultValue: "Koneksi bermasalah. Coba lagi." });
+        }
+
+        if (kind === "login") {
+            if (!isValidEmailFormat(loginEmail)) {
+                return t("auth.invalidEmailFormat", { defaultValue: "Format email salah." });
+            }
+
+            // Kalau backend ngasih petunjuk, kita manfaatkan.
+            if (status === 401 || status === 403 || status === 404) {
+                if (raw.includes("password")) {
+                    return t("auth.wrongPassword", { defaultValue: "Password salah." });
+                }
+                if (raw.includes("not found") || raw.includes("no user") || raw.includes("unknown") || raw.includes("akun")) {
+                    return t("auth.accountNotFound", { defaultValue: "Akun tidak ditemukan. Periksa email kamu." });
+                }
+                if (raw.includes("email")) {
+                    return t("auth.accountNotFound", { defaultValue: "Akun tidak ditemukan. Periksa email kamu." });
+                }
+
+                // fallback aman
+                return t("auth.invalidCredentials", { defaultValue: "Email atau password salah." });
+            }
+        }
+
+        // Register
+        if (kind === "register") {
+            if (status === 409) {
+                return t("auth.emailAlreadyUsed", { defaultValue: "Email sudah terdaftar. Coba login atau pakai email lain." });
+            }
+
+            // Laravel validation biasanya 422 + errors
+            if (status === 422 && data?.errors && typeof data.errors === "object") {
+                const emailErr = (data.errors as any)?.email;
+                if (Array.isArray(emailErr) && emailErr.length) {
+                    const e = String(emailErr[0]).toLowerCase();
+                    if (e.includes("taken") || e.includes("exists") || e.includes("sudah")) {
+                        return t("auth.emailAlreadyUsed", {
+                            defaultValue: "Email sudah terdaftar. Coba login atau pakai email lain.",
+                        });
+                    }
+                    return String(emailErr[0]);
+                }
+
+                const passErr = (data.errors as any)?.password;
+                if (Array.isArray(passErr) && passErr.length) return String(passErr[0]);
+
+                const firstKey = Object.keys(data.errors)[0];
+                const firstVal = (data.errors as any)[firstKey];
+                if (Array.isArray(firstVal) && firstVal.length) return String(firstVal[0]);
+            }
+        }
+
+        return extractApiMessage(
+            err,
+            kind === "login"
+                ? t("auth.loginFailedFallback", { defaultValue: "Gagal login. Coba lagi." })
+                : t("auth.registrationFailedFallback", { defaultValue: "Gagal register. Coba lagi." })
+        );
+    };
+
+    const inputClass =
+        "w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent-green focus:border-accent-green";
+    const formBaseClass = "flex flex-col items-stretch justify-center w-full max-w-md mx-auto px-4 md:px-10 py-10";
+
+    const validateRegisterCommon = () => {
+        if (!isValidEmailFormat(regEmail)) {
+            setRegError(t("auth.invalidEmailFormat", { defaultValue: "Format email salah." }));
+            return false;
+        }
+
+        if (!isValidPassword(regPassword)) {
+            setRegError(
+                t("auth.passwordRuleError", {
+                    defaultValue: "Password lemah. Minimal 8 karakter, ada huruf besar, huruf kecil, angka, dan simbol.",
+                })
+            );
+            return false;
+        }
+
+        if (regPassword !== regPasswordConfirmation) {
+            setRegError(t("auth.passwordMismatch"));
+            return false;
+        }
+
+        return true;
+    };
+
+    const handleLoginSubmit = async (e: FormEvent) => {
         e.preventDefault();
         setLoginError(null);
-
-        // A1: always show message at top
         scrollLoginToTop();
 
         if (!loginEmail || !loginPassword) {
             setLoginError(t("auth.requiredEmailPassword"));
-            setLoginPassword(""); // privacy
+            setLoginPassword("");
+            return;
+        }
+
+        if (!isValidEmailFormat(loginEmail)) {
+            setLoginError(t("auth.invalidEmailFormat", { defaultValue: "Format email salah." }));
+            setLoginPassword("");
             return;
         }
 
@@ -260,32 +442,29 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             await login(loginEmail, loginPassword);
             navigate(staffLandingAfterLogin, { replace: true });
         } catch (err: any) {
-            const msg = extractApiMessage(err, t("auth.loginFailedFallback"));
-            setLoginError(msg);
-            setLoginPassword(""); // privacy
+            setLoginError(getFriendlyAuthError(err, "login"));
+            setLoginPassword("");
             scrollLoginToTop();
         } finally {
             setLoginLoading(false);
         }
     };
 
-    const handleRegisterSubmit = async (e: React.FormEvent) => {
+    const handleRegisterSubmit = async (e: FormEvent) => {
         e.preventDefault();
         setRegError(null);
         setRegSuccess(null);
-
-        // A1: always show message at top
         scrollRegisterToTop();
 
         if (!regEmail || !regPassword || !regPasswordConfirmation) {
             setRegError(t("auth.requiredEmailPassword"));
-            clearRegisterPasswordsOnly(); // privacy on error
+            clearRegisterPasswordsOnly();
             return;
         }
 
-        if (regPassword !== regPasswordConfirmation) {
-            setRegError(t("auth.passwordMismatch"));
+        if (!validateRegisterCommon()) {
             clearRegisterPasswordsOnly();
+            scrollRegisterToTop();
             return;
         }
 
@@ -293,16 +472,14 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             setRegLoading(true);
 
             if (isPortal) {
+                const safeName =
+                    regName?.trim() || (regClientType === "institution" ? regInstitutionName?.trim() : "") || "";
+
                 if (!regClientType) {
                     setRegError(t("auth.clientTypeRequired"));
                     clearRegisterPasswordsOnly();
                     return;
                 }
-
-                const safeName =
-                    regName?.trim() ||
-                    (regClientType === "institution" ? regInstitutionName?.trim() : "") ||
-                    "";
 
                 if (!safeName) {
                     setRegError(t("auth.nameRequired"));
@@ -310,17 +487,28 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                     return;
                 }
 
-                // A3: validate phone display and send as E.164
                 const displayPhone = formatPhoneDisplayPlus62(regPhone);
                 if (!isValidPhonePlus62(displayPhone)) {
-                    setRegError(t("auth.phoneIncomplete"));
+                    setRegError(
+                        t("auth.phoneDigitsRange", {
+                            defaultValue: `Nomor telepon harus ${PHONE_LOCAL_MIN}-${PHONE_LOCAL_MAX} digit (tanpa +62).`,
+                        })
+                    );
                     clearRegisterPasswordsOnly();
                     scrollRegisterToTop();
                     return;
                 }
                 const normalizedPhone = phoneE164Plus62(displayPhone);
 
-                // A2: NIK required for individual, exactly 16 digits
+                const payload: any = {
+                    type: regClientType,
+                    name: safeName,
+                    email: regEmail.trim(),
+                    phone: normalizedPhone,
+                    password: regPassword,
+                    password_confirmation: regPasswordConfirmation,
+                };
+
                 if (regClientType === "individual") {
                     if (!isValidNIK(regNationalId)) {
                         setRegError(t("auth.nikInvalid"));
@@ -328,73 +516,87 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                         scrollRegisterToTop();
                         return;
                     }
-                }
 
-                const payload: any = {
-                    type: regClientType,
-                    name: safeName,
-                    email: regEmail,
-                    phone: normalizedPhone,
-                    password: regPassword,
-                    password_confirmation: regPasswordConfirmation
-                };
+                    if (!isKtpAddressComplete(ktpAddress)) {
+                        setRegError(
+                            t("auth.ktpAddressRequired", {
+                                defaultValue: "Alamat KTP wajib diisi lengkap (jalan, RT/RW, kelurahan, kecamatan, kota, provinsi, kode pos).",
+                            })
+                        );
+                        clearRegisterPasswordsOnly();
+                        scrollRegisterToTop();
+                        return;
+                    }
 
-                if (regClientType === "individual") {
                     payload.national_id = nikDigits(regNationalId);
                     payload.date_of_birth = regDob || null;
                     payload.gender = regGender || null;
-                    payload.address_ktp = regAddressKtp || null;
-                    payload.address_domicile = regAddressDomicile || null;
+                    payload.address_ktp = buildKtpAddress(ktpAddress);
+                    payload.address_domicile = regAddressDomicile?.trim() || null;
                 } else {
-                    payload.institution_name = regInstitutionName || null;
-                    payload.institution_address = regInstitutionAddress || null;
-                    payload.contact_person_name = regContactPersonName || null;
+                    // Institution: buat lebih tegas: nama institusi wajib
+                    const instName = regInstitutionName.trim();
+                    if (!instName) {
+                        setRegError(
+                            t("auth.institutionNameRequired", { defaultValue: "Nama institusi wajib diisi." })
+                        );
+                        clearRegisterPasswordsOnly();
+                        scrollRegisterToTop();
+                        return;
+                    }
 
-                    // contact person phone: send E.164 if filled beyond +62
+                    payload.institution_name = instName;
+                    payload.institution_address = regInstitutionAddress?.trim() || null;
+                    payload.contact_person_name = regContactPersonName?.trim() || null;
+
                     const cpDisplay = formatPhoneDisplayPlus62(regContactPersonPhone);
-                    const cpDigits = digitsOnly(cpDisplay);
-                    payload.contact_person_phone = cpDigits.length > 2 ? phoneE164Plus62(cpDisplay) : null;
+                    const cpLocal = getLocalPhoneDigits(cpDisplay);
 
-                    payload.contact_person_email = regContactPersonEmail || null;
+                    if (cpLocal.length > 0 && !isValidPhonePlus62(cpDisplay)) {
+                        setRegError(
+                            t("auth.contactPhoneDigitsRange", {
+                                defaultValue: `Nomor telepon PIC harus ${PHONE_LOCAL_MIN}-${PHONE_LOCAL_MAX} digit (tanpa +62).`,
+                            })
+                        );
+                        clearRegisterPasswordsOnly();
+                        scrollRegisterToTop();
+                        return;
+                    }
+
+                    payload.contact_person_phone = cpLocal.length ? phoneE164Plus62(cpDisplay) : null;
+                    payload.contact_person_email = regContactPersonEmail?.trim() || null;
                 }
 
                 await clientRegisterRequest(payload);
 
-                // A1: success should be visible without manual scroll
                 setRegSuccess(t("auth.clientRegSubmitted"));
                 scrollRegisterToTop();
-
-                // A1 privacy rule: success => clear all register fields
                 clearRegisterAllFields();
-
                 setTimeout(() => navigate("/login"), 800);
                 return;
             }
 
-            if (!regName) {
+            // Staff
+            if (!regName.trim()) {
                 setRegError(t("auth.staffNameRequired"));
                 clearRegisterPasswordsOnly();
                 return;
             }
 
             await registerStaffRequest({
-                name: regName,
-                email: regEmail,
+                name: regName.trim(),
+                email: regEmail.trim(),
                 password: regPassword,
                 password_confirmation: regPasswordConfirmation,
-                role_id: regRoleId
+                role_id: regRoleId,
             });
 
             setRegSuccess(t("auth.staffRegSubmitted"));
             scrollRegisterToTop();
             clearRegisterAllFields();
-
             setTimeout(() => navigate("/login"), 800);
         } catch (err: any) {
-            const msg = extractApiMessage(err, t("auth.registrationFailedFallback"));
-            setRegError(msg);
-
-            // A1 privacy rule: error => clear passwords only
+            setRegError(getFriendlyAuthError(err, "register"));
             clearRegisterPasswordsOnly();
             scrollRegisterToTop();
         } finally {
@@ -405,11 +607,9 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const containerClass =
         "lims-auth-container bg-white rounded-3xl shadow-2xl w-full max-w-6xl min-h-[600px] max-h-[calc(100vh-80px)] overflow-hidden";
 
-    const inputClass =
-        "w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent-green focus:border-accent-green";
-    const labelClass = "block mb-1 text-left text-sm text-gray-700";
-    const formBaseClass =
-        "flex flex-col items-stretch justify-center w-full max-w-md mx-auto px-4 md:px-10 py-10";
+    const passwordHint = t("auth.passwordRuleHint", {
+        defaultValue: "Min 8 karakter, ada huruf besar, huruf kecil, angka, dan simbol.",
+    });
 
     const loginForm = (
         <form onSubmit={handleLoginSubmit} className={formBaseClass}>
@@ -466,11 +666,12 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const portalClientFields = (
         <div className="space-y-3">
             <div>
-                <label className={labelClass}>{t("auth.clientType")}</label>
+                <Label text={t("auth.clientType")} required />
                 <select
                     value={regClientType}
                     onChange={(e) => setRegClientType(e.target.value as ClientType)}
                     className={inputClass}
+                    required
                 >
                     <option value="individual">{t("auth.individual")}</option>
                     <option value="institution">{t("auth.institution")}</option>
@@ -478,15 +679,19 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             </div>
 
             <div>
-                <label className={labelClass}>
-                    {regClientType === "institution" ? t("auth.clientOrInstitutionName") : t("auth.fullName")}
-                </label>
+                <Label
+                    text={
+                        regClientType === "institution" ? t("auth.clientOrInstitutionName") : t("auth.fullName")
+                    }
+                    required
+                />
                 <input
                     type="text"
                     value={regName}
                     onChange={(e) => setRegName(e.target.value)}
                     className={inputClass}
                     placeholder={regClientType === "institution" ? t("auth.institutionExample") : t("auth.yourFullName")}
+                    required
                 />
                 {regClientType === "institution" && (
                     <p className="mt-1 text-[11px] text-gray-500">{t("auth.tipInstitutionFallback")}</p>
@@ -494,7 +699,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             </div>
 
             <div>
-                <label className={labelClass}>{t("auth.phone")}</label>
+                <Label text={t("auth.phone")} required />
                 <input
                     type="tel"
                     value={regPhone}
@@ -503,13 +708,19 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                     className={inputClass}
                     placeholder={t("auth.phoneExample")}
                     inputMode="tel"
+                    required
                 />
+                <p className="mt-1 text-[11px] text-gray-500">
+                    {t("auth.phoneDigitsHint", {
+                        defaultValue: `Wajib ${PHONE_LOCAL_MIN}-${PHONE_LOCAL_MAX} digit (contoh: +62 812 3456 789).`,
+                    })}
+                </p>
             </div>
 
             {regClientType === "individual" ? (
                 <>
                     <div>
-                        <label className={labelClass}>{t("auth.nationalId")}</label>
+                        <Label text={t("auth.nationalId")} required />
                         <input
                             type="text"
                             value={regNationalId}
@@ -517,6 +728,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                             className={inputClass}
                             placeholder={t("auth.nikExample")}
                             inputMode="numeric"
+                            required
                         />
                     </div>
 
@@ -545,15 +757,118 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                         </div>
                     </div>
 
-                    <div>
-                        <label className={labelClass}>{t("auth.addressKtpOptional")}</label>
-                        <input
-                            type="text"
-                            value={regAddressKtp}
-                            onChange={(e) => setRegAddressKtp(e.target.value)}
-                            className={inputClass}
-                            placeholder={t("auth.asPerIdentityCard")}
-                        />
+                    <div className="pt-2">
+                        <p className="text-xs font-semibold text-gray-700 mb-2">
+                            {t("auth.addressKtp")} {requiredStar}
+                        </p>
+
+                        <div className="space-y-3">
+                            <div>
+                                <Label text={t("auth.ktpStreet", { defaultValue: "Jalan / No. Rumah" })} required />
+                                <input
+                                    type="text"
+                                    value={ktpAddress.street}
+                                    onChange={(e) => setKtpAddress((a) => ({ ...a, street: e.target.value }))}
+                                    className={inputClass}
+                                    placeholder={t("auth.ktpStreetPlaceholder", { defaultValue: "Contoh: Jl. Sam Ratulangi No.60" })}
+                                    required
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <Label text={t("auth.ktpRt", { defaultValue: "RT" })} required />
+                                    <input
+                                        type="text"
+                                        value={ktpAddress.rt}
+                                        onChange={(e) => setKtpAddress((a) => ({ ...a, rt: digitsOnly(e.target.value).slice(0, 3) }))}
+                                        className={inputClass}
+                                        placeholder="001"
+                                        inputMode="numeric"
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <Label text={t("auth.ktpRw", { defaultValue: "RW" })} required />
+                                    <input
+                                        type="text"
+                                        value={ktpAddress.rw}
+                                        onChange={(e) => setKtpAddress((a) => ({ ...a, rw: digitsOnly(e.target.value).slice(0, 3) }))}
+                                        className={inputClass}
+                                        placeholder="002"
+                                        inputMode="numeric"
+                                        required
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <Label text={t("auth.ktpVillage", { defaultValue: "Kelurahan/Desa" })} required />
+                                    <input
+                                        type="text"
+                                        value={ktpAddress.village}
+                                        onChange={(e) => setKtpAddress((a) => ({ ...a, village: e.target.value }))}
+                                        className={inputClass}
+                                        placeholder={t("auth.ktpVillagePlaceholder", { defaultValue: "Contoh: Lawangirung" })}
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <Label text={t("auth.ktpDistrict", { defaultValue: "Kecamatan" })} required />
+                                    <input
+                                        type="text"
+                                        value={ktpAddress.district}
+                                        onChange={(e) => setKtpAddress((a) => ({ ...a, district: e.target.value }))}
+                                        className={inputClass}
+                                        placeholder={t("auth.ktpDistrictPlaceholder", { defaultValue: "Contoh: Talawaan" })}
+                                        required
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <Label text={t("auth.ktpCity", { defaultValue: "Kota/Kabupaten" })} required />
+                                    <input
+                                        type="text"
+                                        value={ktpAddress.city}
+                                        onChange={(e) => setKtpAddress((a) => ({ ...a, city: e.target.value }))}
+                                        className={inputClass}
+                                        placeholder={t("auth.ktpCityPlaceholder", { defaultValue: "Contoh: Manado" })}
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <Label text={t("auth.ktpProvince", { defaultValue: "Provinsi" })} required />
+                                    <input
+                                        type="text"
+                                        value={ktpAddress.province}
+                                        onChange={(e) => setKtpAddress((a) => ({ ...a, province: e.target.value }))}
+                                        className={inputClass}
+                                        placeholder={t("auth.ktpProvincePlaceholder", { defaultValue: "Contoh: Sulawesi Utara" })}
+                                        required
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <Label text={t("auth.ktpPostalCode", { defaultValue: "Kode Pos" })} required />
+                                <input
+                                    type="text"
+                                    value={ktpAddress.postalCode}
+                                    onChange={(e) => setKtpAddress((a) => ({ ...a, postalCode: digitsOnly(e.target.value).slice(0, 5) }))}
+                                    className={inputClass}
+                                    placeholder="95111"
+                                    inputMode="numeric"
+                                    required
+                                />
+                            </div>
+
+                            <p className="text-[11px] text-gray-500">
+                                {t("auth.ktpAddressNote", { defaultValue: "Alamat KTP wajib lengkap untuk keperluan administrasi & verifikasi." })}
+                            </p>
+                        </div>
                     </div>
 
                     <div>
@@ -570,13 +885,14 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             ) : (
                 <>
                     <div>
-                        <label className={labelClass}>{t("auth.institutionName")}</label>
+                        <Label text={t("auth.institutionName")} required />
                         <input
                             type="text"
                             value={regInstitutionName}
                             onChange={(e) => setRegInstitutionName(e.target.value)}
                             className={inputClass}
                             placeholder={t("auth.institutionCompanyName")}
+                            required
                         />
                     </div>
 
@@ -617,6 +933,22 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                                     placeholder={t("auth.phoneExample")}
                                     inputMode="tel"
                                 />
+                                <p className="mt-1 text-[11px] text-gray-500">
+                                    {t("auth.phoneDigitsHint", {
+                                        defaultValue: `Jika diisi, wajib ${PHONE_LOCAL_MIN}-${PHONE_LOCAL_MAX} digit.`,
+                                    })}
+                                </p>
+                            </div>
+
+                            <div>
+                                <label className={labelClass}>{t("auth.email")}</label>
+                                <input
+                                    type="email"
+                                    value={regContactPersonEmail}
+                                    onChange={(e) => setRegContactPersonEmail(e.target.value)}
+                                    className={inputClass}
+                                    placeholder={t("auth.enterEmail")}
+                                />
                             </div>
                         </div>
                     </div>
@@ -644,20 +976,21 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                         {portalClientFields}
 
                         <div>
-                            <label className={labelClass}>{t("auth.email")}</label>
+                            <Label text={t("auth.email")} required />
                             <input
                                 type="email"
                                 value={regEmail}
                                 onChange={(e) => setRegEmail(e.target.value)}
                                 className={inputClass}
                                 placeholder={t("auth.enterEmail")}
+                                required
                             />
                         </div>
                     </>
                 ) : (
                     <>
                         <div>
-                            <label className={labelClass}>{t("auth.fullName")}</label>
+                            <Label text={t("auth.fullName")} required />
                             <input
                                 type="text"
                                 value={regName}
@@ -665,11 +998,12 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                                 className={inputClass}
                                 placeholder={t("auth.yourFullName")}
                                 autoComplete="name"
+                                required
                             />
                         </div>
 
                         <div>
-                            <label className={labelClass}>{t("auth.email")}</label>
+                            <Label text={t("auth.email")} required />
                             <input
                                 type="email"
                                 value={regEmail}
@@ -677,15 +1011,17 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                                 className={inputClass}
                                 placeholder={t("auth.enterEmail")}
                                 autoComplete="email"
+                                required
                             />
                         </div>
 
                         <div>
-                            <label className={labelClass}>{t("auth.role")}</label>
+                            <Label text={t("auth.role")} required />
                             <select
                                 value={regRoleId}
                                 onChange={(e) => setRegRoleId(Number(e.target.value))}
                                 className={inputClass}
+                                required
                             >
                                 {STAFF_ROLE_OPTIONS.map((r) => (
                                     <option key={r.id} value={r.id}>
@@ -700,13 +1036,14 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                 )}
 
                 <div className="relative">
-                    <label className={labelClass}>{t("auth.password")}</label>
+                    <Label text={t("auth.password")} required />
                     <input
                         type={showRegPassword ? "text" : "password"}
                         value={regPassword}
                         onChange={(e) => setRegPassword(e.target.value)}
                         className={inputClass + " pr-12"}
                         placeholder={t("auth.enterPassword")}
+                        required
                     />
 
                     <button
@@ -717,16 +1054,19 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                     >
                         {showRegPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
+
+                    <p className="mt-1 text-[11px] text-gray-500">{passwordHint}</p>
                 </div>
 
                 <div className="relative">
-                    <label className={labelClass}>{t("auth.confirmPassword")}</label>
+                    <Label text={t("auth.confirmPassword")} required />
                     <input
                         type={showRegPasswordConfirmation ? "text" : "password"}
                         value={regPasswordConfirmation}
                         onChange={(e) => setRegPasswordConfirmation(e.target.value)}
                         className={inputClass + " pr-12"}
                         placeholder={t("auth.confirmYourPassword")}
+                        required
                     />
 
                     <button
@@ -743,6 +1083,10 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             <button type="submit" disabled={regLoading} className="mt-6 self-start lims-btn-primary">
                 {regLoading ? t("auth.creating") : t("auth.signUp")}
             </button>
+
+            <p className="mt-3 text-[11px] text-gray-500">
+                {t("auth.requiredFieldsNote", { defaultValue: "Kolom bertanda * wajib diisi." })}
+            </p>
         </form>
     );
 
@@ -805,7 +1149,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                         style={{
                             backgroundImage: `linear-gradient(to right, rgba(194,16,16,0.9), rgba(230,72,72,0.7)), url(${LabHero})`,
                             backgroundSize: "cover",
-                            backgroundPosition: "center"
+                            backgroundPosition: "center",
                         }}
                     >
                         <div className="lims-overlay-panel lims-overlay-left">

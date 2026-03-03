@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import i18n from "i18next";
 
 import {
@@ -24,7 +24,7 @@ export type ClientUser = {
 type ClientAuthContextType = {
     client: ClientUser | null;
     isClientAuthenticated: boolean;
-    isAuthenticated: boolean; // alias
+    isAuthenticated: boolean;
     loading: boolean;
     loginClient: (email: string, password: string) => Promise<void>;
     logoutClient: () => Promise<void>;
@@ -75,15 +75,6 @@ async function applyLocaleFromClient(profile: any) {
     }
 }
 
-/**
- * Normalize berbagai bentuk response backend:
- * - { client: {...} }
- * - { data: { client: {...} } }
- * - { data: {...clientFields} }
- * - { ...clientFields }
- *
- * PLUS: toleransi key berbeda (email_address/contact_email/username, dll)
- */
 function normalizeClient(payload: any): ClientUser | null {
     if (!payload) return null;
 
@@ -113,7 +104,6 @@ function normalizeClient(payload: any): ClientUser | null {
     if (idRaw == null || emailRaw == null) return null;
 
     const nameRaw = (c as any).name ?? (c as any).full_name ?? (c as any).client_name ?? "";
-
     const typeRaw = (c as any).type ?? (c as any).client_type ?? (c as any).category ?? undefined;
 
     const localeRaw = (c as any).locale ?? (c as any).language ?? (c as any).lang ?? null;
@@ -168,10 +158,9 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
             if (err?.status === 401) {
                 hardClearClient();
                 publishAuthEvent("client", "session_expired");
-            } else {
-                console.error("Failed to refresh client session:", err);
                 return;
             }
+            console.error("Failed to refresh client session:", err);
         }
     };
 
@@ -182,18 +171,21 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
         const current = normalizeLocale(i18n.resolvedLanguage ?? i18n.language) ?? "id";
         if (current === next) return;
 
-        // If not logged in, change locally only
         if (!clientRef.current) {
             try {
                 document.documentElement.lang = next;
-            } catch { }
+            } catch {
+                // ignore
+            }
             await i18n.changeLanguage(next);
             return;
         }
 
         try {
             document.documentElement.lang = next;
-        } catch { }
+        } catch {
+            // ignore
+        }
 
         try {
             await i18n.changeLanguage(next);
@@ -212,15 +204,18 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
         } catch (err) {
             try {
                 document.documentElement.lang = current;
-            } catch { }
+            } catch {
+                // ignore
+            }
             try {
                 await i18n.changeLanguage(current);
-            } catch { }
+            } catch {
+                // ignore
+            }
             throw err;
         }
     };
 
-    // Boot: portal only
     useEffect(() => {
         let cancelled = false;
 
@@ -240,7 +235,6 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Cross-tab sync (client)
     useEffect(() => {
         if (getTenant() !== "portal") return;
 

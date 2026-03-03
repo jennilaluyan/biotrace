@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import i18n from "i18next";
 
 import { loginRequest, logoutRequest, fetchProfile, updateStaffLocale, type LocaleCode } from "../services/auth";
@@ -37,7 +37,6 @@ async function applyLocaleFromProfile(profile: any) {
     if (!loc) return;
 
     try {
-        // Optional: set <html lang="..">
         document.documentElement.lang = loc;
     } catch {
         // ignore
@@ -58,7 +57,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const isAuthenticated = !!user;
 
-    // keep latest user for subscriptions without dependency chaos
     const userRef = useRef<User | null>(null);
     useEffect(() => {
         userRef.current = user;
@@ -86,44 +84,42 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const current = normalizeLocale(i18n.resolvedLanguage ?? i18n.language) ?? "id";
         if (current === next) return;
 
-        // If not logged in, just change locally (still useful in UI)
         if (!userRef.current) {
             try {
                 document.documentElement.lang = next;
-            } catch { }
+            } catch {
+                // ignore
+            }
             await i18n.changeLanguage(next);
             return;
         }
 
-        // optimistic UI
         try {
             document.documentElement.lang = next;
-        } catch { }
+        } catch {
+            // ignore
+        }
 
         try {
             await i18n.changeLanguage(next);
-
-            // persist to backend
             const updated = await updateStaffLocale(next);
-
-            // update local state
             setUser((u) => (u ? { ...u, locale: updated?.locale ?? next } : u));
-
-            // broadcast so other tabs can refresh if needed
             publishAuthEvent("staff", "refresh");
         } catch (err) {
-            // rollback
             try {
                 document.documentElement.lang = current;
-            } catch { }
+            } catch {
+                // ignore
+            }
             try {
                 await i18n.changeLanguage(current);
-            } catch { }
+            } catch {
+                // ignore
+            }
             throw err;
         }
     };
 
-    // Boot: load session (staff only for backoffice)
     useEffect(() => {
         let cancelled = false;
 
@@ -161,7 +157,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         };
     }, []);
 
-    // Cross-tab sync (staff)
     useEffect(() => {
         if (getTenant() !== "backoffice") return;
 
@@ -210,7 +205,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             await logoutRequest();
             setUser(null);
             clearLastRoute("staff", uid);
-
             publishAuthEvent("staff", "logout");
         } finally {
             setLoading(false);
