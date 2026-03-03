@@ -1,4 +1,4 @@
-import { apiPost } from "./api";
+import { apiGet, apiPatch, apiPost } from "./api";
 
 export type LooStatus =
     | "draft"
@@ -47,7 +47,6 @@ export type LetterOfOrder = {
 
     sample_id: number;
 
-    // backend sometimes returns number
     loo_number?: string | null;
     number?: string | null;
 
@@ -61,7 +60,7 @@ export type LetterOfOrder = {
     client_signed_at?: string | null;
     locked_at?: string | null;
 
-    // ✅ Step 18: DB-backed file metadata
+    // DB-backed file metadata
     pdf_file_id?: number | null;
     download_url?: string | null;
     record_no?: string | null;
@@ -75,13 +74,18 @@ export type LetterOfOrder = {
 };
 
 /**
- * ✅ Step 2: OM/LH approval state per sample
+ * ✅ Approval state (frontend canonical keys).
+ * Backend may return both:
+ * - { OM: true, LH: false, ready: false }
+ * - { om: true, lh: false, ready: false }
  */
 export type LooApprovalState = {
     OM: boolean;
     LH: boolean;
     ready: boolean;
 };
+
+export type SelectedParamsMap = Record<number, number[]>; // sample_id -> parameter_ids[]
 
 function unwrapData<T>(res: any): T {
     // supports both axios-like { data: ... } and direct payload
@@ -101,8 +105,18 @@ function toStrOrNull(v: any): string | null {
 }
 
 /**
+ * Normalize backend approval state shape into frontend canonical shape.
+ * Handles both upper/lowercase keys safely.
+ */
+function normalizeApprovalState(input: any): LooApprovalState {
+    const OM = !!(input?.OM ?? input?.om);
+    const LH = !!(input?.LH ?? input?.lh);
+    const ready = !!(input?.ready ?? input?.is_ready ?? (OM && LH));
+    return { OM, LH, ready };
+}
+
+/**
  * Coerce various backend keys into LetterOfOrder.
- * Backend sometimes returns: lo_id / loo_id / id, number / loa_number / loo_number, etc.
  */
 function coerceLoo(maybe: any): LetterOfOrder | null {
     if (!maybe || typeof maybe !== "object") return null;
@@ -111,27 +125,28 @@ function coerceLoo(maybe: any): LetterOfOrder | null {
     if (!Number.isNaN(directId) && directId > 0) {
         const payload = maybe?.payload && typeof maybe.payload === "object" ? maybe.payload : null;
 
-        // ✅ Step 18: prefer DB-backed file id + meta (support nested payload too)
         const pdfFileId =
             toIntOrNull(maybe?.pdf_file_id ?? maybe?.pdfFileId) ??
             toIntOrNull(payload?.pdf_file_id ?? payload?.pdfFileId);
 
         const recordNo =
-            toStrOrNull(maybe?.record_no ?? maybe?.recordNo) ?? toStrOrNull(payload?.record_no ?? payload?.recordNo);
+            toStrOrNull(maybe?.record_no ?? maybe?.recordNo) ??
+            toStrOrNull(payload?.record_no ?? payload?.recordNo);
 
         const formCode =
-            toStrOrNull(maybe?.form_code ?? maybe?.formCode) ?? toStrOrNull(payload?.form_code ?? payload?.formCode);
+            toStrOrNull(maybe?.form_code ?? maybe?.formCode) ??
+            toStrOrNull(payload?.form_code ?? payload?.formCode);
 
         const downloadUrl =
-            toStrOrNull(maybe?.download_url ?? maybe?.downloadUrl) ?? toStrOrNull(payload?.download_url ?? payload?.downloadUrl);
+            toStrOrNull(maybe?.download_url ?? maybe?.downloadUrl) ??
+            toStrOrNull(payload?.download_url ?? payload?.downloadUrl);
 
         const loo: LetterOfOrder = {
             loo_id: directId,
-            lo_id: directId, // mirror backend key so UI fallback works
+            lo_id: directId,
 
             sample_id: Number(maybe?.sample_id ?? maybe?.sampleId ?? 0),
 
-            // keep both number variants
             loo_number: maybe?.loo_number ?? maybe?.loa_number ?? maybe?.number ?? null,
             number: maybe?.number ?? maybe?.loo_number ?? maybe?.loa_number ?? null,
 
@@ -145,13 +160,11 @@ function coerceLoo(maybe: any): LetterOfOrder | null {
             client_signed_at: maybe?.client_signed_at ?? null,
             locked_at: maybe?.locked_at ?? null,
 
-            // ✅ Step 18 fields
             pdf_file_id: pdfFileId,
             download_url: downloadUrl,
             record_no: recordNo,
             form_code: formCode,
 
-            // legacy fallback
             pdf_url:
                 maybe?.pdf_url ??
                 maybe?.file_url ??
@@ -175,8 +188,6 @@ function coerceLoo(maybe: any): LetterOfOrder | null {
     return null;
 }
 
-export type SelectedParamsMap = Record<number, number[]>; // sample_id -> parameter_ids[]
-
 export const looService = {
     /**
      * Single-sample generate (legacy)
@@ -191,24 +202,14 @@ export const looService = {
     /**
      * Bulk generate for selected samples
      * POST /v1/samples/:anyId/loo with { sample_ids, parameters_map? }
-     * (backend uses sampleId route but accepts sample_ids[] in body)
      */
     async generateForSamples(sampleIds: number[], paramsMap?: SelectedParamsMap): Promise<LetterOfOrder> {
-        if (!Array.isArray(sampleIds) || sampleIds.length <= 0) {
-            throw new Error("sampleIds is required");
-        }
+        if (!Array.isArray(sampleIds) || sampleIds.length <= 0) throw new Error("sampleIds is required");
 
-        // Backend currently validates sample_ids only.
-        // If your controller also accepts parameters_map, we pass it too.
         const payload: any = { sample_ids: sampleIds };
+        if (paramsMap && typeof paramsMap === "object") payload.parameters_map = paramsMap;
 
-        if (paramsMap && typeof paramsMap === "object") {
-            payload.parameters_map = paramsMap;
-        }
-
-        // Use the first id for the route param (backend decides by presence of sample_ids)
         const anyId = Number(sampleIds[0]);
-
         const res = await apiPost<any>(`/v1/samples/${anyId}/loo`, payload);
         const data = unwrapData<any>(res);
         return (coerceLoo(data) ?? data) as LetterOfOrder;
@@ -224,7 +225,6 @@ export const looService = {
         return (coerceLoo(data) ?? data) as LetterOfOrder;
     },
 
-    // keep existing (optional; client flow may be unused)
     async sendToClient(looId: number): Promise<LetterOfOrder> {
         const res = await apiPost<any>(`/v1/loo/${looId}/send`);
         const data = unwrapData<any>(res);
@@ -238,31 +238,44 @@ export const looService = {
     },
 
     /**
-     * ✅ Step 2: fetch approvals states for multiple samples
      * GET /v1/loo/approvals?sample_ids[]=1&sample_ids[]=2
+     * Returns normalized map: { [sample_id]: { OM, LH, ready } }
      */
     async getApprovals(sampleIds: number[]): Promise<Record<number, LooApprovalState>> {
         if (!Array.isArray(sampleIds) || sampleIds.length === 0) return {};
-        const { apiGet } = await import("./api");
+
         const res = await apiGet<any>("/v1/loo/approvals", { params: { sample_ids: sampleIds } });
-        const data = (res?.data ?? res) as any;
-        return (data?.data ?? {}) as Record<number, LooApprovalState>;
+        const obj = (res?.data ?? res) as any;
+
+        // backend may wrap results in data
+        const raw = (obj?.data ?? obj) as any;
+        const out: Record<number, LooApprovalState> = {};
+
+        // raw expected: { "17": { om:true, lh:true, ready:true }, ... }
+        for (const [k, v] of Object.entries(raw ?? {})) {
+            const sid = Number(k);
+            if (!Number.isFinite(sid) || sid <= 0) continue;
+            out[sid] = normalizeApprovalState(v);
+        }
+
+        return out;
     },
 
     /**
-     * ✅ Step 2: set approval for current actor role (OM or LH) on a sample
      * PATCH /v1/loo/approvals/:sampleId { approved: boolean }
+     * Response example:
+     * { message, data: { sample_id, state: { om:true, lh:false, ready:false } } }
      */
     async setApproval(sampleId: number, approved: boolean): Promise<{ sample_id: number; state: LooApprovalState }> {
         if (!sampleId || sampleId <= 0) throw new Error("sampleId is required");
-        const { apiPatch } = await import("./api");
+
         const res = await apiPatch<any>(`/v1/loo/approvals/${sampleId}`, { approved });
         const obj = (res?.data ?? res) as any;
         const d = obj?.data ?? obj;
 
         return {
             sample_id: Number(d?.sample_id ?? sampleId),
-            state: (d?.state ?? { OM: false, LH: false, ready: false }) as LooApprovalState,
+            state: normalizeApprovalState(d?.state ?? d),
         };
     },
 };
