@@ -48,15 +48,43 @@ function normalizeStatusToken(raw?: string | null) {
         .replace(/\s+/g, "_");
 }
 
-function titleCaseFromToken(token: string) {
+function wordsFromToken(token: string) {
     return token
         .replace(/_/g, " ")
         .trim()
         .toLowerCase()
-        .replace(/\b\w/g, (m) => m.toUpperCase());
+        .replace(/\s+/g, " ");
 }
 
-function requestStatusLabel(t: TFunction, raw?: string | null) {
+function compactRequestStatusToken(token: string, locale: string) {
+    const isId = String(locale || "").toLowerCase().startsWith("id");
+
+    const map: Record<string, { en: string; id: string }> = {
+        submitted: { en: "submitted", id: "terkirim" },
+        ready_for_delivery: { en: "ready", id: "siap" },
+        physically_received: { en: "received", id: "diterima" },
+        rejected: { en: "rejected", id: "ditolak" },
+        needs_revision: { en: "revision", id: "revisi" },
+        returned: { en: "revision", id: "revisi" },
+
+        awaiting_verification: { en: "verify", id: "verifikasi" },
+        waiting_sample_id_assignment: { en: "waiting", id: "menunggu" },
+        sample_id_pending_verification: { en: "verify", id: "verifikasi" },
+        sample_id_approved_for_assignment: { en: "approved", id: "disetujui" },
+        approved_for_assignment: { en: "approved", id: "disetujui" },
+
+        in_transit_to_collector: { en: "transit", id: "transit" },
+        under_inspection: { en: "inspect", id: "inspeksi" },
+        returned_to_admin: { en: "returned", id: "kembali" },
+
+        intake_checklist_passed: { en: "intake", id: "intake" },
+        intake_validated: { en: "validated", id: "validasi" },
+    };
+
+    return (map[token]?.[isId ? "id" : "en"] ?? wordsFromToken(token)).toLowerCase();
+}
+
+function requestStatusLabel(t: TFunction, raw?: string | null, locale = "en") {
     const token = normalizeStatusToken(raw);
     if (!token) return "-";
 
@@ -84,13 +112,16 @@ function requestStatusLabel(t: TFunction, raw?: string | null) {
         approved_for_assignment: "requestStatus.sampleIdApprovedForAssignment",
     };
 
+    const fallback = compactRequestStatusToken(token, locale);
     const key = map[token];
-    if (!key) return titleCaseFromToken(token);
 
-    return t(key, { defaultValue: titleCaseFromToken(token) });
+    if (!key) return fallback;
+
+    // paksa output tetap lower-case + rapih
+    return wordsFromToken(t(key, { defaultValue: fallback }));
 }
 
-function StatusPill({ value, t }: { value?: string | null; t: TFunction }) {
+function StatusPill({ value, t, locale }: { value?: string | null; t: TFunction; locale: string }) {
     const token = normalizeStatusToken(value);
 
     const tones: Record<string, string> = {
@@ -114,7 +145,7 @@ function StatusPill({ value, t }: { value?: string | null; t: TFunction }) {
     };
 
     const tone = tones[token] || "bg-gray-50 text-gray-600 border-gray-200";
-    const label = requestStatusLabel(t, value);
+    const label = requestStatusLabel(t, value, locale);
 
     return (
         <span className={cx("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border", tone)}>
@@ -265,7 +296,8 @@ function resolveRoleIdFromUser(user: any): number {
 }
 
 export default function SampleRequestDetailPage() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const locale = i18n.language || "en";
 
     const { id } = useParams<{ id: string }>();
     const { user } = useAuth();
@@ -546,7 +578,7 @@ export default function SampleRequestDetailPage() {
                                 {/* FIX: remove "Request ID #13" line (double + English) */}
                                 <div className="text-sm text-gray-600 mt-1 flex items-center gap-2 flex-wrap">
                                     <span className="text-xs text-gray-500">{t("status")}</span>
-                                    <StatusPill value={(sample as any)?.request_status ?? "-"} t={t} />
+                                    <StatusPill value={(sample as any)?.request_status ?? "-"} t={t} locale={locale} />
 
                                     {verifiedAt ? (
                                         <>

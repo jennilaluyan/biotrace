@@ -20,8 +20,8 @@ function normalizeLabel(input?: string | null) {
     return s
         .replace(/_/g, " ")
         .replace(/\s+/g, " ")
-        .toLowerCase()
-        .replace(/\b\w/g, (m) => m.toUpperCase());
+        .trim()
+        .toLowerCase();
 }
 
 type Summary = {

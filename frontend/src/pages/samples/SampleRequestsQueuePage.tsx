@@ -44,27 +44,66 @@ function normalizeToken(raw?: string | null) {
  * Short label for queue “chip” (scan-friendly).
  * Falls back to raw string if translation key doesn't exist.
  */
-function requestStatusChipLabel(t: TFunction, raw?: string | null) {
-    const k = normalizeToken(raw);
-    if (!k) return "-";
+function normalizeStatusWords(input?: string | null) {
+    return String(input ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/_/g, " ")
+        .replace(/\s+/g, " ");
+}
+
+function compactRequestStatusToken(token: string, locale: string) {
+    const isId = String(locale || "").toLowerCase().startsWith("id");
+
+    const map: Record<string, { en: string; id: string }> = {
+        submitted: { en: "submitted", id: "terkirim" },
+        ready_for_delivery: { en: "ready", id: "siap" },
+        physically_received: { en: "received", id: "diterima" },
+        rejected: { en: "rejected", id: "ditolak" },
+        needs_revision: { en: "revision", id: "revisi" },
+        returned: { en: "revision", id: "revisi" },
+
+        awaiting_verification: { en: "verify", id: "verifikasi" },
+        waiting_sample_id_assignment: { en: "waiting", id: "menunggu" },
+
+        in_transit_to_collector: { en: "transit", id: "transit" },
+        under_inspection: { en: "inspect", id: "inspeksi" },
+        returned_to_admin: { en: "returned", id: "kembali" },
+
+        intake_checklist_passed: { en: "intake", id: "intake" },
+        intake_validated: { en: "validated", id: "validasi" },
+    };
+
+    return (map[token]?.[isId ? "id" : "en"] ?? normalizeStatusWords(token)).toLowerCase();
+}
+
+function requestStatusChipLabel(t: TFunction, locale: string, raw?: string | null) {
+    const token = normalizeToken(raw);
+    if (!token) return "-";
 
     const map: Record<string, string> = {
         ready_for_delivery: "requestStatus.readyForDelivery",
-        physically_received: "requestStatus.receivedShort",
+        physically_received: "requestStatus.physicallyReceived",
         awaiting_verification: "requestStatus.awaitingVerification",
-        in_transit_to_collector: "requestStatus.inTransitShort",
+        in_transit_to_collector: "requestStatus.inTransitToCollector",
         under_inspection: "requestStatus.underInspection",
         returned_to_admin: "requestStatus.returnedToAdmin",
         needs_revision: "requestStatus.needsRevision",
         returned: "requestStatus.returned",
         submitted: "requestStatus.submitted",
         rejected: "requestStatus.rejected",
-        intake_checklist_passed: "requestStatus.intakePassedShort",
+        intake_checklist_passed: "requestStatus.intakeChecklistPassed",
+        waiting_sample_id_assignment: "requestStatus.waitingSampleIdAssignment",
     };
 
-    const key = map[k] ?? `requestStatus.${k}`;
-    const out = t(key);
-    return out === key ? (raw ?? "-") : out;
+    const fallback = compactRequestStatusToken(token, locale);
+    const key = map[token] ?? `requestStatus.${token}`;
+
+    // defaultValue penting supaya gak balik "requestStatus.xxx" atau raw underscore
+    const out = t(key, { defaultValue: fallback });
+
+    // paksa lower-case + spasi
+    return normalizeStatusWords(out);
 }
 
 /**
@@ -117,7 +156,8 @@ function getAdminActionsForStatus(statusRaw?: string | null): AdminQueueAction[]
 }
 
 export default function SampleRequestsQueuePage() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const locale = i18n.language || "en";
 
     const navigate = useNavigate();
     const location = useLocation();
@@ -498,7 +538,7 @@ export default function SampleRequestsQueuePage() {
                                             const canReject = isAdmin && canRowOpen && actions.includes("reject");
                                             const canReceived = isAdmin && canRowOpen && actions.includes("received");
 
-                                            const statusLabel = requestStatusChipLabel(t, r.request_status);
+                                            const statusLabel = requestStatusChipLabel(t, locale, r.request_status);
 
                                             return (
                                                 <tr key={requestId ?? `row-${idx}`} className="hover:bg-gray-50">

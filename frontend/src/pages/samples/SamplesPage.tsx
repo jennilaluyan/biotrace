@@ -83,7 +83,8 @@ const normalizeStatusLabel = (label: string) => {
 };
 
 export const SamplesPage = () => {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const locale = i18n.language || "en";
     const navigate = useNavigate();
 
     const { user } = useAuth();
@@ -168,32 +169,58 @@ export const SamplesPage = () => {
         }
     };
 
-    // i18n status translation (keep from new)
     const translateStatus = (rawLabel: string) => {
-        const k = normalizeStatusLabel(rawLabel);
-        const map: Record<string, string> = {
-            "in progress": "sampleStatus.inProgress",
-            "testing done": "sampleStatus.testingDone",
-            "ready for reagent": "sampleStatus.readyForReagent",
-            "awaiting intake": "sampleStatus.awaitingIntake",
-            "in transit to analyst": "sampleStatus.inTransitToAnalyst",
-            received: "sampleStatus.received",
-            "awaiting promotion": "sampleStatus.awaitingPromotion",
-            "awaiting crosscheck": "sampleStatus.awaitingCrosscheck",
-            "crosscheck passed": "sampleStatus.crosscheckPassed",
-            "crosscheck failed": "sampleStatus.crosscheckFailed",
-            verified: "sampleStatus.verified",
-            validated: "sampleStatus.validated",
-            reported: "sampleStatus.reported",
-            // Reagents
-            "reagent draft": "reagentStatus.draft",
-            "reagent submitted": "reagentStatus.submitted",
-            "reagent approved": "reagentStatus.approved",
-            "reagent denied": "reagentStatus.denied",
+        const normalized = normalizeStatusLabel(rawLabel);
+        const token = normalized.replace(/\s+/g, "_");
+
+        const isId = String(locale || "").toLowerCase().startsWith("id");
+
+        const compactMap: Record<string, { en: string; id: string }> = {
+            // request / intake
+            submitted: { en: "submitted", id: "terkirim" },
+            ready_for_delivery: { en: "ready", id: "siap" },
+            physically_received: { en: "received", id: "diterima" },
+            needs_revision: { en: "revision", id: "revisi" },
+            returned: { en: "revision", id: "revisi" },
+            rejected: { en: "rejected", id: "ditolak" },
+            intake_checklist_passed: { en: "intake", id: "intake" },
+            intake_validated: { en: "validated", id: "validasi" },
+            waiting_sample_id_assignment: { en: "waiting", id: "menunggu" },
+            awaiting_verification: { en: "verify", id: "verifikasi" },
+            in_transit_to_analyst: { en: "transit", id: "transit" },
+            received_by_analyst: { en: "received", id: "diterima" },
+            in_transit_to_collector: { en: "transit", id: "transit" },
+            under_inspection: { en: "inspect", id: "inspeksi" },
+            returned_to_admin: { en: "returned", id: "kembali" },
+
+            // crosscheck
+            crosscheck_passed: { en: "passed", id: "lulus" },
+            crosscheck_failed: { en: "failed", id: "gagal" },
+            awaiting_crosscheck: { en: "waiting", id: "menunggu" },
+
+            // lab workflow
+            received: { en: "received", id: "diterima" },
+            in_progress: { en: "progress", id: "proses" },
+            testing_done: { en: "testing", id: "uji" },
+            verified: { en: "verified", id: "verifikasi" },
+            validated: { en: "validated", id: "validasi" },
+            reported: { en: "reported", id: "laporan" },
+
+            // reagent stages (dipendekkan ke 1 kata; tooltip masih lengkap)
+            reagent_draft: { en: "draft", id: "draf" },
+            reagent_submitted: { en: "submitted", id: "terkirim" },
+            reagent_approved: { en: "approved", id: "disetujui" },
+            reagent_denied: { en: "denied", id: "ditolak" },
         };
 
-        const key = map[k];
-        return key ? t(key) : rawLabel;
+        const compact = compactMap[token]?.[isId ? "id" : "en"] ?? normalized;
+
+        // final normalize: lower-case + single spaces
+        return String(compact)
+            .trim()
+            .toLowerCase()
+            .replace(/_/g, " ")
+            .replace(/\s+/g, " ");
     };
 
     const getSamplesListStatusChip = (s: Sample): { label: string; className: string } => {
