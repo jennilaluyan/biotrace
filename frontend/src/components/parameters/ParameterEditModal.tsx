@@ -79,11 +79,13 @@ export default function ParameterEditModal({ open, row, onClose, onSaved }: Prop
         setSubmitting(true);
 
         try {
-            await updateParameter(target.parameter_id, {
+            await createParameterRequest({
+                parameter_id: row.parameter_id,
                 name: name.trim(),
                 workflow_group: workflowGroup ? workflowGroup : null,
                 status,
                 tag,
+                reason: reason.trim() ? reason.trim() : null,
             });
 
             await onSaved();

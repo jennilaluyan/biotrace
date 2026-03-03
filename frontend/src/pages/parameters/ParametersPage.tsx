@@ -708,7 +708,10 @@ export default function ParametersPage() {
                 row={editTarget}
                 onClose={() => setEditOpen(false)}
                 onSaved={async () => {
-                    await loadParameters();
+                    setTab("requests");
+                    setRStatus("pending");
+                    setRPage(1);
+                    await refreshRequests({ status: "pending", page: 1 });
                 }}
             />
         </div>

@@ -37,8 +37,17 @@ export type ParameterRequestRow = {
 type ApiEnvelope<T> = { data: T };
 
 export type CreateParameterRequestPayload = {
-    parameter_name: string;
-    category: "pcr" | "sequencing" | "rapid" | "microbiology";
+    // create request
+    parameter_name?: string;
+    category?: "pcr" | "sequencing" | "rapid" | "microbiology";
+
+    // update request
+    parameter_id?: number;
+    name?: string;
+    workflow_group?: "pcr" | "sequencing" | "rapid" | "microbiology" | null;
+    status?: "Active" | "Inactive";
+    tag?: "Routine" | "Research";
+
     reason?: string | null;
 };
 
