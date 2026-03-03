@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronLeft, ChevronRight, RefreshCw, Search, ClipboardList, FilePlus2, Check, X, Pencil } from "lucide-react";
+import {
+    ChevronLeft,
+    ChevronRight,
+    RefreshCw,
+    Search,
+    ClipboardList,
+    FilePlus2,
+    Check,
+    X,
+    Pencil,
+    Eye,
+    Loader2,
+} from "lucide-react";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId } from "../../utils/roles";
@@ -8,6 +20,7 @@ import { getErrorMessage } from "../../utils/errors";
 import { formatDateTimeLocal } from "../../utils/date";
 import { api } from "../../services/api";
 import {
+    acknowledgeParameterRequest,
     approveParameterRequest,
     fetchParameterRequests,
     rejectParameterRequest,
@@ -22,6 +35,27 @@ import ParameterEditModal, { type ParameterEditRow } from "../../components/para
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
+}
+
+/**
+ * Some endpoints wrap payload as:
+ * { success, message, data: T }
+ * Others may return T directly (legacy).
+ *
+ * This helper keeps the page resilient without touching the api service layer.
+ */
+function unwrapApiData<T>(res: any): T {
+    const body = res?.data ?? res;
+    const isEnvelope =
+        body &&
+        typeof body === "object" &&
+        "data" in body &&
+        (("success" in body && typeof (body as any).success === "boolean") ||
+            "message" in body ||
+            "extra" in body ||
+            "error" in body);
+
+    return (isEnvelope ? (body as any).data : body) as T;
 }
 
 type TabKey = "parameters" | "requests";
@@ -39,7 +73,6 @@ type ParameterRow = {
 };
 
 type ParamPager = Paginator<ParameterRow>;
-type ApiEnvelope<T> = { data: T };
 
 function prettyCategory(v?: string | null) {
     const s = String(v ?? "").trim().toLowerCase();
@@ -69,6 +102,11 @@ function statusChip(status: string) {
     return <span className={chipClass("neutral")}>{s || "—"}</span>;
 }
 
+function isDecidedRow(row: ParameterRequestRow) {
+    const s = String(row.status ?? "").toLowerCase().trim();
+    return s === "approved" || s === "rejected";
+}
+
 export default function ParametersPage() {
     const { t } = useTranslation();
     const { user } = useAuth();
@@ -78,9 +116,13 @@ export default function ParametersPage() {
     const isSampleCollector = roleId === ROLE_ID.SAMPLE_COLLECTOR;
     const canSeeRequestsTab = !isSampleCollector;
 
+    // Admin/Analyst can submit requests (create OR update request)
     const canCreateRequest = roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.ANALYST;
+
+    // Only OM/LH can approve/reject requests
     const canApproveReject = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
 
+    // Admin/Analyst can open "edit" modal (which submits UPDATE request)
     const canEditParameters = roleId === ROLE_ID.ADMIN || roleId === ROLE_ID.ANALYST;
 
     const [tab, setTab] = useState<TabKey>("parameters");
@@ -104,7 +146,7 @@ export default function ParametersPage() {
 
     const [createOpen, setCreateOpen] = useState(false);
 
-    // Decision modal
+    // Decision modal (OM/LH)
     const [decisionOpen, setDecisionOpen] = useState(false);
     const [decisionMode, setDecisionMode] = useState<"approve" | "reject">("approve");
     const [decisionTarget, setDecisionTarget] = useState<ParameterRequestRow | null>(null);
@@ -112,22 +154,33 @@ export default function ParametersPage() {
     const [decisionSubmitting, setDecisionSubmitting] = useState(false);
     const [decisionError, setDecisionError] = useState<string | null>(null);
 
-    // Edit parameter modal
+    // Edit parameter modal (submits UPDATE request)
     const [editOpen, setEditOpen] = useState(false);
     const [editTarget, setEditTarget] = useState<ParameterEditRow | null>(null);
 
+    // Requester "read receipt" (acknowledge)
+    const [ackBusyId, setAckBusyId] = useState<number | null>(null);
+    const [ackChecked, setAckChecked] = useState<Record<number, boolean>>({});
+
     const paramsRows = useMemo(() => pData?.data ?? [], [pData]);
     const reqRows = useMemo(() => rData?.data ?? [], [rData]);
+
+    const staffId = useMemo(() => {
+        const u: any = user;
+        const v = u?.staff_id ?? u?.staffId ?? u?.id ?? null;
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0 ? n : null;
+    }, [user]);
 
     const loadParameters = useCallback(async () => {
         setPLoading(true);
         setPError(null);
 
         try {
-            const res = await api.get<ApiEnvelope<ParamPager>>("/v1/parameters", {
+            const res = await api.get("/v1/parameters", {
                 params: { q: pQ.trim() || undefined, page: pPage, per_page: pPerPage },
             });
-            setPData(res.data);
+            setPData(unwrapApiData(res));
         } catch (e: any) {
             setPError(getErrorMessage(e, t("parametersPage.errors.loadParametersFailed")));
         } finally {
@@ -199,8 +252,11 @@ export default function ParametersPage() {
 
             if (decisionMode === "approve") {
                 await approveParameterRequest(id);
+
+                // Approval can create a new parameter OR apply updates to an existing one
                 await refreshRequests();
                 await loadParameters();
+
                 closeDecision(true);
                 return;
             }
@@ -228,20 +284,6 @@ export default function ParametersPage() {
         }
     }, [decisionTarget, decisionMode, decisionNote, refreshRequests, loadParameters, t]);
 
-    // Guard tab
-    useEffect(() => {
-        if (!canSeeRequestsTab && tab === "requests") setTab("parameters");
-    }, [canSeeRequestsTab, tab]);
-
-    useEffect(() => {
-        loadParameters();
-    }, [loadParameters]);
-
-    useEffect(() => {
-        if (!canSeeRequestsTab) return;
-        refreshRequests();
-    }, [canSeeRequestsTab, refreshRequests]);
-
     const onRefreshClick = () => {
         if (tab === "parameters") loadParameters();
         else refreshRequests();
@@ -261,6 +303,61 @@ export default function ParametersPage() {
 
         setEditOpen(true);
     };
+
+    /**
+     * A request is acknowledgeable when:
+     * - current user is Admin/Analyst (requester role)
+     * - row requested_by matches my staff_id
+     * - row is decided (approved/rejected)
+     * - requester_ack_at is still null
+     */
+    const canAcknowledgeRow = useCallback(
+        (row: ParameterRequestRow) => {
+            if (!canCreateRequest) return false;
+            if (!staffId) return false;
+            if ((row.requested_by ?? 0) !== staffId) return false;
+            if (!isDecidedRow(row)) return false;
+            if (row.requester_ack_at) return false;
+            return true;
+        },
+        [canCreateRequest, staffId]
+    );
+
+    const acknowledge = useCallback(
+        async (reqId: number) => {
+            setAckBusyId(reqId);
+            try {
+                await acknowledgeParameterRequest(reqId);
+
+                // Clear local checkbox state so it won't stay "checked" if row remains due to paging
+                setAckChecked((m) => {
+                    const next = { ...m };
+                    delete next[reqId];
+                    return next;
+                });
+
+                await refreshRequests();
+            } catch (e: any) {
+                setRError(getErrorMessage(e, t("parametersPage.errors.ackFailed", { defaultValue: "Failed to acknowledge." })));
+            } finally {
+                setAckBusyId(null);
+            }
+        },
+        [refreshRequests, t]
+    );
+
+    useEffect(() => {
+        if (!canSeeRequestsTab && tab === "requests") setTab("parameters");
+    }, [canSeeRequestsTab, tab]);
+
+    useEffect(() => {
+        loadParameters();
+    }, [loadParameters]);
+
+    useEffect(() => {
+        if (!canSeeRequestsTab) return;
+        refreshRequests();
+    }, [canSeeRequestsTab, refreshRequests]);
 
     return (
         <div className="min-h-[60vh]">
@@ -314,10 +411,7 @@ export default function ParametersPage() {
 
                     {tab === "requests" && canCreateRequest ? (
                         <button
-                            className={cx(
-                                "lims-btn-primary gap-2",
-                                "disabled:opacity-50 disabled:cursor-not-allowed"
-                            )}
+                            className={cx("lims-btn-primary gap-2", "disabled:opacity-50 disabled:cursor-not-allowed")}
                             onClick={() => setCreateOpen(true)}
                             title={t("parametersPage.actions.addRequest")}
                         >
@@ -433,7 +527,9 @@ export default function ParametersPage() {
                 <div className="px-4 md:px-6 py-4">
                     {tab === "parameters" ? (
                         <>
-                            {pError ? <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{pError}</div> : null}
+                            {pError ? (
+                                <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{pError}</div>
+                            ) : null}
 
                             <div className="overflow-x-auto">
                                 <table className="min-w-full text-sm">
@@ -490,8 +586,8 @@ export default function ParametersPage() {
                                                                 <button
                                                                     type="button"
                                                                     className="lims-icon-button"
-                                                                    aria-label={t("parametersPage.actions.edit")}
-                                                                    title={t("parametersPage.actions.edit")}
+                                                                    aria-label={t("parametersPage.actions.edit", { defaultValue: "Edit" })}
+                                                                    title={t("parametersPage.actions.edit", { defaultValue: "Edit" })}
                                                                     onClick={() => openEdit(row)}
                                                                 >
                                                                     <Pencil size={16} />
@@ -536,7 +632,9 @@ export default function ParametersPage() {
                         </>
                     ) : tab === "requests" && canSeeRequestsTab ? (
                         <>
-                            {rError ? <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{rError}</div> : null}
+                            {rError ? (
+                                <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{rError}</div>
+                            ) : null}
 
                             <div className="overflow-x-auto">
                                 <table className="min-w-full text-sm">
@@ -569,16 +667,109 @@ export default function ParametersPage() {
                                                 const isPending = statusLower === "pending";
                                                 const busy = rLoading || decisionSubmitting;
 
+                                                const reqType = (row as any).request_type as string | undefined;
+                                                const typeChip =
+                                                    reqType === "update" ? (
+                                                        <span className={chipClass("neutral")}>update</span>
+                                                    ) : (
+                                                        <span className={chipClass("neutral")}>new</span>
+                                                    );
+
+                                                const canAck = canAcknowledgeRow(row);
+                                                const isAckBusy = ackBusyId === row.id;
+
                                                 return (
-                                                    <tr key={row.id} className="hover:bg-gray-50">
-                                                        <td className="px-4 py-3 font-semibold text-gray-900">{row.parameter_name}</td>
+                                                    <tr key={row.id} className="hover:bg-gray-50 align-top">
+                                                        <td className="px-4 py-3 font-semibold text-gray-900">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="truncate">{row.parameter_name}</span>
+                                                                {typeChip}
+                                                            </div>
+
+                                                            {/* Requester view: show decision reason/info before the row disappears */}
+                                                            {canAck ? (
+                                                                <div className="mt-2 text-xs text-gray-700">
+                                                                    <div
+                                                                        className={cx(
+                                                                            "rounded-xl border px-3 py-2",
+                                                                            statusLower === "rejected"
+                                                                                ? "border-rose-200 bg-rose-50 text-rose-800"
+                                                                                : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                                                        )}
+                                                                    >
+                                                                        <div className="font-semibold flex items-center gap-2">
+                                                                            <Eye className="h-4 w-4" />
+                                                                            <span>
+                                                                                {statusLower === "rejected"
+                                                                                    ? t("parametersPage.ack.rejectionReasonTitle", {
+                                                                                        defaultValue: "Rejection reason",
+                                                                                    })
+                                                                                    : t("parametersPage.ack.approvalTitle", {
+                                                                                        defaultValue: "Approved",
+                                                                                    })}
+                                                                            </span>
+                                                                        </div>
+
+                                                                        <div className="mt-1 leading-relaxed">
+                                                                            {statusLower === "rejected"
+                                                                                ? row.decision_note?.trim()
+                                                                                    ? row.decision_note
+                                                                                    : t("parametersPage.ack.noReason", {
+                                                                                        defaultValue: "No reason provided.",
+                                                                                    })
+                                                                                : t("parametersPage.ack.approvedInfo", {
+                                                                                    defaultValue:
+                                                                                        "Your request has been approved and applied.",
+                                                                                })}
+                                                                        </div>
+
+                                                                        {row.decided_at ? (
+                                                                            <div className="mt-1 text-[11px] opacity-80">
+                                                                                {t("parametersPage.ack.decidedAt", { defaultValue: "Decided at" })}:{" "}
+                                                                                {formatDateTimeLocal(row.decided_at)}
+                                                                            </div>
+                                                                        ) : null}
+
+                                                                        <div className="mt-2 flex items-center gap-2">
+                                                                            <label className="inline-flex items-center gap-2 text-xs">
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    className="h-4 w-4"
+                                                                                    checked={Boolean(ackChecked[row.id])}
+                                                                                    disabled={isAckBusy}
+                                                                                    onChange={(e) => {
+                                                                                        const checked = e.target.checked;
+                                                                                        setAckChecked((m) => ({ ...m, [row.id]: checked }));
+                                                                                        if (checked) acknowledge(row.id);
+                                                                                    }}
+                                                                                />
+                                                                                {t("parametersPage.ack.markRead", {
+                                                                                    defaultValue: "I have read this decision",
+                                                                                })}
+                                                                            </label>
+
+                                                                            {isAckBusy ? (
+                                                                                <span className="inline-flex items-center gap-1 text-xs text-gray-600">
+                                                                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                                                    {t("saving", { defaultValue: "Saving..." })}
+                                                                                </span>
+                                                                            ) : null}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            ) : null}
+                                                        </td>
+
                                                         <td className="px-4 py-3 text-gray-700">
                                                             <span className={chipClass("neutral")}>{prettyCategory(row.category)}</span>
                                                         </td>
+
                                                         <td className="px-4 py-3">{statusChip(row.status)}</td>
+
                                                         <td className="px-4 py-3 text-gray-700">
                                                             {row.requested_at ? formatDateTimeLocal(row.requested_at) : "—"}
                                                         </td>
+
                                                         <td className="px-4 py-3">
                                                             <div className="flex items-center justify-end gap-2">
                                                                 {!canApproveReject ? (
@@ -708,6 +899,7 @@ export default function ParametersPage() {
                 row={editTarget}
                 onClose={() => setEditOpen(false)}
                 onSaved={async () => {
+                    // After submitting update request, jump to Requests tab
                     setTab("requests");
                     setRStatus("pending");
                     setRPage(1);

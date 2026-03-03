@@ -137,6 +137,9 @@ Route::prefix('v1')->group(function () {
         Route::post('parameter-requests/{id}/approve', [ParameterRequestController::class, 'approve'])->whereNumber('id');
         Route::post('parameter-requests/{id}/reject', [ParameterRequestController::class, 'reject'])->whereNumber('id');
 
+        Route::post('parameter-requests/{id}/ack', [ParameterRequestController::class, 'acknowledge'])
+            ->whereNumber('id');
+
         Route::apiResource('methods', MethodController::class)->only(['index', 'store', 'update', 'destroy']);
 
         Route::get('reagents', [ReagentController::class, 'index']);

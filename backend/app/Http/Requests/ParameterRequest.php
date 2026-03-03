@@ -5,10 +5,17 @@ namespace App\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
+/**
+ * ParameterRequest
+ *
+ * NOTE: This request validates the Parameter master-data CRUD payload
+ * (not ParameterRequest workflow).
+ */
 class ParameterRequest extends FormRequest
 {
     public function authorize(): bool
     {
+        // Authorization is handled in controller/policy.
         return true;
     }
 
@@ -18,65 +25,26 @@ class ParameterRequest extends FormRequest
         $parameterId = is_object($routeParam) ? ($routeParam->parameter_id ?? null) : $routeParam;
 
         $isCreate = $this->isMethod('post');
-
         $codeRule = Rule::unique('parameters', 'code')->ignore($parameterId, 'parameter_id');
 
         return [
-            'code' => [
-                $isCreate ? 'required' : 'sometimes',
-                'string',
-                'max:40',
-                $codeRule,
-            ],
+            'code' => [$isCreate ? 'required' : 'sometimes', 'string', 'max:40', $codeRule],
+            'name' => [$isCreate ? 'required' : 'sometimes', 'string', 'max:150'],
 
-            'name' => [
-                $isCreate ? 'required' : 'sometimes',
-                'string',
-                'max:150',
-            ],
+            'workflow_group' => ['sometimes', 'nullable', 'string', 'max:20', Rule::in(['pcr', 'sequencing', 'rapid', 'microbiology'])],
 
-            'workflow_group' => [
-                'sometimes',
-                'nullable',
-                'string',
-                'max:20',
-                Rule::in(['pcr', 'sequencing', 'rapid', 'microbiology']),
-            ],
+            'unit' => [$isCreate ? 'required' : 'sometimes', 'string', 'max:40'],
+            'unit_id' => ['sometimes', 'nullable', 'integer', 'exists:units,unit_id'],
+            'method_ref' => [$isCreate ? 'required' : 'sometimes', 'string', 'max:120'],
 
-            'unit' => [
-                $isCreate ? 'required' : 'sometimes',
-                'string',
-                'max:40',
-            ],
-
-            'unit_id' => [
-                'sometimes',
-                'nullable',
-                'integer',
-                'exists:units,unit_id',
-            ],
-
-            'method_ref' => [
-                $isCreate ? 'required' : 'sometimes',
-                'string',
-                'max:120',
-            ],
-
-            'status' => [
-                $isCreate ? 'required' : 'sometimes',
-                Rule::in(['Active', 'Inactive']),
-            ],
-
-            'tag' => [
-                $isCreate ? 'required' : 'sometimes',
-                Rule::in(['Routine', 'Research']),
-            ],
+            'status' => [$isCreate ? 'required' : 'sometimes', Rule::in(['Active', 'Inactive'])],
+            'tag' => [$isCreate ? 'required' : 'sometimes', Rule::in(['Routine', 'Research'])],
         ];
     }
 
     protected function prepareForValidation(): void
     {
-        $trimStr = function (string $key) {
+        $trimStr = function (string $key): void {
             if (!$this->has($key)) return;
             $this->merge([$key => trim((string) $this->input($key))]);
         };
@@ -88,9 +56,7 @@ class ParameterRequest extends FormRequest
 
         if ($this->has('workflow_group')) {
             $wg = strtolower(trim((string) $this->input('workflow_group')));
-            $this->merge([
-                'workflow_group' => $wg !== '' ? $wg : null
-            ]);
+            $this->merge(['workflow_group' => $wg !== '' ? $wg : null]);
         }
     }
 
