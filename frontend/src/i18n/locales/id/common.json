@@ -77,7 +77,7 @@
         "clients": "Klien",
         "samples": "Sampel",
         "requestQueue": "Antrian Permintaan",
-        "looWorkspace": "Workspace LOO",
+        "looWorkspace": "Ruang LOO",
         "reagentApprovals": "Persetujuan Reagen",
         "qualityCoverVerify": "Quality Cover (Verifikasi)",
         "qualityCoverValidate": "Quality Cover (Validasi)",
@@ -397,7 +397,7 @@
                 "openStaffApprovals": "Persetujuan staf",
                 "openQualityCovers": "Quality Cover",
                 "openReagentApprovals": "Persetujuan reagen",
-                "openLoo": "Workspace LOO",
+                "openLoo": "Ruang LOO",
                 "openReports": "Laporan"
             },
             "stats": {
@@ -436,7 +436,7 @@
                     "subtitle": "Approve/reject pengajuan."
                 },
                 "looWorkspace": {
-                    "title": "Workspace LOO",
+                    "title": "Ruang LOO",
                     "subtitle": "Review approval & generate LOO."
                 },
                 "awaitingVerification": {
@@ -2314,7 +2314,7 @@
     },
     "loo": {
         "generator": {
-            "title": "Workspace LOO",
+            "title": "Ruang LOO",
             "subtitle": "Pilih sampel kandidat, lengkapi approval, lalu generate Letter of Order (LOO).",
             "roleLabel": "Role",
             "searchPlaceholder": "Cari berdasarkan kode sampel / klien / jenis sampel…",

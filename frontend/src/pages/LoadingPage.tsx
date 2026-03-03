@@ -15,11 +15,6 @@ type Props = {
 export default function LoadingPage(props: Props) {
     const { t } = useTranslation();
 
-    const label = useMemo(
-        () => props.label ?? t("loading.label", { defaultValue: "Loading…" }),
-        [props.label, t]
-    );
-
     const a11yHint = useMemo(
         () =>
             props.a11yHint ??
@@ -132,8 +127,6 @@ export default function LoadingPage(props: Props) {
                     <TestTube2 className="bt-icon h-9 w-9" aria-hidden="true" />
                     <span className="sr-only">{a11yHint}</span>
                 </div>
-
-                <div className="mt-4 text-sm text-gray-600">{label}</div>
             </div>
         </div>
     );

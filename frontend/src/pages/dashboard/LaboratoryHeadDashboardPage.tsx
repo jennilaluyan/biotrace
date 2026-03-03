@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
     AlertTriangle,
@@ -30,9 +30,15 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
+/**
+ * Safely unwrap common API response wrappers:
+ * - axios: { data: ... }
+ * - pagination: { data: { data: [...] } }
+ * - custom: nested { data } chains
+ */
 function unwrapApi(res: any) {
     let x = res?.data ?? res;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
         if (x && typeof x === "object" && "data" in x && (x as any).data != null) {
             x = (x as any).data;
             continue;
@@ -40,6 +46,42 @@ function unwrapApi(res: any) {
         break;
     }
     return x;
+}
+
+/**
+ * Extract an array from various possible shapes:
+ * - [...]
+ * - { data: [...] }
+ * - { data: { data: [...] } }
+ * - { items: [...] } / { rows: [...] } / { results: [...] }
+ * - { pendingStaffs: [...] } (common naming for staff approvals)
+ */
+function extractArray<T>(input: any): T[] {
+    const x = unwrapApi(input);
+
+    if (Array.isArray(x)) return x;
+
+    if (x && typeof x === "object") {
+        const candidates = [
+            (x as any).data,
+            (x as any).items,
+            (x as any).rows,
+            (x as any).results,
+            (x as any).pendingStaffs,
+            (x as any).pending_staffs,
+            (x as any).pending,
+        ];
+
+        for (const c of candidates) {
+            if (Array.isArray(c)) return c;
+            if (c && typeof c === "object") {
+                const inner = (c as any).data;
+                if (Array.isArray(inner)) return inner;
+            }
+        }
+    }
+
+    return [];
 }
 
 function fmtDate(iso: string | null | undefined, locale: string) {
@@ -87,7 +129,7 @@ const StatCard = ({
     title: string;
     value: string | number;
     subtitle?: string;
-    icon?: React.ReactNode;
+    icon?: ReactNode;
     loading?: boolean;
 }) => (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
@@ -114,7 +156,7 @@ type QueueCard = {
     title: string;
     subtitle: string;
     count: number;
-    icon: React.ReactNode;
+    icon: ReactNode;
     onOpen: () => void;
     tone?: "neutral" | "warn" | "ok";
 };
@@ -153,7 +195,7 @@ export default function LaboratoryHeadDashboardPage() {
         setErrorKey(null);
 
         try {
-            const [staffs, queue, reagents, qc, allDocs, looRes] = await Promise.all([
+            const [staffsRes, queue, reagents, qc, allDocs, looRes] = await Promise.all([
                 staffApprovalsService.listPending(),
                 fetchSampleRequestsQueue({ page: 1, per_page: 250, date: "30d" }),
 
@@ -169,7 +211,8 @@ export default function LaboratoryHeadDashboardPage() {
                 apiGet<any>("/v1/samples/requests", { params: { mode: "loo_candidates" } }),
             ]);
 
-            setPendingStaffs(Array.isArray(staffs) ? staffs : []);
+            // ✅ FIX: robustly parse pending staff list (array or wrapped response)
+            setPendingStaffs(extractArray<PendingStaff>(staffsRes));
 
             setQueueRows(normalizeQueueRows(queue?.data ?? []));
 
