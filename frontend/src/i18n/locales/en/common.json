@@ -81,7 +81,10 @@
         "reagentApprovals": "Reagent approvals",
         "reports": "Reports",
         "audit": "Audit",
-        "parameters": "Parameters"
+        "parameters": "Parameters",
+        "documentTemplates": "Document templates",
+        "clientApprovals": "Client approvals",
+        "samplesArchive": "Samples archive"
     },
     "dashboard": {
         "admin": {

@@ -1,11 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, ShieldCheck, Undo2, X } from "lucide-react";
+// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\UpdateRequestStatusModal.tsx
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { AlertTriangle, Check, ClipboardCheck, X } from "lucide-react";
 import { apiPost } from "../../services/api";
+
+function cx(...arr: Array<string | false | null | undefined>) {
+    return arr.filter(Boolean).join(" ");
+}
 
 type Props = {
     open: boolean;
-    sampleId: number | null;
+    sampleId: number | null; // dipakai sebagai Request ID di UI (sesuai permintaan)
     action: "return" | "approve" | "received";
     currentStatus?: string | null;
 
@@ -13,26 +18,22 @@ type Props = {
     onUpdated: () => void;
 };
 
-type ApiError = {
+type ApiErrorLike = {
     response?: { data?: any };
     data?: any;
     message?: string;
 };
 
-function cx(...arr: Array<string | false | null | undefined>) {
-    return arr.filter(Boolean).join(" ");
-}
-
-const getErrorMessage = (err: unknown, fallback: string) => {
-    const e = err as ApiError;
-    const data = e?.response?.data ?? e?.data ?? undefined;
+function getErrMsg(err: unknown, fallback: string) {
+    const e = err as ApiErrorLike;
+    const data = e?.response?.data ?? e?.data;
 
     const details = data?.details ?? data?.errors;
     if (details && typeof details === "object") {
-        const firstKey = Object.keys(details)[0];
-        const firstVal = firstKey ? details[firstKey] : undefined;
-        if (Array.isArray(firstVal) && firstVal[0]) return String(firstVal[0]);
-        if (typeof firstVal === "string" && firstVal) return String(firstVal);
+        const k = Object.keys(details)[0];
+        const v = k ? details[k] : undefined;
+        if (Array.isArray(v) && v[0]) return String(v[0]);
+        if (typeof v === "string" && v) return v;
     }
 
     return (
@@ -41,207 +42,225 @@ const getErrorMessage = (err: unknown, fallback: string) => {
         (typeof (e as any)?.message === "string" ? (e as any).message : null) ??
         fallback
     );
-};
+}
 
-export const UpdateRequestStatusModal = ({ open, sampleId, action, currentStatus, onClose, onUpdated }: Props) => {
-    const { t, i18n } = useTranslation();
-    const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-    const lastActiveElRef = useRef<HTMLElement | null>(null);
+export const UpdateRequestStatusModal = (props: Props) => {
+    const { t } = useTranslation();
+    const { open, sampleId, action, currentStatus, onClose, onUpdated } = props;
+
+    const requestId = sampleId;
 
     const [note, setNote] = useState("");
-    const [submitting, setSubmitting] = useState(false);
+    const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const nextLabel = useMemo(() => {
-        if (action === "return") return "returned";
-        if (action === "approve") return "ready_for_delivery";
-        return "physically_received";
-    }, [action]);
-
-    const title = useMemo(() => t(`samples.requestStatusModal.title.${action}`), [action, i18n.resolvedLanguage, i18n.language, t]);
-    const subtitle = useMemo(
-        () => t(`samples.requestStatusModal.subtitle.${action}`),
-        [action, i18n.resolvedLanguage, i18n.language, t]
-    );
-
-    const noteLabel = useMemo(() => {
-        if (action === "return") return t("samples.requestStatusModal.note.labelRequired");
-        return t("samples.requestStatusModal.note.labelOptional");
-    }, [action, i18n.resolvedLanguage, i18n.language, t]);
-
-    const notePlaceholder = useMemo(() => {
-        if (action === "return") return t("samples.requestStatusModal.note.placeholderReturn");
-        if (action === "approve") return t("samples.requestStatusModal.note.placeholderApprove");
-        return t("samples.requestStatusModal.note.placeholderReceived");
-    }, [action, i18n.resolvedLanguage, i18n.language, t]);
-
-    const confirmLabel = useMemo(() => {
-        if (action === "return") return t("samples.requestStatusModal.buttons.confirmReturn");
-        if (action === "approve") return t("samples.requestStatusModal.buttons.confirmApprove");
-        return t("samples.requestStatusModal.buttons.confirmReceived");
-    }, [action, i18n.resolvedLanguage, i18n.language, t]);
-
-    const Icon = action === "return" ? Undo2 : action === "approve" ? ShieldCheck : CheckCircle2;
-
-    const canSubmit = useMemo(() => {
-        if (!sampleId) return false;
-        if (submitting) return false;
-        if (action === "return") return note.trim().length > 0;
-        return true;
-    }, [sampleId, submitting, action, note]);
+    const isReturn = action === "return";
+    const isApprove = action === "approve";
+    const isReceived = action === "received";
 
     useEffect(() => {
         if (!open) return;
-
-        lastActiveElRef.current = (document.activeElement as HTMLElement) ?? null;
-
         setNote("");
         setError(null);
-        setSubmitting(false);
-
-        const prevOverflow = document.body.style.overflow;
-        document.body.style.overflow = "hidden";
-
-        const focusTimer = window.setTimeout(() => textareaRef.current?.focus(), 0);
-
-        return () => {
-            window.clearTimeout(focusTimer);
-            document.body.style.overflow = prevOverflow;
-
-            // restore focus for keyboard users
-            window.setTimeout(() => lastActiveElRef.current?.focus?.(), 0);
-        };
-    }, [open, action, sampleId]);
+        setBusy(false);
+    }, [open, action, requestId]);
 
     useEffect(() => {
         if (!open) return;
-        const onEsc = (e: KeyboardEvent) => {
-            if (e.key === "Escape") onClose();
+
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                if (!busy) onClose();
+            }
         };
-        window.addEventListener("keydown", onEsc);
-        return () => window.removeEventListener("keydown", onEsc);
-    }, [open, onClose]);
+
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [open, busy, onClose]);
+
+    const title = useMemo(() => t(`samples.requestStatusModal.title.${action}`), [action, t]);
+    const subtitle = useMemo(() => t(`samples.requestStatusModal.subtitle.${action}`), [action, t]);
+
+    const nextLabel = useMemo(() => {
+        if (isReturn) return "returned";
+        if (isApprove) return "ready_for_delivery";
+        return "physically_received";
+    }, [isReturn, isApprove]);
+
+    const confirmLabel = useMemo(() => {
+        if (isReturn) return t("samples.requestStatusModal.buttons.confirmReturn");
+        if (isApprove) return t("samples.requestStatusModal.buttons.confirmApprove");
+        return t("samples.requestStatusModal.buttons.confirmReceived");
+    }, [isReturn, isApprove, t]);
+
+    const canConfirm = useMemo(() => {
+        if (!open) return false;
+        if (busy) return false;
+        if (!requestId) return false;
+
+        // Return: note wajib
+        if (isReturn) return note.trim().length >= 1;
+
+        // Approve: TIDAK butuh note
+        if (isApprove) return true;
+
+        // Received: note opsional
+        return true;
+    }, [open, busy, requestId, isReturn, isApprove, note]);
+
+    const Icon = isReturn ? AlertTriangle : Check;
+    const iconTone = isReturn ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700";
+
+    const noteLabel = useMemo(() => {
+        if (isReturn) return t("samples.requestStatusModal.note.labelRequired");
+        return t("samples.requestStatusModal.note.labelOptional");
+    }, [isReturn, t]);
+
+    const notePlaceholder = useMemo(() => {
+        if (isReturn) return t("samples.requestStatusModal.note.placeholderReturn");
+        if (isApprove) return t("samples.requestStatusModal.note.placeholderApprove");
+        return t("samples.requestStatusModal.note.placeholderReceived");
+    }, [isReturn, isApprove, t]);
 
     const submit = async () => {
-        if (!canSubmit || !sampleId) return;
+        if (!canConfirm || !requestId) return;
 
         try {
-            setSubmitting(true);
+            setBusy(true);
             setError(null);
 
-            // backend expects { action: "accept" | "return" | "received", note? }
             const payload =
                 action === "approve"
-                    ? { action: "accept", note: note.trim() || undefined }
+                    ? { action: "accept" as const } // approve tanpa note
                     : action === "return"
-                        ? { action: "return", note: note.trim() }
-                        : { action: "received", note: note.trim() || undefined };
+                        ? { action: "return" as const, note: note.trim() }
+                        : { action: "received" as const, note: note.trim() || undefined };
 
-            await apiPost<any>(`/v1/samples/${sampleId}/request-status`, payload);
+            await apiPost(`/v1/samples/${requestId}/request-status`, payload);
 
             onClose();
             onUpdated();
-        } catch (err: unknown) {
-            setError(getErrorMessage(err, t("samples.requestStatusModal.errors.updateFailed")));
+        } catch (err) {
+            setError(getErrMsg(err, t("samples.requestStatusModal.errors.updateFailed")));
         } finally {
-            setSubmitting(false);
+            setBusy(false);
         }
     };
 
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-            {/* overlay */}
-            <div
-                className="absolute inset-0 bg-black/40"
-                onClick={() => (submitting ? null : onClose())}
-                aria-hidden="true"
-            />
+        <div className="lims-modal-backdrop p-4" role="dialog" aria-modal="true" aria-label={title}>
+            <div className="lims-modal-panel max-w-xl">
+                <div className="lims-modal-header">
+                    <div className={cx("h-9 w-9 rounded-full flex items-center justify-center", iconTone)} aria-hidden="true">
+                        <Icon size={18} />
+                    </div>
 
-            {/* modal */}
-            <div
-                role="dialog"
-                aria-modal="true"
-                className="relative w-[92vw] max-w-lg rounded-2xl bg-white shadow-xl border border-gray-100 overflow-hidden"
-            >
-                <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100">
-                    <div className="flex items-start gap-3">
-                        <div className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-gray-50">
-                            <Icon size={18} className="text-gray-700" />
-                        </div>
-
-                        <div>
-                            <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-                            <p className="text-xs text-gray-500 mt-1">{subtitle}</p>
-
-                            <div className="text-[11px] text-gray-500 mt-2 flex flex-wrap gap-x-3 gap-y-1">
-                                <span>
-                                    <span className="font-semibold">{t("samples.requestStatusModal.summary.sampleId")}:</span>{" "}
-                                    <span className="font-mono">{sampleId ?? "-"}</span>
-                                </span>
-
-                                <span>
-                                    <span className="font-semibold">{t("samples.requestStatusModal.summary.current")}:</span>{" "}
-                                    <span className="font-mono">{currentStatus ?? "-"}</span>
-                                </span>
-
-                                <span>
-                                    <span className="font-semibold">{t("samples.requestStatusModal.summary.next")}:</span>{" "}
-                                    <span className="font-mono">{nextLabel}</span>
-                                </span>
-                            </div>
-                        </div>
+                    <div className="min-w-0">
+                        <div className="text-base font-semibold text-gray-900">{title}</div>
+                        <div className="text-xs text-gray-500 mt-0.5 truncate">{subtitle}</div>
                     </div>
 
                     <button
                         type="button"
-                        className={cx("text-gray-500 hover:text-gray-700", submitting && "opacity-60 cursor-not-allowed")}
-                        onClick={onClose}
+                        className="ml-auto lims-icon-button"
                         aria-label={t("close")}
-                        disabled={submitting}
+                        title={t("close")}
+                        onClick={onClose}
+                        disabled={!!busy}
                     >
-                        <X className="h-5 w-5" />
+                        <X size={16} />
                     </button>
                 </div>
 
-                <div className="px-6 py-5">
-                    {error && (
-                        <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-4">
+                <div className="lims-modal-body">
+                    {error ? (
+                        <div className="mb-4 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-900">
                             {error}
                         </div>
-                    )}
+                    ) : null}
 
-                    <label className="block text-xs font-medium text-gray-600 mb-1">{noteLabel}</label>
-                    <textarea
-                        ref={textareaRef}
-                        value={note}
-                        onChange={(e) => setNote(e.target.value)}
-                        rows={4}
-                        placeholder={notePlaceholder}
-                        className={cx(
-                            "w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent",
-                            action === "return" && note.trim().length === 0 ? "border-red-200" : ""
-                        )}
-                    />
+                    <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <ClipboardCheck size={14} />
+                            <span className="font-semibold">{t("summary")}</span>
+                        </div>
 
-                    {action === "return" && (
-                        <div className="mt-2 text-[11px] text-gray-500">{t("samples.requestStatusModal.note.helpReturn")}</div>
-                    )}
+                        <div className="mt-2 text-sm text-gray-900">
+                            <span className="text-gray-600">{t("samples.requestStatusModal.summary.current")}:</span>{" "}
+                            <span className="font-semibold">{String(currentStatus ?? "-")}</span>
+
+                            <span className="text-gray-600">
+                                {" "}
+                                • {t("samples.requestStatusModal.summary.next")}:{" "}
+                                <span className="font-semibold">{nextLabel}</span>
+                            </span>
+                        </div>
+
+                        <div className="mt-1 text-xs text-gray-500">
+                            {t("samples.requestStatusModal.summary.requestId", { defaultValue: "Request ID" })}:{" "}
+                            {requestId ?? "-"}
+                        </div>
+                    </div>
+
+                    {/* RETURN: note wajib */}
+                    {isReturn ? (
+                        <div className="mt-4">
+                            <div className="flex items-baseline justify-between gap-3">
+                                <label className="block text-sm font-semibold text-gray-900">{noteLabel}</label>
+                                <div className="text-[11px] text-gray-500 tabular-nums">{note.trim().length}/500</div>
+                            </div>
+
+                            <textarea
+                                className="mt-2 w-full min-h-[120px] rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                placeholder={notePlaceholder}
+                                value={note}
+                                onChange={(e) => setNote(e.target.value)}
+                                disabled={!!busy}
+                                maxLength={500}
+                            />
+
+                            <div className="mt-2 text-[11px] text-gray-500">{t("samples.requestStatusModal.note.helpReturn")}</div>
+                        </div>
+                    ) : null}
+
+                    {/* RECEIVED: note opsional */}
+                    {isReceived ? (
+                        <div className="mt-4">
+                            <div className="flex items-baseline justify-between gap-3">
+                                <label className="block text-sm font-semibold text-gray-900">{noteLabel}</label>
+                                <div className="text-[11px] text-gray-500 tabular-nums">{note.trim().length}/500</div>
+                            </div>
+
+                            <textarea
+                                className="mt-2 w-full min-h-[120px] rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                placeholder={notePlaceholder}
+                                value={note}
+                                onChange={(e) => setNote(e.target.value)}
+                                disabled={!!busy}
+                                maxLength={500}
+                            />
+                        </div>
+                    ) : null}
                 </div>
 
-                <div className="px-6 py-5 border-t border-gray-100 flex items-center justify-end gap-3">
-                    <button type="button" className="lims-btn" onClick={onClose} disabled={submitting}>
+                <div className="lims-modal-footer">
+                    <button type="button" onClick={onClose} disabled={!!busy} className="btn-outline disabled:opacity-50">
                         {t("cancel")}
                     </button>
 
                     <button
                         type="button"
-                        className={cx("lims-btn-primary inline-flex items-center gap-2", action === "return" ? "bg-red-600 hover:bg-red-700" : "")}
+                        disabled={!canConfirm}
                         onClick={submit}
-                        disabled={!canSubmit}
+                        className={cx(
+                            isReturn ? "lims-btn-danger" : "lims-btn-primary",
+                            "disabled:opacity-50 disabled:cursor-not-allowed"
+                        )}
+                        title={confirmLabel}
                     >
-                        {submitting ? t("saving") : confirmLabel}
+                        {busy ? t("processing") : confirmLabel}
                     </button>
                 </div>
             </div>
