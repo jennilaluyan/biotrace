@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ChevronDown, Eye, RefreshCw, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -23,13 +23,21 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
-function safeApiMessage(err: any, fallback: string) {
-    const data = err?.response?.data ?? err?.data ?? null;
+type ApiErrorLike = {
+    response?: { data?: any };
+    data?: any;
+    message?: string;
+};
+
+function safeApiMessage(err: unknown, fallback: string) {
+    const e = err as ApiErrorLike;
+    const data = e?.response?.data ?? e?.data ?? null;
+
     if (data && typeof data === "object") {
         const msg = (data as any).message ?? (data as any).error ?? null;
         if (typeof msg === "string" && msg.trim()) return msg.trim();
     }
-    if (typeof err?.message === "string" && err.message.trim()) return err.message.trim();
+    if (typeof e?.message === "string" && e.message.trim()) return e.message.trim();
     return fallback;
 }
 
@@ -41,8 +49,7 @@ function normalizeToken(raw?: string | null) {
 }
 
 /**
- * Short label for queue “chip” (scan-friendly).
- * Falls back to raw string if translation key doesn't exist.
+ * Normalize words for human readable output (chip text).
  */
 function normalizeStatusWords(input?: string | null) {
     return String(input ?? "")
@@ -52,6 +59,10 @@ function normalizeStatusWords(input?: string | null) {
         .replace(/\s+/g, " ");
 }
 
+/**
+ * Short label for queue “chip” (scan-friendly).
+ * Falls back to raw token if translation key doesn't exist.
+ */
 function compactRequestStatusToken(token: string, locale: string) {
     const isId = String(locale || "").toLowerCase().startsWith("id");
 
@@ -92,7 +103,7 @@ function requestStatusChipLabel(t: TFunction, locale: string, raw?: string | nul
     const token = normalizeToken(raw);
     if (!token) return "-";
 
-    const map: Record<string, string> = {
+    const keyMap: Record<string, string> = {
         // submission / moderation
         submitted: "requestStatus.submitted",
         needs_revision: "requestStatus.needsRevision",
@@ -123,38 +134,32 @@ function requestStatusChipLabel(t: TFunction, locale: string, raw?: string | nul
     };
 
     const fallback = compactRequestStatusToken(token, locale);
-    const key = map[token] ?? `requestStatus.${token}`;
+    const key = keyMap[token] ?? `requestStatus.${token}`;
 
     // defaultValue penting supaya gak balik "requestStatus.xxx" atau raw underscore
     const out = t(key, { defaultValue: fallback });
 
-    // paksa lower-case + spasi
     return normalizeStatusWords(out);
 }
 
 /**
- * Status chip tone (OLD tone: no border).
+ * Status chip tone.
  */
 function statusTone(raw?: string | null) {
-    const s = String(raw ?? "").toLowerCase();
-    const k = s.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+    const k = normalizeStatusWords(raw);
 
     if (k === "draft") return "bg-gray-100 text-gray-700";
 
     // submission
     if (k === "submitted") return "bg-blue-50 text-blue-700";
-    if (k === "needs revision" || k === "returned" || k === "rejected")
-        return "bg-red-100 text-red-700";
+    if (k === "needs revision" || k === "returned" || k === "rejected") return "bg-red-100 text-red-700";
 
     // logistics / physical movement
     if (k === "ready for delivery") return "bg-indigo-50 text-indigo-700";
     if (k === "physically received") return "bg-green-100 text-green-800";
-    if (k === "in transit to collector" || k === "under inspection")
-        return "bg-amber-100 text-amber-800";
-    if (k === "inspection failed returned to admin")
-        return "bg-rose-100 text-rose-800";
-    if (k === "returned to admin")
-        return "bg-slate-100 text-slate-700";
+    if (k === "in transit to collector" || k === "under inspection") return "bg-amber-100 text-amber-800";
+    if (k === "inspection failed returned to admin") return "bg-rose-100 text-rose-800";
+    if (k === "returned to admin") return "bg-slate-100 text-slate-700";
 
     // verification + sample id assignment
     if (k === "intake checklist passed") return "bg-emerald-50 text-emerald-700";
@@ -165,16 +170,13 @@ function statusTone(raw?: string | null) {
     if (k === "intake validated") return "bg-teal-100 text-teal-800";
 
     // SC ↔ Analyst handoff
-    if (k === "sc delivered to analyst" || k === "analyst received")
-        return "bg-amber-50 text-amber-800";
-    if (k === "analyst returned to sc" || k === "sc received from analyst")
-        return "bg-slate-100 text-slate-700";
+    if (k === "sc delivered to analyst" || k === "analyst received") return "bg-amber-50 text-amber-800";
+    if (k === "analyst returned to sc" || k === "sc received from analyst") return "bg-slate-100 text-slate-700";
 
     return "bg-gray-100 text-gray-700";
 }
 
 /**
- * Request ID resolver.
  * Backend uses `sample_id` as primary identifier in the queue API.
  */
 function getRequestId(row: SampleRequestQueueRow): number | null {
@@ -184,18 +186,25 @@ function getRequestId(row: SampleRequestQueueRow): number | null {
 }
 
 /**
- * ✅ New button rules:
- * - submitted            => Accept + Reject
- * - ready_for_delivery   => Received
- * - physically_received+ => no action buttons (View only)
+ * Admin actions based on request_status.
+ * Keep narrow to avoid affecting other workflows.
  */
 function getAdminActionsForStatus(statusRaw?: string | null): AdminQueueAction[] {
     const st = normalizeToken(statusRaw);
 
+    // submitted => Accept + Reject
     if (st === "submitted") return ["accept", "reject"];
+
+    // ready_for_delivery => Received
     if (st === "ready_for_delivery") return ["received"];
 
+    // physically_received+ => view only
     return [];
+}
+
+function parseDateFilter(raw: string | null): DateFilter {
+    const d = (raw ?? "all") as DateFilter;
+    return d === "today" || d === "7d" || d === "30d" ? d : "all";
 }
 
 export default function SampleRequestsQueuePage() {
@@ -209,29 +218,34 @@ export default function SampleRequestsQueuePage() {
     const roleId = getUserRoleId(user) ?? ROLE_ID.CLIENT;
     const roleLabel = getUserRoleLabel(user);
 
-    const canView = useMemo(
-        () =>
+    const canView = useMemo(() => {
+        return (
             roleId === ROLE_ID.ADMIN ||
             roleId === ROLE_ID.SAMPLE_COLLECTOR ||
             roleId === ROLE_ID.OPERATIONAL_MANAGER ||
-            roleId === ROLE_ID.LAB_HEAD,
-        [roleId]
-    );
+            roleId === ROLE_ID.LAB_HEAD
+        );
+    }, [roleId]);
+
+    const isAdmin = roleId === ROLE_ID.ADMIN;
+    const isOperationalManager = roleId === ROLE_ID.OPERATIONAL_MANAGER;
+    const isLabHead = roleId === ROLE_ID.LAB_HEAD;
+
+    // ---- URL sync (read initial values only) ----
+    const qs = useMemo(() => new URLSearchParams(location.search), [location.search]);
 
     // ---- state ----
     const [pager, setPager] = useState<Paginator<SampleRequestQueueRow> | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const qs = useMemo(() => new URLSearchParams(location.search), [location.search]);
-
     const [searchTerm, setSearchTerm] = useState(() => qs.get("q") ?? "");
     const [statusFilter, setStatusFilter] = useState<string>(() => qs.get("request_status") ?? "");
-    const [dateFilter, setDateFilter] = useState<DateFilter>(() => {
-        const d = (qs.get("date") ?? "all") as DateFilter;
-        return d === "today" || d === "7d" || d === "30d" ? d : "all";
-    });
+    const [dateFilter, setDateFilter] = useState<DateFilter>(() => parseDateFilter(qs.get("date")));
     const [currentPage, setCurrentPage] = useState(1);
+
+    // Manual refresh trigger (keeps current filters/page)
+    const [refreshTick, setRefreshTick] = useState(0);
 
     // Modal
     const [modalOpen, setModalOpen] = useState(false);
@@ -239,33 +253,82 @@ export default function SampleRequestsQueuePage() {
     const [modalRequestId, setModalRequestId] = useState<number | null>(null);
     const [modalCurrentStatus, setModalCurrentStatus] = useState<string | null>(null);
 
-    /**
-     * Prevent duplicate fetches when filters + page updates happen close together.
-     */
     const lastFetchKeyRef = useRef<string>("");
 
-    const buildFetchKey = (page: number) =>
-        [
-            page,
+    const itemsRaw = useMemo(() => pager?.data ?? [], [pager]);
+
+    /**
+     * Queue items:
+     * - exclude draft
+     * - exclude rows that already have lab_sample_code (already promoted to lab sample)
+     */
+    const items = useMemo(() => {
+        return itemsRaw.filter((r) => {
+            const st = normalizeToken(r.request_status);
+            if (st === "draft") return false;
+            return !r.lab_sample_code;
+        });
+    }, [itemsRaw]);
+
+    const total = pager?.total ?? 0;
+    const totalPages = pager?.last_page ?? 1;
+
+    const closeModal = useCallback(() => {
+        setModalOpen(false);
+        setModalRequestId(null);
+        setModalCurrentStatus(null);
+    }, []);
+
+    const openModal = useCallback(
+        (row: SampleRequestQueueRow, action: ModalAction) => {
+            const requestId = getRequestId(row);
+            if (!requestId) {
+                setError(
+                    t("samples.pages.queue.errors.missingSampleId", {
+                        defaultValue: "Cannot open request: missing request id.",
+                    })
+                );
+                return;
+            }
+
+            setModalRequestId(requestId);
+            setModalCurrentStatus(row.request_status ?? null);
+            setModalAction(action);
+            setModalOpen(true);
+        },
+        [t]
+    );
+
+    // Default filter for OM/LH (only if user hasn't set it)
+    useEffect(() => {
+        if (isOperationalManager || isLabHead) {
+            setStatusFilter((prev) => prev || "awaiting_verification");
+        }
+    }, [isOperationalManager, isLabHead]);
+
+    // Reset page to 1 when filters change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm, statusFilter, dateFilter]);
+
+    const loadQueue = useCallback(async () => {
+        const key = [
+            currentPage,
             searchTerm.trim(),
             statusFilter.trim(),
             dateFilter,
+            refreshTick,
         ].join("|");
 
-    const loadQueue = async (opts?: { page?: number; keepPage?: boolean }) => {
-        const page = opts?.page ?? (opts?.keepPage ? currentPage : 1);
-        const fetchKey = buildFetchKey(page);
-
-        // Skip exact duplicate request
-        if (lastFetchKeyRef.current === fetchKey && !opts?.keepPage) return;
-        lastFetchKeyRef.current = fetchKey;
+        if (lastFetchKeyRef.current === key) return;
+        lastFetchKeyRef.current = key;
 
         try {
             setLoading(true);
             setError(null);
 
             const data = await fetchSampleRequestsQueue({
-                page,
+                page: currentPage,
                 per_page: PAGE_SIZE,
                 q: searchTerm.trim() || undefined,
                 request_status: statusFilter || undefined,
@@ -273,10 +336,7 @@ export default function SampleRequestsQueuePage() {
             });
 
             setPager(data);
-
-            // Keep state consistent with what we fetched
-            setCurrentPage(page);
-        } catch (err: any) {
+        } catch (err: unknown) {
             setError(
                 safeApiMessage(
                     err,
@@ -288,88 +348,87 @@ export default function SampleRequestsQueuePage() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [currentPage, dateFilter, refreshTick, searchTerm, statusFilter, t]);
 
-    // first load
+    // Single source of truth fetching
     useEffect(() => {
-        loadQueue({ page: 1 });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    // reload when filters change (reset to page 1)
-    useEffect(() => {
-        loadQueue({ page: 1 });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [searchTerm, statusFilter, dateFilter]);
-
-    // reload when page changes
-    useEffect(() => {
-        loadQueue({ keepPage: true });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [currentPage]);
-
-    const rawItems = useMemo(() => pager?.data ?? [], [pager]);
-
-    /**
-     * ✅ Queue = request yang:
-     * - belum punya lab_sample_code
-     * - bukan draft (draft hanya client)
-     */
-    const items = useMemo(() => {
-        return rawItems.filter((r) => {
-            const st = normalizeToken(r.request_status);
-            if (st === "draft") return false;
-            return !r.lab_sample_code;
-        });
-    }, [rawItems]);
-
-    const total = pager?.total ?? 0;
-    const totalPages = pager?.last_page ?? 1;
+        loadQueue();
+    }, [loadQueue]);
 
     const handlePageChange = (page: number) => {
         if (page < 1 || page > totalPages) return;
         setCurrentPage(page);
     };
 
-    const openModal = (row: SampleRequestQueueRow, action: ModalAction) => {
-        const requestId = getRequestId(row);
-        if (!requestId) {
-            setError(
-                t("samples.pages.queue.errors.missingSampleId", {
-                    defaultValue: "Cannot open request: missing request id.",
-                })
-            );
-            return;
-        }
-
-        setModalRequestId(requestId);
-        setModalCurrentStatus(row.request_status ?? null);
-        setModalAction(action);
-        setModalOpen(true);
+    const onRefresh = () => {
+        // force reload with same filters/page
+        setRefreshTick((x) => x + 1);
     };
 
-    const closeModal = () => {
-        setModalOpen(false);
-        setModalRequestId(null);
-        setModalCurrentStatus(null);
-    };
-
-    // default filter for OM/LH
-    const isOperationalManager = roleId === ROLE_ID.OPERATIONAL_MANAGER;
-    const isLabHead = roleId === ROLE_ID.LAB_HEAD;
-
-    useEffect(() => {
-        if (isOperationalManager || isLabHead) {
-            setStatusFilter((prev) => prev || "awaiting_verification");
-        }
-    }, [isOperationalManager, isLabHead]);
+    const statusGroups = useMemo(() => {
+        return [
+            {
+                label: t("samples.pages.queue.filters.groups.submission", { defaultValue: "Submission" }),
+                options: [
+                    { value: "submitted", label: t("requestStatus.submitted", { defaultValue: "submitted" }) },
+                    { value: "needs_revision", label: t("requestStatus.needsRevision", { defaultValue: "needs revision" }) },
+                    { value: "returned", label: t("requestStatus.returned", { defaultValue: "returned" }) },
+                    { value: "rejected", label: t("requestStatus.rejected", { defaultValue: "rejected" }) },
+                ],
+            },
+            {
+                label: t("samples.pages.queue.filters.groups.logistics", { defaultValue: "Logistics" }),
+                options: [
+                    { value: "ready_for_delivery", label: t("requestStatus.readyForDelivery", { defaultValue: "ready for delivery" }) },
+                    { value: "physically_received", label: t("requestStatus.physicallyReceived", { defaultValue: "physically received" }) },
+                    { value: "in_transit_to_collector", label: t("requestStatus.inTransitToCollector", { defaultValue: "in transit to collector" }) },
+                    { value: "under_inspection", label: t("requestStatus.underInspection", { defaultValue: "under inspection" }) },
+                    {
+                        value: "inspection_failed_returned_to_admin",
+                        label: t("requestStatus.inspectionFailedReturnedToAdmin", { defaultValue: "inspection failed (returned)" }),
+                    },
+                    { value: "returned_to_admin", label: t("requestStatus.returnedToAdmin", { defaultValue: "returned to admin" }) },
+                ],
+            },
+            {
+                label: t("samples.pages.queue.filters.groups.verification", { defaultValue: "Verification & Sample ID" }),
+                options: [
+                    {
+                        value: "intake_checklist_passed",
+                        label: t("requestStatus.intakeChecklistPassed", { defaultValue: "intake checklist passed" }),
+                    },
+                    { value: "awaiting_verification", label: t("requestStatus.awaitingVerification", { defaultValue: "awaiting verification" }) },
+                    {
+                        value: "waiting_sample_id_assignment",
+                        label: t("requestStatus.waitingSampleIdAssignment", { defaultValue: "waiting sample id assignment" }),
+                    },
+                    {
+                        value: "sample_id_pending_verification",
+                        label: t("requestStatus.sampleIdPendingVerification", { defaultValue: "sample id pending verification" }),
+                    },
+                    {
+                        value: "sample_id_approved_for_assignment",
+                        label: t("requestStatus.sampleIdApprovedForAssignment", { defaultValue: "sample id approved for assignment" }),
+                    },
+                    { value: "intake_validated", label: t("requestStatus.intakeValidated", { defaultValue: "intake validated" }) },
+                ],
+            },
+            {
+                label: t("samples.pages.queue.filters.groups.analyst", { defaultValue: "SC ↔ Analyst" }),
+                options: [
+                    { value: "sc_delivered_to_analyst", label: t("requestStatus.scDeliveredToAnalyst", { defaultValue: "SC delivered to analyst" }) },
+                    { value: "analyst_received", label: t("requestStatus.analystReceived", { defaultValue: "analyst received" }) },
+                    { value: "analyst_returned_to_sc", label: t("requestStatus.analystReturnedToSc", { defaultValue: "analyst returned to SC" }) },
+                    { value: "sc_received_from_analyst", label: t("requestStatus.scReceivedFromAnalyst", { defaultValue: "SC received from analyst" }) },
+                ],
+            },
+        ];
+    }, [t]);
 
     if (!canView) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center p-4">
-                <h1 className="text-2xl font-semibold text-gray-900 mb-2">
-                    {t("errors.accessDeniedTitle")}
-                </h1>
+                <h1 className="text-2xl font-semibold text-gray-900 mb-2">{t("errors.accessDeniedTitle")}</h1>
                 <p className="text-sm text-gray-600 text-center max-w-md">
                     {t("errors.accessDeniedBodyWithRole", { role: roleLabel })}
                 </p>
@@ -377,22 +436,17 @@ export default function SampleRequestsQueuePage() {
         );
     }
 
-    const isAdmin = roleId === ROLE_ID.ADMIN;
-
     return (
         <div className="min-h-[60vh]">
-            {/* Header (OLD design) */}
+            {/* Header */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <div className="flex flex-col">
                     <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                        {t("samples.pages.queue.title", {
-                            defaultValue: "Sample Requests Queue",
-                        })}
+                        {t("samples.pages.queue.title", { defaultValue: "Sample Requests Queue" })}
                     </h1>
                     <p className="text-sm text-gray-600">
                         {t("samples.pages.queue.subtitle", {
-                            defaultValue:
-                                "Requests here are not lab samples yet (no lab code).",
+                            defaultValue: "Requests here are not lab samples yet (no lab code).",
                         })}
                     </p>
                 </div>
@@ -401,7 +455,7 @@ export default function SampleRequestsQueuePage() {
                     <button
                         type="button"
                         className="lims-icon-button"
-                        onClick={() => loadQueue({ keepPage: true })}
+                        onClick={onRefresh}
                         aria-label={t("refresh", { defaultValue: "Refresh" })}
                         title={t("refresh", { defaultValue: "Refresh" })}
                         disabled={loading}
@@ -411,19 +465,21 @@ export default function SampleRequestsQueuePage() {
                 </div>
             </div>
 
-            {/* Card (OLD design) */}
+            {/* Card */}
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Filters (OLD design) */}
+                {/* Filters */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
                     {/* Search */}
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="rq-search">
                             {t("search", { defaultValue: "Search" })}
                         </label>
+
                         <div className="relative">
                             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
                                 <Search className="h-4 w-4" />
                             </span>
+
                             <input
                                 id="rq-search"
                                 type="text"
@@ -442,6 +498,7 @@ export default function SampleRequestsQueuePage() {
                         <label className="sr-only" htmlFor="rq-status">
                             {t("samples.pages.queue.filters.status", { defaultValue: "Status" })}
                         </label>
+
                         <div className="relative">
                             <select
                                 id="rq-status"
@@ -456,47 +513,15 @@ export default function SampleRequestsQueuePage() {
                                     {t("samples.pages.queue.filters.all", { defaultValue: "All statuses" })}
                                 </option>
 
-                                <optgroup label={t("samples.pages.queue.filters.groups.submission", { defaultValue: "Submission" })}>
-                                    <option value="submitted">{t("requestStatus.submitted", { defaultValue: "submitted" })}</option>
-                                    <option value="needs_revision">{t("requestStatus.needsRevision", { defaultValue: "needs revision" })}</option>
-                                    <option value="returned">{t("requestStatus.returned", { defaultValue: "returned" })}</option>
-                                    <option value="rejected">{t("requestStatus.rejected", { defaultValue: "rejected" })}</option>
-                                </optgroup>
-
-                                <optgroup label={t("samples.pages.queue.filters.groups.logistics", { defaultValue: "Logistics" })}>
-                                    <option value="ready_for_delivery">{t("requestStatus.readyForDelivery", { defaultValue: "ready for delivery" })}</option>
-                                    <option value="physically_received">{t("requestStatus.physicallyReceived", { defaultValue: "physically received" })}</option>
-                                    <option value="in_transit_to_collector">{t("requestStatus.inTransitToCollector", { defaultValue: "in transit to collector" })}</option>
-                                    <option value="under_inspection">{t("requestStatus.underInspection", { defaultValue: "under inspection" })}</option>
-                                    <option value="inspection_failed_returned_to_admin">
-                                        {t("requestStatus.inspectionFailedReturnedToAdmin", { defaultValue: "inspection failed (returned)" })}
-                                    </option>
-                                    <option value="returned_to_admin">{t("requestStatus.returnedToAdmin", { defaultValue: "returned to admin" })}</option>
-                                </optgroup>
-
-                                <optgroup label={t("samples.pages.queue.filters.groups.verification", { defaultValue: "Verification & Sample ID" })}>
-                                    <option value="intake_checklist_passed">
-                                        {t("requestStatus.intakeChecklistPassed", { defaultValue: "intake checklist passed" })}
-                                    </option>
-                                    <option value="awaiting_verification">{t("requestStatus.awaitingVerification", { defaultValue: "awaiting verification" })}</option>
-                                    <option value="waiting_sample_id_assignment">
-                                        {t("requestStatus.waitingSampleIdAssignment", { defaultValue: "waiting sample id assignment" })}
-                                    </option>
-                                    <option value="sample_id_pending_verification">
-                                        {t("requestStatus.sampleIdPendingVerification", { defaultValue: "sample id pending verification" })}
-                                    </option>
-                                    <option value="sample_id_approved_for_assignment">
-                                        {t("requestStatus.sampleIdApprovedForAssignment", { defaultValue: "sample id approved for assignment" })}
-                                    </option>
-                                    <option value="intake_validated">{t("requestStatus.intakeValidated", { defaultValue: "intake validated" })}</option>
-                                </optgroup>
-
-                                <optgroup label={t("samples.pages.queue.filters.groups.analyst", { defaultValue: "SC ↔ Analyst" })}>
-                                    <option value="sc_delivered_to_analyst">{t("requestStatus.scDeliveredToAnalyst", { defaultValue: "SC delivered to analyst" })}</option>
-                                    <option value="analyst_received">{t("requestStatus.analystReceived", { defaultValue: "analyst received" })}</option>
-                                    <option value="analyst_returned_to_sc">{t("requestStatus.analystReturnedToSc", { defaultValue: "analyst returned to SC" })}</option>
-                                    <option value="sc_received_from_analyst">{t("requestStatus.scReceivedFromAnalyst", { defaultValue: "SC received from analyst" })}</option>
-                                </optgroup>
+                                {statusGroups.map((g) => (
+                                    <optgroup key={g.label} label={g.label}>
+                                        {g.options.map((o) => (
+                                            <option key={o.value} value={o.value}>
+                                                {o.label}
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                ))}
                             </select>
 
                             <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
@@ -508,6 +533,7 @@ export default function SampleRequestsQueuePage() {
                         <label className="sr-only" htmlFor="rq-date">
                             {t("date", { defaultValue: "Date" })}
                         </label>
+
                         <select
                             id="rq-date"
                             value={dateFilter}
@@ -522,13 +548,9 @@ export default function SampleRequestsQueuePage() {
                     </div>
                 </div>
 
-                {/* Body (OLD design) */}
+                {/* Body */}
                 <div className="px-4 md:px-6 py-4">
-                    {error && (
-                        <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">
-                            {error}
-                        </div>
-                    )}
+                    {error && <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>}
 
                     {loading ? (
                         <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -537,9 +559,7 @@ export default function SampleRequestsQueuePage() {
                         </div>
                     ) : items.length === 0 ? (
                         <div className="text-sm text-gray-600">
-                            {t("samples.pages.queue.empty.body", {
-                                defaultValue: "No pending sample requests found.",
-                            })}
+                            {t("samples.pages.queue.empty.body", { defaultValue: "No pending sample requests found." })}
                         </div>
                     ) : (
                         <>
@@ -618,7 +638,7 @@ export default function SampleRequestsQueuePage() {
                                                                 <Eye size={16} />
                                                             </button>
 
-                                                            {/* ✅ New rule-based actions (Admin only) */}
+                                                            {/* Rule-based actions (Admin only) */}
                                                             {canAccept ? (
                                                                 <button
                                                                     type="button"
@@ -677,7 +697,7 @@ export default function SampleRequestsQueuePage() {
                                 </table>
                             </div>
 
-                            {/* Pagination (OLD design) */}
+                            {/* Pagination */}
                             <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
                                 <div className="text-xs text-gray-600">
                                     {t("pageOfTotal", {
@@ -719,7 +739,7 @@ export default function SampleRequestsQueuePage() {
                     currentStatus={modalCurrentStatus}
                     onClose={closeModal}
                     onUpdated={async () => {
-                        await loadQueue({ keepPage: true });
+                        onRefresh();
                     }}
                 />
             </div>

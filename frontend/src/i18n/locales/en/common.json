@@ -2016,7 +2016,16 @@
                 "searchPlaceholder": "Search request id, client, sample type…",
                 "filters": {
                     "status": "Status",
-                    "all": "All statuses"
+                    "all": "All statuses",
+                    "groups": {
+                        "submission": "Submission",
+                        "logistics": "Logistics",
+                        "verification": "Verification & Sample ID",
+                        "analyst": "SC ↔ Analyst",
+                        "client": "Client/Admin",
+                        "collector": "Sample Collector",
+                        "omlh": "OM/LH"
+                    }
                 },
                 "table": {
                     "request": "Request",
@@ -2035,8 +2044,13 @@
                 "actions": {
                     "open": "Open",
                     "accept": "Accept",
+                    "reject": "Reject",
                     "return": "Return",
                     "received": "Received"
+                },
+                "errors": {
+                    "loadFailed": "Failed to load queue.",
+                    "missingSampleId": "Cannot open request: missing request id."
                 }
             },
             "requestDetail": {
@@ -2185,6 +2199,25 @@
         "verified": "Intake verified",
         "validated": "Intake validated",
         "reported": "Reported"
+    },
+    "requestStatus": {
+        "draft": "Draft",
+        "submitted": "Submitted",
+        "returned": "Returned",
+        "needsRevision": "Needs revision",
+        "readyForDelivery": "Ready for delivery",
+        "physicallyReceived": "Physically received",
+        "rejected": "Rejected",
+        "inTransitToCollector": "In transit to collector",
+        "underInspection": "Under inspection",
+        "inspectionFailed": "Inspection failed",
+        "returnedToAdmin": "Returned to admin",
+        "intakeChecklistPassed": "Intake checklist passed",
+        "awaitingVerification": "Awaiting verification",
+        "waitingSampleIdAssignment": "Waiting sample ID assignment",
+        "sampleIdPendingVerification": "Sample ID change pending verification",
+        "sampleIdApprovedForAssignment": "Sample ID change approved for assignment",
+        "intakeValidated": "Intake validated"
     },
     "reagentStatus": {
         "draft": "Reagent request (draft)",

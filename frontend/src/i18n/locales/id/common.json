@@ -2019,7 +2019,16 @@
                 "searchPlaceholder": "Cari ID permintaan, klien, jenis sampel…",
                 "filters": {
                     "status": "Status",
-                    "all": "Semua status"
+                    "all": "Semua status",
+                    "groups": {
+                        "submission": "Pengajuan",
+                        "logistics": "Logistik",
+                        "verification": "Verifikasi & Sample ID",
+                        "analyst": "SC ↔ Analis",
+                        "client": "Klien/Admin",
+                        "collector": "Pengambil Sampel",
+                        "omlh": "OM/LH"
+                    }
                 },
                 "table": {
                     "request": "Permintaan",
@@ -2038,8 +2047,13 @@
                 "actions": {
                     "open": "Buka",
                     "accept": "Terima",
+                    "reject": "Tolak",
                     "return": "Kembalikan",
                     "received": "Diterima"
+                },
+                "errors": {
+                    "loadFailed": "Gagal memuat antrian.",
+                    "missingSampleId": "Tidak bisa membuka request: ID permintaan tidak ditemukan."
                 }
             },
             "requestDetail": {
@@ -2188,6 +2202,25 @@
         "verified": "Intake terverifikasi",
         "validated": "Intake tervalidasi",
         "reported": "Dilaporkan"
+    },
+    "requestStatus": {
+        "draft": "Draf",
+        "submitted": "Terkirim",
+        "returned": "Dikembalikan",
+        "needsRevision": "Perlu revisi",
+        "readyForDelivery": "Siap diantar",
+        "physicallyReceived": "Diterima fisik",
+        "rejected": "Ditolak",
+        "inTransitToCollector": "Dalam perjalanan ke kolektor",
+        "underInspection": "Dalam inspeksi",
+        "inspectionFailed": "Inspeksi gagal",
+        "returnedToAdmin": "Kembali ke admin",
+        "intakeChecklistPassed": "Checklist intake lulus",
+        "awaitingVerification": "Menunggu verifikasi",
+        "waitingSampleIdAssignment": "Menunggu penetapan Sample ID",
+        "sampleIdPendingVerification": "Perubahan Sample ID menunggu verifikasi",
+        "sampleIdApprovedForAssignment": "Perubahan Sample ID disetujui (siap ditetapkan)",
+        "intakeValidated": "Intake tervalidasi"
     },
     "reagentStatus": {
         "draft": "Permintaan reagen (draf)",
