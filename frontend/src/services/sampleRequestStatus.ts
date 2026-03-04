@@ -34,13 +34,20 @@ function normalizeActionOrStatus(v: string): ActionPayload {
 export async function updateRequestStatus(
     sampleId: number,
     actionOrStatus: string,
-    note?: string | null
+    note?: string | null,
+    methodId?: number | null
 ): Promise<UpdateRequestStatusResponse> {
     const payload: any = { ...normalizeActionOrStatus(actionOrStatus) };
 
     // Only attach note when caller provides meaningful value
     if (typeof note === "string" && note.trim().length) {
         payload.note = note.trim();
+    }
+
+    // Attach method_id only when valid (used by Accept flow)
+    const mid = Number(methodId);
+    if (Number.isFinite(mid) && mid > 0) {
+        payload.method_id = mid;
     }
 
     const res = await apiPost<UpdateRequestStatusResponse>(

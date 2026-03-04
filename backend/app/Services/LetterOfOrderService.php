@@ -6,6 +6,7 @@ use App\Models\FileBlob;
 use App\Models\LetterOfOrder;
 use App\Models\LetterOfOrderItem;
 use App\Models\LooSignature;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -26,7 +27,7 @@ class LetterOfOrderService
     ) {}
 
     /**
-     * letter_of_order_items table sometimes exists but is incomplete in your env.
+     * letter_of_order_items table sometimes exists but is incomplete in some envs.
      * Only use it if it has the required columns.
      */
     private function isItemsTableUsable(): bool
@@ -34,8 +35,7 @@ class LetterOfOrderService
         $table = 'letter_of_order_items';
         if (!Schema::hasTable($table)) return false;
 
-        $required = ['lo_id', 'sample_id', 'lab_sample_code', 'parameters'];
-        foreach ($required as $col) {
+        foreach (['lo_id', 'sample_id', 'lab_sample_code', 'parameters'] as $col) {
             if (!Schema::hasColumn($table, $col)) return false;
         }
 
@@ -43,7 +43,7 @@ class LetterOfOrderService
     }
 
     /**
-     * Build in-memory items relation so we never query broken items table.
+     * Build in-memory items relation so we never query a broken items table.
      */
     private function buildItemsModels(int $loId, array $itemsSnapshot): Collection
     {
@@ -65,7 +65,7 @@ class LetterOfOrderService
 
     /**
      * Find existing LoO by anchor sample_id (unique constraint uq_lo_sample).
-     * If found, we must reuse it to avoid duplicate key error.
+     * If found, reuse it to avoid duplicate key errors.
      */
     private function findExistingByAnchorSampleId(int $anchorSampleId): ?LetterOfOrder
     {
@@ -79,8 +79,7 @@ class LetterOfOrderService
 
     /**
      * Legacy helper: keep file_url under storage/app/private/reports/loo/...
-     * We keep this only for backward compatibility with older disk-based flows.
-     * New Step 12: actual PDF bytes are stored in DB (files) and referenced by payload.pdf_file_id.
+     * New flow stores PDF bytes in DB (files) and references payload.pdf_file_id.
      */
     private function forceReportsLooPath(string $pathOrAnything, string $looNumber): string
     {
@@ -104,21 +103,23 @@ class LetterOfOrderService
         $year = now()->format('Y');
         $safe = str_replace(['/', '\\'], '_', trim($looNumber));
         $safe = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $safe) ?: 'loo';
+
         return "reports/loo/{$year}/{$safe}.pdf";
     }
 
     /**
      * Step 12:
-     * Ensure PDF exists in DB (files table) for a given LoO, using payload snapshot (safe).
+     * Ensure PDF exists in DB (files table) for a given LoO, using payload snapshot.
      * Generates even for DRAFT so preview works right after generate.
      *
      * Writes:
      * - payload.pdf_file_id
-     * - payload.docx_file_id (optional but we store it)
+     * - payload.docx_file_id
      * - payload.record_no
      * - payload.form_code
-     * - payload.revision_no (from documents registry)
-     * - payload.template_version (from document_versions.version)
+     * - payload.revision_no
+     * - payload.template_version
+     * - payload.template_file_id
      */
     private function ensurePdfInDb(
         LetterOfOrder $loa,
@@ -141,13 +142,11 @@ class LetterOfOrderService
             ->where('is_active', true);
 
         $cols = ['doc_id', 'doc_code', 'version_current_id'];
-
         if (Schema::hasColumn('documents', 'current_version_id')) {
             $cols[] = 'current_version_id';
         }
 
         $doc = $docQ->first($cols);
-
         if (!$doc) {
             throw new RuntimeException('LOO template registry not found or inactive (documents row missing).');
         }
@@ -156,7 +155,6 @@ class LetterOfOrderService
         if ($docVerId <= 0 && isset($doc->current_version_id)) {
             $docVerId = (int) ($doc->current_version_id ?? 0);
         }
-
         if ($docVerId <= 0) {
             throw new RuntimeException('LOO template has no uploaded DOCX yet (version_current_id is null).');
         }
@@ -180,29 +178,26 @@ class LetterOfOrderService
         $pdfFileId = (int) ($payload['pdf_file_id'] ?? 0);
         $prevTplVer = (int) ($payload['template_version'] ?? 0);
         $prevTplFileId = (int) ($payload['template_file_id'] ?? 0);
+        $prevRevision = (int) ($payload['revision_no'] ?? -1);
 
         $generatedAt = now();
 
         $numbers = $this->docNumber->generate(self::DOC_CODE_LOO, $generatedAt);
         $recordNo = (string) ($numbers['record_no'] ?? '');
 
-        // ✅ simpan FULL untuk metadata/payload
+        // Store FULL for metadata/payload
         $formCodeFull = (string) ($numbers['form_code'] ?? '');
 
-        // ✅ tapi untuk DOCX footer kamu, isi ${form_code} HARUS tanggal saja
-        $formCodeDate = $generatedAt->format('d-m-y'); // contoh: 19-02-26
+        // But in DOCX footer placeholder ${form_code} expects date only
+        $formCodeDate = $generatedAt->format('d-m-y'); // e.g. 19-02-26
 
         $revisionNo = (int) ($numbers['revision_no'] ?? 0);
 
-        $client = (array) ($payload['client'] ?? []);
-
-        // ambil semua sample_id dari itemsSnapshot
+        // Collect sample IDs from snapshot (source of truth for doc generation)
         $sampleIds = array_values(array_unique(array_filter(array_map(
             fn($it) => (int) ($it['sample_id'] ?? 0),
             $itemsSnapshot
         ))));
-
-        $prevRevision = (int) ($payload['revision_no'] ?? -1);
 
         $alreadyGenerated = $pdfFileId > 0;
         $templateChanged = ($prevTplVer !== $templateVersion) || ($prevTplFileId !== $templateFileId);
@@ -211,7 +206,7 @@ class LetterOfOrderService
         $shouldGenerate = $forceRegenerate || !$alreadyGenerated || $templateChanged || $revisionChanged;
 
         if (!$shouldGenerate) {
-            // still normalize numbering snapshot if missing (without regenerating)
+            // Normalize numbering snapshot if missing (without regenerating)
             if (empty($payload['record_no'])) $payload['record_no'] = $recordNo;
             if (empty($payload['form_code'])) $payload['form_code'] = $formCodeFull;
 
@@ -220,62 +215,45 @@ class LetterOfOrderService
             return;
         }
 
-        // Make sure signatures loaded for QR/checkbox placeholders, and backfill missing signature_hash
+        // Ensure signatures loaded for QR/checkbox placeholders; backfill signature_hash when missing
         $loa->loadMissing(['signatures']);
 
-        $hashBackfilled = false;
         try {
+            $hashBackfilled = false;
+
             foreach ($loa->signatures as $sig) {
                 $hash = (string) data_get($sig, 'signature_hash', '');
-                if ($hash === '') {
-                    $sig->signature_hash = hash('sha256', Str::uuid()->toString());
-                    $sig->updated_at = now();
-                    $sig->save();
-                    $hashBackfilled = true;
-                }
+                if ($hash !== '') continue;
+
+                $sig->signature_hash = hash('sha256', Str::uuid()->toString());
+                $sig->updated_at = now();
+                $sig->save();
+                $hashBackfilled = true;
             }
 
             if ($hashBackfilled) {
                 $loa->load('signatures');
             }
-        } catch (\Throwable $e) {
-            // do not block generation
+        } catch (\Throwable) {
+            // Never block generation just because signature hash backfill fails.
         }
 
         // Fetch template bytes from DB
         /** @var FileBlob $tpl */
         $tpl = FileBlob::query()->where('file_id', $templateFileId)->firstOrFail();
 
-        $raw = $tpl->bytes ?? null;
-
-        // ✅ Postgres bytea can come back as a stream resource
-        if (is_resource($raw)) {
-            // try read from current pointer, then rewind as fallback
-            $templateBytes = stream_get_contents($raw);
-            if ($templateBytes === false || $templateBytes === '') {
-                @rewind($raw);
-                $templateBytes = stream_get_contents($raw);
-            }
-            $templateBytes = is_string($templateBytes) ? $templateBytes : '';
-        } else {
-            $templateBytes = is_string($raw) ? $raw : '';
-        }
-
+        $templateBytes = $this->readPossiblyStreamedBytes($tpl->bytes ?? null);
         if ($templateBytes === '') {
             throw new RuntimeException('LOO template file bytes are empty or unreadable.');
         }
 
-        // Build placeholder vars (best-effort; template can pick what it needs)
         $client = (array) ($payload['client'] ?? []);
 
+        // Scalar placeholders
         $vars = [
             // numbering
             'record_no' => $recordNo,
-
-            // ✅ untuk footer prefix statis: FORM/...Rev00.${form_code}
             'form_code' => $formCodeDate,
-
-            // opsional kalau suatu saat butuh full code di docx
             'form_code_full' => $formCodeFull,
 
             // identifiers
@@ -290,7 +268,7 @@ class LetterOfOrderService
             'client_phone' => (string) ($client['phone'] ?? ''),
         ];
 
-        // ✅ tambahkan vars baru untuk Metode Uji, Jenis Sampel, dst
+        // Add doc meta vars (test_method must come from ADMIN-selected method on samples, not inferred from workflow_group)
         $vars = array_merge($vars, $this->buildLooDocMetaVars($itemsSnapshot, $sampleIds));
 
         // Signature placeholders (optional)
@@ -303,24 +281,19 @@ class LetterOfOrderService
                 $vars["sig_{$role}_signed_at"] = $sig->signed_at ? $sig->signed_at->format('d/m/Y H:i') : '';
                 $vars["sig_{$role}_signed"] = $sig->signed_at ? '1' : '0';
             }
-        } catch (\Throwable $e) {
+        } catch (\Throwable) {
             // ignore
         }
 
-        // Build table rows for DOCX cloneRow
-        // Convention: template uses ${item_no} as clone key.
-        $rows = [
-            'item_no' => [],
-        ];
+        // Table rows for cloneRowAndSetValues: template uses ${item_no} as clone key.
+        $rows = ['item_no' => []];
 
         foreach ($itemsSnapshot as $it) {
             $no = (string) ($it['no'] ?? '');
 
             $rows['item_no'][] = [
-                // ✅ template sering pakai ${no}
+                // common template variants
                 'no' => $no,
-
-                // ✅ tetap support ${item_no} (punya kamu sekarang)
                 'item_no' => $no,
 
                 'sample_id' => (string) ($it['sample_id'] ?? ''),
@@ -403,7 +376,7 @@ class LetterOfOrderService
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
-            } catch (\Throwable $e) {
+            } catch (\Throwable) {
                 // do not block
             }
         }
@@ -416,7 +389,24 @@ class LetterOfOrderService
         }
     }
 
-    private function formatParametersForDocx($params): string
+    /**
+     * Postgres bytea can come back as a stream resource; normalize to string.
+     */
+    private function readPossiblyStreamedBytes(mixed $raw): string
+    {
+        if (is_resource($raw)) {
+            $bytes = stream_get_contents($raw);
+            if ($bytes === false || $bytes === '') {
+                @rewind($raw);
+                $bytes = stream_get_contents($raw);
+            }
+            return is_string($bytes) ? $bytes : '';
+        }
+
+        return is_string($raw) ? $raw : '';
+    }
+
+    private function formatParametersForDocx(mixed $params): string
     {
         if (!is_array($params)) return '';
 
@@ -426,24 +416,26 @@ class LetterOfOrderService
                 $lines[] = $p;
                 continue;
             }
+
             if (is_array($p)) {
                 $code = (string) ($p['code'] ?? '');
                 $name = (string) ($p['name'] ?? '');
                 $label = trim($code . ($name !== '' ? " - {$name}" : ''));
+
                 if ($label !== '') $lines[] = $label;
             }
         }
 
-        // Newlines usually render as line breaks in PhpWord TemplateProcessor
+        // Newlines render as line breaks in PhpWord TemplateProcessor.
         return implode("\n", $lines);
     }
 
     private function buildLooDocMetaVars(array $itemsSnapshot, array $sampleIds): array
     {
-        // ✅ jumlah sampel: selalu bisa dihitung dari items
+        // sample_qty: derive from snapshot
         $qty = count($itemsSnapshot);
 
-        // ✅ jenis sampel: ambil unik dari itemsSnapshot
+        // sample_type: unique from snapshot
         $types = [];
         foreach ($itemsSnapshot as $it) {
             $t = trim((string) ($it['sample_type'] ?? ''));
@@ -451,10 +443,10 @@ class LetterOfOrderService
         }
         $sampleType = implode(', ', array_keys($types));
 
-        // ✅ metode uji: best-effort (kalau nggak ketemu, tetap replace jadi kosong)
-        $method = $this->inferTestMethodFromSamples($sampleIds);
+        // test_method: MUST come from samples (admin-selected), not workflow group
+        $method = $this->resolveTestMethodFromSamples($sampleIds);
 
-        // ✅ tanggal: best-effort dari samples.created_at (paling aman karena hampir pasti ada)
+        // dates: best-effort from samples
         $received = $this->pickMinDateFromSamples($sampleIds, ['received_at', 'verified_at', 'created_at']);
         $testingStart = $this->pickMinDateFromSamples($sampleIds, ['testing_started_at', 'analysis_started_at']);
 
@@ -467,23 +459,25 @@ class LetterOfOrderService
         ];
     }
 
-    private function pickMinDateFromSamples(array $sampleIds, array $preferredCols): ?\Illuminate\Support\Carbon
+    private function pickMinDateFromSamples(array $sampleIds, array $preferredCols): ?Carbon
     {
+        $sampleIds = array_values(array_filter(array_map('intval', $sampleIds), fn($x) => $x > 0));
         if (count($sampleIds) === 0) return null;
-        if (!\Illuminate\Support\Facades\Schema::hasTable('samples')) return null;
+        if (!Schema::hasTable('samples')) return null;
 
         foreach ($preferredCols as $col) {
-            if (!\Illuminate\Support\Facades\Schema::hasColumn('samples', $col)) continue;
+            if (!Schema::hasColumn('samples', $col)) continue;
 
-            $min = \Illuminate\Support\Facades\DB::table('samples')
+            $min = DB::table('samples')
                 ->whereIn('sample_id', $sampleIds)
                 ->whereNotNull($col)
                 ->min($col);
 
             if ($min) {
                 try {
-                    return \Illuminate\Support\Carbon::parse($min);
+                    return Carbon::parse($min);
                 } catch (\Throwable) {
+                    // try next column
                 }
             }
         }
@@ -491,39 +485,108 @@ class LetterOfOrderService
         return null;
     }
 
-    private function inferTestMethodFromSamples(array $sampleIds): string
+    /**
+     * Resolve "Metode Uji" from the sample record.
+     * Priority:
+     * 1) samples.method_id -> methods table (preferred)
+     * 2) samples.test_method (string)
+     * 3) legacy fallback: infer from samples.workflow_group (last resort)
+     */
+    private function resolveTestMethodFromSamples(array $sampleIds): string
     {
+        $sampleIds = array_values(array_filter(array_map('intval', $sampleIds), fn($x) => $x > 0));
         if (count($sampleIds) === 0) return '';
-        if (!\Illuminate\Support\Facades\Schema::hasTable('samples')) return '';
+        if (!Schema::hasTable('samples')) return '';
 
-        // kalau ada kolom workflow_group, pakai itu
-        if (\Illuminate\Support\Facades\Schema::hasColumn('samples', 'workflow_group')) {
-            $groups = \Illuminate\Support\Facades\DB::table('samples')
-                ->whereIn('sample_id', $sampleIds)
-                ->whereNotNull('workflow_group')
+        // 1) Preferred: method_id (admin-selected)
+        if (Schema::hasColumn('samples', 'method_id') && Schema::hasTable('methods')) {
+            $rows = DB::table('samples as s')
+                ->join('methods as m', 'm.method_id', '=', 's.method_id')
+                ->whereIn('s.sample_id', $sampleIds)
+                ->whereNotNull('s.method_id')
                 ->distinct()
-                ->pluck('workflow_group')
-                ->map(fn($x) => (string) $x)
+                ->get(['m.code', 'm.name']);
+
+            $labels = [];
+            foreach ($rows as $r) {
+                $code = trim((string) ($r->code ?? ''));
+                $name = trim((string) ($r->name ?? ''));
+                $label = $this->formatMethodLabel($code, $name);
+                if ($label !== '') $labels[$label] = true;
+            }
+
+            $out = implode(', ', array_keys($labels));
+            if ($out !== '') return $out;
+        }
+
+        // 2) Fallback: plain text column on samples
+        foreach (['test_method', 'test_method_name', 'method_name'] as $col) {
+            if (!Schema::hasColumn('samples', $col)) continue;
+
+            $vals = DB::table('samples')
+                ->whereIn('sample_id', $sampleIds)
+                ->whereNotNull($col)
+                ->distinct()
+                ->pluck($col)
+                ->map(fn($x) => trim((string) $x))
                 ->filter()
                 ->values()
                 ->all();
 
-            if (count($groups) > 0) {
-                $map = [
-                    'pcr_sars_cov_2' => 'PCR SARS-CoV-2',
-                    'pcr' => 'PCR',
-                    'wgs' => 'Whole Genome Sequencing (WGS)',
-                    'elisa' => 'ELISA',
-                    'default' => 'General',
-                ];
-
-                $labels = [];
-                foreach ($groups as $g) $labels[] = $map[$g] ?? strtoupper(str_replace('_', ' ', $g));
-                return implode(', ', array_values(array_unique($labels)));
+            if (count($vals) > 0) {
+                return implode(', ', array_values(array_unique($vals)));
             }
         }
 
+        // 3) Last resort: legacy inference from workflow group
+        return $this->inferTestMethodFromWorkflowGroup($sampleIds);
+    }
+
+    private function formatMethodLabel(string $code, string $name): string
+    {
+        $code = trim($code);
+        $name = trim($name);
+
+        if ($code !== '' && $name !== '') return "{$code} — {$name}";
+        if ($name !== '') return $name;
+        if ($code !== '') return $code;
         return '';
+    }
+
+    /**
+     * Legacy fallback only (should not be the main source anymore).
+     */
+    private function inferTestMethodFromWorkflowGroup(array $sampleIds): string
+    {
+        if (count($sampleIds) === 0) return '';
+        if (!Schema::hasColumn('samples', 'workflow_group')) return '';
+
+        $groups = DB::table('samples')
+            ->whereIn('sample_id', $sampleIds)
+            ->whereNotNull('workflow_group')
+            ->distinct()
+            ->pluck('workflow_group')
+            ->map(fn($x) => (string) $x)
+            ->filter()
+            ->values()
+            ->all();
+
+        if (count($groups) === 0) return '';
+
+        $map = [
+            'pcr_sars_cov_2' => 'PCR SARS-CoV-2',
+            'pcr' => 'PCR',
+            'wgs' => 'Whole Genome Sequencing (WGS)',
+            'elisa' => 'ELISA',
+            'default' => 'General',
+        ];
+
+        $labels = [];
+        foreach ($groups as $g) {
+            $labels[] = $map[$g] ?? strtoupper(str_replace('_', ' ', $g));
+        }
+
+        return implode(', ', array_values(array_unique($labels)));
     }
 
     public function ensureDraftForSamples(array $sampleIds, int $actorStaffId): LetterOfOrder
@@ -536,7 +599,7 @@ class LetterOfOrderService
         }
 
         return DB::transaction(function () use ($sampleIds, $actorStaffId) {
-            // 1) load samples
+            // 1) Load samples
             $samples = DB::table('samples')
                 ->whereIn('sample_id', $sampleIds)
                 ->get([
@@ -552,7 +615,7 @@ class LetterOfOrderService
                 throw new RuntimeException('Some samples not found.');
             }
 
-            // 2) verification + lab code gate
+            // 2) Verification + lab code gate
             foreach ($samples as $s) {
                 $sid = (int) $s->sample_id;
 
@@ -564,7 +627,7 @@ class LetterOfOrderService
                 }
             }
 
-            // 3) load parameters from request pivot
+            // 3) Load parameters from request pivot
             $paramRows = DB::table('sample_requested_parameters as srp')
                 ->join('parameters as p', 'p.parameter_id', '=', 'srp.parameter_id')
                 ->whereIn('srp.sample_id', $sampleIds)
@@ -587,10 +650,8 @@ class LetterOfOrderService
                 ];
             }
 
-            // 4) build items snapshot
-            $sortedSamples = $samples->sortBy(function ($s) {
-                return (string) ($s->lab_sample_code ?? '');
-            })->values();
+            // 4) Build items snapshot
+            $sortedSamples = $samples->sortBy(fn($s) => (string) ($s->lab_sample_code ?? ''))->values();
 
             $items = [];
             foreach ($sortedSamples as $idx => $s) {
@@ -604,14 +665,12 @@ class LetterOfOrderService
                 ];
             }
 
-            // IMPORTANT:
             // uq_lo_sample forces UNIQUE(sample_id) in letters_of_order.
-            // We must use a stable anchor sample_id and reuse existing LoO if present.
             $anchorSampleId = (int) $sortedSamples->first()->sample_id;
 
             $existing = $this->findExistingByAnchorSampleId($anchorSampleId);
             if ($existing) {
-                // If already locked, just return it (cannot change content).
+                // locked => cannot change content
                 if ($existing->loa_status === 'locked') {
                     $existing->loadMissing(['signatures']);
                     $payload = is_array($existing->payload) ? $existing->payload : (array) $existing->payload;
@@ -619,7 +678,7 @@ class LetterOfOrderService
                     return $existing;
                 }
 
-                // Refresh payload so UI reflects latest selection
+                // refresh payload so UI reflects latest selection
                 $payload = is_array($existing->payload) ? $existing->payload : (array) $existing->payload;
 
                 // Keep existing number for consistency
@@ -633,13 +692,9 @@ class LetterOfOrderService
                 $payload['loa_number'] = $number;
                 $payload['sample_ids'] = $sampleIds;
                 $payload['items'] = $items;
-
-                // generated_at snapshot (safe)
                 $payload['generated_at'] = $payload['generated_at'] ?? now()->toISOString();
 
-                // Decide regeneration:
-                // - draft: regenerate to match latest items
-                // - signed_internal/sent_to_client: do NOT regenerate automatically (preserve signed doc intent)
+                // draft: regenerate to match latest items
                 $forceRegenerate = ((string) $existing->loa_status === 'draft');
 
                 $this->ensurePdfInDb($existing, $payload, $items, $actorStaffId, $forceRegenerate);
@@ -654,7 +709,7 @@ class LetterOfOrderService
                 return $existing;
             }
 
-            // 5) create new draft (only if none exists)
+            // 5) Create new draft
             $number = $this->numberGen->nextNumber();
 
             $payload = [
@@ -662,7 +717,6 @@ class LetterOfOrderService
                 'loa_number' => $number, // backward compat
                 'generated_at' => now()->toISOString(),
 
-                // client identity intentionally omitted
                 'client' => [
                     'name' => null,
                     'organization' => null,
@@ -692,7 +746,7 @@ class LetterOfOrderService
                     'generated_at' => now(),
                     'generated_by' => $actorStaffId,
 
-                    // legacy placeholder (some old code expects file_url present)
+                    // legacy placeholder
                     'file_url' => $this->forceReportsLooPath($this->pdf->buildPath($number), $number),
 
                     'loa_status' => 'draft',
@@ -701,7 +755,7 @@ class LetterOfOrderService
                     'updated_at' => null,
                 ]);
             } catch (\Throwable $e) {
-                // If race / duplicate happens anyway, fetch existing and return it
+                // Race fallback: fetch existing
                 $existing2 = $this->findExistingByAnchorSampleId($anchorSampleId);
                 if ($existing2) {
                     $existing2->loadMissing(['signatures']);
@@ -727,13 +781,12 @@ class LetterOfOrderService
             }
 
             /**
-             * ✅ Promote samples included in LOO
+             * Promote samples included in LOO:
              * - mark as generated (so they disappear from LOO Generator)
              * - ensure lab_sample_code exists (legacy-safe)
              */
             $now = now();
 
-            // lock rows to avoid double-assign in concurrent LOO generates
             $samples = \App\Models\Sample::query()
                 ->whereIn('sample_id', $sampleIds)
                 ->lockForUpdate()
@@ -747,12 +800,9 @@ class LetterOfOrderService
                     $code = $codeGen->nextCode();
                     \App\Models\Sample::query()
                         ->where('sample_id', $s->sample_id)
-                        ->update([
-                            'lab_sample_code' => $code,
-                        ]);
+                        ->update(['lab_sample_code' => $code]);
                 }
 
-                // mark as included in LOO
                 \App\Models\Sample::query()
                     ->where('sample_id', $s->sample_id)
                     ->update([
@@ -761,7 +811,7 @@ class LetterOfOrderService
                     ]);
             }
 
-            // 7) create signature slots (pre-generate signature_hash so QR is visible on draft PDF)
+            // 7) Create signature slots (pre-generate signature_hash so QR is visible on draft PDF)
             $roles = DB::table('loa_signature_roles')
                 ->orderBy('sort_order')
                 ->get(['role_code']);
@@ -773,25 +823,22 @@ class LetterOfOrderService
                     'signed_by_staff' => null,
                     'signed_by_client' => null,
                     'signed_at' => null,
-
-                    // QR depends on this hash; generate at slot creation time (even before signing)
                     'signature_hash' => hash('sha256', Str::uuid()->toString()),
-
                     'note' => null,
                     'created_at' => now(),
                     'updated_at' => null,
                 ]);
             }
 
-            // ✅ generate PDF immediately (DB-backed) so preview works right away
+            // Generate PDF immediately so preview works
             $loa->loadMissing(['signatures']);
             $this->ensurePdfInDb($loa, $payload, $items, $actorStaffId, true);
             $loa->updated_at = now();
             $loa->save();
 
-            // attach relations safely
             $loa->loadMissing(['signatures']);
             $loa->setRelation('items', $this->buildItemsModels((int) $loa->lo_id, $items));
+
             return $loa;
         }, 3);
     }
@@ -826,7 +873,7 @@ class LetterOfOrderService
             $sig->signed_by_staff = $actorStaffId;
             $sig->signed_at = now();
 
-            // ✅ don't overwrite existing hash (QR must stay stable)
+            // Keep QR stable
             if (empty($sig->signature_hash)) {
                 $sig->signature_hash = hash('sha256', Str::uuid()->toString());
             }
@@ -845,18 +892,15 @@ class LetterOfOrderService
                 $signedMap[(string) $row->role_code] = !empty($row->signed_at);
             }
 
-            $omSigned = (bool) ($signedMap['OM'] ?? false);
-            $lhSigned = (bool) ($signedMap['LH'] ?? false);
-            $allSigned = $omSigned && $lhSigned;
+            $allSigned = (bool) ($signedMap['OM'] ?? false) && (bool) ($signedMap['LH'] ?? false);
 
             if ($allSigned) {
                 if ($loa->loa_status === 'draft') {
                     $loa->loa_status = 'signed_internal';
                 }
 
-                $payload = is_array($loa->payload) ? $loa->payload : (array) $loa->payload;
-
                 // regen once after both signed, so checkbox markers are correct
+                $payload = is_array($loa->payload) ? $loa->payload : (array) $loa->payload;
                 $items = (array) ($payload['items'] ?? []);
                 $this->ensurePdfInDb($loa, $payload, $items, $actorStaffId, true);
 

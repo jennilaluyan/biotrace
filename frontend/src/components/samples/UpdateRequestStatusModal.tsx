@@ -28,7 +28,7 @@ type ApiErrorLike = {
 };
 
 /**
- * Extracts a user-friendly API error message (supports Laravel validation shapes).
+ * Extracts a user-friendly API error message (supports common Laravel validation shapes).
  */
 function getErrMsg(err: unknown, fallback: string) {
     const e = err as ApiErrorLike;
@@ -62,8 +62,7 @@ function normalizeStatusWords(input?: string | null) {
 }
 
 /**
- * Compacts a request-status token into a short, one-word-ish label when possible.
- * Keeps output lowercase and space-normalized.
+ * Compacts a request-status token into a short label when possible.
  */
 function compactRequestStatusToken(token: string, locale: string) {
     const isId = String(locale || "").toLowerCase().startsWith("id");
@@ -109,18 +108,18 @@ type ModalCopy = {
 function getModalCopy(t: (k: string, opt?: any) => string, action: Action): ModalCopy {
     if (action === "accept") {
         return {
-            title: t("samples.requestStatusModal.title.accept", { defaultValue: "Accept Request" }),
-            subtitle: t("samples.requestStatusModal.subtitle.accept", {
-                defaultValue: "Accept this request so the client can proceed with delivery.",
+            title: t("samples.requestStatusModal.title.approve", { defaultValue: "Approve request" }),
+            subtitle: t("samples.requestStatusModal.subtitle.approve", {
+                defaultValue: "Approve this request so the client can proceed with delivery.",
             }),
-            confirm: t("samples.requestStatusModal.buttons.confirmAccept", { defaultValue: "Accept" }),
+            confirm: t("samples.requestStatusModal.buttons.confirmApprove", { defaultValue: "Approve" }),
             nextLabel: "ready_for_delivery",
         };
     }
 
     if (action === "reject") {
         return {
-            title: t("samples.requestStatusModal.title.reject", { defaultValue: "Reject Request" }),
+            title: t("samples.requestStatusModal.title.reject", { defaultValue: "Reject request" }),
             subtitle: t("samples.requestStatusModal.subtitle.reject", {
                 defaultValue: "Reject this request. A reason is required.",
             }),
@@ -131,7 +130,7 @@ function getModalCopy(t: (k: string, opt?: any) => string, action: Action): Moda
 
     if (action === "return") {
         return {
-            title: t("samples.requestStatusModal.title.return", { defaultValue: "Return Request" }),
+            title: t("samples.requestStatusModal.title.return", { defaultValue: "Return request" }),
             subtitle: t("samples.requestStatusModal.subtitle.return", {
                 defaultValue: "Return this request to the client for revision. A note is required.",
             }),
@@ -141,7 +140,7 @@ function getModalCopy(t: (k: string, opt?: any) => string, action: Action): Moda
     }
 
     return {
-        title: t("samples.requestStatusModal.title.received", { defaultValue: "Mark Physically Received" }),
+        title: t("samples.requestStatusModal.title.received", { defaultValue: "Mark physically received" }),
         subtitle: t("samples.requestStatusModal.subtitle.received", {
             defaultValue: "Confirm the sample has been physically received at the lab.",
         }),
@@ -153,9 +152,9 @@ function getModalCopy(t: (k: string, opt?: any) => string, action: Action): Moda
 function unwrapEnvelope<T>(res: any): T {
     // Axios-ish: res.data, but some services already return payload
     let x = res?.data ?? res;
+
     for (let i = 0; i < 5; i++) {
         if (x && typeof x === "object" && "data" in x && (x as any).data != null) {
-            // if envelope: {data: {...}} keep drilling
             const inner = (x as any).data;
             if (inner && typeof inner === "object" && "data" in inner) {
                 x = inner;
@@ -164,6 +163,7 @@ function unwrapEnvelope<T>(res: any): T {
         }
         break;
     }
+
     return x as T;
 }
 
@@ -178,12 +178,12 @@ export const UpdateRequestStatusModal = (props: Props) => {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // ✅ Accept requires test method
     const isAccept = action === "accept";
     const isReject = action === "reject";
     const isReturn = action === "return";
     const isReceived = action === "received";
 
+    // Accept requires test method
     const [methods, setMethods] = useState<MethodRow[]>([]);
     const [methodsLoading, setMethodsLoading] = useState(false);
     const [methodsError, setMethodsError] = useState<string | null>(null);
@@ -195,6 +195,7 @@ export const UpdateRequestStatusModal = (props: Props) => {
     // Reset modal state when opened or action changes
     useEffect(() => {
         if (!open) return;
+
         setNote("");
         setError(null);
         setBusy(false);
@@ -231,15 +232,17 @@ export const UpdateRequestStatusModal = (props: Props) => {
                 const res = await listMethods({ page: 1, per_page: 200, q: "" });
                 const payload = unwrapEnvelope<any>(res);
 
-                // payload expected: { status, message, data: { data: MethodRow[] } }
                 const rows = (payload?.data?.data ?? payload?.data ?? payload) as MethodRow[];
                 const list = Array.isArray(rows) ? rows : [];
-
                 const active = list.filter((m) => !!m?.is_active);
 
                 if (mounted) setMethods(active);
             } catch {
-                if (mounted) setMethodsError(t("samples.requestStatusModal.method.error", { defaultValue: "Failed to load methods." }));
+                if (mounted) {
+                    setMethodsError(
+                        t("samples.requestStatusModal.method.error", { defaultValue: "Failed to load methods." })
+                    );
+                }
             } finally {
                 if (mounted) setMethodsLoading(false);
             }
@@ -281,7 +284,7 @@ export const UpdateRequestStatusModal = (props: Props) => {
 
     const noteLabel = useMemo(() => {
         if (isReject) {
-            return t("samples.requestStatusModal.note.labelRequired", {
+            return t("samples.requestStatusModal.note.labelRequiredReject", {
                 defaultValue: "Rejection reason (required)",
             });
         }
@@ -306,15 +309,10 @@ export const UpdateRequestStatusModal = (props: Props) => {
                 defaultValue: "Write what the client should revise…",
             });
         }
-        if (isReceived) {
-            return t("samples.requestStatusModal.note.placeholderReceived", {
-                defaultValue: "Optional note…",
-            });
-        }
-        return t("samples.requestStatusModal.note.placeholderAccept", {
+        return t("samples.requestStatusModal.note.placeholderReceived", {
             defaultValue: "Optional note…",
         });
-    }, [isReject, isReturn, isReceived, t]);
+    }, [isReject, isReturn, t]);
 
     const submit = async () => {
         if (!canConfirm || !requestId) return;
@@ -326,7 +324,8 @@ export const UpdateRequestStatusModal = (props: Props) => {
             const trimmedNote = note.trim();
             const noteToSend = isReject || isReturn ? trimmedNote : trimmedNote.length ? trimmedNote : null;
 
-            await updateRequestStatus(requestId, action, noteToSend, isAccept ? methodId : null);
+            const methodIdToSend = isAccept ? methodId : null;
+            await updateRequestStatus(requestId, action, noteToSend, methodIdToSend);
 
             onClose();
             onUpdated();
@@ -389,7 +388,9 @@ export const UpdateRequestStatusModal = (props: Props) => {
                         </div>
 
                         <div className="mt-2 text-sm text-gray-900">
-                            <span className="text-gray-600">{t("samples.requestStatusModal.summary.current", { defaultValue: "Current" })}:</span>{" "}
+                            <span className="text-gray-600">
+                                {t("samples.requestStatusModal.summary.current", { defaultValue: "Current" })}:
+                            </span>{" "}
                             <span className="font-semibold">{formatStatusLabel(currentStatus, locale)}</span>
                             <span className="text-gray-600">
                                 {" "}
@@ -403,7 +404,7 @@ export const UpdateRequestStatusModal = (props: Props) => {
                         </div>
                     </div>
 
-                    {/* ✅ Accept: required Test Method */}
+                    {/* Accept: required Test Method */}
                     {isAccept ? (
                         <div className="mt-4">
                             <label className="block text-sm font-semibold text-gray-900">
@@ -455,7 +456,8 @@ export const UpdateRequestStatusModal = (props: Props) => {
                         </div>
                     ) : null}
 
-                    {(isReject || isReturn || isReceived) ? (
+                    {/* Reject/Return/Received: note */}
+                    {isReject || isReturn || isReceived ? (
                         <div className="mt-4">
                             <div className="flex items-baseline justify-between gap-3">
                                 <label className="block text-sm font-semibold text-gray-900">{noteLabel}</label>
@@ -471,7 +473,7 @@ export const UpdateRequestStatusModal = (props: Props) => {
                                 maxLength={500}
                             />
 
-                            {(isReject || isReturn) ? (
+                            {isReject || isReturn ? (
                                 <div className="mt-2 text-[11px] text-gray-500">
                                     {t("samples.requestStatusModal.note.helpRequired", {
                                         defaultValue: "This note will be saved for audit and shown to relevant users.",
@@ -491,7 +493,7 @@ export const UpdateRequestStatusModal = (props: Props) => {
                             disabled={!canConfirm}
                             onClick={submit}
                             className={cx(
-                                (isReject || isReturn) ? "lims-btn-danger" : "lims-btn-primary",
+                                isReject || isReturn ? "lims-btn-danger" : "lims-btn-primary",
                                 "disabled:opacity-50 disabled:cursor-not-allowed"
                             )}
                             title={copy.confirm}
