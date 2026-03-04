@@ -25,24 +25,9 @@ import {
 import { apiGet } from "../../services/api";
 import { getErrorMessage } from "../../utils/errors";
 import { formatDateTimeLocal } from "../../utils/date";
+import { cx } from "../../utils/cx";
+import { unwrapApi } from "../../utils/apiData";
 import ReagentApprovalDecisionModal from "../../components/reagents/ReagentApprovalDecisionModal";
-
-function cx(...arr: Array<string | false | null | undefined>) {
-    return arr.filter(Boolean).join(" ");
-}
-
-// unwrap like other pages
-function unwrapApi(res: any) {
-    let x = res?.data ?? res;
-    for (let i = 0; i < 5; i++) {
-        if (x && typeof x === "object" && "data" in x && (x as any).data != null) {
-            x = (x as any).data;
-            continue;
-        }
-        break;
-    }
-    return x;
-}
 
 function getHttpStatus(err: any): number | null {
     const s = err?.response?.status ?? err?.status ?? null;

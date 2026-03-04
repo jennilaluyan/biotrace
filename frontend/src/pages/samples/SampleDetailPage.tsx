@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
+import { Link, useParams, useLocation } from "react-router-dom";
 import { Lock, RefreshCw } from "lucide-react";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import { formatDateTimeLocal } from "../../utils/date";
 import { getErrorMessage } from "../../utils/errors";
+import { cx } from "../../utils/cx";
+import { unwrapApi } from "../../utils/apiData";
 
 import { sampleService, type Sample } from "../../services/samples";
 import { apiGet, apiPatch } from "../../services/api";
@@ -29,24 +31,6 @@ type ReagentReqStatus =
     | "cancelled"
     | string;
 
-// unwrap like other pages (handles {data: ...} nesting)
-function unwrapApi(res: any) {
-    let x = res?.data ?? res;
-    for (let i = 0; i < 5; i++) {
-        if (x && typeof x === "object" && "data" in x && (x as any).data != null) {
-            x = (x as any).data;
-            continue;
-        }
-        break;
-    }
-    return x;
-}
-
-// local UI helpers (no external ./ui import)
-function cx(...arr: Array<string | false | null | undefined>) {
-    return arr.filter(Boolean).join(" ");
-}
-
 // robust extractor (same as SamplesPage)
 const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
     const direct = s?.reagent_request_status ?? s?.reagentRequestStatus ?? null;
@@ -63,7 +47,6 @@ export const SampleDetailPage = () => {
     const { t } = useTranslation();
 
     const { id } = useParams<{ id: string }>();
-    const navigate = useNavigate();
     const location = useLocation();
     const { user } = useAuth();
 
@@ -154,6 +137,11 @@ export const SampleDetailPage = () => {
     }, [sample]);
 
     const qualityCoverDisabled = !isAnalyst;
+    const tabButtonClass = (isActive: boolean) =>
+        cx(
+            "px-4 py-2 rounded-xl text-sm font-semibold transition",
+            isActive ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
+        );
 
     // Keep user from landing on tab they can't access
     useEffect(() => {
@@ -352,42 +340,15 @@ export const SampleDetailPage = () => {
                         <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                             <div className="px-5 pt-5">
                                 <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-2xl p-1 flex-wrap">
-                                    <button
-                                        type="button"
-                                        className={cx(
-                                            "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                            tab === "summary"
-                                                ? "bg-white shadow-sm text-gray-900"
-                                                : "text-gray-600 hover:text-gray-800"
-                                        )}
-                                        onClick={() => setTab("summary")}
-                                    >
+                                    <button type="button" className={tabButtonClass(tab === "summary")} onClick={() => setTab("summary")}>
                                         {t("samples.pages.detail.tabs.summary")}
                                     </button>
 
-                                    <button
-                                        type="button"
-                                        className={cx(
-                                            "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                            tab === "sample"
-                                                ? "bg-white shadow-sm text-gray-900"
-                                                : "text-gray-600 hover:text-gray-800"
-                                        )}
-                                        onClick={() => setTab("sample")}
-                                    >
+                                    <button type="button" className={tabButtonClass(tab === "sample")} onClick={() => setTab("sample")}>
                                         {t("samples.pages.detail.tabs.sample")}
                                     </button>
 
-                                    <button
-                                        type="button"
-                                        className={cx(
-                                            "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                            tab === "workflow"
-                                                ? "bg-white shadow-sm text-gray-900"
-                                                : "text-gray-600 hover:text-gray-800"
-                                        )}
-                                        onClick={() => setTab("workflow")}
-                                    >
+                                    <button type="button" className={tabButtonClass(tab === "workflow")} onClick={() => setTab("workflow")}>
                                         {t("samples.pages.detail.tabs.workflow")}
                                     </button>
 
@@ -395,12 +356,7 @@ export const SampleDetailPage = () => {
                                     {canSeeTestsTab ? (
                                         <button
                                             type="button"
-                                            className={cx(
-                                                "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                                tab === "tests"
-                                                    ? "bg-white shadow-sm text-gray-900"
-                                                    : "text-gray-600 hover:text-gray-800"
-                                            )}
+                                            className={tabButtonClass(tab === "tests")}
                                             onClick={() => setTab("tests")}
                                             title={t("samples.pages.detail.tabs.tests")}
                                         >
@@ -423,12 +379,7 @@ export const SampleDetailPage = () => {
                                     {canSeeQualityCoverTab ? (
                                         <button
                                             type="button"
-                                            className={cx(
-                                                "px-4 py-2 rounded-xl text-sm font-semibold transition",
-                                                tab === "quality_cover"
-                                                    ? "bg-white shadow-sm text-gray-900"
-                                                    : "text-gray-600 hover:text-gray-800"
-                                            )}
+                                            className={tabButtonClass(tab === "quality_cover")}
                                             onClick={() => setTab("quality_cover")}
                                             title={
                                                 qualityCoverDisabled

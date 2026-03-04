@@ -6,6 +6,7 @@ import { ArrowLeft, Eye, FileText, RefreshCw } from "lucide-react";
 
 import { getErrorMessage } from "../../utils/errors";
 import { formatDateTimeLocal } from "../../utils/date";
+import { cx } from "../../utils/cx";
 
 import {
     fetchSampleArchiveDetail,
@@ -24,10 +25,6 @@ type RenderDoc = {
     pdfUrl?: string | null;
     reportId?: number | null;
 };
-
-function cx(...arr: Array<string | false | null | undefined>) {
-    return arr.filter(Boolean).join(" ");
-}
 
 function safeText(v: any, fallback = "—") {
     if (v === null || v === undefined) return fallback;
@@ -600,3 +597,4 @@ export function SampleArchiveDetailPage() {
         </div>
     );
 }
+
