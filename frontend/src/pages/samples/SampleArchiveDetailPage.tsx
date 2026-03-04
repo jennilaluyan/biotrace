@@ -1,7 +1,6 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\pages\samples\SampleArchiveDetailPage.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Eye, FileText, RefreshCw } from "lucide-react";
 
 import { getErrorMessage } from "../../utils/errors";
@@ -106,15 +105,11 @@ function normalizeFallbackDocs(
         });
     }
 
-    const reports = (((d as any)?.reports ?? []) as any[]) || [];
+    const reports = ((((d as any)?.reports ?? []) as any[]) || []) as any[];
     const latest = reports?.[0] ?? null;
 
     const reportId =
-        typeof latest?.report_id === "number"
-            ? (latest.report_id as number)
-            : typeof latestReportId === "number"
-                ? latestReportId
-                : null;
+        typeof latest?.report_id === "number" ? (latest.report_id as number) : typeof latestReportId === "number" ? latestReportId : null;
 
     if (reportId) {
         docs.push({
@@ -137,9 +132,10 @@ function normalizeFallbackDocs(
 export function SampleArchiveDetailPage() {
     const { t } = useTranslation();
 
-    const nav = useNavigate();
+    const navigate = useNavigate();
     const params = useParams();
-    const sampleId = Number((params as any).sampleId ?? (params as any).sample_id);
+
+    const sampleId = useMemo(() => Number((params as any).sampleId ?? (params as any).sample_id), [params]);
 
     const [data, setData] = useState<SampleArchiveDetail | null>(null);
     const [repoDocs, setRepoDocs] = useState<ReportDocumentRow[]>([]);
@@ -156,51 +152,67 @@ export function SampleArchiveDetailPage() {
     );
     const [previewOpen, setPreviewOpen] = useState(false);
 
-    async function load(opts?: { silent?: boolean }) {
-        try {
-            if (!opts?.silent) setLoading(true);
-            setError(null);
+    const goBack = useCallback(() => {
+        const idx = (window.history.state as any)?.idx ?? 0;
+        if (idx > 0) navigate(-1);
+        else navigate("/samples/archive", { replace: true });
+    }, [navigate]);
 
-            const res = await fetchSampleArchiveDetail(sampleId);
-            setData((res as any)?.data ?? null);
+    const load = useCallback(
+        async (opts?: { silent?: boolean }) => {
+            const silent = !!opts?.silent;
 
             try {
-                const docs = await listReportDocuments({ sampleId });
-                setRepoDocs(docs);
-                setRepoDocsError(null);
-            } catch (e) {
-                setRepoDocs([]);
-                setRepoDocsError(getErrorMessage(e));
-            }
-        } catch (e) {
-            setError(getErrorMessage(e) || t("samples.pages.archiveDetail.detailLoadError", { defaultValue: "Failed to load archive detail." }));
-        } finally {
-            if (!opts?.silent) setLoading(false);
-        }
-    }
+                if (!silent) setLoading(true);
+                setError(null);
 
-    const refresh = async () => {
+                const res = await fetchSampleArchiveDetail(sampleId);
+                setData((res as any)?.data ?? null);
+
+                try {
+                    const docs = await listReportDocuments({ sampleId });
+                    setRepoDocs(docs);
+                    setRepoDocsError(null);
+                } catch (e) {
+                    setRepoDocs([]);
+                    setRepoDocsError(getErrorMessage(e));
+                }
+            } catch (e) {
+                setData(null);
+                setRepoDocs([]);
+                setRepoDocsError(null);
+                setError(
+                    getErrorMessage(e) ||
+                    t("samples.pages.archiveDetail.detailLoadError", { defaultValue: "Failed to load archive detail." })
+                );
+            } finally {
+                if (!silent) setLoading(false);
+            }
+        },
+        [sampleId, t]
+    );
+
+    const refresh = useCallback(async () => {
         try {
             setPageRefreshing(true);
             await load({ silent: true });
         } finally {
             setPageRefreshing(false);
         }
-    };
+    }, [load]);
 
     useEffect(() => {
         if (!Number.isFinite(sampleId) || sampleId <= 0) {
             setError(t("invalidId", { defaultValue: "Invalid id." }));
             return;
         }
-        load();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sampleId]);
+        void load();
+    }, [load, sampleId, t]);
 
     const sample = (data as any)?.sample ?? null;
     const client = (data as any)?.client ?? null;
     const loo = (data as any)?.loo ?? null;
-    const reports = (((data as any)?.reports ?? []) as any[]) || [];
+    const reports = ((((data as any)?.reports ?? []) as any[]) || []) as any[];
     const latestReport = reports?.[0] ?? null;
 
     const latestReportId =
@@ -279,7 +291,10 @@ export function SampleArchiveDetailPage() {
             []) as any[];
 
     const openDocPreview = (doc: RenderDoc) => {
+        // Ensure only one modal is open at a time
         if (doc.kind === "report_preview" && doc.reportId) {
+            setPreviewOpen(false);
+            setPreviewPdfUrl(null);
             setPreviewReportId(doc.reportId);
             return;
         }
@@ -287,6 +302,7 @@ export function SampleArchiveDetailPage() {
         const url = String(doc.pdfUrl ?? "").trim();
         if (!url) return;
 
+        setPreviewReportId(null);
         setPreviewPdfUrl(url);
         setPreviewTitle(
             t("samples.pages.archiveDetail.previewDocTitle", {
@@ -299,20 +315,6 @@ export function SampleArchiveDetailPage() {
 
     return (
         <div className="min-h-[60vh]">
-            <div className="px-0 py-2">
-                <nav className="lims-breadcrumb">
-                    <Link to="/samples" className="lims-breadcrumb-link">
-                        {t("samplesPage.title", { defaultValue: "Samples" })}
-                    </Link>
-                    <span className="lims-breadcrumb-separator">›</span>
-                    <Link to="/samples/archive" className="lims-breadcrumb-link">
-                        {t("samples.pages.archive.titleShort", { defaultValue: "Archive" })}
-                    </Link>
-                    <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">{t("common.detail", { defaultValue: "Detail" })}</span>
-                </nav>
-            </div>
-
             <div className="lims-detail-shell">
                 {loading && <div className="text-sm text-gray-600">{t("loading", { defaultValue: "Loading…" })}</div>}
 
@@ -326,12 +328,13 @@ export function SampleArchiveDetailPage() {
                             <div className="flex items-start gap-3">
                                 <button
                                     type="button"
-                                    className="lims-icon-button"
-                                    onClick={() => nav(-1)}
+                                    onClick={goBack}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:translate-y-px transition"
                                     aria-label={t("back", { defaultValue: "Back" })}
                                     title={t("back", { defaultValue: "Back" })}
                                 >
                                     <ArrowLeft size={16} />
+                                    {t("back", { defaultValue: "Back" })}
                                 </button>
 
                                 <div>
@@ -380,7 +383,9 @@ export function SampleArchiveDetailPage() {
                                         {t("overview", { defaultValue: "Overview" })}
                                     </div>
                                     <div className="text-xs text-gray-500 mt-1">
-                                        {t("samples.pages.archiveDetail.overviewHint", { defaultValue: "Summary of the archived sample and final status." })}
+                                        {t("samples.pages.archiveDetail.overviewHint", {
+                                            defaultValue: "Summary of the archived sample and final status.",
+                                        })}
                                     </div>
                                 </div>
 
@@ -526,9 +531,14 @@ export function SampleArchiveDetailPage() {
                                     )}
 
                                     <div className="pt-2">
-                                        <Link className="text-sm text-gray-700 underline" to="/samples/archive">
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate("/samples/archive")}
+                                            className="mt-2 inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:translate-y-px transition"
+                                        >
+                                            <ArrowLeft size={16} />
                                             {t("samples.pages.archiveDetail.backToList", { defaultValue: "Back to Archive List" })}
-                                        </Link>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -541,7 +551,9 @@ export function SampleArchiveDetailPage() {
                                     {t("samples.pages.archiveDetail.timelineTitle", { defaultValue: "Workflow Timeline" })}
                                 </div>
                                 <div className="text-xs text-gray-500 mt-1">
-                                    {t("samples.pages.archiveDetail.timelineHint", { defaultValue: "Events derived from audit logs / timeline payload." })}
+                                    {t("samples.pages.archiveDetail.timelineHint", {
+                                        defaultValue: "Events derived from audit logs / timeline payload.",
+                                    })}
                                 </div>
                             </div>
 
@@ -579,11 +591,7 @@ export function SampleArchiveDetailPage() {
                 )}
             </div>
 
-            <ReportPreviewModal
-                open={previewReportId !== null}
-                reportId={previewReportId}
-                onClose={() => setPreviewReportId(null)}
-            />
+            <ReportPreviewModal open={previewReportId !== null} reportId={previewReportId} onClose={() => setPreviewReportId(null)} />
 
             <ReportPreviewModal
                 open={previewOpen}
@@ -597,4 +605,3 @@ export function SampleArchiveDetailPage() {
         </div>
     );
 }
-

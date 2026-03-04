@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useParams, useLocation } from "react-router-dom";
-import { Lock, RefreshCw } from "lucide-react";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
+import { ArrowLeft, Lock, RefreshCw } from "lucide-react";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
@@ -48,12 +48,20 @@ export const SampleDetailPage = () => {
 
     const { id } = useParams<{ id: string }>();
     const location = useLocation();
+    const navigate = useNavigate();
+
     const { user } = useAuth();
 
     const roleId = getUserRoleId(user);
     const roleLabel = getUserRoleLabel(user);
 
     const sampleId = Number(id);
+
+    const goBack = useCallback(() => {
+        const idx = (window.history.state as any)?.idx ?? 0;
+        if (idx > 0) navigate(-1);
+        else navigate("/samples", { replace: true });
+    }, [navigate]);
 
     /* ----------------------------- Derived auth ----------------------------- */
     const navReagentStatus = useMemo(() => {
@@ -137,6 +145,7 @@ export const SampleDetailPage = () => {
     }, [sample]);
 
     const qualityCoverDisabled = !isAnalyst;
+
     const tabButtonClass = (isActive: boolean) =>
         cx(
             "px-4 py-2 rounded-xl text-sm font-semibold transition",
@@ -151,64 +160,77 @@ export const SampleDetailPage = () => {
     }, [tab, canSeeTestsTab, canSeeQualityCoverTab]);
 
     /* ----------------------------- Data Loaders ----------------------------- */
-    const tryFetchReagentStatusByLoo = async (loId: number) => {
+    const tryFetchReagentStatusByLoo = useCallback(async (loId: number) => {
         try {
+            type ReagentByLooPayload = {
+                request?: unknown;
+                reagent_request?: unknown;
+                reagentRequest?: unknown;
+                reagentRequestLatest?: unknown;
+                reagent_request_status?: unknown;
+                reagentRequestStatus?: unknown;
+            };
+
             const res = await apiGet<any>(`/v1/reagents/requests/loo/${loId}`);
-            const payload = unwrapApi(res);
+            const payload = (unwrapApi(res) as ReagentByLooPayload | null) ?? null;
 
             const status =
-                getReagentRequestStatus(payload) ??
-                getReagentRequestStatus(payload?.request) ??
-                getReagentRequestStatus(payload?.reagent_request) ??
+                getReagentRequestStatus(payload as any) ??
+                getReagentRequestStatus(payload?.request as any) ??
+                getReagentRequestStatus(payload?.reagent_request as any) ??
                 null;
 
             return status ? String(status).toLowerCase() : null;
         } catch {
             return null;
         }
-    };
+    }, []);
 
-    const loadSample = async (opts?: { silent?: boolean }) => {
-        if (!canViewSamples) {
-            setLoading(false);
-            return;
-        }
-        if (!sampleId || Number.isNaN(sampleId)) {
-            setError(t("samples.pages.detail.invalidUrl", "Invalid sample URL."));
-            setLoading(false);
-            return;
-        }
-
-        const silent = !!opts?.silent;
-
-        try {
-            if (!silent) setLoading(true);
-            setError(null);
-
-            const data = await sampleService.getById(sampleId);
-
-            let rr = getReagentRequestStatus(data as any);
-
-            const loId = Number((data as any)?.lo_id ?? 0);
-            if (!rr && loId) {
-                const fromLoo = await tryFetchReagentStatusByLoo(loId);
-                if (fromLoo) rr = fromLoo;
+    const loadSample = useCallback(
+        async (opts?: { silent?: boolean }) => {
+            if (!canViewSamples) {
+                setLoading(false);
+                return;
+            }
+            if (!sampleId || Number.isNaN(sampleId)) {
+                setError(t("samples.pages.detail.invalidUrl", "Invalid sample URL."));
+                setLoading(false);
+                return;
             }
 
-            if (!rr && navReagentStatus) rr = navReagentStatus;
+            const silent = !!opts?.silent;
 
-            const merged: any = { ...(data as any) };
-            if (rr && !merged.reagent_request_status) merged.reagent_request_status = rr;
+            try {
+                if (!silent) setLoading(true);
+                setError(null);
 
-            setSample(merged as Sample);
-        } catch (err: any) {
-            setError(getErrorMessage(err) || t("samples.pages.detail.loadFailed", "Failed to load sample detail."));
-        } finally {
-            if (!silent) setLoading(false);
-        }
-    };
+                const data = await sampleService.getById(sampleId);
 
-    const loadDocs = async () => {
+                let rr = getReagentRequestStatus(data as any);
+
+                const loId = Number((data as any)?.lo_id ?? 0);
+                if (!rr && loId) {
+                    const fromLoo = await tryFetchReagentStatusByLoo(loId);
+                    if (fromLoo) rr = fromLoo;
+                }
+
+                if (!rr && navReagentStatus) rr = navReagentStatus;
+
+                const merged: any = { ...(data as any) };
+                if (rr && !merged.reagent_request_status) merged.reagent_request_status = rr;
+
+                setSample(merged as Sample);
+            } catch (err: any) {
+                setError(getErrorMessage(err) || t("samples.pages.detail.loadFailed", "Failed to load sample detail."));
+                setSample(null);
+            } finally {
+                if (!silent) setLoading(false);
+            }
+        },
+        [canViewSamples, navReagentStatus, sampleId, t, tryFetchReagentStatusByLoo]
+    );
+
+    const loadDocs = useCallback(async () => {
         if (!sampleId || Number.isNaN(sampleId)) return;
 
         try {
@@ -225,9 +247,9 @@ export const SampleDetailPage = () => {
         } finally {
             setDocsLoading(false);
         }
-    };
+    }, [sampleId, t]);
 
-    const refreshAll = async () => {
+    const refreshAll = useCallback(async () => {
         if (!sampleId || Number.isNaN(sampleId)) return;
         try {
             setPageRefreshing(true);
@@ -236,17 +258,17 @@ export const SampleDetailPage = () => {
         } finally {
             setPageRefreshing(false);
         }
-    };
+    }, [loadDocs, loadSample, sampleId]);
 
     /* ----------------------------- Effects ----------------------------- */
     useEffect(() => {
-        loadSample();
+        void loadSample();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canViewSamples, sampleId]);
+    }, [loadSample]);
 
     useEffect(() => {
         if (!loading && !error && sample) {
-            loadDocs();
+            void loadDocs();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sampleId, loading, error, sample]);
@@ -259,9 +281,15 @@ export const SampleDetailPage = () => {
                 <p className="text-sm text-gray-600 text-center max-w-md">
                     {t("errors.accessDeniedBodyWithRole", { role: roleLabel })}
                 </p>
-                <Link to="/samples" className="mt-4 lims-btn-primary">
-                    {t("samples.pages.detail.backToSamples", "Back to samples")}
-                </Link>
+
+                <button
+                    type="button"
+                    onClick={goBack}
+                    className="mt-4 inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:translate-y-px transition"
+                >
+                    <ArrowLeft size={16} />
+                    {t("back", "Back")}
+                </button>
             </div>
         );
     }
@@ -271,19 +299,8 @@ export const SampleDetailPage = () => {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Breadcrumb (old design) */}
-            <div className="px-0 py-2">
-                <nav className="lims-breadcrumb">
-                    <Link to="/samples" className="lims-breadcrumb-link">
-                        {t("samplesPage.title")}
-                    </Link>
-                    <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">{t("samples.pages.detail.title")}</span>
-                </nav>
-            </div>
-
             <div className="lims-detail-shell">
-                {/* Loading (old layout, new spinner) */}
+                {/* Loading */}
                 {loading && (
                     <div className="flex items-center gap-2 text-sm text-gray-600">
                         <RefreshCw size={16} className="animate-spin text-primary" />
@@ -298,27 +315,39 @@ export const SampleDetailPage = () => {
 
                 {!loading && !error && sample && (
                     <div className="space-y-6">
-                        {/* Header (old design, new copy) */}
+                        {/* Header */}
                         <div className="flex items-start justify-between gap-3 flex-wrap">
-                            <div>
-                                <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                                    {t("samples.pages.detail.title")}
-                                </h1>
+                            <div className="flex items-start gap-3">
+                                <button
+                                    type="button"
+                                    onClick={goBack}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:translate-y-px transition"
+                                    aria-label={t("back", "Back")}
+                                    title={t("back", "Back")}
+                                >
+                                    <ArrowLeft size={16} />
+                                    {t("back", "Back")}
+                                </button>
 
-                                <div className="mt-1 flex items-center gap-2 flex-wrap">
-                                    <span className="text-xs text-gray-500">{t("samples.info.labCode")}</span>
+                                <div>
+                                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                                        {t("samples.pages.detail.title")}
+                                    </h1>
 
-                                    <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
-                                        {headerCode}
-                                    </span>
-
-                                    {(sample as any)?.updated_at ? (
-                                        <span className="text-[11px] text-gray-500">
-                                            {t("common.updatedAt", "updated {{at}}", {
-                                                at: formatDateTimeLocal((sample as any)?.updated_at),
-                                            })}
+                                    <div className="mt-1 flex items-center gap-2 flex-wrap">
+                                        <span className="text-xs text-gray-500">{t("samples.info.labCode")}</span>
+                                        <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
+                                            {headerCode}
                                         </span>
-                                    ) : null}
+
+                                        {(sample as any)?.updated_at ? (
+                                            <span className="text-[11px] text-gray-500">
+                                                {t("common.updatedAt", "updated {{at}}", {
+                                                    at: formatDateTimeLocal((sample as any)?.updated_at),
+                                                })}
+                                            </span>
+                                        ) : null}
+                                    </div>
                                 </div>
                             </div>
 
@@ -336,7 +365,7 @@ export const SampleDetailPage = () => {
                             </div>
                         </div>
 
-                        {/* Tabs (old design) */}
+                        {/* Tabs */}
                         <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                             <div className="px-5 pt-5">
                                 <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-2xl p-1 flex-wrap">
@@ -365,10 +394,7 @@ export const SampleDetailPage = () => {
                                     ) : (
                                         <span
                                             className="px-4 py-2 text-xs font-semibold rounded-xl border border-red-200 bg-red-50 text-red-700 inline-flex items-center gap-2"
-                                            title={t(
-                                                "samples.pages.detail.hints.testsLocked",
-                                                "Locked until Reagent Request is approved."
-                                            )}
+                                            title={t("samples.pages.detail.hints.testsLocked", "Locked until Reagent Request is approved.")}
                                         >
                                             <Lock size={14} />
                                             {t("samples.pages.detail.tabs.tests")}
@@ -383,10 +409,7 @@ export const SampleDetailPage = () => {
                                             onClick={() => setTab("quality_cover")}
                                             title={
                                                 qualityCoverDisabled
-                                                    ? t(
-                                                        "samples.pages.detail.hints.qualityCoverReadOnly",
-                                                        "Read-only for your role."
-                                                    )
+                                                    ? t("samples.pages.detail.hints.qualityCoverReadOnly", "Read-only for your role.")
                                                     : t("samples.pages.detail.tabs.qualityCover")
                                             }
                                         >
@@ -395,10 +418,7 @@ export const SampleDetailPage = () => {
                                     ) : (
                                         <span
                                             className="px-4 py-2 text-xs font-semibold rounded-xl border border-red-200 bg-red-50 text-red-700 inline-flex items-center gap-2"
-                                            title={t(
-                                                "samples.pages.detail.hints.qualityCoverLocked",
-                                                "Unlocks after final testing stage."
-                                            )}
+                                            title={t("samples.pages.detail.hints.qualityCoverLocked", "Unlocks after final testing stage.")}
                                         >
                                             <Lock size={14} />
                                             {t("samples.pages.detail.tabs.qualityCover")}
@@ -411,7 +431,6 @@ export const SampleDetailPage = () => {
                                 {tab === "summary" && (
                                     <div className="space-y-6">
                                         <SampleStatusCard sample={sample} reagentRequestStatus={reagentRequestStatus} />
-
                                         <SampleDocumentsCard docs={docs} loading={docsLoading} error={docsError} />
                                     </div>
                                 )}
@@ -433,8 +452,8 @@ export const SampleDetailPage = () => {
                                         sampleId={sampleId}
                                         sample={sample}
                                         onQualityCoverUnlocked={async () => {
-                                            await refreshAll(); // ✅ ensure gate fields updated
-                                            setTab("quality_cover"); // ✅ then open QC tab
+                                            await refreshAll();
+                                            setTab("quality_cover");
                                         }}
                                     />
                                 )}

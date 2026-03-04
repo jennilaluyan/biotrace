@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
     ArrowLeft,
@@ -11,7 +11,8 @@ import {
     Phone,
     User,
     ShieldAlert,
-    RefreshCw
+    RefreshCw,
+    Link
 } from "lucide-react";
 
 import { clientService, Client } from "../../services/clients";
@@ -87,6 +88,12 @@ export const ClientDetailPage = () => {
 
     const initials = useMemo(() => initialsFromName(client?.name), [client?.name]);
 
+    const goBack = useCallback(() => {
+        const idx = (window.history.state as any)?.idx ?? 0;
+        if (idx > 0) navigate(-1);
+        else navigate("/clients", { replace: true });
+    }, [navigate]);
+
     if (!canViewClients) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center text-center px-4">
@@ -97,10 +104,14 @@ export const ClientDetailPage = () => {
                 <p className="text-sm text-gray-600 max-w-md">
                     {t("clients.forbidden.bodyClients", "Your role ({{role}}) is not allowed to access the Clients module.", { role: roleLabel })}
                 </p>
-                <Link to="/clients" className="mt-4 lims-btn-primary inline-flex items-center gap-2">
+                <button
+                    type="button"
+                    onClick={goBack}
+                    className="mt-4 inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:translate-y-px transition"
+                >
                     <ArrowLeft className="h-4 w-4" />
-                    {t("clients.forbidden.backToClients", "Back to clients")}
-                </Link>
+                    {t("back", "Back")}
+                </button>
             </div>
         );
     }
@@ -110,10 +121,14 @@ export const ClientDetailPage = () => {
             {/* Top nav */}
             <div className="px-0 py-2">
                 <nav className="lims-breadcrumb">
-                    <Link to="/clients" className="lims-breadcrumb-link inline-flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={goBack}
+                        className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:translate-y-px transition"
+                    >
                         <ArrowLeft size={16} />
-                        {t("clients.detail.breadcrumbClients", "Clients")}
-                    </Link>
+                        {t("back", "Back")}
+                    </button>
                     <span className="lims-breadcrumb-separator">›</span>
                     <span className="lims-breadcrumb-current">{t("clients.detail.breadcrumbCurrent", "Client detail")}</span>
                 </nav>

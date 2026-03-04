@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { ArrowLeft, RefreshCw } from "lucide-react";
@@ -10,6 +10,7 @@ import { ROLE_ID, getUserRoleId, getUserRoleLabel } from "../../utils/roles";
 import { formatDateTimeLocal } from "../../utils/date";
 import { sampleService, type Sample } from "../../services/samples";
 import { apiGet, apiPost, apiPatch } from "../../services/api";
+import { cx } from "../../utils/cx";
 
 import {
     approveSampleIdChange,
@@ -26,10 +27,6 @@ import FinalizeApprovedSampleIdModal from "../../components/samples/FinalizeAppr
 
 import { SampleRequestInfoTab } from "../../components/samples/requests/SampleRequestInfoTab";
 import { SampleRequestWorkflowTab } from "../../components/samples/requests/SampleRequestWorkflowTab";
-
-function cx(...arr: Array<string | false | null | undefined>) {
-    return arr.filter(Boolean).join(" ");
-}
 
 function safeApiMessage(err: any, fallback: string) {
     const data = err?.response?.data ?? err?.data ?? null;
@@ -119,7 +116,6 @@ function requestStatusLabel(t: TFunction, raw?: string | null, locale = "en") {
 
     if (!key) return fallback;
 
-    // paksa output tetap lower-case + rapih
     return wordsFromToken(t(key, { defaultValue: fallback }));
 }
 
@@ -302,13 +298,14 @@ export default function SampleRequestDetailPage() {
     const { t, i18n } = useTranslation();
     const locale = i18n.language || "en";
 
+    const navigate = useNavigate();
     const { id } = useParams<{ id: string }>();
     const { user } = useAuth();
 
     const requestId = Number(id);
 
     const roleId = useMemo(() => resolveRoleIdFromUser(user), [user]);
-    const roleLabel = useMemo(() => getUserRoleLabel(roleId), [roleId]);
+    const roleLabel = useMemo(() => getUserRoleLabel(user), [user]);
 
     const canView = useMemo(
         () =>
@@ -318,6 +315,12 @@ export default function SampleRequestDetailPage() {
             roleId === ROLE_ID.LAB_HEAD,
         [roleId]
     );
+
+    const goBack = useCallback(() => {
+        const idx = (window.history.state as any)?.idx ?? 0;
+        if (idx > 0) navigate(-1);
+        else navigate("/samples/requests", { replace: true });
+    }, [navigate]);
 
     const [workflowLogs, setWorkflowLogs] = useState<any[] | null>(null);
     const [tab, setTab] = useState<"info" | "workflow">("info");
@@ -365,63 +368,61 @@ export default function SampleRequestDetailPage() {
         return toSidRow(sample as any, sidRaw);
     }, [sample, sidRaw]);
 
-    const load = async (opts?: { silent?: boolean }) => {
-        if (!canView) {
-            setLoading(false);
-            return;
-        }
+    const load = useCallback(
+        async (opts?: { silent?: boolean }) => {
+            if (!canView) {
+                setLoading(false);
+                return;
+            }
 
-        if (!Number.isFinite(requestId) || requestId <= 0) {
-            setError(t("samples.pages.requestDetail.errors.invalidUrl", { defaultValue: "Invalid request URL." }));
-            setLoading(false);
-            return;
-        }
+            if (!Number.isFinite(requestId) || requestId <= 0) {
+                setError(t("samples.pages.requestDetail.errors.invalidUrl", { defaultValue: "Invalid request URL." }));
+                setLoading(false);
+                return;
+            }
 
-        const silent = !!opts?.silent;
-
-        try {
-            if (!silent) setLoading(true);
-            setError(null);
-
-            const data = await sampleService.getById(requestId);
-            setSample(data);
+            const silent = !!opts?.silent;
 
             try {
-                const res = await apiGet<any>(`/v1/samples/${requestId}/workflow-logs`);
-                setWorkflowLogs(extractWorkflowLogs(res) ?? []);
-            } catch {
-                setWorkflowLogs(null);
+                if (!silent) setLoading(true);
+                setError(null);
+
+                const data = await sampleService.getById(requestId);
+                setSample(data);
+
+                try {
+                    const res = await apiGet<any>(`/v1/samples/${requestId}/workflow-logs`);
+                    setWorkflowLogs(extractWorkflowLogs(res) ?? []);
+                } catch {
+                    setWorkflowLogs(null);
+                }
+            } catch (err: any) {
+                setError(
+                    safeApiMessage(
+                        err,
+                        t("samples.pages.requestDetail.errors.loadFailed", { defaultValue: "Failed to load request detail." })
+                    )
+                );
+            } finally {
+                if (!silent) setLoading(false);
             }
-        } catch (err: any) {
-            setError(
-                safeApiMessage(
-                    err,
-                    t("samples.pages.requestDetail.errors.loadFailed", { defaultValue: "Failed to load request detail." })
-                )
-            );
-        } finally {
-            if (!silent) setLoading(false);
-        }
-    };
+        },
+        [canView, requestId, t]
+    );
 
     useEffect(() => {
-        load();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canView, requestId]);
+        void load();
+    }, [load]);
 
-    const refresh = async () => {
+    const refresh = useCallback(async () => {
         try {
             setPageRefreshing(true);
             await load({ silent: true });
         } finally {
             setPageRefreshing(false);
         }
-    };
+    }, [load]);
 
-    /**
-     * Admin “Accept/Approve” wajib lewat modal (pilih metode uji).
-     * Backend tetap melakukan authorization & validasi.
-     */
     const openAcceptModal = () => {
         if (!Number.isFinite(requestId) || requestId <= 0) return;
         setWfError(null);
@@ -494,7 +495,6 @@ export default function SampleRequestDetailPage() {
 
         let row = sidRow;
 
-        // Fallback: fetch latest change request if not included in sample detail
         if (!row && Number.isFinite(requestId) && requestId > 0) {
             try {
                 const fetched = await getLatestSampleIdChangeBySampleId(requestId);
@@ -508,7 +508,9 @@ export default function SampleRequestDetailPage() {
         }
 
         if (!row) {
-            setWfError(t("samples.pages.requestDetail.errors.sampleIdChangeMissing", { defaultValue: "Sample ID change detail is missing." }));
+            setWfError(
+                t("samples.pages.requestDetail.errors.sampleIdChangeMissing", { defaultValue: "Sample ID change detail is missing." })
+            );
             return;
         }
 
@@ -523,30 +525,21 @@ export default function SampleRequestDetailPage() {
                 <p className="text-sm text-gray-600 mb-6 text-center max-w-md">
                     {t("errors.accessDeniedBodyWithRole", { role: roleLabel })}
                 </p>
-                <Link to="/samples/requests" className="mt-4 lims-btn-primary">
-                    {t("samples.pages.requestDetail.backToList", { defaultValue: "Back to Sample Requests" })}
-                </Link>
+
+                <button
+                    type="button"
+                    onClick={goBack}
+                    className="mt-2 inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:translate-y-px transition"
+                >
+                    <ArrowLeft size={16} />
+                    {t("back", { defaultValue: "Back" })}
+                </button>
             </div>
         );
     }
 
     return (
         <div className="min-h-[60vh]">
-            <div className="px-0 py-2">
-                <nav className="lims-breadcrumb">
-                    <span className="lims-breadcrumb-icon">
-                        <ArrowLeft className="h-4 w-4" />
-                    </span>
-                    <Link to="/samples/requests" className="lims-breadcrumb-link">
-                        {t("samples.pages.requestDetail.breadcrumbList", { defaultValue: "Sample Requests" })}
-                    </Link>
-                    <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">
-                        {t("samples.pages.requestDetail.breadcrumbDetail", { defaultValue: "Detail" })}
-                    </span>
-                </nav>
-            </div>
-
             <div className="lims-detail-shell">
                 {loading ? (
                     <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -562,39 +555,52 @@ export default function SampleRequestDetailPage() {
                 {!loading && !error && sample ? (
                     <div className="space-y-6">
                         <div className="flex items-start justify-between gap-3 flex-wrap">
-                            <div>
-                                <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                                    {t("samples.pages.requestDetail.title", {
-                                        id: displayRequestId,
-                                        defaultValue: `Request #${displayRequestId}`,
-                                    })}
-                                </h1>
+                            <div className="flex items-start gap-3">
+                                <button
+                                    type="button"
+                                    onClick={goBack}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:translate-y-px transition"
+                                    aria-label={t("back", { defaultValue: "Back" })}
+                                    title={t("back", { defaultValue: "Back" })}
+                                >
+                                    <ArrowLeft size={16} />
+                                    {t("back", { defaultValue: "Back" })}
+                                </button>
 
-                                <div className="text-sm text-gray-600 mt-1 flex items-center gap-2 flex-wrap">
-                                    <span className="text-xs text-gray-500">{t("status")}</span>
-                                    <StatusPill value={(sample as any)?.request_status ?? "-"} t={t} locale={locale} />
+                                <div>
+                                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                                        {t("samples.pages.requestDetail.title", {
+                                            id: displayRequestId,
+                                            defaultValue: `Request #${displayRequestId}`,
+                                        })}
+                                    </h1>
 
-                                    {verifiedAt ? (
-                                        <>
-                                            <span className="text-gray-400">·</span>
-                                            <span className="text-xs text-gray-500">
-                                                {t("samples.pages.requestDetail.verified", { defaultValue: "Verified" })}
-                                            </span>
-                                            <span className="text-xs font-semibold text-emerald-700">{formatDateTimeLocal(verifiedAt)}</span>
-                                        </>
-                                    ) : null}
+                                    <div className="text-sm text-gray-600 mt-1 flex items-center gap-2 flex-wrap">
+                                        <span className="text-xs text-gray-500">{t("status")}</span>
+                                        <StatusPill value={(sample as any)?.request_status ?? "-"} t={t} locale={locale} />
 
-                                    {labSampleCode ? (
-                                        <>
-                                            <span className="text-gray-400">·</span>
-                                            <span className="text-xs text-gray-500">
-                                                {t("samples.pages.requestDetail.labCode", { defaultValue: "Lab Code" })}
-                                            </span>
-                                            <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
-                                                {labSampleCode}
-                                            </span>
-                                        </>
-                                    ) : null}
+                                        {verifiedAt ? (
+                                            <>
+                                                <span className="text-gray-400">·</span>
+                                                <span className="text-xs text-gray-500">
+                                                    {t("samples.pages.requestDetail.verified", { defaultValue: "Verified" })}
+                                                </span>
+                                                <span className="text-xs font-semibold text-emerald-700">{formatDateTimeLocal(verifiedAt)}</span>
+                                            </>
+                                        ) : null}
+
+                                        {labSampleCode ? (
+                                            <>
+                                                <span className="text-gray-400">·</span>
+                                                <span className="text-xs text-gray-500">
+                                                    {t("samples.pages.requestDetail.labCode", { defaultValue: "Lab Code" })}
+                                                </span>
+                                                <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
+                                                    {labSampleCode}
+                                                </span>
+                                            </>
+                                        ) : null}
+                                    </div>
                                 </div>
                             </div>
 
@@ -802,7 +808,6 @@ export default function SampleRequestDetailPage() {
                             }}
                         />
 
-                        {/* Accept/Approve -> wajib pilih metode uji */}
                         <UpdateRequestStatusModal
                             open={acceptModalOpen}
                             sampleId={requestId}
@@ -815,7 +820,6 @@ export default function SampleRequestDetailPage() {
                             }}
                         />
 
-                        {/* Return -> wajib note */}
                         <UpdateRequestStatusModal
                             open={returnModalOpen}
                             sampleId={requestId}

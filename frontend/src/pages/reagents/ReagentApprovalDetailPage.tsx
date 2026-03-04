@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
     AlertTriangle,
     ArrowLeft,
@@ -69,7 +69,6 @@ async function fetchLooDetailBestEffort(loId: number): Promise<LooDetail | null>
         } catch (e: any) {
             const status = getHttpStatus(e);
             if (status === 404) continue;
-            continue;
         }
     }
 
@@ -80,10 +79,10 @@ export default function ReagentApprovalDetailPage() {
     const { t } = useTranslation();
 
     const params = useParams();
-    const nav = useNavigate();
+    const navigate = useNavigate();
 
     // Route detail: /reagents/approvals/loo/:loId
-    const loId = Number((params as any).loId);
+    const loId = useMemo(() => Number((params as any).loId), [params]);
 
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState<string | null>(null);
@@ -101,24 +100,48 @@ export default function ReagentApprovalDetailPage() {
     const [decisionMode, setDecisionMode] = useState<"approve" | "reject">("approve");
     const [busy, setBusy] = useState(false);
 
-    function flash(msg: string) {
-        setSuccess(msg);
-        window.setTimeout(() => setSuccess(null), 2500);
-    }
+    const flashTimerRef = useRef<number | null>(null);
 
-    const statusLabel = (status?: string | null) => {
-        const s = String(status ?? "").toLowerCase();
-        const map: Record<string, string> = {
-            draft: t("reagents.status.draft"),
-            submitted: t("reagents.status.submitted"),
-            approved: t("reagents.status.approved"),
-            rejected: t("reagents.status.rejected"),
-            denied: t("reagents.status.rejected"),
-        };
-        return map[s] ?? (status ? String(status) : "—");
+    const clearFlashTimer = () => {
+        if (flashTimerRef.current) {
+            window.clearTimeout(flashTimerRef.current);
+            flashTimerRef.current = null;
+        }
     };
 
-    async function load() {
+    const flash = useCallback((msg: string) => {
+        clearFlashTimer();
+        setSuccess(msg);
+        flashTimerRef.current = window.setTimeout(() => setSuccess(null), 2500);
+    }, []);
+
+    useEffect(() => {
+        return () => clearFlashTimer();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const statusLabel = useCallback(
+        (status?: string | null) => {
+            const s = String(status ?? "").toLowerCase();
+            const map: Record<string, string> = {
+                draft: t("reagents.status.draft"),
+                submitted: t("reagents.status.submitted"),
+                approved: t("reagents.status.approved"),
+                rejected: t("reagents.status.rejected"),
+                denied: t("reagents.status.rejected"),
+            };
+            return map[s] ?? (status ? String(status) : "—");
+        },
+        [t]
+    );
+
+    const goBack = useCallback(() => {
+        const idx = (window.history.state as any)?.idx ?? 0;
+        if (idx > 0) navigate(-1);
+        else navigate("/reagents/approvals", { replace: true });
+    }, [navigate]);
+
+    const load = useCallback(async () => {
         if (!Number.isFinite(loId) || loId <= 0) return;
 
         setLoading(true);
@@ -128,10 +151,17 @@ export default function ReagentApprovalDetailPage() {
 
         // 1) REQUIRED: reagent request detail
         try {
-            const res = await getReagentRequestByLoo(loId);
-            const payload = unwrapApi(res);
+            type ReagentApprovalPayload = {
+                request?: ReagentRequestRow | null;
+                reagent_request?: ReagentRequestRow | null;
+                items?: ReagentRequestItemRow[] | null;
+                bookings?: EquipmentBookingRow[] | null;
+            };
 
-            const rr = payload?.request ?? null;
+            const res = await getReagentRequestByLoo(loId);
+            const payload = (unwrapApi(res) as ReagentApprovalPayload | null) ?? null;
+
+            const rr = payload?.request ?? payload?.reagent_request ?? null;
             const it = payload?.items ?? [];
             const bk = payload?.bookings ?? [];
 
@@ -163,12 +193,11 @@ export default function ReagentApprovalDetailPage() {
         } finally {
             setLoading(false);
         }
-    }
+    }, [loId, t]);
 
     useEffect(() => {
-        load();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [loId]);
+        void load();
+    }, [load]);
 
     const looNumber = useMemo(() => {
         return (loo as any)?.number ?? (request as any)?.loo_number ?? (loId > 0 ? `LOO #${loId}` : "LOO");
@@ -185,46 +214,49 @@ export default function ReagentApprovalDetailPage() {
         return (loo as any)?.client?.name ?? (request as any)?.client_name ?? null;
     }, [loo, request]);
 
-    function openApprove() {
+    const openApprove = () => {
         setDecisionMode("approve");
         setModalOpen(true);
-    }
+    };
 
-    function openReject() {
+    const openReject = () => {
         setDecisionMode("reject");
         setModalOpen(true);
-    }
+    };
 
-    async function confirmDecision(rejectNote?: string) {
-        if (!request?.reagent_request_id) return;
+    const confirmDecision = useCallback(
+        async (rejectNote?: string) => {
+            if (!request?.reagent_request_id) return;
 
-        setBusy(true);
-        setErr(null);
-        setSuccess(null);
+            setBusy(true);
+            setErr(null);
+            setSuccess(null);
 
-        try {
-            if (decisionMode === "approve") {
-                await approveReagentRequest(request.reagent_request_id);
-                flash(t("reagents.approvals.detail.flashApproved"));
-            } else {
-                const note = String(rejectNote ?? "").trim();
-                if (note.length < 3) {
-                    setErr(t("reagents.errors.rejectNoteMin"));
-                    setBusy(false);
-                    return;
+            try {
+                if (decisionMode === "approve") {
+                    await approveReagentRequest(request.reagent_request_id);
+                    flash(t("reagents.approvals.detail.flashApproved"));
+                } else {
+                    const note = String(rejectNote ?? "").trim();
+                    if (note.length < 3) {
+                        setErr(t("reagents.errors.rejectNoteMin"));
+                        setBusy(false);
+                        return;
+                    }
+                    await rejectReagentRequest(request.reagent_request_id, note);
+                    flash(t("reagents.approvals.detail.flashRejected"));
                 }
-                await rejectReagentRequest(request.reagent_request_id, note);
-                flash(t("reagents.approvals.detail.flashRejected"));
-            }
 
-            setModalOpen(false);
-            await load();
-        } catch (e: any) {
-            setErr(getErrorMessage(e, t("reagents.errors.actionFailed", { action: decisionMode })));
-        } finally {
-            setBusy(false);
-        }
-    }
+                setModalOpen(false);
+                await load();
+            } catch (e: any) {
+                setErr(getErrorMessage(e, t("reagents.errors.actionFailed", { action: decisionMode })));
+            } finally {
+                setBusy(false);
+            }
+        },
+        [decisionMode, flash, load, request?.reagent_request_id, t]
+    );
 
     if (!Number.isFinite(loId) || loId <= 0) {
         return (
@@ -243,18 +275,6 @@ export default function ReagentApprovalDetailPage() {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Breadcrumb */}
-            <div className="px-0 py-2">
-                <nav className="lims-breadcrumb">
-                    <Link to="/reagents/approvals" className="lims-breadcrumb-link inline-flex items-center gap-2">
-                        <ArrowLeft size={16} />
-                        {t("reagents.approvals.breadcrumb.inbox")}
-                    </Link>
-                    <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">{looNumber}</span>
-                </nav>
-            </div>
-
             <div className="lims-detail-shell">
                 {/* Header */}
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -298,9 +318,7 @@ export default function ReagentApprovalDetailPage() {
                             </span>
 
                             {!canAct && requestStatusRaw ? (
-                                <span className="text-xs text-gray-500">
-                                    • {t("reagents.approvals.detail.actionsOnlyWhenSubmitted")}
-                                </span>
+                                <span className="text-xs text-gray-500">• {t("reagents.approvals.detail.actionsOnlyWhenSubmitted")}</span>
                             ) : null}
                         </div>
                     </div>
@@ -308,8 +326,8 @@ export default function ReagentApprovalDetailPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                         <button
                             type="button"
-                            onClick={() => nav(-1)}
-                            className="btn-outline inline-flex items-center gap-2"
+                            onClick={goBack}
+                            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:translate-y-px transition"
                             title={t("back")}
                         >
                             <ArrowLeft size={16} />
@@ -331,9 +349,7 @@ export default function ReagentApprovalDetailPage() {
                             type="button"
                             className={cx(
                                 "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                                !canAct || busy
-                                    ? "bg-gray-200 text-gray-500 cursor-not-allowed"
-                                    : "bg-emerald-600 text-white hover:opacity-95"
+                                !canAct || busy ? "bg-gray-200 text-gray-500 cursor-not-allowed" : "bg-emerald-600 text-white hover:opacity-95"
                             )}
                             disabled={!canAct || busy}
                             onClick={openApprove}
@@ -347,9 +363,7 @@ export default function ReagentApprovalDetailPage() {
                             type="button"
                             className={cx(
                                 "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                                !canAct || busy
-                                    ? "bg-gray-200 text-gray-500 cursor-not-allowed"
-                                    : "bg-rose-600 text-white hover:opacity-95"
+                                !canAct || busy ? "bg-gray-200 text-gray-500 cursor-not-allowed" : "bg-rose-600 text-white hover:opacity-95"
                             )}
                             disabled={!canAct || busy}
                             onClick={openReject}
@@ -408,9 +422,7 @@ export default function ReagentApprovalDetailPage() {
                                 </div>
                             ) : null}
 
-                            <div className="text-sm font-semibold text-gray-900 mb-2">
-                                {t("reagents.approvals.detail.samplesTitle")}
-                            </div>
+                            <div className="text-sm font-semibold text-gray-900 mb-2">{t("reagents.approvals.detail.samplesTitle")}</div>
 
                             {loo?.items?.length ? (
                                 <div className="space-y-2">
@@ -420,10 +432,7 @@ export default function ReagentApprovalDetailPage() {
                                                 {it.lab_sample_code ?? it.sample?.lab_sample_code ?? "—"}
                                             </div>
                                             <div className="text-xs text-gray-600">
-                                                sample_id:{" "}
-                                                <span className="font-semibold">
-                                                    {it.sample_id ?? it.sample?.sample_id ?? "—"}
-                                                </span>
+                                                sample_id: <span className="font-semibold">{it.sample_id ?? it.sample?.sample_id ?? "—"}</span>
                                             </div>
                                         </div>
                                     ))}
@@ -439,40 +448,26 @@ export default function ReagentApprovalDetailPage() {
                         <div className="border-b border-gray-100 px-5 py-4 bg-gray-50">
                             <div className="font-bold text-gray-900">{t("reagents.approvals.detail.cards.requestContent")}</div>
                             <div className="mt-1 text-xs text-gray-600">
-                                {t("reagents.approvals.detail.itemsCount")}:{" "}
-                                <span className="font-semibold">{items.length}</span> •{" "}
-                                {t("reagents.approvals.detail.bookingsCount")}:{" "}
-                                <span className="font-semibold">{bookings.length}</span>
+                                {t("reagents.approvals.detail.itemsCount")}: <span className="font-semibold">{items.length}</span> •{" "}
+                                {t("reagents.approvals.detail.bookingsCount")}: <span className="font-semibold">{bookings.length}</span>
                             </div>
                         </div>
 
                         <div className="p-5 space-y-6">
                             {/* Items */}
                             <div>
-                                <div className="text-sm font-semibold text-gray-900 mb-2">
-                                    {t("reagents.approvals.detail.sections.items")}
-                                </div>
+                                <div className="text-sm font-semibold text-gray-900 mb-2">{t("reagents.approvals.detail.sections.items")}</div>
 
                                 {items.length ? (
                                     <div className="overflow-x-auto rounded-xl border border-gray-200">
                                         <table className="min-w-full text-sm">
                                             <thead className="bg-white text-gray-700 border-b border-gray-100">
                                                 <tr>
-                                                    <th className="text-left font-semibold px-4 py-3">
-                                                        {t("reagents.approvals.detail.tableItems.name")}
-                                                    </th>
-                                                    <th className="text-left font-semibold px-4 py-3">
-                                                        {t("reagents.approvals.detail.tableItems.type")}
-                                                    </th>
-                                                    <th className="text-left font-semibold px-4 py-3">
-                                                        {t("reagents.approvals.detail.tableItems.qty")}
-                                                    </th>
-                                                    <th className="text-left font-semibold px-4 py-3">
-                                                        {t("reagents.approvals.detail.tableItems.unit")}
-                                                    </th>
-                                                    <th className="text-left font-semibold px-4 py-3">
-                                                        {t("reagents.approvals.detail.tableItems.note")}
-                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">{t("reagents.approvals.detail.tableItems.name")}</th>
+                                                    <th className="text-left font-semibold px-4 py-3">{t("reagents.approvals.detail.tableItems.type")}</th>
+                                                    <th className="text-left font-semibold px-4 py-3">{t("reagents.approvals.detail.tableItems.qty")}</th>
+                                                    <th className="text-left font-semibold px-4 py-3">{t("reagents.approvals.detail.tableItems.unit")}</th>
+                                                    <th className="text-left font-semibold px-4 py-3">{t("reagents.approvals.detail.tableItems.note")}</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-100">
@@ -505,26 +500,17 @@ export default function ReagentApprovalDetailPage() {
                                         <table className="min-w-full text-sm">
                                             <thead className="bg-white text-gray-700 border-b border-gray-100">
                                                 <tr>
-                                                    <th className="text-left font-semibold px-4 py-3">
-                                                        {t("reagents.approvals.detail.tableBookings.equipment")}
-                                                    </th>
-                                                    <th className="text-left font-semibold px-4 py-3">
-                                                        {t("reagents.approvals.detail.tableBookings.start")}
-                                                    </th>
-                                                    <th className="text-left font-semibold px-4 py-3">
-                                                        {t("reagents.approvals.detail.tableBookings.end")}
-                                                    </th>
-                                                    <th className="text-left font-semibold px-4 py-3">
-                                                        {t("reagents.approvals.detail.tableBookings.note")}
-                                                    </th>
+                                                    <th className="text-left font-semibold px-4 py-3">{t("reagents.approvals.detail.tableBookings.equipment")}</th>
+                                                    <th className="text-left font-semibold px-4 py-3">{t("reagents.approvals.detail.tableBookings.start")}</th>
+                                                    <th className="text-left font-semibold px-4 py-3">{t("reagents.approvals.detail.tableBookings.end")}</th>
+                                                    <th className="text-left font-semibold px-4 py-3">{t("reagents.approvals.detail.tableBookings.note")}</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-100">
                                                 {bookings.map((b: any, idx: number) => (
                                                     <tr key={b.booking_id ?? `${b.equipment_id}-${idx}`} className="hover:bg-gray-50">
                                                         <td className="px-4 py-3 font-medium text-gray-900">
-                                                            {(b.equipment_code ? `${b.equipment_code} • ` : "") +
-                                                                (b.equipment_name ?? t("reagents.approvals.detail.equipmentFallback"))}
+                                                            {(b.equipment_code ? `${b.equipment_code} • ` : "") + (b.equipment_name ?? t("reagents.approvals.detail.equipmentFallback"))}
                                                             <span className="text-gray-500"> (#{b.equipment_id})</span>
                                                         </td>
                                                         <td className="px-4 py-3 text-gray-700">

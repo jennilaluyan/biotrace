@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
     ArrowLeft,
@@ -107,6 +107,12 @@ export const ClientApprovalDetailPage = () => {
     const [modalBusy, setModalBusy] = useState(false);
     const [modalError, setModalError] = useState<string | null>(null);
 
+    const goBack = useCallback(() => {
+        const idx = (window.history.state as any)?.idx ?? 0;
+        if (idx > 0) navigate(-1);
+        else navigate("/clients/approvals", { replace: true });
+    }, [navigate]);
+
     const load = useCallback(async () => {
         if (!canApproveClients) {
             setLoading(false);
@@ -213,10 +219,14 @@ export const ClientApprovalDetailPage = () => {
                         { role: roleLabel }
                     )}
                 </p>
-                <Link to="/clients/approvals" className="mt-4 btn-outline inline-flex items-center gap-2">
+                <button
+                    type="button"
+                    onClick={goBack}
+                    className="mt-4 inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:translate-y-px transition"
+                >
                     <ArrowLeft className="h-4 w-4" />
-                    {t("clients.approvals.back", "Back to approvals")}
-                </Link>
+                    {t("back", "Back")}
+                </button>
             </div>
         );
     }
@@ -224,14 +234,14 @@ export const ClientApprovalDetailPage = () => {
     return (
         <div className="min-h-[60vh] pb-20">
             <div className="px-0 py-2">
-                <nav className="lims-breadcrumb">
-                    <Link to="/clients/approvals" className="lims-breadcrumb-link inline-flex items-center gap-2">
-                        <ArrowLeft size={16} />
-                        {t("clients.approvals.title", "Client approvals")}
-                    </Link>
-                    <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">{t("clients.approvals.detail.title", "Application detail")}</span>
-                </nav>
+                <button
+                    type="button"
+                    onClick={goBack}
+                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:translate-y-px transition"
+                >
+                    <ArrowLeft size={16} />
+                    {t("back", "Back")}
+                </button>
             </div>
 
             <div className="mt-2 flex items-center justify-between gap-2 flex-wrap">
