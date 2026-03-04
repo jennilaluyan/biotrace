@@ -13,14 +13,32 @@ class LabSampleCodeGenerator
     public function defaultPrefix(?string $workflowGroup): string
     {
         $wg = strtolower(trim((string) $workflowGroup));
-
         if ($wg === '') return 'BML';
-        if (str_contains($wg, 'wgs')) return 'WGS';
-        if (str_contains($wg, 'usr')) return 'USR';
-        if (str_contains($wg, 'lbma')) return 'LBMA';
-        if (str_contains($wg, 'bml')) return 'BML';
 
-        return 'BML';
+        // Normalize common separators (defensive, supaya "PCR", "pcr", "pcr-sars-cov-2" kebaca konsisten)
+        $wg = str_replace([' ', '-'], '_', $wg);
+        $wg = preg_replace('/_+/', '_', $wg);
+
+        // Allow direct prefix input (defensive; tidak mengganggu flow normal)
+        $direct = strtoupper($wg);
+        if (in_array($direct, ['USR', 'WGS', 'LBMA', 'BML'], true)) {
+            return $direct;
+        }
+
+        return match ($wg) {
+            // ✅ Canonical workflow groups (source of truth sekarang)
+            'pcr' => 'USR',
+            'sequencing' => 'WGS',
+            'rapid' => 'LBMA',
+            'microbiology' => 'BML',
+
+            // ✅ Legacy aliases (biar data lama / logic lama tidak rusak)
+            'pcr_sars_cov_2' => 'USR',
+            'wgs_sars_cov_2' => 'WGS',
+            'group_19_22', 'group_23_32' => 'BML',
+
+            default => 'BML',
+        };
     }
 
     /** Generate next code for a given prefix: "PREFIX 001" */

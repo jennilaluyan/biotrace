@@ -21,10 +21,16 @@ class SampleVerificationController extends Controller
         $g = str_replace([' ', '-'], '_', $g);
         $g = preg_replace('/_+/', '_', $g);
 
+        // ✅ Canonical workflow groups
+        if ($g === 'pcr') return 'USR';
+        if ($g === 'sequencing') return 'WGS';
+        if ($g === 'rapid') return 'LBMA';
+        if ($g === 'microbiology') return 'BML';
+
+        // ✅ Legacy aliases (keep backward compatibility)
         if ($g === 'pcr_sars_cov_2') return 'USR';
         if ($g === 'wgs_sars_cov_2') return 'WGS';
-        if ($g === 'group_19_22') return 'BML';
-        if ($g === 'group_23_32') return 'BML';
+        if ($g === 'group_19_22' || $g === 'group_23_32') return 'BML';
         if (str_contains($g, 'antigen')) return 'LBMA';
 
         return null;
