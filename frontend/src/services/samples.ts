@@ -113,6 +113,12 @@ export interface Sample {
     status_enum?: SampleStatusEnum;
     request_status?: SampleRequestStatus | null;
 
+    // ✅ Test method set by Admin on Accept
+    test_method_id?: number | null;
+    test_method_name?: string | null;
+    test_method_set_by_staff_id?: number | null;
+    test_method_set_at?: string | null;
+
     submitted_at?: string | null;
     reviewed_at?: string | null;
     ready_at?: string | null;

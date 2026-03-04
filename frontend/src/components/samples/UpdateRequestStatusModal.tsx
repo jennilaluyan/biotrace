@@ -1,9 +1,9 @@
-// L:\Campus\Final Countdown\biotrace\frontend\src\components\samples\UpdateRequestStatusModal.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Check, ClipboardCheck, X } from "lucide-react";
 
 import { updateRequestStatus } from "../../services/sampleRequestStatus";
+import { listMethods, type MethodRow } from "../../services/methods";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -150,6 +150,23 @@ function getModalCopy(t: (k: string, opt?: any) => string, action: Action): Moda
     };
 }
 
+function unwrapEnvelope<T>(res: any): T {
+    // Axios-ish: res.data, but some services already return payload
+    let x = res?.data ?? res;
+    for (let i = 0; i < 5; i++) {
+        if (x && typeof x === "object" && "data" in x && (x as any).data != null) {
+            // if envelope: {data: {...}} keep drilling
+            const inner = (x as any).data;
+            if (inner && typeof inner === "object" && "data" in inner) {
+                x = inner;
+                continue;
+            }
+        }
+        break;
+    }
+    return x as T;
+}
+
 export const UpdateRequestStatusModal = (props: Props) => {
     const { t, i18n } = useTranslation();
     const locale = i18n.language || "en";
@@ -161,11 +178,18 @@ export const UpdateRequestStatusModal = (props: Props) => {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // ✅ Accept requires test method
+    const isAccept = action === "accept";
     const isReject = action === "reject";
     const isReturn = action === "return";
     const isReceived = action === "received";
 
-    // Modal copy (title/subtitle/confirm/nextLabel)
+    const [methods, setMethods] = useState<MethodRow[]>([]);
+    const [methodsLoading, setMethodsLoading] = useState(false);
+    const [methodsError, setMethodsError] = useState<string | null>(null);
+    const [methodId, setMethodId] = useState<number | null>(null);
+    const [methodQuery, setMethodQuery] = useState("");
+
     const copy = useMemo(() => getModalCopy(t, action), [t, action]);
 
     // Reset modal state when opened or action changes
@@ -174,6 +198,10 @@ export const UpdateRequestStatusModal = (props: Props) => {
         setNote("");
         setError(null);
         setBusy(false);
+
+        setMethodsError(null);
+        setMethodId(null);
+        setMethodQuery("");
     }, [open, action, requestId]);
 
     // ESC to close
@@ -188,24 +216,68 @@ export const UpdateRequestStatusModal = (props: Props) => {
         return () => window.removeEventListener("keydown", onKeyDown);
     }, [open, busy, onClose]);
 
+    // Load methods when Accept modal opens
+    useEffect(() => {
+        if (!open) return;
+        if (!isAccept) return;
+
+        let mounted = true;
+
+        async function load() {
+            setMethodsLoading(true);
+            setMethodsError(null);
+
+            try {
+                const res = await listMethods({ page: 1, per_page: 200, q: "" });
+                const payload = unwrapEnvelope<any>(res);
+
+                // payload expected: { status, message, data: { data: MethodRow[] } }
+                const rows = (payload?.data?.data ?? payload?.data ?? payload) as MethodRow[];
+                const list = Array.isArray(rows) ? rows : [];
+
+                const active = list.filter((m) => !!m?.is_active);
+
+                if (mounted) setMethods(active);
+            } catch {
+                if (mounted) setMethodsError(t("samples.requestStatusModal.method.error", { defaultValue: "Failed to load methods." }));
+            } finally {
+                if (mounted) setMethodsLoading(false);
+            }
+        }
+
+        load();
+        return () => {
+            mounted = false;
+        };
+    }, [open, isAccept, t]);
+
+    const filteredMethods = useMemo(() => {
+        const q = methodQuery.trim().toLowerCase();
+        if (!q) return methods;
+
+        return methods.filter((m) => {
+            const name = String(m?.name ?? "").toLowerCase();
+            const code = String(m?.code ?? "").toLowerCase();
+            const desc = String(m?.description ?? "").toLowerCase();
+            return name.includes(q) || code.includes(q) || desc.includes(q);
+        });
+    }, [methods, methodQuery]);
+
     const canConfirm = useMemo(() => {
         if (!open) return false;
         if (busy) return false;
         if (!requestId) return false;
 
-        // Reject/Return: note required
+        if (isAccept) return Number(methodId) > 0;
         if (isReject || isReturn) return note.trim().length >= 1;
 
-        // Accept/Received: note optional
         return true;
-    }, [open, busy, requestId, isReject, isReturn, note]);
+    }, [open, busy, requestId, isAccept, methodId, isReject, isReturn, note]);
 
-    const Icon = (isReject || isReturn) ? AlertTriangle : (isReceived ? ClipboardCheck : Check);
+    const Icon = isReject || isReturn ? AlertTriangle : isReceived ? ClipboardCheck : Check;
 
     const iconTone =
-        isReject ? "bg-rose-50 text-rose-700"
-            : isReturn ? "bg-amber-50 text-amber-800"
-                : "bg-emerald-50 text-emerald-700";
+        isReject ? "bg-rose-50 text-rose-700" : isReturn ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700";
 
     const noteLabel = useMemo(() => {
         if (isReject) {
@@ -252,13 +324,9 @@ export const UpdateRequestStatusModal = (props: Props) => {
             setError(null);
 
             const trimmedNote = note.trim();
+            const noteToSend = isReject || isReturn ? trimmedNote : trimmedNote.length ? trimmedNote : null;
 
-            // Reject/Return: must send note.
-            // Accept/Received: only send note if provided.
-            const noteToSend =
-                (isReject || isReturn) ? trimmedNote : (trimmedNote.length ? trimmedNote : null);
-
-            await updateRequestStatus(requestId, action, noteToSend);
+            await updateRequestStatus(requestId, action, noteToSend, isAccept ? methodId : null);
 
             onClose();
             onUpdated();
@@ -278,14 +346,15 @@ export const UpdateRequestStatusModal = (props: Props) => {
 
     if (!open) return null;
 
+    const methodHelp = t("samples.requestStatusModal.method.help", {
+        defaultValue: "This method will be saved to the sample record and used for the Letter of Order (LoO).",
+    });
+
     return (
         <div className="lims-modal-backdrop p-4" role="dialog" aria-modal="true" aria-label={copy.title}>
             <div className="lims-modal-panel max-w-xl">
                 <div className="lims-modal-header">
-                    <div
-                        className={cx("h-9 w-9 rounded-full flex items-center justify-center", iconTone)}
-                        aria-hidden="true"
-                    >
+                    <div className={cx("h-9 w-9 rounded-full flex items-center justify-center", iconTone)} aria-hidden="true">
                         <Icon size={18} />
                     </div>
 
@@ -320,23 +389,71 @@ export const UpdateRequestStatusModal = (props: Props) => {
                         </div>
 
                         <div className="mt-2 text-sm text-gray-900">
-                            <span className="text-gray-600">
-                                {t("samples.requestStatusModal.summary.current", { defaultValue: "Current" })}:
-                            </span>{" "}
+                            <span className="text-gray-600">{t("samples.requestStatusModal.summary.current", { defaultValue: "Current" })}:</span>{" "}
                             <span className="font-semibold">{formatStatusLabel(currentStatus, locale)}</span>
-
                             <span className="text-gray-600">
                                 {" "}
-                                • {t("samples.requestStatusModal.summary.next", { defaultValue: "Next" })}:{" "}
-                                <span className="font-semibold">{formatStatusLabel(copy.nextLabel, locale)}</span>
-                            </span>
+                                • {t("samples.requestStatusModal.summary.next", { defaultValue: "Next" })}:
+                            </span>{" "}
+                            <span className="font-semibold">{formatStatusLabel(copy.nextLabel, locale)}</span>
                         </div>
 
                         <div className="mt-1 text-xs text-gray-500">
-                            {t("samples.requestStatusModal.summary.requestId", { defaultValue: "Request ID" })}:{" "}
-                            {requestId ?? "-"}
+                            {t("samples.requestStatusModal.summary.requestId", { defaultValue: "Request ID" })}: {requestId ?? "-"}
                         </div>
                     </div>
+
+                    {/* ✅ Accept: required Test Method */}
+                    {isAccept ? (
+                        <div className="mt-4">
+                            <label className="block text-sm font-semibold text-gray-900">
+                                {t("samples.requestStatusModal.method.labelRequired", { defaultValue: "Test method (required)" })}
+                            </label>
+
+                            {methodsError ? (
+                                <div className="mt-2 text-sm text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
+                                    {methodsError}
+                                </div>
+                            ) : null}
+
+                            <div className="mt-2 grid gap-2">
+                                <input
+                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                    value={methodQuery}
+                                    onChange={(e) => setMethodQuery(e.target.value)}
+                                    placeholder={t("search", { defaultValue: "Search" })}
+                                    disabled={busy || methodsLoading}
+                                />
+
+                                <select
+                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                    value={methodId ?? ""}
+                                    onChange={(e) => {
+                                        const v = Number(e.target.value);
+                                        setMethodId(Number.isFinite(v) && v > 0 ? v : null);
+                                    }}
+                                    disabled={busy || methodsLoading}
+                                >
+                                    <option value="">
+                                        {methodsLoading
+                                            ? t("samples.requestStatusModal.method.loading", { defaultValue: "Loading methods…" })
+                                            : t("samples.requestStatusModal.method.placeholderSelect", { defaultValue: "Select a test method…" })}
+                                    </option>
+
+                                    {filteredMethods.map((m) => {
+                                        const label = `${m.code ? `${m.code} — ` : ""}${m.name}`;
+                                        return (
+                                            <option key={m.method_id} value={m.method_id}>
+                                                {label}
+                                            </option>
+                                        );
+                                    })}
+                                </select>
+
+                                <div className="text-[11px] text-gray-500">{methodHelp}</div>
+                            </div>
+                        </div>
+                    ) : null}
 
                     {(isReject || isReturn || isReceived) ? (
                         <div className="mt-4">
@@ -363,30 +480,25 @@ export const UpdateRequestStatusModal = (props: Props) => {
                             ) : null}
                         </div>
                     ) : null}
-                </div>
 
-                <div className="lims-modal-footer">
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        disabled={busy}
-                        className="btn-outline disabled:opacity-50"
-                    >
-                        {t("cancel", { defaultValue: "Cancel" })}
-                    </button>
+                    <div className="mt-5 flex items-center justify-end gap-2">
+                        <button type="button" onClick={onClose} disabled={busy} className="btn-outline disabled:opacity-50">
+                            {t("cancel", { defaultValue: "Cancel" })}
+                        </button>
 
-                    <button
-                        type="button"
-                        disabled={!canConfirm}
-                        onClick={submit}
-                        className={cx(
-                            (isReject || isReturn) ? "lims-btn-danger" : "lims-btn-primary",
-                            "disabled:opacity-50 disabled:cursor-not-allowed"
-                        )}
-                        title={copy.confirm}
-                    >
-                        {busy ? t("processing", { defaultValue: "Processing…" }) : copy.confirm}
-                    </button>
+                        <button
+                            type="button"
+                            disabled={!canConfirm}
+                            onClick={submit}
+                            className={cx(
+                                (isReject || isReturn) ? "lims-btn-danger" : "lims-btn-primary",
+                                "disabled:opacity-50 disabled:cursor-not-allowed"
+                            )}
+                            title={copy.confirm}
+                        >
+                            {busy ? t("processing", { defaultValue: "Processing…" }) : copy.confirm}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

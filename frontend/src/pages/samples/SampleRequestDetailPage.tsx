@@ -420,447 +420,465 @@ export default function SampleRequestDetailPage() {
             setWfBusy(true);
             setWfError(null);
 
-            await apiPost<any>(`/v1/samples/${requestId}/request-status`, { action: "accept" });
+            const onOpenAccept = () => {
+                setReqModalAction("accept");
+                setReqModalOpen(true);
+            };
 
-            await load({ silent: true });
-            setTab("workflow");
-        } catch (err: any) {
-            setWfError(
-                safeApiMessage(err, t("samples.pages.requestDetail.errors.approveFailed", { defaultValue: "Failed to approve request." }))
-            );
-        } finally {
-            setWfBusy(false);
+            // lalu pass ke workflow tab:
+            onApprove = { onOpenAccept }
+
+                // dan render modal:
+                < UpdateRequestStatusModal
+            open = { reqModalOpen }
+            sampleId = { requestId }
+            action = { reqModalAction }
+            currentStatus = { sample?.request_status ?? null
         }
+  onClose = {() => setReqModalOpen(false)
+}
+onUpdated = {() => load({ silent: true })}
+/>
+
+await load({ silent: true });
+setTab("workflow");
+        } catch (err: any) {
+    setWfError(
+        safeApiMessage(err, t("samples.pages.requestDetail.errors.approveFailed", { defaultValue: "Failed to approve request." }))
+    );
+} finally {
+    setWfBusy(false);
+}
     };
 
-    const doMarkPhysicallyReceived = async () => {
-        if (!Number.isFinite(requestId) || requestId <= 0) return;
+const doMarkPhysicallyReceived = async () => {
+    if (!Number.isFinite(requestId) || requestId <= 0) return;
 
-        try {
-            setWfBusy(true);
-            setWfError(null);
-
-            await apiPatch(`/v1/samples/${requestId}/physical-workflow`, {
-                action: "admin_received_from_client",
-                note: null,
-            });
-
-            await load({ silent: true });
-            setTab("workflow");
-        } catch (err: any) {
-            setWfError(
-                safeApiMessage(err, t("samples.pages.requestDetail.errors.updateStatusFailed", { defaultValue: "Failed to update status." }))
-            );
-        } finally {
-            setWfBusy(false);
-        }
-    };
-
-    const doPhysicalWorkflow = async (action: string) => {
-        if (!Number.isFinite(requestId) || requestId <= 0) return;
-
-        try {
-            setWfBusy(true);
-            setWfError(null);
-
-            await apiPatch<any>(`/v1/samples/${requestId}/physical-workflow`, { action, note: null });
-
-            await load({ silent: true });
-            setTab("workflow");
-        } catch (err: any) {
-            setWfError(
-                safeApiMessage(err, t("samples.pages.requestDetail.errors.updateWorkflowFailed", { defaultValue: "Failed to update workflow." }))
-            );
-        } finally {
-            setWfBusy(false);
-        }
-    };
-
-    const doVerify = async () => {
-        if (!Number.isFinite(requestId) || requestId <= 0) return;
-        if (verifyBusy) return;
-
-        try {
-            setVerifyBusy(true);
-            setWfError(null);
-
-            await apiPost(`/v1/samples/${requestId}/verify`, {});
-            await load({ silent: true });
-            setTab("workflow");
-        } catch (err: any) {
-            setWfError(safeApiMessage(err, t("samples.pages.requestDetail.errors.verifyFailed", { defaultValue: "Failed to verify." })));
-        } finally {
-            setVerifyBusy(false);
-        }
-    };
-
-    const handleVerifySampleIdChange = async () => {
+    try {
+        setWfBusy(true);
         setWfError(null);
 
-        let row = sidRow;
+        await apiPatch(`/v1/samples/${requestId}/physical-workflow`, {
+            action: "admin_received_from_client",
+            note: null,
+        });
 
-        if (!row && Number.isFinite(requestId) && requestId > 0) {
-            try {
-                const fetched = await getLatestSampleIdChangeBySampleId(requestId);
-                if (fetched) {
-                    setSidFetchedRaw(fetched);
-                    row = sample ? toSidRow(sample as any, fetched) : null;
-                }
-            } catch {
-                // ignore
-            }
-        }
-
-        if (!row) {
-            setWfError(t("samples.pages.requestDetail.errors.sampleIdChangeMissing", { defaultValue: "Sample ID change detail is missing." }));
-            return;
-        }
-
-        setSidActiveRow(row);
-        setSidPickOpen(true);
-    };
-
-    if (!canView) {
-        return (
-            <div className="min-h-[60vh] flex flex-col items-center justify-center p-4">
-                <h1 className="text-2xl font-semibold text-gray-900 mb-2">{t("errors.accessDeniedTitle")}</h1>
-                <p className="text-sm text-gray-600 mb-6 text-center max-w-md">
-                    {t("errors.accessDeniedBodyWithRole", { role: roleLabel })}
-                </p>
-                <Link to="/samples/requests" className="mt-4 lims-btn-primary">
-                    {t("samples.pages.requestDetail.backToList", { defaultValue: "Back to Sample Requests" })}
-                </Link>
-            </div>
+        await load({ silent: true });
+        setTab("workflow");
+    } catch (err: any) {
+        setWfError(
+            safeApiMessage(err, t("samples.pages.requestDetail.errors.updateStatusFailed", { defaultValue: "Failed to update status." }))
         );
+    } finally {
+        setWfBusy(false);
+    }
+};
+
+const doPhysicalWorkflow = async (action: string) => {
+    if (!Number.isFinite(requestId) || requestId <= 0) return;
+
+    try {
+        setWfBusy(true);
+        setWfError(null);
+
+        await apiPatch<any>(`/v1/samples/${requestId}/physical-workflow`, { action, note: null });
+
+        await load({ silent: true });
+        setTab("workflow");
+    } catch (err: any) {
+        setWfError(
+            safeApiMessage(err, t("samples.pages.requestDetail.errors.updateWorkflowFailed", { defaultValue: "Failed to update workflow." }))
+        );
+    } finally {
+        setWfBusy(false);
+    }
+};
+
+const doVerify = async () => {
+    if (!Number.isFinite(requestId) || requestId <= 0) return;
+    if (verifyBusy) return;
+
+    try {
+        setVerifyBusy(true);
+        setWfError(null);
+
+        await apiPost(`/v1/samples/${requestId}/verify`, {});
+        await load({ silent: true });
+        setTab("workflow");
+    } catch (err: any) {
+        setWfError(safeApiMessage(err, t("samples.pages.requestDetail.errors.verifyFailed", { defaultValue: "Failed to verify." })));
+    } finally {
+        setVerifyBusy(false);
+    }
+};
+
+const handleVerifySampleIdChange = async () => {
+    setWfError(null);
+
+    let row = sidRow;
+
+    if (!row && Number.isFinite(requestId) && requestId > 0) {
+        try {
+            const fetched = await getLatestSampleIdChangeBySampleId(requestId);
+            if (fetched) {
+                setSidFetchedRaw(fetched);
+                row = sample ? toSidRow(sample as any, fetched) : null;
+            }
+        } catch {
+            // ignore
+        }
     }
 
+    if (!row) {
+        setWfError(t("samples.pages.requestDetail.errors.sampleIdChangeMissing", { defaultValue: "Sample ID change detail is missing." }));
+        return;
+    }
+
+    setSidActiveRow(row);
+    setSidPickOpen(true);
+};
+
+if (!canView) {
     return (
-        <div className="min-h-[60vh]">
-            <div className="px-0 py-2">
-                <nav className="lims-breadcrumb">
-                    <span className="lims-breadcrumb-icon">
-                        <ArrowLeft className="h-4 w-4" />
-                    </span>
-                    <Link to="/samples/requests" className="lims-breadcrumb-link">
-                        {t("samples.pages.requestDetail.breadcrumbList", { defaultValue: "Sample Requests" })}
-                    </Link>
-                    <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">
-                        {t("samples.pages.requestDetail.breadcrumbDetail", { defaultValue: "Detail" })}
-                    </span>
-                </nav>
-            </div>
+        <div className="min-h-[60vh] flex flex-col items-center justify-center p-4">
+            <h1 className="text-2xl font-semibold text-gray-900 mb-2">{t("errors.accessDeniedTitle")}</h1>
+            <p className="text-sm text-gray-600 mb-6 text-center max-w-md">
+                {t("errors.accessDeniedBodyWithRole", { role: roleLabel })}
+            </p>
+            <Link to="/samples/requests" className="mt-4 lims-btn-primary">
+                {t("samples.pages.requestDetail.backToList", { defaultValue: "Back to Sample Requests" })}
+            </Link>
+        </div>
+    );
+}
 
-            <div className="lims-detail-shell">
-                {loading ? (
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <RefreshCw size={16} className="animate-spin text-primary" />
-                        <span>{t("samples.pages.requestDetail.loading", { defaultValue: "Loading request detail..." })}</span>
-                    </div>
-                ) : null}
+return (
+    <div className="min-h-[60vh]">
+        <div className="px-0 py-2">
+            <nav className="lims-breadcrumb">
+                <span className="lims-breadcrumb-icon">
+                    <ArrowLeft className="h-4 w-4" />
+                </span>
+                <Link to="/samples/requests" className="lims-breadcrumb-link">
+                    {t("samples.pages.requestDetail.breadcrumbList", { defaultValue: "Sample Requests" })}
+                </Link>
+                <span className="lims-breadcrumb-separator">›</span>
+                <span className="lims-breadcrumb-current">
+                    {t("samples.pages.requestDetail.breadcrumbDetail", { defaultValue: "Detail" })}
+                </span>
+            </nav>
+        </div>
 
-                {error && !loading ? (
-                    <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
-                ) : null}
+        <div className="lims-detail-shell">
+            {loading ? (
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <RefreshCw size={16} className="animate-spin text-primary" />
+                    <span>{t("samples.pages.requestDetail.loading", { defaultValue: "Loading request detail..." })}</span>
+                </div>
+            ) : null}
 
-                {!loading && !error && sample ? (
-                    <div className="space-y-6">
-                        <div className="flex items-start justify-between gap-3 flex-wrap">
-                            <div>
-                                {/* FIX: pass id so "Permintaan #{{id}}" becomes "Permintaan #13" */}
-                                <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                                    {t("samples.pages.requestDetail.title", {
-                                        id: displayRequestId,
-                                        defaultValue: `Request #${displayRequestId}`,
-                                    })}
-                                </h1>
+            {error && !loading ? (
+                <div className="text-sm text-red-600 bg-red-100 px-3 py-2 rounded mb-4">{error}</div>
+            ) : null}
 
-                                {/* FIX: remove "Request ID #13" line (double + English) */}
-                                <div className="text-sm text-gray-600 mt-1 flex items-center gap-2 flex-wrap">
-                                    <span className="text-xs text-gray-500">{t("status")}</span>
-                                    <StatusPill value={(sample as any)?.request_status ?? "-"} t={t} locale={locale} />
+            {!loading && !error && sample ? (
+                <div className="space-y-6">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div>
+                            {/* FIX: pass id so "Permintaan #{{id}}" becomes "Permintaan #13" */}
+                            <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                                {t("samples.pages.requestDetail.title", {
+                                    id: displayRequestId,
+                                    defaultValue: `Request #${displayRequestId}`,
+                                })}
+                            </h1>
 
-                                    {verifiedAt ? (
-                                        <>
-                                            <span className="text-gray-400">·</span>
-                                            <span className="text-xs text-gray-500">
-                                                {t("samples.pages.requestDetail.verified", { defaultValue: "Verified" })}
-                                            </span>
-                                            <span className="text-xs font-semibold text-emerald-700">
-                                                {formatDateTimeLocal(verifiedAt)}
-                                            </span>
-                                        </>
-                                    ) : null}
+                            {/* FIX: remove "Request ID #13" line (double + English) */}
+                            <div className="text-sm text-gray-600 mt-1 flex items-center gap-2 flex-wrap">
+                                <span className="text-xs text-gray-500">{t("status")}</span>
+                                <StatusPill value={(sample as any)?.request_status ?? "-"} t={t} locale={locale} />
 
-                                    {labSampleCode ? (
-                                        <>
-                                            <span className="text-gray-400">·</span>
-                                            <span className="text-xs text-gray-500">
-                                                {t("samples.pages.requestDetail.labCode", { defaultValue: "Lab Code" })}
-                                            </span>
-                                            <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
-                                                {labSampleCode}
-                                            </span>
-                                        </>
-                                    ) : null}
-                                </div>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                                <SmallButton type="button" onClick={refresh} disabled={pageRefreshing}>
-                                    <RefreshCw size={16} className={cx(pageRefreshing && "animate-spin")} />
-                                    {t("refresh")}
-                                </SmallButton>
-                            </div>
-                        </div>
-
-                        <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
-                            <div className="px-5 pt-5">
-                                <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-2xl p-1 flex-wrap">
-                                    <TabButton active={tab === "info"} onClick={() => setTab("info")}>
-                                        {t("info", { defaultValue: "Info" })}
-                                    </TabButton>
-                                    <TabButton active={tab === "workflow"} onClick={() => setTab("workflow")}>
-                                        {t("workflow", { defaultValue: "Workflow" })}
-                                    </TabButton>
-                                </div>
-                            </div>
-
-                            <div className="px-5 py-5">
-                                {tab === "info" ? <SampleRequestInfoTab sample={sample} /> : null}
-
-                                {tab === "workflow" ? (
+                                {verifiedAt ? (
                                     <>
-                                        <SampleRequestWorkflowTab
-                                            sample={sample}
-                                            roleId={roleId}
-                                            roleLabel={roleLabel}
-                                            wfBusy={wfBusy}
-                                            wfError={wfError}
-                                            verifyBusy={verifyBusy}
-                                            assignFlash={assignFlash}
-                                            workflowLogs={workflowLogs}
-                                            onApprove={approve}
-                                            onOpenReturn={() => setReturnModalOpen(true)}
-                                            onMarkPhysicallyReceived={doMarkPhysicallyReceived}
-                                            onDoPhysicalWorkflow={doPhysicalWorkflow}
-                                            onOpenIntakeChecklist={() => setIntakeOpen(true)}
-                                            onVerify={doVerify}
-                                            onVerifySampleIdChange={handleVerifySampleIdChange}
-                                            onOpenAssignSampleId={() => {
-                                                const key = normalizeStatusToken((sample as any)?.request_status ?? "");
-                                                const approvedKeys = ["sample_id_approved_for_assignment", "approved_for_assignment"];
+                                        <span className="text-gray-400">·</span>
+                                        <span className="text-xs text-gray-500">
+                                            {t("samples.pages.requestDetail.verified", { defaultValue: "Verified" })}
+                                        </span>
+                                        <span className="text-xs font-semibold text-emerald-700">
+                                            {formatDateTimeLocal(verifiedAt)}
+                                        </span>
+                                    </>
+                                ) : null}
 
-                                                if (approvedKeys.includes(key)) {
-                                                    setAssignOpen(false);
-                                                    setFinalizeApprovedOpen(true);
-                                                    return;
-                                                }
-
-                                                setFinalizeApprovedOpen(false);
-                                                setAssignOpen(true);
-                                            }}
-                                        />
-
-                                        {sidPickOpen ? (
-                                            <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-                                                <div
-                                                    className="absolute inset-0 bg-black/40"
-                                                    onClick={() => (sidBusy ? null : setSidPickOpen(false))}
-                                                />
-
-                                                <div className="relative w-full max-w-sm rounded-2xl bg-white shadow-xl border">
-                                                    <div className="px-5 py-4 border-b">
-                                                        <div className="text-sm font-bold text-gray-900">
-                                                            {t("samples.pages.requestDetail.sidVerify.title", {
-                                                                defaultValue: "Verify Sample ID change",
-                                                            })}
-                                                        </div>
-                                                        <div className="text-xs text-gray-500 mt-1">
-                                                            {t("samples.pages.requestDetail.sidVerify.subtitle", {
-                                                                defaultValue: "Review suggested vs proposed and choose an action.",
-                                                            })}
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="px-5 py-4 space-y-3">
-                                                        <div className="text-xs text-gray-600">
-                                                            {t("suggested", { defaultValue: "Suggested" })}:{" "}
-                                                            <span className="font-mono text-gray-900">
-                                                                {sidActiveRow?.suggested_lab_sample_code ||
-                                                                    sidActiveRow?.suggested_sample_id ||
-                                                                    "—"}
-                                                            </span>
-                                                        </div>
-                                                        <div className="text-xs text-gray-600">
-                                                            {t("proposed", { defaultValue: "Proposed" })}:{" "}
-                                                            <span className="font-mono text-gray-900">
-                                                                {sidActiveRow?.proposed_lab_sample_code ||
-                                                                    sidActiveRow?.proposed_sample_id ||
-                                                                    "—"}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="px-5 pb-5 flex items-center justify-end gap-2">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setSidPickOpen(false)}
-                                                            disabled={sidBusy}
-                                                            className={cx("btn-outline", sidBusy && "opacity-60 cursor-not-allowed")}
-                                                        >
-                                                            {t("cancel", { defaultValue: "Cancel" })}
-                                                        </button>
-
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setSidPickOpen(false);
-                                                                setSidModalMode("reject");
-                                                                setSidModalOpen(true);
-                                                            }}
-                                                            disabled={sidBusy || !sidActiveRow}
-                                                            className={cx(
-                                                                "btn-outline",
-                                                                (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed"
-                                                            )}
-                                                        >
-                                                            {t("reject", { defaultValue: "Reject" })}
-                                                        </button>
-
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setSidPickOpen(false);
-                                                                setSidModalMode("approve");
-                                                                setSidModalOpen(true);
-                                                            }}
-                                                            disabled={sidBusy || !sidActiveRow}
-                                                            className={cx(
-                                                                "lims-btn-primary",
-                                                                (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed"
-                                                            )}
-                                                        >
-                                                            {t("approve", { defaultValue: "Approve" })}
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ) : null}
-
-                                        <SampleIdChangeDecisionModal
-                                            open={sidModalOpen}
-                                            mode={sidModalMode}
-                                            busy={sidBusy}
-                                            row={sidActiveRow}
-                                            onClose={() => (sidBusy ? null : setSidModalOpen(false))}
-                                            onConfirm={async (rejectReason?: string) => {
-                                                if (!sidActiveRow) return;
-
-                                                const changeId = Number(
-                                                    sidActiveRow.change_request_id ?? sidActiveRow.id ?? sidActiveRow.sample_id_change_id ?? 0
-                                                );
-                                                if (!Number.isFinite(changeId) || changeId <= 0) return;
-
-                                                setSidBusy(true);
-                                                setWfError(null);
-
-                                                try {
-                                                    if (sidModalMode === "approve") {
-                                                        await approveSampleIdChange(changeId);
-                                                    } else {
-                                                        const r = String(rejectReason ?? "").trim();
-                                                        await rejectSampleIdChange(changeId, r);
-                                                    }
-
-                                                    setSidModalOpen(false);
-                                                    setSidPickOpen(false);
-                                                    setSidActiveRow(null);
-                                                    setSidFetchedRaw(null);
-
-                                                    await load({ silent: true });
-                                                    setTab("workflow");
-                                                } catch (e: any) {
-                                                    setSidModalOpen(false);
-                                                    setSidPickOpen(false);
-                                                    setWfError(
-                                                        safeApiMessage(
-                                                            e,
-                                                            t("samples.pages.requestDetail.errors.sidDecisionFailed", {
-                                                                defaultValue: "Failed to process decision.",
-                                                            })
-                                                        )
-                                                    );
-                                                } finally {
-                                                    setSidBusy(false);
-                                                }
-                                            }}
-                                        />
+                                {labSampleCode ? (
+                                    <>
+                                        <span className="text-gray-400">·</span>
+                                        <span className="text-xs text-gray-500">
+                                            {t("samples.pages.requestDetail.labCode", { defaultValue: "Lab Code" })}
+                                        </span>
+                                        <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
+                                            {labSampleCode}
+                                        </span>
                                     </>
                                 ) : null}
                             </div>
                         </div>
 
-                        <AssignSampleIdModal
-                            open={assignOpen}
-                            sample={sample}
-                            onClose={() => setAssignOpen(false)}
-                            onDone={async (payload) => {
-                                setAssignOpen(false);
-                                setAssignFlash(payload.type ? { type: payload.type, message: payload.message } : null);
-                                await load({ silent: true });
+                        <div className="flex items-center gap-2">
+                            <SmallButton type="button" onClick={refresh} disabled={pageRefreshing}>
+                                <RefreshCw size={16} className={cx(pageRefreshing && "animate-spin")} />
+                                {t("refresh")}
+                            </SmallButton>
+                        </div>
+                    </div>
 
-                                if (payload.type) {
-                                    window.setTimeout(() => setAssignFlash(null), 9000);
-                                }
-                            }}
-                        />
+                    <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
+                        <div className="px-5 pt-5">
+                            <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-2xl p-1 flex-wrap">
+                                <TabButton active={tab === "info"} onClick={() => setTab("info")}>
+                                    {t("info", { defaultValue: "Info" })}
+                                </TabButton>
+                                <TabButton active={tab === "workflow"} onClick={() => setTab("workflow")}>
+                                    {t("workflow", { defaultValue: "Workflow" })}
+                                </TabButton>
+                            </div>
+                        </div>
 
-                        <FinalizeApprovedSampleIdModal
-                            open={finalizeApprovedOpen}
-                            sample={sample}
-                            onClose={() => setFinalizeApprovedOpen(false)}
-                            onDone={async (payload) => {
-                                setFinalizeApprovedOpen(false);
-                                setAssignFlash(payload.type ? { type: payload.type, message: payload.message } : null);
-                                await load({ silent: true });
+                        <div className="px-5 py-5">
+                            {tab === "info" ? <SampleRequestInfoTab sample={sample} /> : null}
 
-                                if (payload.type) {
-                                    window.setTimeout(() => setAssignFlash(null), 9000);
-                                }
-                            }}
-                        />
+                            {tab === "workflow" ? (
+                                <>
+                                    <SampleRequestWorkflowTab
+                                        sample={sample}
+                                        roleId={roleId}
+                                        roleLabel={roleLabel}
+                                        wfBusy={wfBusy}
+                                        wfError={wfError}
+                                        verifyBusy={verifyBusy}
+                                        assignFlash={assignFlash}
+                                        workflowLogs={workflowLogs}
+                                        onApprove={approve}
+                                        onOpenReturn={() => setReturnModalOpen(true)}
+                                        onMarkPhysicallyReceived={doMarkPhysicallyReceived}
+                                        onDoPhysicalWorkflow={doPhysicalWorkflow}
+                                        onOpenIntakeChecklist={() => setIntakeOpen(true)}
+                                        onVerify={doVerify}
+                                        onVerifySampleIdChange={handleVerifySampleIdChange}
+                                        onOpenAssignSampleId={() => {
+                                            const key = normalizeStatusToken((sample as any)?.request_status ?? "");
+                                            const approvedKeys = ["sample_id_approved_for_assignment", "approved_for_assignment"];
 
-                        <UpdateRequestStatusModal
-                            open={returnModalOpen}
+                                            if (approvedKeys.includes(key)) {
+                                                setAssignOpen(false);
+                                                setFinalizeApprovedOpen(true);
+                                                return;
+                                            }
+
+                                            setFinalizeApprovedOpen(false);
+                                            setAssignOpen(true);
+                                        }}
+                                    />
+
+                                    {sidPickOpen ? (
+                                        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+                                            <div
+                                                className="absolute inset-0 bg-black/40"
+                                                onClick={() => (sidBusy ? null : setSidPickOpen(false))}
+                                            />
+
+                                            <div className="relative w-full max-w-sm rounded-2xl bg-white shadow-xl border">
+                                                <div className="px-5 py-4 border-b">
+                                                    <div className="text-sm font-bold text-gray-900">
+                                                        {t("samples.pages.requestDetail.sidVerify.title", {
+                                                            defaultValue: "Verify Sample ID change",
+                                                        })}
+                                                    </div>
+                                                    <div className="text-xs text-gray-500 mt-1">
+                                                        {t("samples.pages.requestDetail.sidVerify.subtitle", {
+                                                            defaultValue: "Review suggested vs proposed and choose an action.",
+                                                        })}
+                                                    </div>
+                                                </div>
+
+                                                <div className="px-5 py-4 space-y-3">
+                                                    <div className="text-xs text-gray-600">
+                                                        {t("suggested", { defaultValue: "Suggested" })}:{" "}
+                                                        <span className="font-mono text-gray-900">
+                                                            {sidActiveRow?.suggested_lab_sample_code ||
+                                                                sidActiveRow?.suggested_sample_id ||
+                                                                "—"}
+                                                        </span>
+                                                    </div>
+                                                    <div className="text-xs text-gray-600">
+                                                        {t("proposed", { defaultValue: "Proposed" })}:{" "}
+                                                        <span className="font-mono text-gray-900">
+                                                            {sidActiveRow?.proposed_lab_sample_code ||
+                                                                sidActiveRow?.proposed_sample_id ||
+                                                                "—"}
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="px-5 pb-5 flex items-center justify-end gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSidPickOpen(false)}
+                                                        disabled={sidBusy}
+                                                        className={cx("btn-outline", sidBusy && "opacity-60 cursor-not-allowed")}
+                                                    >
+                                                        {t("cancel", { defaultValue: "Cancel" })}
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setSidPickOpen(false);
+                                                            setSidModalMode("reject");
+                                                            setSidModalOpen(true);
+                                                        }}
+                                                        disabled={sidBusy || !sidActiveRow}
+                                                        className={cx(
+                                                            "btn-outline",
+                                                            (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed"
+                                                        )}
+                                                    >
+                                                        {t("reject", { defaultValue: "Reject" })}
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setSidPickOpen(false);
+                                                            setSidModalMode("approve");
+                                                            setSidModalOpen(true);
+                                                        }}
+                                                        disabled={sidBusy || !sidActiveRow}
+                                                        className={cx(
+                                                            "lims-btn-primary",
+                                                            (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed"
+                                                        )}
+                                                    >
+                                                        {t("approve", { defaultValue: "Approve" })}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : null}
+
+                                    <SampleIdChangeDecisionModal
+                                        open={sidModalOpen}
+                                        mode={sidModalMode}
+                                        busy={sidBusy}
+                                        row={sidActiveRow}
+                                        onClose={() => (sidBusy ? null : setSidModalOpen(false))}
+                                        onConfirm={async (rejectReason?: string) => {
+                                            if (!sidActiveRow) return;
+
+                                            const changeId = Number(
+                                                sidActiveRow.change_request_id ?? sidActiveRow.id ?? sidActiveRow.sample_id_change_id ?? 0
+                                            );
+                                            if (!Number.isFinite(changeId) || changeId <= 0) return;
+
+                                            setSidBusy(true);
+                                            setWfError(null);
+
+                                            try {
+                                                if (sidModalMode === "approve") {
+                                                    await approveSampleIdChange(changeId);
+                                                } else {
+                                                    const r = String(rejectReason ?? "").trim();
+                                                    await rejectSampleIdChange(changeId, r);
+                                                }
+
+                                                setSidModalOpen(false);
+                                                setSidPickOpen(false);
+                                                setSidActiveRow(null);
+                                                setSidFetchedRaw(null);
+
+                                                await load({ silent: true });
+                                                setTab("workflow");
+                                            } catch (e: any) {
+                                                setSidModalOpen(false);
+                                                setSidPickOpen(false);
+                                                setWfError(
+                                                    safeApiMessage(
+                                                        e,
+                                                        t("samples.pages.requestDetail.errors.sidDecisionFailed", {
+                                                            defaultValue: "Failed to process decision.",
+                                                        })
+                                                    )
+                                                );
+                                            } finally {
+                                                setSidBusy(false);
+                                            }
+                                        }}
+                                    />
+                                </>
+                            ) : null}
+                        </div>
+                    </div>
+
+                    <AssignSampleIdModal
+                        open={assignOpen}
+                        sample={sample}
+                        onClose={() => setAssignOpen(false)}
+                        onDone={async (payload) => {
+                            setAssignOpen(false);
+                            setAssignFlash(payload.type ? { type: payload.type, message: payload.message } : null);
+                            await load({ silent: true });
+
+                            if (payload.type) {
+                                window.setTimeout(() => setAssignFlash(null), 9000);
+                            }
+                        }}
+                    />
+
+                    <FinalizeApprovedSampleIdModal
+                        open={finalizeApprovedOpen}
+                        sample={sample}
+                        onClose={() => setFinalizeApprovedOpen(false)}
+                        onDone={async (payload) => {
+                            setFinalizeApprovedOpen(false);
+                            setAssignFlash(payload.type ? { type: payload.type, message: payload.message } : null);
+                            await load({ silent: true });
+
+                            if (payload.type) {
+                                window.setTimeout(() => setAssignFlash(null), 9000);
+                            }
+                        }}
+                    />
+
+                    <UpdateRequestStatusModal
+                        open={returnModalOpen}
+                        sampleId={requestId}
+                        action="return"
+                        currentStatus={(sample as any)?.request_status ?? null}
+                        onClose={() => setReturnModalOpen(false)}
+                        onUpdated={async () => {
+                            await load({ silent: true });
+                            setTab("workflow");
+                        }}
+                    />
+
+                    {intakeOpen ? (
+                        <IntakeChecklistModal
+                            open={intakeOpen}
+                            onClose={() => setIntakeOpen(false)}
                             sampleId={requestId}
-                            action="return"
-                            currentStatus={(sample as any)?.request_status ?? null}
-                            onClose={() => setReturnModalOpen(false)}
-                            onUpdated={async () => {
+                            requestLabel={t("samples.pages.requestDetail.requestLabel", {
+                                id: displayRequestId,
+                                defaultValue: `Request #${displayRequestId}`,
+                            })}
+                            onSubmitted={async () => {
                                 await load({ silent: true });
                                 setTab("workflow");
                             }}
                         />
-
-                        {intakeOpen ? (
-                            <IntakeChecklistModal
-                                open={intakeOpen}
-                                onClose={() => setIntakeOpen(false)}
-                                sampleId={requestId}
-                                requestLabel={t("samples.pages.requestDetail.requestLabel", {
-                                    id: displayRequestId,
-                                    defaultValue: `Request #${displayRequestId}`,
-                                })}
-                                onSubmitted={async () => {
-                                    await load({ silent: true });
-                                    setTab("workflow");
-                                }}
-                            />
-                        ) : null}
-                    </div>
-                ) : null}
-            </div>
+                    ) : null}
+                </div>
+            ) : null}
         </div>
-    );
+    </div>
+);
 }

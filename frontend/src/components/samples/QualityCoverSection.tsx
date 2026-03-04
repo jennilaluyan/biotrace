@@ -123,7 +123,6 @@ export function QualityCoverSection(props: Props) {
 
     const [cover, setCover] = useState<QualityCover | null>(null);
 
-    const [methodOfAnalysis, setMethodOfAnalysis] = useState("");
     const [qcPayload, setQcPayload] = useState<any>({});
 
     const [supportingDriveUrl, setSupportingDriveUrl] = useState("");
@@ -298,7 +297,6 @@ export function QualityCoverSection(props: Props) {
             const c = await saveQualityCoverDraft(sampleId, {
                 parameter_id: parameterId ?? null,
                 parameter_label: paramLabel !== "—" ? paramLabel : null,
-                method_of_analysis: methodOfAnalysis || null,
                 qc_payload: qcPayload,
                 supporting_drive_url: supportingDriveUrl.trim() || null,
                 supporting_notes: supportingNotes.trim() || null,
@@ -330,7 +328,6 @@ export function QualityCoverSection(props: Props) {
             const draft = await saveQualityCoverDraft(sampleId, {
                 parameter_id: parameterId ?? null,
                 parameter_label: paramLabel !== "—" ? paramLabel : null,
-                method_of_analysis: methodOfAnalysis.trim(),
                 qc_payload: qcPayload,
                 supporting_drive_url: supportingDriveUrl.trim() || null,
                 supporting_notes: supportingNotes.trim() || null,
@@ -345,7 +342,6 @@ export function QualityCoverSection(props: Props) {
             const submitted = await submitQualityCover(sampleId, {
                 parameter_id: parameterId ?? null,
                 parameter_label: paramLabel !== "—" ? paramLabel : null,
-                method_of_analysis: methodOfAnalysis.trim(),
                 qc_payload: qcPayload,
                 supporting_drive_url: supportingDriveUrl.trim() || null,
                 supporting_notes: supportingNotes.trim() || null,

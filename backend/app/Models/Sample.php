@@ -2,11 +2,12 @@
 
 namespace App\Models;
 
+use App\Enums\SampleHighLevelStatus;
+use App\Models\QualityCover;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use App\Enums\SampleHighLevelStatus;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
-use App\Models\QualityCover;
 
 class Sample extends Model
 {
@@ -30,15 +31,25 @@ class Sample extends Model
         'current_status',
         'request_status',
         'workflow_group',
+
         'submitted_at',
         'reviewed_at',
         'ready_at',
         'physically_received_at',
+
         'lab_sample_code',
+
+        // ✅ NEW: test method set by Admin on Accept
+        'test_method_id',
+        'test_method_name',
+        'test_method_set_by_staff_id',
+        'test_method_set_at',
+
         'sample_id_prefix',
         'sample_id_number',
         'sample_id_assigned_at',
         'sample_id_assigned_by_staff_id',
+
         'additional_notes',
         'created_by',
         'assigned_to',
@@ -59,8 +70,8 @@ class Sample extends Model
         'analyst_received_at',
 
         // ✅ Analyst crosscheck gate
-        'crosscheck_status',          // pending | passed | failed
-        'physical_label_code',        // input analyst
+        'crosscheck_status',        // pending | passed | failed
+        'physical_label_code',      // input analyst
         'crosschecked_at',
         'crosschecked_by_staff_id',
         'crosscheck_note',
@@ -96,6 +107,9 @@ class Sample extends Model
         // ✅ NEW: SC → Analyst handoff
         'sc_delivered_to_analyst_at' => 'datetime',
         'analyst_received_at' => 'datetime',
+
+        // ✅ NEW: test method timestamp
+        'test_method_set_at' => 'datetime',
 
         // Crosscheck
         'crosschecked_at' => 'datetime',
@@ -169,9 +183,19 @@ class Sample extends Model
         )->withTimestamps();
     }
 
+    /**
+     * ✅ Test method chosen by Admin on Accept.
+     * Keep nullable (legacy samples may not have it).
+     */
+    public function testMethod(): BelongsTo
+    {
+        return $this->belongsTo(Method::class, 'test_method_id', 'method_id');
+    }
+
     public function getStatusEnumAttribute(): ?string
     {
         if (!$this->current_status) return null;
+
         $enum = SampleHighLevelStatus::fromCurrentStatus($this->current_status);
         return $enum->value;
     }
