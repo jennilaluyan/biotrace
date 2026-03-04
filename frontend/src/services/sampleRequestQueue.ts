@@ -9,6 +9,19 @@ export type RequestStatus =
     | "physically_received"
     | "rejected"
     | "in_transit_to_collector"
+    | "under_inspection"
+    | "inspection_failed_returned_to_admin"
+    | "returned_to_admin"
+    | "intake_checklist_passed"
+    | "awaiting_verification"
+    | "waiting_sample_id_assignment"
+    | "sample_id_pending_verification"
+    | "sample_id_approved_for_assignment"
+    | "intake_validated"
+    | "sc_delivered_to_analyst"
+    | "analyst_received"
+    | "analyst_returned_to_sc"
+    | "sc_received_from_analyst"
     | string;
 
 export type SampleRequestQueueRow = {

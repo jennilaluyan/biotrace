@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckSquare, FileText, Info, RefreshCw, RotateCcw, Search, Square } from "lucide-react";
+import { CheckSquare, ChevronDown, FileText, Info, RefreshCw, RotateCcw, Search, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { useAuth } from "../../hooks/useAuth";
@@ -542,16 +542,22 @@ export function LooGeneratorPage() {
                         <label className="sr-only" htmlFor="loo-status-filter">
                             {t("loo.generator.filters.statusLabel", "Status filter")}
                         </label>
-                        <select
-                            id="loo-status-filter"
-                            value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                        >
-                            <option value="all">{t("loo.generator.filters.statusAll", "All")}</option>
-                            <option value="ready">{t("loo.generator.filters.statusReady", "Ready only")}</option>
-                            <option value="needs_approval">{t("loo.generator.filters.statusNeedsApproval", "Needs approval")}</option>
-                        </select>
+                        <div className="relative">
+                            <select
+                                id="loo-status-filter"
+                                value={statusFilter}
+                                onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+                                className={cx(
+                                    "w-full appearance-none rounded-xl border border-gray-300 bg-white px-3 py-2 pr-9 text-sm",
+                                    "focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                )}
+                            >
+                                <option value="all">{t("loo.generator.filters.statusAll", "All")}</option>
+                                <option value="ready">{t("loo.generator.filters.statusReady", "Ready only")}</option>
+                                <option value="needs_approval">{t("loo.generator.filters.statusNeedsApproval", "Needs approval")}</option>
+                            </select>
+                            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+                        </div>
                     </div>
 
                     <div className="w-full md:w-auto flex flex-col sm:flex-row gap-2">

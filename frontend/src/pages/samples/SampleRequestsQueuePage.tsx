@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Eye, RefreshCw, Search } from "lucide-react";
+import { ChevronDown, Eye, RefreshCw, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
@@ -56,22 +56,33 @@ function compactRequestStatusToken(token: string, locale: string) {
     const isId = String(locale || "").toLowerCase().startsWith("id");
 
     const map: Record<string, { en: string; id: string }> = {
+        // submission / moderation
         submitted: { en: "submitted", id: "terkirim" },
-        ready_for_delivery: { en: "ready", id: "siap" },
-        physically_received: { en: "received", id: "diterima" },
-        rejected: { en: "rejected", id: "ditolak" },
         needs_revision: { en: "revision", id: "revisi" },
         returned: { en: "revision", id: "revisi" },
+        rejected: { en: "rejected", id: "ditolak" },
 
-        awaiting_verification: { en: "verify", id: "verifikasi" },
-        waiting_sample_id_assignment: { en: "waiting", id: "menunggu" },
-
+        // logistics / physical movement
+        ready_for_delivery: { en: "ready", id: "siap" },
+        physically_received: { en: "received", id: "diterima" },
         in_transit_to_collector: { en: "transit", id: "transit" },
         under_inspection: { en: "inspect", id: "inspeksi" },
+        inspection_failed_returned_to_admin: { en: "failed", id: "gagal" },
         returned_to_admin: { en: "returned", id: "kembali" },
 
+        // checklist + verification + sample id assignment
         intake_checklist_passed: { en: "intake", id: "intake" },
+        awaiting_verification: { en: "verify", id: "verifikasi" },
+        waiting_sample_id_assignment: { en: "waiting", id: "menunggu" },
+        sample_id_pending_verification: { en: "pending", id: "menunggu" },
+        sample_id_approved_for_assignment: { en: "approved", id: "disetujui" },
         intake_validated: { en: "validated", id: "validasi" },
+
+        // SC ↔ Analyst handoff
+        sc_delivered_to_analyst: { en: "to analyst", id: "ke analis" },
+        analyst_received: { en: "analyst", id: "diterima analis" },
+        analyst_returned_to_sc: { en: "returned", id: "kembali" },
+        sc_received_from_analyst: { en: "received", id: "diterima" },
     };
 
     return (map[token]?.[isId ? "id" : "en"] ?? normalizeStatusWords(token)).toLowerCase();
@@ -82,18 +93,33 @@ function requestStatusChipLabel(t: TFunction, locale: string, raw?: string | nul
     if (!token) return "-";
 
     const map: Record<string, string> = {
-        ready_for_delivery: "requestStatus.readyForDelivery",
-        physically_received: "requestStatus.physicallyReceived",
-        awaiting_verification: "requestStatus.awaitingVerification",
-        in_transit_to_collector: "requestStatus.inTransitToCollector",
-        under_inspection: "requestStatus.underInspection",
-        returned_to_admin: "requestStatus.returnedToAdmin",
+        // submission / moderation
+        submitted: "requestStatus.submitted",
         needs_revision: "requestStatus.needsRevision",
         returned: "requestStatus.returned",
-        submitted: "requestStatus.submitted",
         rejected: "requestStatus.rejected",
+
+        // logistics / physical movement
+        ready_for_delivery: "requestStatus.readyForDelivery",
+        physically_received: "requestStatus.physicallyReceived",
+        in_transit_to_collector: "requestStatus.inTransitToCollector",
+        under_inspection: "requestStatus.underInspection",
+        inspection_failed_returned_to_admin: "requestStatus.inspectionFailedReturnedToAdmin",
+        returned_to_admin: "requestStatus.returnedToAdmin",
+
+        // checklist + verification + sample id assignment
         intake_checklist_passed: "requestStatus.intakeChecklistPassed",
+        awaiting_verification: "requestStatus.awaitingVerification",
         waiting_sample_id_assignment: "requestStatus.waitingSampleIdAssignment",
+        sample_id_pending_verification: "requestStatus.sampleIdPendingVerification",
+        sample_id_approved_for_assignment: "requestStatus.sampleIdApprovedForAssignment",
+        intake_validated: "requestStatus.intakeValidated",
+
+        // SC ↔ Analyst handoff
+        sc_delivered_to_analyst: "requestStatus.scDeliveredToAnalyst",
+        analyst_received: "requestStatus.analystReceived",
+        analyst_returned_to_sc: "requestStatus.analystReturnedToSc",
+        sc_received_from_analyst: "requestStatus.scReceivedFromAnalyst",
     };
 
     const fallback = compactRequestStatusToken(token, locale);
@@ -114,18 +140,35 @@ function statusTone(raw?: string | null) {
     const k = s.replace(/_/g, " ").replace(/\s+/g, " ").trim();
 
     if (k === "draft") return "bg-gray-100 text-gray-700";
-    if (k === "submitted") return "bg-blue-50 text-blue-700";
-    if (k === "ready for delivery") return "bg-indigo-50 text-indigo-700";
-    if (k === "physically received") return "bg-green-100 text-green-800";
 
+    // submission
+    if (k === "submitted") return "bg-blue-50 text-blue-700";
     if (k === "needs revision" || k === "returned" || k === "rejected")
         return "bg-red-100 text-red-700";
 
-    if (k === "awaiting verification") return "bg-violet-100 text-violet-800";
-    if (k === "in transit to collector") return "bg-amber-100 text-amber-800";
-    if (k === "under inspection") return "bg-amber-100 text-amber-800";
-    if (k === "returned to admin") return "bg-slate-100 text-slate-700";
+    // logistics / physical movement
+    if (k === "ready for delivery") return "bg-indigo-50 text-indigo-700";
+    if (k === "physically received") return "bg-green-100 text-green-800";
+    if (k === "in transit to collector" || k === "under inspection")
+        return "bg-amber-100 text-amber-800";
+    if (k === "inspection failed returned to admin")
+        return "bg-rose-100 text-rose-800";
+    if (k === "returned to admin")
+        return "bg-slate-100 text-slate-700";
+
+    // verification + sample id assignment
     if (k === "intake checklist passed") return "bg-emerald-50 text-emerald-700";
+    if (k === "awaiting verification") return "bg-violet-100 text-violet-800";
+    if (k === "waiting sample id assignment") return "bg-fuchsia-100 text-fuchsia-800";
+    if (k === "sample id pending verification") return "bg-fuchsia-100 text-fuchsia-800";
+    if (k === "sample id approved for assignment") return "bg-teal-100 text-teal-800";
+    if (k === "intake validated") return "bg-teal-100 text-teal-800";
+
+    // SC ↔ Analyst handoff
+    if (k === "sc delivered to analyst" || k === "analyst received")
+        return "bg-amber-50 text-amber-800";
+    if (k === "analyst returned to sc" || k === "sc received from analyst")
+        return "bg-slate-100 text-slate-700";
 
     return "bg-gray-100 text-gray-700";
 }
@@ -399,71 +442,65 @@ export default function SampleRequestsQueuePage() {
                         <label className="sr-only" htmlFor="rq-status">
                             {t("samples.pages.queue.filters.status", { defaultValue: "Status" })}
                         </label>
-                        <select
-                            id="rq-status"
-                            value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value)}
-                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                        >
-                            <option value="">
-                                {t("samples.pages.queue.filters.all", {
-                                    defaultValue: "All statuses",
-                                })}
-                            </option>
+                        <div className="relative">
+                            <select
+                                id="rq-status"
+                                value={statusFilter}
+                                onChange={(e) => setStatusFilter(e.target.value)}
+                                className={cx(
+                                    "w-full appearance-none rounded-xl border border-gray-300 bg-white px-3 py-2 pr-9 text-sm",
+                                    "focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                )}
+                            >
+                                <option value="">
+                                    {t("samples.pages.queue.filters.all", { defaultValue: "All statuses" })}
+                                </option>
 
-                            <option value="submitted">
-                                {t("requestStatus.submitted", { defaultValue: "submitted" })}
-                            </option>
-                            <option value="ready_for_delivery">
-                                {t("requestStatus.readyForDelivery", {
-                                    defaultValue: "ready for delivery",
-                                })}
-                            </option>
-                            <option value="physically_received">
-                                {t("requestStatus.physicallyReceived", {
-                                    defaultValue: "physically received",
-                                })}
-                            </option>
+                                <optgroup label={t("samples.pages.queue.filters.groups.submission", { defaultValue: "Submission" })}>
+                                    <option value="submitted">{t("requestStatus.submitted", { defaultValue: "submitted" })}</option>
+                                    <option value="needs_revision">{t("requestStatus.needsRevision", { defaultValue: "needs revision" })}</option>
+                                    <option value="returned">{t("requestStatus.returned", { defaultValue: "returned" })}</option>
+                                    <option value="rejected">{t("requestStatus.rejected", { defaultValue: "rejected" })}</option>
+                                </optgroup>
 
-                            <option value="returned">
-                                {t("requestStatus.returned", { defaultValue: "returned" })}
-                            </option>
-                            <option value="needs_revision">
-                                {t("requestStatus.needsRevision", {
-                                    defaultValue: "needs revision",
-                                })}
-                            </option>
+                                <optgroup label={t("samples.pages.queue.filters.groups.logistics", { defaultValue: "Logistics" })}>
+                                    <option value="ready_for_delivery">{t("requestStatus.readyForDelivery", { defaultValue: "ready for delivery" })}</option>
+                                    <option value="physically_received">{t("requestStatus.physicallyReceived", { defaultValue: "physically received" })}</option>
+                                    <option value="in_transit_to_collector">{t("requestStatus.inTransitToCollector", { defaultValue: "in transit to collector" })}</option>
+                                    <option value="under_inspection">{t("requestStatus.underInspection", { defaultValue: "under inspection" })}</option>
+                                    <option value="inspection_failed_returned_to_admin">
+                                        {t("requestStatus.inspectionFailedReturnedToAdmin", { defaultValue: "inspection failed (returned)" })}
+                                    </option>
+                                    <option value="returned_to_admin">{t("requestStatus.returnedToAdmin", { defaultValue: "returned to admin" })}</option>
+                                </optgroup>
 
-                            <option value="rejected">
-                                {t("requestStatus.rejected", { defaultValue: "rejected" })}
-                            </option>
+                                <optgroup label={t("samples.pages.queue.filters.groups.verification", { defaultValue: "Verification & Sample ID" })}>
+                                    <option value="intake_checklist_passed">
+                                        {t("requestStatus.intakeChecklistPassed", { defaultValue: "intake checklist passed" })}
+                                    </option>
+                                    <option value="awaiting_verification">{t("requestStatus.awaitingVerification", { defaultValue: "awaiting verification" })}</option>
+                                    <option value="waiting_sample_id_assignment">
+                                        {t("requestStatus.waitingSampleIdAssignment", { defaultValue: "waiting sample id assignment" })}
+                                    </option>
+                                    <option value="sample_id_pending_verification">
+                                        {t("requestStatus.sampleIdPendingVerification", { defaultValue: "sample id pending verification" })}
+                                    </option>
+                                    <option value="sample_id_approved_for_assignment">
+                                        {t("requestStatus.sampleIdApprovedForAssignment", { defaultValue: "sample id approved for assignment" })}
+                                    </option>
+                                    <option value="intake_validated">{t("requestStatus.intakeValidated", { defaultValue: "intake validated" })}</option>
+                                </optgroup>
 
-                            <option value="in_transit_to_collector">
-                                {t("requestStatus.inTransitToCollector", {
-                                    defaultValue: "in transit to collector",
-                                })}
-                            </option>
-                            <option value="under_inspection">
-                                {t("requestStatus.underInspection", {
-                                    defaultValue: "under inspection",
-                                })}
-                            </option>
-                            <option value="returned_to_admin">
-                                {t("requestStatus.returnedToAdmin", {
-                                    defaultValue: "returned to admin",
-                                })}
-                            </option>
-                            <option value="intake_checklist_passed">
-                                {t("requestStatus.intakeChecklistPassed", {
-                                    defaultValue: "intake checklist passed",
-                                })}
-                            </option>
-                            <option value="awaiting_verification">
-                                {t("requestStatus.awaitingVerification", {
-                                    defaultValue: "awaiting verification",
-                                })}
-                            </option>
-                        </select>
+                                <optgroup label={t("samples.pages.queue.filters.groups.analyst", { defaultValue: "SC ↔ Analyst" })}>
+                                    <option value="sc_delivered_to_analyst">{t("requestStatus.scDeliveredToAnalyst", { defaultValue: "SC delivered to analyst" })}</option>
+                                    <option value="analyst_received">{t("requestStatus.analystReceived", { defaultValue: "analyst received" })}</option>
+                                    <option value="analyst_returned_to_sc">{t("requestStatus.analystReturnedToSc", { defaultValue: "analyst returned to SC" })}</option>
+                                    <option value="sc_received_from_analyst">{t("requestStatus.scReceivedFromAnalyst", { defaultValue: "SC received from analyst" })}</option>
+                                </optgroup>
+                            </select>
+
+                            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+                        </div>
                     </div>
 
                     {/* Date filter */}

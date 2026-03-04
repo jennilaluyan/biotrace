@@ -20,18 +20,25 @@ export type SampleRequestStatus =
     | "submitted"
     | "returned"
     | "needs_revision"
+    | "rejected"
     | "ready_for_delivery"
     | "physically_received"
     | "in_transit_to_collector"
     | "under_inspection"
-    | "in_transit_to_analyst"
-    | "received_by_analyst"
-    | "inspection_failed"
+    | "inspection_failed_returned_to_admin"
     | "returned_to_admin"
     | "intake_checklist_passed"
     | "awaiting_verification"
+    | "waiting_sample_id_assignment"
+    | "sample_id_pending_verification"
+    | "sample_id_approved_for_assignment"
     | "intake_validated"
-    | "rejected"
+    // ✅ SC ↔ Analyst handoff (aligned with physical workflow naming)
+    | "sc_delivered_to_analyst"
+    | "analyst_received"
+    | "analyst_returned_to_sc"
+    | "sc_received_from_analyst"
+    // ✅ keep permissive for backend additions
     | (string & {});
 
 // ✅ Physical workflow actions (Admin <-> Sample Collector)

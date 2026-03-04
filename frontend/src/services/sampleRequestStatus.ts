@@ -23,6 +23,10 @@ function normalizeActionOrStatus(v: string): ActionPayload {
     if (k === "return") return { action: "return" as const };
     if (k === "received") return { action: "received" as const };
 
+    // ✅ allow status-token callers (UI sometimes passes the target status)
+    if (k === "ready_for_delivery") return { action: "accept" as const };
+    if (k === "physically_received") return { action: "received" as const };
+
     // fallback: status-based payload
     return { request_status: v };
 }

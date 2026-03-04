@@ -60,11 +60,23 @@ const normalizeStatusLabel = (label: string) => {
     const mappings: Record<string, string> = {
         "testing completed": "testing done",
         "ready for reagent request": "ready for reagent",
-        "awaiting analyst intake": "awaiting intake",
-        "received by analyst": "received",
-        "received_by_analyst": "received",
-        "in_transit_to_analyst": "in transit to analyst",
+
+        // ✅ SC ↔ Analyst naming aligned with backend tokens
+        "sc_delivered_to_analyst": "sc delivered to analyst",
+        "analyst_received": "analyst received",
+        "analyst_returned_to_sc": "analyst returned to sc",
+        "sc_received_from_analyst": "sc received from analyst",
+
+        // ✅ keep legacy fallbacks (in case old rows still exist)
+        "in_transit_to_analyst": "sc delivered to analyst",
+        "received_by_analyst": "analyst received",
+        "received by analyst": "analyst received",
+
+        // ✅ inspection failure token
+        "inspection_failed_returned_to_admin": "inspection failed returned to admin",
+
         "awaiting lab promotion": "awaiting promotion",
+
         "reagent request (submitted)": "reagent submitted",
         "reagent request (draft)": "reagent draft",
         "reagent request (approved)": "reagent approved",
@@ -187,10 +199,14 @@ export const SamplesPage = () => {
             intake_validated: { en: "validated", id: "validasi" },
             waiting_sample_id_assignment: { en: "waiting", id: "menunggu" },
             awaiting_verification: { en: "verify", id: "verifikasi" },
-            in_transit_to_analyst: { en: "transit", id: "transit" },
-            received_by_analyst: { en: "received", id: "diterima" },
+            sc_delivered_to_analyst: { en: "to analyst", id: "ke analis" },
+            analyst_received: { en: "analyst", id: "diterima analis" },
+            analyst_returned_to_sc: { en: "returned", id: "kembali" },
+            sc_received_from_analyst: { en: "received", id: "diterima" },
+
             in_transit_to_collector: { en: "transit", id: "transit" },
             under_inspection: { en: "inspect", id: "inspeksi" },
+            inspection_failed_returned_to_admin: { en: "failed", id: "gagal" },
             returned_to_admin: { en: "returned", id: "kembali" },
 
             // crosscheck
@@ -247,11 +263,28 @@ export const SamplesPage = () => {
         // 1) Request/Intake workflow status (includes SC→Analyst handoff)
         const rs = String(anyS?.request_status ?? "").trim().toLowerCase();
         if (rs) {
+            // ✅ SC ↔ Analyst
+            if (rs === "sc_delivered_to_analyst") {
+                return { label: "sc delivered to analyst", className: statusChipClass("yellow") };
+            }
+            if (rs === "analyst_received") {
+                return { label: "analyst received", className: statusChipClass("blue") };
+            }
+            if (rs === "analyst_returned_to_sc" || rs === "sc_received_from_analyst") {
+                return { label: normalizeStatusLabel(rs), className: statusChipClass("gray") };
+            }
+
+            // ✅ Inspection failure token
+            if (rs === "inspection_failed_returned_to_admin") {
+                return { label: "inspection failed returned to admin", className: statusChipClass("red") };
+            }
+
+            // ✅ Legacy fallbacks (if old rows still exist)
             if (rs === "in_transit_to_analyst") {
-                return { label: "in transit to analyst", className: statusChipClass("yellow") };
+                return { label: "sc delivered to analyst", className: statusChipClass("yellow") };
             }
             if (rs === "received_by_analyst") {
-                return { label: "received", className: statusChipClass("blue") };
+                return { label: "analyst received", className: statusChipClass("blue") };
             }
 
             const label = normalizeStatusLabel(rs);
@@ -260,7 +293,7 @@ export const SamplesPage = () => {
                     ? "red"
                     : rs.includes("submitted") || rs.includes("ready") || rs.includes("awaiting")
                         ? "yellow"
-                        : rs.includes("validated") || rs.includes("passed")
+                        : rs.includes("validated") || rs.includes("passed") || rs.includes("approved")
                             ? "green"
                             : "gray";
 
