@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Eye, RefreshCw, Search } from "lucide-react";
+import { ChevronDown, Eye, RefreshCw, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { useAuth } from "../../hooks/useAuth";
@@ -22,6 +22,10 @@ type ReagentReqStatus =
     | "denied"
     | "cancelled"
     | string;
+
+function cx(...arr: Array<string | false | null | undefined>) {
+    return arr.filter(Boolean).join(" ");
+}
 
 // Helper to safely extract Reagent Request Status
 const getReagentRequestStatus = (s: any): ReagentReqStatus | null => {
@@ -67,7 +71,7 @@ const normalizeStatusLabel = (label: string) => {
         "analyst_returned_to_sc": "analyst returned to sc",
         "sc_received_from_analyst": "sc received from analyst",
 
-        // ✅ keep legacy fallbacks (in case old rows still exist)
+        // ✅ legacy fallbacks
         "in_transit_to_analyst": "sc delivered to analyst",
         "received_by_analyst": "analyst received",
         "received by analyst": "analyst received",
@@ -87,11 +91,155 @@ const normalizeStatusLabel = (label: string) => {
 
     // Regex fallback for generic reagent requests
     const m = s.match(/^reagent request \((.+)\)$/);
-    if (m?.[1]) {
-        return `reagent ${m[1].trim()}`;
-    }
+    if (m?.[1]) return `reagent ${m[1].trim()}`;
 
     return s;
+};
+
+const statusChipClass = (tone: "gray" | "blue" | "yellow" | "green" | "red") => {
+    switch (tone) {
+        case "blue":
+            return "bg-blue-50 text-blue-700";
+        case "yellow":
+            return "bg-yellow-50 text-yellow-800";
+        case "green":
+            return "bg-green-50 text-green-700";
+        case "red":
+            return "bg-red-50 text-red-700";
+        default:
+            return "bg-gray-100 text-gray-700";
+    }
+};
+
+/**
+ * Translate a compact status token into short label.
+ * NOTE: this function is intentionally "compact" (one word-ish).
+ */
+const translateStatusCompact = (rawLabel: string, locale: string) => {
+    const normalized = normalizeStatusLabel(rawLabel);
+    const token = normalized.replace(/\s+/g, "_");
+
+    const isId = String(locale || "").toLowerCase().startsWith("id");
+
+    const compactMap: Record<string, { en: string; id: string }> = {
+        // ✅ status_enum (used by filter)
+        registered: { en: "registered", id: "terdaftar" },
+        testing: { en: "testing", id: "pengujian" },
+        reported: { en: "reported", id: "laporan" },
+
+        // request / intake
+        submitted: { en: "submitted", id: "terkirim" },
+        ready_for_delivery: { en: "ready", id: "siap" },
+        physically_received: { en: "received", id: "diterima" },
+        needs_revision: { en: "revision", id: "revisi" },
+        returned: { en: "revision", id: "revisi" },
+        rejected: { en: "rejected", id: "ditolak" },
+        intake_checklist_passed: { en: "intake", id: "intake" },
+        intake_validated: { en: "validated", id: "validasi" },
+        waiting_sample_id_assignment: { en: "waiting", id: "menunggu" },
+        awaiting_verification: { en: "verify", id: "verifikasi" },
+
+        // SC ↔ Analyst
+        sc_delivered_to_analyst: { en: "to analyst", id: "ke analis" },
+        analyst_received: { en: "analyst", id: "diterima analis" },
+        analyst_returned_to_sc: { en: "returned", id: "kembali" },
+        sc_received_from_analyst: { en: "received", id: "diterima" },
+
+        // collector / inspection
+        in_transit_to_collector: { en: "transit", id: "transit" },
+        under_inspection: { en: "inspect", id: "inspeksi" },
+        inspection_failed_returned_to_admin: { en: "failed", id: "gagal" },
+        returned_to_admin: { en: "returned", id: "kembali" },
+
+        // crosscheck
+        crosscheck_passed: { en: "passed", id: "lulus" },
+        crosscheck_failed: { en: "failed", id: "gagal" },
+        awaiting_crosscheck: { en: "waiting", id: "menunggu" },
+
+        // lab workflow (fallback)
+        received: { en: "received", id: "diterima" },
+        in_progress: { en: "progress", id: "proses" },
+        testing_done: { en: "testing", id: "uji" },
+        verified: { en: "verified", id: "verifikasi" },
+        validated: { en: "validated", id: "validasi" },
+
+        // reagent stages (compact)
+        reagent_draft: { en: "draft", id: "draf" },
+        reagent_submitted: { en: "submitted", id: "terkirim" },
+        reagent_approved: { en: "approved", id: "disetujui" },
+        reagent_denied: { en: "denied", id: "ditolak" },
+    };
+
+    const compact = compactMap[token]?.[isId ? "id" : "en"] ?? normalized;
+
+    return String(compact)
+        .trim()
+        .toLowerCase()
+        .replace(/_/g, " ")
+        .replace(/\s+/g, " ");
+};
+
+type Chip = { label: string; className: string; title?: string };
+
+/**
+ * ✅ FIX utama:
+ * - SamplesPage filter pakai `status_enum`, maka chip juga harus pakai `status_enum` sebagai sumber utama.
+ * - Reagent status jangan jadi status utama di kolom Status (biar filter & tampilan nggak "ngaco"),
+ *   tapi boleh tampil sebagai tooltip.
+ */
+const getSamplesListStatusChip = (s: Sample, locale: string): Chip => {
+    const anyS = s as any;
+
+    const rrStatus = getReagentRequestStatus(anyS); // optional info
+    const rrTitle = rrStatus ? `reagent: ${rrStatus}` : null;
+
+    // 1) Prefer backend computed status_enum (this is what the filter uses)
+    const se = String(s.status_enum ?? "").trim().toLowerCase();
+    if (se === "registered") {
+        return { label: "registered", className: statusChipClass("blue"), title: rrTitle ?? undefined };
+    }
+    if (se === "testing") {
+        return { label: "testing", className: statusChipClass("yellow"), title: rrTitle ?? undefined };
+    }
+    if (se === "reported") {
+        return { label: "reported", className: statusChipClass("green"), title: rrTitle ?? undefined };
+    }
+
+    // 2) Crosscheck (analyst gate)
+    const cs = String(anyS?.crosscheck_status ?? "").toLowerCase();
+    if (cs === "failed") {
+        return { label: "crosscheck failed", className: statusChipClass("red"), title: rrTitle ?? undefined };
+    }
+    if (cs === "passed") {
+        return { label: "crosscheck passed", className: statusChipClass("green"), title: rrTitle ?? undefined };
+    }
+
+    // 3) Request/Intake workflow status (if present)
+    const rs = String(anyS?.request_status ?? "").trim().toLowerCase();
+    if (rs) {
+        const label = normalizeStatusLabel(rs);
+        const tone =
+            rs.includes("rejected") || rs.includes("failed") || rs.includes("returned")
+                ? "red"
+                : rs.includes("submitted") || rs.includes("ready") || rs.includes("awaiting") || rs.includes("transit") || rs.includes("inspection")
+                    ? "yellow"
+                    : rs.includes("validated") || rs.includes("passed") || rs.includes("approved")
+                        ? "green"
+                        : "gray";
+
+        return { label, className: statusChipClass(tone as any), title: rrTitle ?? undefined };
+    }
+
+    // 4) Lab workflow fallback (current_status)
+    const current = String(s.current_status ?? "").toLowerCase().replace(/_/g, " ");
+    if (current === "received") return { label: "received", className: statusChipClass("blue"), title: rrTitle ?? undefined };
+    if (current === "in progress") return { label: "in progress", className: statusChipClass("blue"), title: rrTitle ?? undefined };
+    if (current === "testing completed") return { label: "testing done", className: statusChipClass("yellow"), title: rrTitle ?? undefined };
+    if (current === "verified") return { label: "verified", className: statusChipClass("green"), title: rrTitle ?? undefined };
+    if (current === "validated") return { label: "validated", className: statusChipClass("green"), title: rrTitle ?? undefined };
+    if (current === "reported") return { label: "reported", className: statusChipClass("green"), title: rrTitle ?? undefined };
+
+    return { label: "awaiting crosscheck", className: statusChipClass("yellow"), title: rrTitle ?? undefined };
 };
 
 export const SamplesPage = () => {
@@ -166,168 +314,6 @@ export const SamplesPage = () => {
         });
     }, [labOnlyItems, searchTerm]);
 
-    const statusChipClass = (tone: "gray" | "blue" | "yellow" | "green" | "red") => {
-        switch (tone) {
-            case "blue":
-                return "bg-blue-50 text-blue-700";
-            case "yellow":
-                return "bg-yellow-50 text-yellow-800";
-            case "green":
-                return "bg-green-50 text-green-700";
-            case "red":
-                return "bg-red-50 text-red-700";
-            default:
-                return "bg-gray-100 text-gray-700";
-        }
-    };
-
-    const translateStatus = (rawLabel: string) => {
-        const normalized = normalizeStatusLabel(rawLabel);
-        const token = normalized.replace(/\s+/g, "_");
-
-        const isId = String(locale || "").toLowerCase().startsWith("id");
-
-        const compactMap: Record<string, { en: string; id: string }> = {
-            // request / intake
-            submitted: { en: "submitted", id: "terkirim" },
-            ready_for_delivery: { en: "ready", id: "siap" },
-            physically_received: { en: "received", id: "diterima" },
-            needs_revision: { en: "revision", id: "revisi" },
-            returned: { en: "revision", id: "revisi" },
-            rejected: { en: "rejected", id: "ditolak" },
-            intake_checklist_passed: { en: "intake", id: "intake" },
-            intake_validated: { en: "validated", id: "validasi" },
-            waiting_sample_id_assignment: { en: "waiting", id: "menunggu" },
-            awaiting_verification: { en: "verify", id: "verifikasi" },
-            sc_delivered_to_analyst: { en: "to analyst", id: "ke analis" },
-            analyst_received: { en: "analyst", id: "diterima analis" },
-            analyst_returned_to_sc: { en: "returned", id: "kembali" },
-            sc_received_from_analyst: { en: "received", id: "diterima" },
-
-            in_transit_to_collector: { en: "transit", id: "transit" },
-            under_inspection: { en: "inspect", id: "inspeksi" },
-            inspection_failed_returned_to_admin: { en: "failed", id: "gagal" },
-            returned_to_admin: { en: "returned", id: "kembali" },
-
-            // crosscheck
-            crosscheck_passed: { en: "passed", id: "lulus" },
-            crosscheck_failed: { en: "failed", id: "gagal" },
-            awaiting_crosscheck: { en: "waiting", id: "menunggu" },
-
-            // lab workflow
-            received: { en: "received", id: "diterima" },
-            in_progress: { en: "progress", id: "proses" },
-            testing_done: { en: "testing", id: "uji" },
-            verified: { en: "verified", id: "verifikasi" },
-            validated: { en: "validated", id: "validasi" },
-            reported: { en: "reported", id: "laporan" },
-
-            // reagent stages (dipendekkan ke 1 kata; tooltip masih lengkap)
-            reagent_draft: { en: "draft", id: "draf" },
-            reagent_submitted: { en: "submitted", id: "terkirim" },
-            reagent_approved: { en: "approved", id: "disetujui" },
-            reagent_denied: { en: "denied", id: "ditolak" },
-        };
-
-        const compact = compactMap[token]?.[isId ? "id" : "en"] ?? normalized;
-
-        // final normalize: lower-case + single spaces
-        return String(compact)
-            .trim()
-            .toLowerCase()
-            .replace(/_/g, " ")
-            .replace(/\s+/g, " ");
-    };
-
-    const getSamplesListStatusChip = (s: Sample): { label: string; className: string } => {
-        const anyS = s as any;
-
-        // 0) Reagent request stage has highest priority once it exists
-        const rrStatus = getReagentRequestStatus(anyS);
-        if (rrStatus) {
-            if (rrStatus === "draft") {
-                return { label: "reagent draft", className: statusChipClass("gray") };
-            }
-            if (rrStatus === "submitted") {
-                return { label: "reagent submitted", className: statusChipClass("yellow") };
-            }
-            if (rrStatus === "approved") {
-                return { label: "reagent approved", className: statusChipClass("green") };
-            }
-            if (rrStatus === "rejected" || rrStatus === "denied") {
-                return { label: "reagent denied", className: statusChipClass("red") };
-            }
-            return { label: normalizeStatusLabel(`reagent request (${rrStatus})`), className: statusChipClass("gray") };
-        }
-
-        // 1) Request/Intake workflow status (includes SC→Analyst handoff)
-        const rs = String(anyS?.request_status ?? "").trim().toLowerCase();
-        if (rs) {
-            // ✅ SC ↔ Analyst
-            if (rs === "sc_delivered_to_analyst") {
-                return { label: "sc delivered to analyst", className: statusChipClass("yellow") };
-            }
-            if (rs === "analyst_received") {
-                return { label: "analyst received", className: statusChipClass("blue") };
-            }
-            if (rs === "analyst_returned_to_sc" || rs === "sc_received_from_analyst") {
-                return { label: normalizeStatusLabel(rs), className: statusChipClass("gray") };
-            }
-
-            // ✅ Inspection failure token
-            if (rs === "inspection_failed_returned_to_admin") {
-                return { label: "inspection failed returned to admin", className: statusChipClass("red") };
-            }
-
-            // ✅ Legacy fallbacks (if old rows still exist)
-            if (rs === "in_transit_to_analyst") {
-                return { label: "sc delivered to analyst", className: statusChipClass("yellow") };
-            }
-            if (rs === "received_by_analyst") {
-                return { label: "analyst received", className: statusChipClass("blue") };
-            }
-
-            const label = normalizeStatusLabel(rs);
-            const tone =
-                rs.includes("rejected") || rs.includes("failed") || rs.includes("returned")
-                    ? "red"
-                    : rs.includes("submitted") || rs.includes("ready") || rs.includes("awaiting")
-                        ? "yellow"
-                        : rs.includes("validated") || rs.includes("passed") || rs.includes("approved")
-                            ? "green"
-                            : "gray";
-
-            return { label, className: statusChipClass(tone as any) };
-        }
-
-        // 2) Crosscheck status (analyst gate)
-        const cs = String(anyS?.crosscheck_status ?? "pending").toLowerCase();
-        if (cs === "failed") {
-            return { label: "crosscheck failed", className: statusChipClass("red") };
-        }
-        if (cs === "passed") {
-            return { label: "crosscheck passed", className: statusChipClass("green") };
-        }
-
-        // 3) Lab code existence fallback
-        const hasLabCode = !!s.lab_sample_code;
-        if (!hasLabCode) {
-            return { label: "awaiting promotion", className: statusChipClass("gray") };
-        }
-
-        // 4) current_status fallback (lab workflow)
-        const current = String(s.current_status ?? "").toLowerCase().replace(/_/g, " ");
-        if (current === "received") return { label: "received", className: statusChipClass("blue") };
-        if (current === "in progress") return { label: "in progress", className: statusChipClass("blue") };
-        if (current === "testing completed") return { label: "testing done", className: statusChipClass("blue") };
-        if (current === "verified") return { label: "verified", className: statusChipClass("green") };
-        if (current === "validated") return { label: "validated", className: statusChipClass("green") };
-        if (current === "reported") return { label: "reported", className: statusChipClass("green") };
-
-        // 5) Default
-        return { label: "awaiting crosscheck", className: statusChipClass("yellow") };
-    };
-
     /**
      * Group samples per LOO.
      */
@@ -391,9 +377,9 @@ export const SamplesPage = () => {
     }, [visibleItems]);
 
     const totalPages = meta?.last_page ?? 1;
-    const total = meta?.total ?? 0;
-    const from = total === 0 ? 0 : (meta!.current_page - 1) * meta!.per_page + 1;
-    const to = Math.min(meta?.current_page ? meta.current_page * meta.per_page : 0, total);
+    const totalRows = meta?.total ?? 0;
+    const from = totalRows === 0 ? 0 : (meta!.current_page - 1) * meta!.per_page + 1;
+    const to = Math.min(meta?.current_page ? meta.current_page * meta.per_page : 0, totalRows);
 
     const goToPage = (p: number) => {
         if (p < 1 || p > totalPages) return;
@@ -413,7 +399,7 @@ export const SamplesPage = () => {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Header (old design) */}
+            {/* Header */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("samplesPage.title")}</h1>
 
@@ -429,8 +415,9 @@ export const SamplesPage = () => {
             </div>
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Filter bar (old design) */}
+                {/* Filter bar */}
                 <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
+                    {/* Search */}
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="sample-search">
                             {t("search")}
@@ -452,48 +439,67 @@ export const SamplesPage = () => {
                         </div>
                     </div>
 
+                    {/* Client filter */}
                     <div className="w-full md:w-56">
                         <label className="sr-only" htmlFor="sample-client-filter">
                             {t("samplesPage.filters.clientLabel")}
                         </label>
-                        <select
-                            id="sample-client-filter"
-                            value={clientFilter}
-                            onChange={(e) => setClientFilter(e.target.value)}
-                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                        >
-                            <option value="all">{t("samplesPage.filters.allClients")}</option>
-                            {clientsLoading ? (
-                                <option value="__loading__" disabled>
-                                    {t("samplesPage.filters.loadingClients")}
-                                </option>
-                            ) : (
-                                (clients ?? []).map((c) => (
-                                    <option key={c.client_id} value={String(c.client_id)}>
-                                        {c.name}
+
+                        <div className="relative">
+                            <select
+                                id="sample-client-filter"
+                                value={clientFilter}
+                                onChange={(e) => setClientFilter(e.target.value)}
+                                className={cx(
+                                    "w-full appearance-none rounded-xl border border-gray-300 bg-white px-3 py-2 pr-9 text-sm",
+                                    "focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                )}
+                            >
+                                <option value="all">{t("samplesPage.filters.allClients")}</option>
+                                {clientsLoading ? (
+                                    <option value="__loading__" disabled>
+                                        {t("samplesPage.filters.loadingClients")}
                                     </option>
-                                ))
-                            )}
-                        </select>
+                                ) : (
+                                    (clients ?? []).map((c) => (
+                                        <option key={c.client_id} value={String(c.client_id)}>
+                                            {c.name}
+                                        </option>
+                                    ))
+                                )}
+                            </select>
+
+                            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+                        </div>
                     </div>
 
+                    {/* Status filter */}
                     <div className="w-full md:w-52">
                         <label className="sr-only" htmlFor="sample-status-filter">
                             {t("samplesPage.filters.statusLabel")}
                         </label>
-                        <select
-                            id="sample-status-filter"
-                            value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                        >
-                            <option value="all">{t("samplesPage.filters.allStatus")}</option>
-                            <option value="registered">{t("samplesPage.status.registered")}</option>
-                            <option value="testing">{t("samplesPage.status.testing")}</option>
-                            <option value="reported">{t("samplesPage.status.reported")}</option>
-                        </select>
+
+                        <div className="relative">
+                            <select
+                                id="sample-status-filter"
+                                value={statusFilter}
+                                onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+                                className={cx(
+                                    "w-full appearance-none rounded-xl border border-gray-300 bg-white px-3 py-2 pr-9 text-sm",
+                                    "focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                )}
+                            >
+                                <option value="all">{t("samplesPage.filters.allStatus")}</option>
+                                <option value="registered">{t("samplesPage.status.registered")}</option>
+                                <option value="testing">{t("samplesPage.status.testing")}</option>
+                                <option value="reported">{t("samplesPage.status.reported")}</option>
+                            </select>
+
+                            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+                        </div>
                     </div>
 
+                    {/* Date range */}
                     <div className="w-full md:w-auto flex flex-col sm:flex-row gap-2">
                         <div className="w-full sm:w-40">
                             <label className="sr-only" htmlFor="sample-date-from">
@@ -521,6 +527,7 @@ export const SamplesPage = () => {
                         </div>
                     </div>
 
+                    {/* Refresh */}
                     <div className="w-full md:w-auto flex justify-start md:justify-end">
                         <button
                             type="button"
@@ -547,7 +554,7 @@ export const SamplesPage = () => {
                     ) : (
                         <>
                             <div className="text-xs text-gray-600 mb-3">
-                                {t("samplesPage.showing", { from, to, total })}
+                                {t("samplesPage.showing", { from, to, total: totalRows })}
                             </div>
 
                             {/* GROUPED BY LOO */}
@@ -559,14 +566,12 @@ export const SamplesPage = () => {
 
                                     const rr = (g.reagentRequestStatus ?? null) as string | null;
 
-                                    // Reagent labels (new copy + i18n)
                                     let rrLabel = t("samplesPage.reagent.create");
                                     if (rr === "draft") rrLabel = t("samplesPage.reagent.continue");
                                     else if (rr === "submitted") rrLabel = t("samplesPage.reagent.viewSubmitted");
                                     else if (rr === "approved") rrLabel = t("samplesPage.reagent.viewApproved");
                                     else if (rr) rrLabel = t("samplesPage.reagent.viewGeneric", { status: rr });
 
-                                    // Old design tone mapping
                                     const rrTone =
                                         rr === "approved"
                                             ? "bg-emerald-50 text-emerald-700 border-emerald-200"
@@ -602,8 +607,11 @@ export const SamplesPage = () => {
                                                 {g.loId ? (
                                                     <button
                                                         type="button"
-                                                        className={`px-3 py-2 rounded-xl border text-xs font-bold ${rrTone} ${!allPassed ? "opacity-50 cursor-not-allowed" : "hover:bg-white/60"
-                                                            }`}
+                                                        className={cx(
+                                                            "px-3 py-2 rounded-xl border text-xs font-bold",
+                                                            rrTone,
+                                                            !allPassed ? "opacity-50 cursor-not-allowed" : "hover:bg-white/60"
+                                                        )}
                                                         disabled={!allPassed}
                                                         title={!allPassed ? t("samplesPage.reagent.blockedTitle") : undefined}
                                                         onClick={() => navigate(`/reagents/requests/loo/${g.loId}`)}
@@ -635,8 +643,8 @@ export const SamplesPage = () => {
 
                                                     <tbody className="divide-y divide-gray-100">
                                                         {g.samples.map((s) => {
-                                                            const chip = getSamplesListStatusChip(s);
-                                                            const translatedLabel = translateStatus(chip.label);
+                                                            const chip = getSamplesListStatusChip(s, locale);
+                                                            const translatedLabel = translateStatusCompact(chip.label, locale);
 
                                                             return (
                                                                 <tr key={s.sample_id} className="hover:bg-gray-50">
@@ -650,8 +658,11 @@ export const SamplesPage = () => {
 
                                                                     <td className="px-4 py-3">
                                                                         <span
-                                                                            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${chip.className}`}
-                                                                            title={chip.label}
+                                                                            className={cx(
+                                                                                "inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold",
+                                                                                chip.className
+                                                                            )}
+                                                                            title={chip.title ?? chip.label}
                                                                         >
                                                                             {translatedLabel}
                                                                         </span>
@@ -693,7 +704,7 @@ export const SamplesPage = () => {
                                 })}
                             </div>
 
-                            {/* Pagination (old design) */}
+                            {/* Pagination */}
                             <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
                                 <div className="text-xs text-gray-600">
                                     {t("pageOf", { page: meta?.current_page ?? 1, totalPages })}
@@ -720,7 +731,7 @@ export const SamplesPage = () => {
                                 </div>
                             </div>
 
-                            {/* Help box (old design, new i18n copy) */}
+                            {/* Help box */}
                             <div className="mb-4 mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                                 <div className="font-semibold">{t("samplesPage.help.title")}</div>
                                 <div className="mt-1">{t("samplesPage.help.body")}</div>
