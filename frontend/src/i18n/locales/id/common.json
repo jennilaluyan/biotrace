@@ -43,12 +43,39 @@
     "pageOfTotal": "Halaman {{page}} dari {{totalPages}} — {{total}} total",
     "common": {
         "actions": "Aksi",
-        "totalCount": "Total: {{count}}",
+        "totalCount": "Total",
         "refresh": "Muat ulang",
         "approve": "Setujui",
         "reject": "Tolak",
-        "processing": "Memproses…",
-        "view": "Lihat"
+        "processing": "Memproses...",
+        "view": "Lihat",
+        "search": "Cari",
+        "loading": "Memuat...",
+        "active": "Aktif",
+        "inactive": "Nonaktif"
+    },
+    "staffPage": {
+        "title": "Staf",
+        "subtitle": "Kelola daftar staf dan setujui permintaan akun staf baru.",
+        "tabs": {
+            "staffs": "Staf",
+            "approvals": "Persetujuan"
+        },
+        "staffs": {
+            "cardTitle": "Daftar staf",
+            "searchPlaceholder": "Cari nama, email, peran…",
+            "table": {
+                "staff": "Staf",
+                "role": "Peran",
+                "account": "Akun",
+                "presence": "Status"
+            },
+            "status": {
+                "online": "Online",
+                "offline": "Offline"
+            },
+            "emptyTitle": "Belum ada staf."
+        }
     },
     "staffApprovals": {
         "title": "Staf",

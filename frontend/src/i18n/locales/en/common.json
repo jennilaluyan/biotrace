@@ -49,7 +49,7 @@
         "view": "View"
     },
     "staffApprovals": {
-        "title": "Staff approvals",
+        "title": "Staffs",
         "subtitle": "Review and approve new staff accounts requesting access.",
         "cardTitle": "Pending requests",
         "loading": "Loading pending approvals…",
