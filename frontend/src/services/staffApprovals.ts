@@ -33,5 +33,5 @@ export const fetchPendingStaffs = () =>
 export const approveStaff = (staffId: number) =>
     apiPost(`/v1/staffs/${staffId}/approve`, {});
 
-export const rejectStaff = (staffId: number, payload: { reason: string }) =>
+export const rejectStaff = (staffId: number, payload: { note: string }) =>
     apiPost(`/v1/staffs/${staffId}/reject`, payload);

@@ -486,7 +486,7 @@ export const StaffApprovalsPage = () => {
                 onClose={() => {
                     if (!submitting) setModalOpen(false);
                 }}
-                onConfirm={async (reason?: string) => {
+                onConfirm={async (note?: string) => {
                     if (!selected) return;
 
                     setSubmitting(true);
@@ -495,7 +495,7 @@ export const StaffApprovalsPage = () => {
                             await approveStaff(selected.staff_id);
                         } else {
                             await rejectStaff(selected.staff_id, {
-                                reason: String(reason ?? "").trim(),
+                                note: String(note ?? "").trim(),
                             });
                         }
 

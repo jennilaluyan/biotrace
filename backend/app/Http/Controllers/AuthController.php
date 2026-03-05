@@ -167,18 +167,6 @@ class AuthController extends Controller
             }
         }
 
-        // Track activity (for online/offline) - throttle minimal
-        if (Schema::hasColumn('staffs', 'last_seen_at')) {
-            $now = now();
-            $last = $user->last_seen_at ? \Illuminate\Support\Carbon::parse($user->last_seen_at) : null;
-
-            // avoid write on every request in quick succession
-            if (!$last || $last->diffInSeconds($now) >= 60) {
-                $user->last_seen_at = $now;
-                $user->save();
-            }
-        }
-
         $role = $user->role()->select('role_id', 'name')->first();
 
         return response()->json([
