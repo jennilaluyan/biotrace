@@ -13,13 +13,13 @@ export type ClientSampleListParams = {
 export type ClientSampleDraftPayload = {
     sample_type: string;
 
-    // ✅ portal schedule
+    // portal schedule
     scheduled_delivery_at?: string | null;
 
     examination_purpose?: string | null;
     additional_notes?: string | null;
 
-    // ✅ requested parameters
+    // requested parameters
     parameter_ids?: number[] | null;
 };
 
@@ -29,19 +29,26 @@ function unwrapData<T>(res: any): T {
 }
 
 function unwrapPaginatedFlexible<T>(res: any): PaginatedResponse<T> {
+    // preferred shape: { data, meta }
     if (res && typeof res === "object" && "data" in res && "meta" in res) {
         return res as PaginatedResponse<T>;
     }
+
+    // nested envelope: { data: { data, meta } }
     const inner = unwrapData<any>(res);
     if (inner && typeof inner === "object" && "data" in inner && "meta" in inner) {
         return inner as PaginatedResponse<T>;
     }
+
+    // array fallback
     if (Array.isArray(inner)) {
         return {
             data: inner as T[],
             meta: { current_page: 1, last_page: 1, per_page: inner.length, total: inner.length },
         };
     }
+
+    // safe empty
     return { data: [], meta: { current_page: 1, last_page: 1, per_page: 10, total: 0 } };
 }
 
@@ -51,16 +58,25 @@ function getSampleId(sample: any): number | null {
     return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function setQs(qs: URLSearchParams, key: string, val: unknown) {
+    if (val === undefined || val === null) return;
+    const s = String(val).trim();
+    if (!s) return;
+    qs.set(key, s);
+}
+
 export const clientSampleRequestService = {
     // GET /v1/client/samples
     async list(params: ClientSampleListParams = {}): Promise<PaginatedResponse<Sample>> {
         const qs = new URLSearchParams();
-        if (params.page) qs.set("page", String(params.page));
-        if (params.per_page) qs.set("per_page", String(params.per_page));
-        if (params.from) qs.set("from", params.from);
-        if (params.to) qs.set("to", params.to);
-        if (params.status) qs.set("status", params.status);
-        if (params.q) qs.set("q", params.q);
+
+        if (typeof params.page === "number") qs.set("page", String(params.page));
+        if (typeof params.per_page === "number") qs.set("per_page", String(params.per_page));
+
+        setQs(qs, "from", params.from);
+        setQs(qs, "to", params.to);
+        setQs(qs, "status", params.status);
+        setQs(qs, "q", params.q);
 
         const url = `/v1/client/samples${qs.toString() ? `?${qs.toString()}` : ""}`;
         const res = await apiGet<any>(url);
@@ -85,7 +101,7 @@ export const clientSampleRequestService = {
         return unwrapData<Sample>(res);
     },
 
-    // POST /v1/client/samples/:id/submit (✅ submit sends payload now)
+    // POST /v1/client/samples/:id/submit
     async submit(id: number, payload: ClientSampleDraftPayload): Promise<Sample> {
         const res = await apiPost<any>(`/v1/client/samples/${id}/submit`, payload);
         return unwrapData<Sample>(res);

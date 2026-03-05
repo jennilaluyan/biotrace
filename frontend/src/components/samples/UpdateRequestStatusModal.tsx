@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { AlertTriangle, Check, ClipboardCheck, X } from "lucide-react";
 
 import { updateRequestStatus } from "../../services/sampleRequestStatus";
-import { listMethods, type MethodRow } from "../../services/methods";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -72,7 +71,7 @@ function compactRequestStatusToken(token: string, locale: string) {
         ready_for_delivery: { en: "ready", id: "siap" },
         physically_received: { en: "received", id: "diterima" },
         rejected: { en: "rejected", id: "ditolak" },
-        needs_revision: { en: "revision", id: "revisi" },
+        needs_revision: { en: "revision", id: "revisi" }, // legacy alias
         returned: { en: "revision", id: "revisi" },
 
         awaiting_verification: { en: "verify", id: "verifikasi" },
@@ -135,7 +134,7 @@ function getModalCopy(t: (k: string, opt?: any) => string, action: Action): Moda
                 defaultValue: "Return this request to the client for revision. A note is required.",
             }),
             confirm: t("samples.requestStatusModal.buttons.confirmReturn", { defaultValue: "Return" }),
-            nextLabel: "needs_revision",
+            nextLabel: "returned", // ✅ canonical DB token
         };
     }
 
@@ -149,24 +148,6 @@ function getModalCopy(t: (k: string, opt?: any) => string, action: Action): Moda
     };
 }
 
-function unwrapEnvelope<T>(res: any): T {
-    // Axios-ish: res.data, but some services already return payload
-    let x = res?.data ?? res;
-
-    for (let i = 0; i < 5; i++) {
-        if (x && typeof x === "object" && "data" in x && (x as any).data != null) {
-            const inner = (x as any).data;
-            if (inner && typeof inner === "object" && "data" in inner) {
-                x = inner;
-                continue;
-            }
-        }
-        break;
-    }
-
-    return x as T;
-}
-
 export const UpdateRequestStatusModal = (props: Props) => {
     const { t, i18n } = useTranslation();
     const locale = i18n.language || "en";
@@ -178,17 +159,13 @@ export const UpdateRequestStatusModal = (props: Props) => {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // ✅ Accept now uses free-text method name (no dropdown, no /methods call)
+    const [testMethodName, setTestMethodName] = useState("");
+
     const isAccept = action === "accept";
     const isReject = action === "reject";
     const isReturn = action === "return";
     const isReceived = action === "received";
-
-    // Accept requires test method
-    const [methods, setMethods] = useState<MethodRow[]>([]);
-    const [methodsLoading, setMethodsLoading] = useState(false);
-    const [methodsError, setMethodsError] = useState<string | null>(null);
-    const [methodId, setMethodId] = useState<number | null>(null);
-    const [methodQuery, setMethodQuery] = useState("");
 
     const copy = useMemo(() => getModalCopy(t, action), [t, action]);
 
@@ -199,10 +176,7 @@ export const UpdateRequestStatusModal = (props: Props) => {
         setNote("");
         setError(null);
         setBusy(false);
-
-        setMethodsError(null);
-        setMethodId(null);
-        setMethodQuery("");
+        setTestMethodName("");
     }, [open, action, requestId]);
 
     // ESC to close
@@ -217,70 +191,25 @@ export const UpdateRequestStatusModal = (props: Props) => {
         return () => window.removeEventListener("keydown", onKeyDown);
     }, [open, busy, onClose]);
 
-    // Load methods when Accept modal opens
-    useEffect(() => {
-        if (!open) return;
-        if (!isAccept) return;
-
-        let mounted = true;
-
-        async function load() {
-            setMethodsLoading(true);
-            setMethodsError(null);
-
-            try {
-                const res = await listMethods({ page: 1, per_page: 200, q: "" });
-                const payload = unwrapEnvelope<any>(res);
-
-                const rows = (payload?.data?.data ?? payload?.data ?? payload) as MethodRow[];
-                const list = Array.isArray(rows) ? rows : [];
-                const active = list.filter((m) => !!m?.is_active);
-
-                if (mounted) setMethods(active);
-            } catch {
-                if (mounted) {
-                    setMethodsError(
-                        t("samples.requestStatusModal.method.error", { defaultValue: "Failed to load methods." })
-                    );
-                }
-            } finally {
-                if (mounted) setMethodsLoading(false);
-            }
-        }
-
-        load();
-        return () => {
-            mounted = false;
-        };
-    }, [open, isAccept, t]);
-
-    const filteredMethods = useMemo(() => {
-        const q = methodQuery.trim().toLowerCase();
-        if (!q) return methods;
-
-        return methods.filter((m) => {
-            const name = String(m?.name ?? "").toLowerCase();
-            const code = String(m?.code ?? "").toLowerCase();
-            const desc = String(m?.description ?? "").toLowerCase();
-            return name.includes(q) || code.includes(q) || desc.includes(q);
-        });
-    }, [methods, methodQuery]);
-
     const canConfirm = useMemo(() => {
         if (!open) return false;
         if (busy) return false;
         if (!requestId) return false;
 
-        if (isAccept) return Number(methodId) > 0;
+        if (isAccept) return testMethodName.trim().length >= 1;
         if (isReject || isReturn) return note.trim().length >= 1;
 
         return true;
-    }, [open, busy, requestId, isAccept, methodId, isReject, isReturn, note]);
+    }, [open, busy, requestId, isAccept, testMethodName, isReject, isReturn, note]);
 
     const Icon = isReject || isReturn ? AlertTriangle : isReceived ? ClipboardCheck : Check;
 
     const iconTone =
-        isReject ? "bg-rose-50 text-rose-700" : isReturn ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700";
+        isReject
+            ? "bg-rose-50 text-rose-700"
+            : isReturn
+                ? "bg-amber-50 text-amber-800"
+                : "bg-emerald-50 text-emerald-700";
 
     const noteLabel = useMemo(() => {
         if (isReject) {
@@ -314,6 +243,10 @@ export const UpdateRequestStatusModal = (props: Props) => {
         });
     }, [isReject, isReturn, t]);
 
+    const methodHelp = t("samples.requestStatusModal.method.help", {
+        defaultValue: "This method will be saved to the sample record and used for the Letter of Order (LoO).",
+    });
+
     const submit = async () => {
         if (!canConfirm || !requestId) return;
 
@@ -324,8 +257,9 @@ export const UpdateRequestStatusModal = (props: Props) => {
             const trimmedNote = note.trim();
             const noteToSend = isReject || isReturn ? trimmedNote : trimmedNote.length ? trimmedNote : null;
 
-            const methodIdToSend = isAccept ? methodId : null;
-            await updateRequestStatus(requestId, action, noteToSend, methodIdToSend);
+            const methodToSend = isAccept ? testMethodName.trim() : null;
+
+            await updateRequestStatus(requestId, action, noteToSend, methodToSend);
 
             onClose();
             onUpdated();
@@ -344,10 +278,6 @@ export const UpdateRequestStatusModal = (props: Props) => {
     };
 
     if (!open) return null;
-
-    const methodHelp = t("samples.requestStatusModal.method.help", {
-        defaultValue: "This method will be saved to the sample record and used for the Letter of Order (LoO).",
-    });
 
     return (
         <div className="lims-modal-backdrop p-4" role="dialog" aria-modal="true" aria-label={copy.title}>
@@ -404,52 +334,24 @@ export const UpdateRequestStatusModal = (props: Props) => {
                         </div>
                     </div>
 
-                    {/* Accept: required Test Method */}
+                    {/* ✅ Accept: required Test Method (free text, NO dropdown) */}
                     {isAccept ? (
                         <div className="mt-4">
                             <label className="block text-sm font-semibold text-gray-900">
                                 {t("samples.requestStatusModal.method.labelRequired", { defaultValue: "Test method (required)" })}
                             </label>
 
-                            {methodsError ? (
-                                <div className="mt-2 text-sm text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
-                                    {methodsError}
-                                </div>
-                            ) : null}
-
                             <div className="mt-2 grid gap-2">
                                 <input
                                     className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                    value={methodQuery}
-                                    onChange={(e) => setMethodQuery(e.target.value)}
-                                    placeholder={t("search", { defaultValue: "Search" })}
-                                    disabled={busy || methodsLoading}
-                                />
-
-                                <select
-                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                    value={methodId ?? ""}
-                                    onChange={(e) => {
-                                        const v = Number(e.target.value);
-                                        setMethodId(Number.isFinite(v) && v > 0 ? v : null);
-                                    }}
-                                    disabled={busy || methodsLoading}
-                                >
-                                    <option value="">
-                                        {methodsLoading
-                                            ? t("samples.requestStatusModal.method.loading", { defaultValue: "Loading methods…" })
-                                            : t("samples.requestStatusModal.method.placeholderSelect", { defaultValue: "Select a test method…" })}
-                                    </option>
-
-                                    {filteredMethods.map((m) => {
-                                        const label = `${m.code ? `${m.code} — ` : ""}${m.name}`;
-                                        return (
-                                            <option key={m.method_id} value={m.method_id}>
-                                                {label}
-                                            </option>
-                                        );
+                                    value={testMethodName}
+                                    onChange={(e) => setTestMethodName(e.target.value)}
+                                    placeholder={t("samples.requestStatusModal.method.placeholderInput", {
+                                        defaultValue: "Type test method…",
                                     })}
-                                </select>
+                                    disabled={busy}
+                                    maxLength={255}
+                                />
 
                                 <div className="text-[11px] text-gray-500">{methodHelp}</div>
                             </div>
