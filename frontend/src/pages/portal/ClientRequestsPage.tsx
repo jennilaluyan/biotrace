@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Download, Eye, FilePlus2, RefreshCw, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 
 import type { Sample } from "../../services/samples";
 import { clientSampleRequestService } from "../../services/sampleRequests";
@@ -73,28 +74,106 @@ function normalizeStatusKey(raw?: string | null) {
     return String(raw ?? "").trim().toLowerCase().replace(/\s+/g, "_");
 }
 
-function isIndonesian(locale: string) {
-    return String(locale || "").toLowerCase().startsWith("id");
+type TFn = (key: string, fallback?: string, options?: any) => string;
+
+type RequestStatusBucket =
+    | "draft"
+    | "submitted"
+    | "needs_revision"
+    | "ready_for_delivery"
+    | "received"
+    | "pickup_required"
+    | "picked_up"
+    | "rejected"
+    | "unknown";
+
+type StatusFilter = "all" | Exclude<RequestStatusBucket, "unknown">;
+
+function getRequestStatusBucket(raw?: string | null): RequestStatusBucket {
+    const k = normalizeStatusKey(raw);
+    if (!k) return "unknown";
+
+    if (k === "draft") return "draft";
+    if (k === "submitted") return "submitted";
+
+    // revision aliases
+    if (k === "returned" || k === "needs_revision") return "needs_revision";
+
+    if (k === "ready_for_delivery") return "ready_for_delivery";
+
+    // ✅ terima alias yang muncul di UI/backend
+    if (
+        k === "physically_received" ||
+        k === "received_by_analyst" ||
+        k === "analyst_received" ||
+        k === "sc_received_from_analyst" ||
+        k === "sc_delivered_to_analyst"
+    ) {
+        return "received";
+    }
+
+    if (k === "pickup_required") return "pickup_required";
+    if (k === "picked_up") return "picked_up";
+    if (k === "rejected") return "rejected";
+
+    return "unknown";
 }
 
-function shortRequestStatusLabel(raw?: string | null, locale = "en") {
-    const k = normalizeStatusKey(raw);
-    const id = isIndonesian(locale);
+function statusLabel(t: TFunction, bucket: RequestStatusBucket): string {
+    const key =
+        bucket === "needs_revision"
+            ? "portalRequestsPage.status.needsRevision"
+            : bucket === "ready_for_delivery"
+                ? "portalRequestsPage.status.readyForDelivery"
+                : bucket === "pickup_required"
+                    ? "portalRequestsPage.status.pickupRequired"
+                    : bucket === "picked_up"
+                        ? "portalRequestsPage.status.pickedUp"
+                        : bucket === "received"
+                            ? "portalRequestsPage.status.received"
+                            : bucket === "rejected"
+                                ? "portalRequestsPage.status.rejected"
+                                : bucket === "unknown"
+                                    ? "portalRequestsPage.status.unknown"
+                                    : `portalRequestsPage.status.${bucket}`;
 
-    // request_status short labels
-    const map: Record<string, { en: string; id: string }> = {
-        draft: { en: "draft", id: "draf" },
-        submitted: { en: "submitted", id: "terkirim" },
-        needs_revision: { en: "revision", id: "revisi" },
-        returned: { en: "revision", id: "revisi" },
-        ready_for_delivery: { en: "delivery", id: "pengantaran" },
-        physically_received: { en: "received", id: "diterima" },
-        pickup_required: { en: "pickup", id: "ambil" },
-        picked_up: { en: "picked", id: "diambil" },
-    };
+    const fallback =
+        bucket === "draft"
+            ? "Draft"
+            : bucket === "submitted"
+                ? "Submitted"
+                : bucket === "needs_revision"
+                    ? "Revision"
+                    : bucket === "ready_for_delivery"
+                        ? "Delivery"
+                        : bucket === "received"
+                            ? "Received"
+                            : bucket === "pickup_required"
+                                ? "Pickup"
+                                : bucket === "picked_up"
+                                    ? "Picked up"
+                                    : bucket === "rejected"
+                                        ? "Rejected"
+                                        : "Unknown";
 
-    if (map[k]) return (id ? map[k].id : map[k].en).toLowerCase();
-    return (k || "unknown").replace(/_/g, " ").toLowerCase();
+    return t(key, { defaultValue: fallback });
+}
+
+function statusFilterLabel(t: TFunction, filter: StatusFilter): string {
+    if (filter === "all") return t("portalRequestsPage.filters.allStatus", { defaultValue: "All statuses" });
+    return statusLabel(t, filter);
+}
+
+function requestStatusChip(raw: string | null | undefined, t: TFunction) {
+    const bucket = getRequestStatusBucket(raw);
+
+    if (bucket === "draft") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("gray") };
+    if (bucket === "submitted") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("primary") };
+    if (bucket === "needs_revision") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("amber") };
+    if (bucket === "ready_for_delivery") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("indigo") };
+    if (bucket === "received") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("emerald") };
+
+    return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("gray") };
 }
 
 function statusChipClass(kind: "gray" | "primary" | "amber" | "indigo" | "emerald") {
@@ -112,18 +191,6 @@ function statusChipClass(kind: "gray" | "primary" | "amber" | "indigo" | "emeral
     }
 }
 
-function requestStatusChip(raw?: string | null, locale = "en") {
-    const k = normalizeStatusKey(raw);
-
-    if (k === "draft") return { label: shortRequestStatusLabel(k, locale), cls: statusChipClass("gray") };
-    if (k === "submitted") return { label: shortRequestStatusLabel(k, locale), cls: statusChipClass("primary") };
-    if (k === "returned" || k === "needs_revision") return { label: shortRequestStatusLabel(k, locale), cls: statusChipClass("amber") };
-    if (k === "ready_for_delivery") return { label: shortRequestStatusLabel(k, locale), cls: statusChipClass("indigo") };
-    if (k === "physically_received") return { label: shortRequestStatusLabel(k, locale), cls: statusChipClass("emerald") };
-
-    return { label: shortRequestStatusLabel(raw, locale), cls: statusChipClass("gray") };
-}
-
 export default function ClientRequestsPage() {
     const { t, i18n } = useTranslation();
     const locale = i18n.language || "en";
@@ -137,7 +204,16 @@ export default function ClientRequestsPage() {
     const [error, setError] = useState<string | null>(null);
 
     const [searchTerm, setSearchTerm] = useState("");
-    const [statusFilter, setStatusFilter] = useState<string>("all");
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+
+    const STATUS_FILTERS: StatusFilter[] = [
+        "all",
+        "draft",
+        "submitted",
+        "needs_revision",
+        "ready_for_delivery",
+        "received",
+    ];
     const [createOpen, setCreateOpen] = useState(false);
 
     const [flash, setFlash] = useState<FlashPayload | null>(null);
@@ -210,16 +286,8 @@ export default function ClientRequestsPage() {
     const filtered = useMemo(() => {
         let list = items;
 
-        const sf = String(statusFilter || "all").toLowerCase();
-        if (sf !== "all") {
-            if (sf === "needs_revision") {
-                list = list.filter((it) => {
-                    const rs = normalizeStatusKey((it as any).request_status ?? "");
-                    return rs === "needs_revision" || rs === "returned";
-                });
-            } else {
-                list = list.filter((it) => normalizeStatusKey((it as any).request_status ?? "") === sf);
-            }
+        if (statusFilter !== "all") {
+            list = list.filter((it) => getRequestStatusBucket((it as any).request_status ?? "") === statusFilter);
         }
 
         const term = searchTerm.trim().toLowerCase();
@@ -229,7 +297,7 @@ export default function ClientRequestsPage() {
             const sid = getSampleId(it);
             const requestNo = sid ? requestNoBySampleId.get(sid) : null;
 
-            const st = requestStatusChip((it as any).request_status ?? null, locale);
+            const st = requestStatusChip((it as any).request_status ?? null, t);
 
             const hay = [
                 String(requestNo ?? ""),
@@ -246,7 +314,7 @@ export default function ClientRequestsPage() {
 
             return hay.includes(term);
         });
-    }, [items, searchTerm, statusFilter, requestNoBySampleId, locale]);
+    }, [items, searchTerm, statusFilter, requestNoBySampleId, t]);
 
     const clearFilters = () => {
         setSearchTerm("");
@@ -330,15 +398,14 @@ export default function ClientRequestsPage() {
                         <select
                             id="request-status-filter"
                             value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value)}
+                            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
-                            <option value="all">{shortRequestStatusLabel("all", locale)}</option>
-                            <option value="draft">{shortRequestStatusLabel("draft", locale)}</option>
-                            <option value="submitted">{shortRequestStatusLabel("submitted", locale)}</option>
-                            <option value="needs_revision">{shortRequestStatusLabel("needs_revision", locale)}</option>
-                            <option value="ready_for_delivery">{shortRequestStatusLabel("ready_for_delivery", locale)}</option>
-                            <option value="physically_received">{shortRequestStatusLabel("physically_received", locale)}</option>
+                            {STATUS_FILTERS.map((v) => (
+                                <option key={v} value={v}>
+                                    {statusFilterLabel(t, v).toLowerCase()}
+                                </option>
+                            ))}
                         </select>
                     </div>
 
@@ -424,7 +491,7 @@ export default function ClientRequestsPage() {
 
                                                 const updated = fmtDate(it.updated_at ?? it.created_at);
                                                 const sched = fmtDate(it.scheduled_delivery_at);
-                                                const st = requestStatusChip(it.request_status ?? null, locale);
+                                                const st = requestStatusChip(it.request_status ?? null, t);
 
                                                 const coaSampleId = Number((it as any).sample_id ?? sid);
 

@@ -589,7 +589,8 @@
             "loadFailed": "Gagal memuat daftar request."
         },
         "flash": {
-            "created": "Request berhasil dibuat."
+            "created": "Request berhasil dibuat.",
+            "submitted": "Permintaan berhasil dikirim."
         },
         "filters": {
             "searchLabel": "Cari request",
@@ -616,6 +617,8 @@
             "submitted": "Dikirim",
             "needsRevision": "Perlu revisi",
             "readyForDelivery": "Siap diantar",
+            "received": "Diterima",
+            "rejected": "Ditolak",
             "physicallyReceived": "Diterima fisik",
             "pickupRequired": "Perlu diambil",
             "pickedUp": "Sudah diambil",
