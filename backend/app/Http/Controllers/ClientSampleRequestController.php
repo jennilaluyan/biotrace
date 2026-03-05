@@ -241,16 +241,19 @@ class ClientSampleRequestController extends Controller
      * PATCH /api/v1/client/samples/{sample}
      * update draft/returned
      */
+    // update draft/returned/rejected
     public function update(ClientSampleDraftUpdateRequest $request, Sample $sample): JsonResponse
     {
         $client = $this->currentClientOr403();
         $this->assertOwnedByClient($client, $sample);
 
         $status = (string) ($sample->request_status ?? 'draft');
-        $allowed = ['draft', 'returned', 'needs_revision'];
+
+        // ✅ FIX: client boleh edit juga saat request ditolak (rejected)
+        $allowed = ['draft', 'returned', 'needs_revision', 'rejected'];
         if (!in_array($status, $allowed, true)) {
             return response()->json([
-                'message' => 'Only draft/returned requests can be updated.',
+                'message' => 'Only draft/returned/rejected requests can be updated.',
             ], 403);
         }
 
@@ -267,7 +270,7 @@ class ClientSampleRequestController extends Controller
 
         $this->syncRequestedParameters($sample, $data['parameter_ids'] ?? null);
 
-        // ✅ NEW: best-effort resolve group when parameters changed
+        // ✅ best-effort resolve group when parameters changed
         $this->syncWorkflowGroupFromParameterIds($sample, $data['parameter_ids'] ?? null, false);
 
         $sample->refresh()->load(['requestedParameters']);
@@ -286,7 +289,9 @@ class ClientSampleRequestController extends Controller
         $this->assertOwnedByClient($client, $sample);
 
         $from = (string) ($sample->request_status ?? 'draft');
-        $allowedFrom = ['draft', 'returned', 'needs_revision'];
+
+        // ✅ FIX: client boleh submit ulang dari rejected juga
+        $allowedFrom = ['draft', 'returned', 'needs_revision', 'rejected'];
         if (!in_array($from, $allowedFrom, true)) {
             return response()->json([
                 'message' => 'This request cannot be submitted from current status.',
@@ -308,10 +313,17 @@ class ClientSampleRequestController extends Controller
                 $sample->additional_notes = $data['additional_notes'] ?? null;
             }
 
+            // ✅ When re-submitting (returned/rejected), clear old moderation artifacts
+            if ($from === 'returned' || $from === 'needs_revision' || $from === 'rejected') {
+                $this->resetModerationFieldsForResubmit($sample);
+            }
+
             if (Schema::hasColumn('samples', 'request_status')) {
                 $sample->request_status = 'submitted';
             }
-            if (Schema::hasColumn('samples', 'submitted_at') && empty($sample->submitted_at)) {
+
+            // ✅ Always stamp submitted_at for a (re)submission
+            if (Schema::hasColumn('samples', 'submitted_at')) {
                 $sample->submitted_at = now();
             }
 
@@ -327,7 +339,7 @@ class ClientSampleRequestController extends Controller
 
             $this->syncRequestedParameters($sample, $data['parameter_ids'] ?? []);
 
-            // ✅ NEW: submit must have resolvable workflow_group
+            // submit must have resolvable workflow_group
             $this->syncWorkflowGroupFromParameterIds($sample, $data['parameter_ids'] ?? [], true);
 
             if (Schema::hasTable('audit_logs')) {
@@ -593,5 +605,32 @@ class ClientSampleRequestController extends Controller
         );
 
         return (int) (DB::table('staffs')->where('email', $email)->value('staff_id') ?: 1);
+    }
+
+    /**
+     * Reset moderation fields when client re-submits after returned/rejected.
+     * Schema-safe: only touches columns that exist.
+     */
+    private function resetModerationFieldsForResubmit(Sample $sample): void
+    {
+        $nullableCols = [
+            'reviewed_at',
+            'ready_at',
+            'request_approved_at',
+            'request_return_note',
+            'request_returned_at',
+
+            // in case legacy data had these set
+            'test_method_id',
+            'test_method_name',
+            'test_method_set_by_staff_id',
+            'test_method_set_at',
+        ];
+
+        foreach ($nullableCols as $col) {
+            if (Schema::hasColumn('samples', $col)) {
+                $sample->{$col} = null;
+            }
+        }
     }
 }

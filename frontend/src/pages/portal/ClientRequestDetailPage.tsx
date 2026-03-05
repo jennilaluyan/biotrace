@@ -44,6 +44,7 @@ function shortRequestStatusLabel(raw?: string | null, locale = "en") {
         submitted: { en: "submitted", id: "terkirim" },
         needs_revision: { en: "revision", id: "revisi" },
         returned: { en: "revision", id: "revisi" },
+        rejected: { en: "rejected", id: "ditolak" }, // ✅ FIX
         ready_for_delivery: { en: "delivery", id: "pengantaran" },
         physically_received: { en: "received", id: "diterima" },
     };
@@ -68,6 +69,7 @@ const statusTone = (raw?: string | null) => {
     if (s === "draft") return "bg-gray-100 text-gray-700 border-gray-200";
     if (s === "submitted") return "bg-blue-50 text-blue-700 border-blue-100";
     if (s === "needs_revision" || s === "returned") return "bg-amber-50 text-amber-700 border-amber-200";
+    if (s === "rejected") return "bg-rose-50 text-rose-700 border-rose-200"; // ✅ FIX
     if (s === "returned_to_admin") return "bg-amber-50 text-amber-700 border-amber-200";
     if (s === "ready_for_delivery") return "bg-indigo-50 text-indigo-700 border-indigo-200";
     if (s === "physically_received") return "bg-emerald-50 text-emerald-700 border-emerald-200";
@@ -150,7 +152,7 @@ export default function ClientRequestDetailPage() {
 
     const canEdit = useMemo(() => {
         const s = effectiveStatus.toLowerCase();
-        return s === "draft" || s === "needs_revision" || s === "returned" || s === "";
+        return s === "draft" || s === "needs_revision" || s === "returned" || s === "rejected" || s === "";
     }, [effectiveStatus]);
 
     const requestedParameterRows = useMemo(() => {
@@ -529,13 +531,33 @@ export default function ClientRequestDetailPage() {
                 </div>
             ) : null}
 
-            {requestReturnNote && (statusLower === "returned" || statusLower === "needs_revision") ? (
-                <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 shadow-sm">
-                    <div className="flex items-center gap-2 text-amber-900 font-semibold mb-1">
+            {requestReturnNote && (statusLower === "returned" || statusLower === "needs_revision" || statusLower === "rejected") ? (
+                <div
+                    className={cx(
+                        "mb-6 rounded-2xl border px-5 py-4 shadow-sm",
+                        statusLower === "rejected" ? "border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50"
+                    )}
+                >
+                    <div
+                        className={cx(
+                            "flex items-center gap-2 font-semibold mb-1",
+                            statusLower === "rejected" ? "text-rose-900" : "text-amber-900"
+                        )}
+                    >
                         <Info size={18} />
-                        {t("portal.requestDetail.alerts.revisionTitle", "Revision requested")}
+                        {statusLower === "rejected"
+                            ? t("portal.requestDetail.alerts.rejectedTitle", { defaultValue: "Request rejected" })
+                            : t("portal.requestDetail.alerts.revisionTitle", "Revision requested")}
                     </div>
-                    <div className="text-sm text-amber-800 pl-7 whitespace-pre-wrap">{requestReturnNote}</div>
+
+                    <div
+                        className={cx(
+                            "text-sm pl-7 whitespace-pre-wrap",
+                            statusLower === "rejected" ? "text-rose-800" : "text-amber-800"
+                        )}
+                    >
+                        {requestReturnNote}
+                    </div>
                 </div>
             ) : null}
 

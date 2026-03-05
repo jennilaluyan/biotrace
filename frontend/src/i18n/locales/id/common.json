@@ -855,7 +855,8 @@
             "lastUpdated": "Terakhir diperbarui {{at}}",
             "alerts": {
                 "revisionTitle": "Diminta revisi",
-                "notEditable": "Permintaan ini tidak bisa diedit pada status saat ini."
+                "notEditable": "Permintaan ini tidak bisa diedit pada status saat ini.",
+                "rejectedTitle": "Permintaan ditolak"
             },
             "sections": {
                 "detailsTitle": "Detail permintaan",

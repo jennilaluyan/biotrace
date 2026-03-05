@@ -869,7 +869,8 @@
             "lastUpdated": "Last updated {{at}}",
             "alerts": {
                 "revisionTitle": "Revision requested",
-                "notEditable": "This request can’t be edited in the current status."
+                "notEditable": "This request can’t be edited in the current status.",
+                "rejectedTitle": "Request rejected"
             },
             "sections": {
                 "detailsTitle": "Request details",
