@@ -43,7 +43,7 @@
     "pageOfTotal": "Page {{page}} of {{totalPages}} — {{total}} total",
     "common": {
         "actions": "Actions",
-        "totalCount": "Total: {{count}}",
+        "totalCount": "Total: ",
         "refresh": "Refresh",
         "approve": "Approve",
         "reject": "Reject",

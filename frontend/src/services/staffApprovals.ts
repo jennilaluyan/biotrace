@@ -35,13 +35,13 @@ export const approveStaff = (staffId: number) =>
 export const rejectStaff = (staffId: number, payload: { note: string }) =>
     apiPost(`/v1/staffs/${staffId}/reject`, payload);
 
-/**
- * Convenience service wrapper (keperluan import di beberapa page).
- * Keeps backward compatibility dengan named exports yang sudah ada.
- */
 export const staffApprovalsService = {
     fetchStaffs,
     fetchPendingStaffs,
     approveStaff,
     rejectStaff,
+
+    // aliases (backward compatibility untuk page lama)
+    listStaffs: fetchStaffs,
+    listPending: fetchPendingStaffs,
 } as const;

@@ -196,7 +196,7 @@ export default function LaboratoryHeadDashboardPage() {
 
         try {
             const [staffsRes, queue, reagents, qc, allDocs, looRes] = await Promise.all([
-                staffApprovalsService.listPending(),
+                staffApprovalsService.fetchPendingStaffs(),
                 fetchSampleRequestsQueue({ page: 1, per_page: 250, date: "30d" }),
 
                 // focus: pending approvals
