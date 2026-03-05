@@ -667,9 +667,13 @@
         "status": {
             "draft": "Draft",
             "submitted": "Dikirim",
+            "returned": "Dikembalikan",
             "needsRevision": "Perlu revisi",
             "readyForDelivery": "Siap diantar",
-            "received": "Diterima",
+            "receivedByAdmin": "Diterima admin",
+            "intakeInspection": "Pemeriksaan intake",
+            "testing": "Pengujian",
+            "reported": "Hasil tersedia",
             "rejected": "Ditolak",
             "physicallyReceived": "Diterima fisik",
             "pickupRequired": "Perlu diambil",
@@ -694,6 +698,9 @@
             "parameterRequired": "Wajib memilih satu parameter.",
             "saveFailed": "Gagal menyimpan draf.",
             "submitFailed": "Gagal mengirim permintaan."
+        },
+        "actions": {
+            "saveChanges": "Simpan perubahan"
         },
         "info": {
             "draftSaved": "Draf tersimpan."
@@ -856,7 +863,8 @@
             "alerts": {
                 "revisionTitle": "Diminta revisi",
                 "notEditable": "Permintaan ini tidak bisa diedit pada status saat ini.",
-                "rejectedTitle": "Permintaan ditolak"
+                "rejectedTitle": "Permintaan ditolak",
+                "returnedTitle": "Permintaan dikembalikan"
             },
             "sections": {
                 "detailsTitle": "Detail permintaan",

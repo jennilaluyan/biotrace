@@ -33,15 +33,13 @@ export type SampleRequestStatus =
     | "sample_id_pending_verification"
     | "sample_id_approved_for_assignment"
     | "intake_validated"
-    // ✅ SC ↔ Analyst handoff (aligned with physical workflow naming)
     | "sc_delivered_to_analyst"
     | "analyst_received"
     | "analyst_returned_to_sc"
     | "sc_received_from_analyst"
-    // ✅ keep permissive for backend additions
     | (string & {});
 
-// ✅ Physical workflow actions (Admin <-> Sample Collector)
+// Physical workflow actions (Admin <-> Sample Collector)
 export type PhysicalWorkflowAction =
     | "admin_received_from_client"
     | "admin_brought_to_collector"
@@ -77,7 +75,6 @@ export type RequestedParameter = {
     tag?: string | null;
 };
 
-// ✅ Status history type (biar import di SampleDetailPage aman)
 export type SampleStatusHistoryItem = {
     id: number;
     sample_id?: number;
@@ -113,7 +110,7 @@ export interface Sample {
     status_enum?: SampleStatusEnum;
     request_status?: SampleRequestStatus | null;
 
-    // ✅ Test method set by Admin on Accept
+    // Test method set by Admin on Accept
     test_method_id?: number | null;
     test_method_name?: string | null;
     test_method_set_by_staff_id?: number | null;
@@ -137,24 +134,36 @@ export interface Sample {
     collector_returned_to_admin_at?: string | null;
     admin_received_from_collector_at?: string | null;
     client_picked_up_at?: string | null;
+
     lo_id?: number | null;
     lo_number?: string | null;
     lo_generated_at?: string | null;
+
     reagent_request_id?: number | null;
     reagent_request_status?: string | null;
+
     crosscheck_status?: "pending" | "passed" | "failed" | (string & {}) | null;
     crosschecked_at?: string | null;
     crosschecked_by_staff_id?: number | null;
     crosscheck_note?: string | null;
+
     physical_label_code?: string | null;
 
     requested_parameters?: RequestedParameter[] | null;
 
-    // ✅ Pre-Step 12 gate fields (unlock QC after last kanban column)
+    // COA / delivery
+    coa_checked_at?: string | null;
+    coa_released_to_client_at?: string | null;
+    coa_release_note?: string | null;
+
+    // Return/Reject note
+    request_return_note?: string | null;
+
+    // Pre-Step 12 gate fields (unlock QC after last kanban column)
     quality_cover_unlocked_at?: string | null;
     quality_cover_unlocked_by_staff_id?: number | null;
 
-    // (optional helper: persisted current kanban column)
+    // persisted current kanban column
     testing_column_id?: number | null;
 
     client?: SampleClient;
@@ -196,7 +205,6 @@ export type CreateSamplePayload = {
     examination_purpose?: string | null;
     additional_notes?: string | null;
 
-    // ✅ required
     parameter_ids: number[];
 };
 
@@ -204,6 +212,91 @@ export type UpdateSampleStatusPayload = {
     target_status: SampleStatus;
     note?: string | null;
 };
+
+// ---------- Client View Status (Portal-friendly) ----------
+
+export type ClientRequestStatusView =
+    | "submitted"
+    | "returned"
+    | "needs_revision"
+    | "ready_for_delivery"
+    | "received_by_admin"
+    | "intake_inspection"
+    | "testing"
+    | "reported"
+    | "rejected"
+    | "unknown";
+
+function normalizeStatusKey(raw?: string | null) {
+    return String(raw ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+}
+
+function hasTruthy(v: unknown) {
+    return v !== null && v !== undefined && v !== "" && v !== false;
+}
+
+export function getClientRequestStatusView(sample: Partial<Sample> & Record<string, any>): ClientRequestStatusView {
+    // COA released => client can download
+    if (hasTruthy(sample?.coa_released_to_client_at)) return "reported";
+
+    const statusEnum = String(sample?.status_enum ?? "").trim().toLowerCase();
+    const currentStatus = String(sample?.current_status ?? "").trim().toLowerCase();
+
+    if (statusEnum === "reported" || currentStatus === "reported") return "reported";
+
+    const looExists =
+        hasTruthy(sample?.lo_generated_at) || hasTruthy(sample?.lo_id) || hasTruthy(sample?.lo_number);
+
+    if (looExists) return "testing";
+
+    if (statusEnum === "testing") return "testing";
+    if (["in_progress", "testing_completed", "verified", "validated"].includes(currentStatus)) return "testing";
+
+    const rs = normalizeStatusKey(sample?.request_status ?? null);
+    if (!rs) return "unknown";
+
+    if (rs === "rejected" || rs === "denied") return "rejected";
+    if (rs === "returned") return "returned";
+    if (rs === "needs_revision") return "needs_revision";
+
+    // draft should not be shown to client; treat as submitted
+    if (rs === "draft") return "submitted";
+    if (rs === "submitted") return "submitted";
+
+    if (rs === "ready_for_delivery") return "ready_for_delivery";
+
+    // received by admin (physically received / handoff received)
+    if (
+        rs === "physically_received" ||
+        rs === "received_by_analyst" ||
+        rs === "analyst_received" ||
+        rs === "sc_received_from_analyst" ||
+        rs === "sc_delivered_to_analyst"
+    ) {
+        return "received_by_admin";
+    }
+
+    // intake inspection until LOO exists
+    if (
+        rs === "in_transit_to_collector" ||
+        rs === "under_inspection" ||
+        rs === "inspection_failed_returned_to_admin" ||
+        rs === "returned_to_admin" ||
+        rs === "intake_checklist_passed" ||
+        rs === "awaiting_verification" ||
+        rs === "waiting_sample_id_assignment" ||
+        rs === "sample_id_pending_verification" ||
+        rs === "sample_id_approved_for_assignment" ||
+        rs === "intake_validated" ||
+        rs === "analyst_returned_to_sc"
+    ) {
+        return "intake_inspection";
+    }
+
+    return "unknown";
+}
+
+// ---------- Service ----------
 
 export const sampleService = {
     async getAll(params?: SampleListParams): Promise<PaginatedResponse<Sample>> {
@@ -226,7 +319,6 @@ export const sampleService = {
         return (res?.data ?? res) as Sample;
     },
 
-    // ✅ Step 2 — Physical Workflow endpoint
     async updatePhysicalWorkflow(
         sampleId: number,
         action: PhysicalWorkflowAction,

@@ -4,7 +4,8 @@ import { Download, Eye, FilePlus2, RefreshCw, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
-import type { Sample } from "../../services/samples";
+import type { ClientRequestStatusView, Sample } from "../../services/samples";
+import { getClientRequestStatusView } from "../../services/samples";
 import { clientSampleRequestService } from "../../services/sampleRequests";
 import { ClientRequestFormModal } from "../../components/portal/ClientRequestFormModal";
 import { useClientAuth } from "../../hooks/useClientAuth";
@@ -39,11 +40,6 @@ function stableKey(it: any, idx: number) {
     return String(it?.sample_id ?? it?.id ?? it?.lab_sample_code ?? idx);
 }
 
-/**
- * ✅ Fix #1:
- * - Build a per-client request number mapping (1..n) from the client's own list.
- * - UI shows this number as "Request ID", while navigation still uses backend sample_id.
- */
 function buildClientRequestNumberMap(items: any[]) {
     const rows = items
         .map((it) => ({
@@ -55,9 +51,8 @@ function buildClientRequestNumberMap(items: any[]) {
     rows.sort((a, b) => {
         const ta = a.createdAt ? new Date(a.createdAt).getTime() : Number.NaN;
         const tb = b.createdAt ? new Date(b.createdAt).getTime() : Number.NaN;
-
         if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
-        return a.id - b.id; // stable fallback
+        return a.id - b.id;
     });
 
     const map = new Map<number, number>();
@@ -65,119 +60,9 @@ function buildClientRequestNumberMap(items: any[]) {
     return map;
 }
 
-/**
- * ✅ Fix #3:
- * - Status labels in UI: lower-case, spaces, and keep it short (prefer 1 word).
- * - Value used for filtering is still the real backend status.
- */
-function normalizeStatusKey(raw?: string | null) {
-    return String(raw ?? "").trim().toLowerCase().replace(/\s+/g, "_");
-}
+type StatusFilter = "all" | Exclude<ClientRequestStatusView, "unknown">;
 
-type TFn = (key: string, fallback?: string, options?: any) => string;
-
-type RequestStatusBucket =
-    | "draft"
-    | "submitted"
-    | "needs_revision"
-    | "ready_for_delivery"
-    | "received"
-    | "pickup_required"
-    | "picked_up"
-    | "rejected"
-    | "unknown";
-
-type StatusFilter = "all" | Exclude<RequestStatusBucket, "unknown">;
-
-function getRequestStatusBucket(raw?: string | null): RequestStatusBucket {
-    const k = normalizeStatusKey(raw);
-    if (!k) return "unknown";
-
-    if (k === "draft") return "draft";
-    if (k === "submitted") return "submitted";
-
-    // revision aliases
-    if (k === "returned" || k === "needs_revision") return "needs_revision";
-
-    if (k === "ready_for_delivery") return "ready_for_delivery";
-
-    // ✅ terima alias yang muncul di UI/backend
-    if (
-        k === "physically_received" ||
-        k === "received_by_analyst" ||
-        k === "analyst_received" ||
-        k === "sc_received_from_analyst" ||
-        k === "sc_delivered_to_analyst"
-    ) {
-        return "received";
-    }
-
-    if (k === "pickup_required") return "pickup_required";
-    if (k === "picked_up") return "picked_up";
-    if (k === "rejected" || k === "denied") return "rejected";
-
-    return "unknown";
-}
-
-function statusLabel(t: TFunction, bucket: RequestStatusBucket): string {
-    const key =
-        bucket === "needs_revision"
-            ? "portalRequestsPage.status.needsRevision"
-            : bucket === "ready_for_delivery"
-                ? "portalRequestsPage.status.readyForDelivery"
-                : bucket === "pickup_required"
-                    ? "portalRequestsPage.status.pickupRequired"
-                    : bucket === "picked_up"
-                        ? "portalRequestsPage.status.pickedUp"
-                        : bucket === "received"
-                            ? "portalRequestsPage.status.received"
-                            : bucket === "rejected"
-                                ? "portalRequestsPage.status.rejected"
-                                : bucket === "unknown"
-                                    ? "portalRequestsPage.status.unknown"
-                                    : `portalRequestsPage.status.${bucket}`;
-
-    const fallback =
-        bucket === "draft"
-            ? "Draft"
-            : bucket === "submitted"
-                ? "Submitted"
-                : bucket === "needs_revision"
-                    ? "Revision"
-                    : bucket === "ready_for_delivery"
-                        ? "Delivery"
-                        : bucket === "received"
-                            ? "Received"
-                            : bucket === "pickup_required"
-                                ? "Pickup"
-                                : bucket === "picked_up"
-                                    ? "Picked up"
-                                    : bucket === "rejected"
-                                        ? "Rejected"
-                                        : "Unknown";
-
-    return t(key, { defaultValue: fallback });
-}
-
-function statusFilterLabel(t: TFunction, filter: StatusFilter): string {
-    if (filter === "all") return t("portalRequestsPage.filters.allStatus", { defaultValue: "All statuses" });
-    return statusLabel(t, filter);
-}
-
-function requestStatusChip(raw: string | null | undefined, t: TFunction) {
-    const bucket = getRequestStatusBucket(raw);
-
-    if (bucket === "draft") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("gray") };
-    if (bucket === "submitted") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("primary") };
-    if (bucket === "needs_revision") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("amber") };
-    if (bucket === "ready_for_delivery") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("indigo") };
-    if (bucket === "received") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("emerald") };
-    if (bucket === "rejected") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("rose") };
-
-    return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("gray") };
-}
-
-function statusChipClass(kind: "gray" | "primary" | "amber" | "indigo" | "emerald" | "rose") {
+function statusChipClass(kind: "gray" | "primary" | "amber" | "indigo" | "emerald" | "rose" | "sky" | "violet") {
     switch (kind) {
         case "primary":
             return "bg-primary-soft/10 text-primary-soft";
@@ -189,14 +74,70 @@ function statusChipClass(kind: "gray" | "primary" | "amber" | "indigo" | "emeral
             return "bg-emerald-50 text-emerald-700";
         case "rose":
             return "bg-rose-50 text-rose-800";
+        case "sky":
+            return "bg-sky-50 text-sky-800";
+        case "violet":
+            return "bg-violet-50 text-violet-800";
         default:
             return "bg-gray-100 text-gray-700";
     }
 }
 
+function statusLabel(t: TFunction, bucket: ClientRequestStatusView): string {
+    const keyMap: Record<ClientRequestStatusView, string> = {
+        submitted: "portalRequestsPage.status.submitted",
+        returned: "portalRequestsPage.status.returned",
+        needs_revision: "portalRequestsPage.status.needsRevision",
+        ready_for_delivery: "portalRequestsPage.status.readyForDelivery",
+        received_by_admin: "portalRequestsPage.status.receivedByAdmin",
+        intake_inspection: "portalRequestsPage.status.intakeInspection",
+        testing: "portalRequestsPage.status.testing",
+        reported: "portalRequestsPage.status.reported",
+        rejected: "portalRequestsPage.status.rejected",
+        unknown: "portalRequestsPage.status.unknown",
+    };
+
+    const fallbackMap: Record<ClientRequestStatusView, string> = {
+        submitted: "Submitted",
+        returned: "Returned",
+        needs_revision: "Needs revision",
+        ready_for_delivery: "Ready for delivery",
+        received_by_admin: "Received by admin",
+        intake_inspection: "Intake inspection",
+        testing: "Testing",
+        reported: "Reported",
+        rejected: "Rejected",
+        unknown: "Unknown",
+    };
+
+    return t(keyMap[bucket], { defaultValue: fallbackMap[bucket] });
+}
+
+function statusFilterLabel(t: TFunction, filter: StatusFilter): string {
+    if (filter === "all") return t("portalRequestsPage.filters.allStatus", { defaultValue: "All statuses" });
+    return statusLabel(t, filter);
+}
+
+function requestStatusChip(item: any, t: TFunction) {
+    const bucket = getClientRequestStatusView(item);
+
+    if (bucket === "submitted") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("primary") };
+    if (bucket === "ready_for_delivery") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("indigo") };
+    if (bucket === "received_by_admin") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("emerald") };
+
+    if (bucket === "returned" || bucket === "needs_revision")
+        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("amber") };
+
+    if (bucket === "intake_inspection") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("sky") };
+    if (bucket === "testing") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("violet") };
+    if (bucket === "reported") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("emerald") };
+    if (bucket === "rejected") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("rose") };
+
+    return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("gray") };
+}
+
 export default function ClientRequestsPage() {
-    const { t, i18n } = useTranslation();
-    const locale = i18n.language || "en";
+    const { t } = useTranslation();
 
     const navigate = useNavigate();
     const location = useLocation();
@@ -211,18 +152,20 @@ export default function ClientRequestsPage() {
 
     const STATUS_FILTERS: StatusFilter[] = [
         "all",
-        "draft",
         "submitted",
+        "returned",
         "needs_revision",
         "ready_for_delivery",
-        "received",
+        "received_by_admin",
+        "intake_inspection",
+        "testing",
+        "reported",
         "rejected",
     ];
-    const [createOpen, setCreateOpen] = useState(false);
 
+    const [createOpen, setCreateOpen] = useState(false);
     const [flash, setFlash] = useState<FlashPayload | null>(null);
 
-    // ✅ COA preview modal (client)
     const [coaPreviewOpen, setCoaPreviewOpen] = useState(false);
     const [coaPreviewSampleId, setCoaPreviewSampleId] = useState<number | null>(null);
 
@@ -262,7 +205,6 @@ export default function ClientRequestsPage() {
             setError(null);
             setLoading(true);
 
-            // Uses server pagination; UI-side filtering is done locally.
             const res = await clientSampleRequestService.list({ page: 1, per_page: 200 });
             setItems((res.data ?? []) as ClientRequestItem[]);
         } catch (e: any) {
@@ -291,7 +233,7 @@ export default function ClientRequestsPage() {
         let list = items;
 
         if (statusFilter !== "all") {
-            list = list.filter((it) => getRequestStatusBucket((it as any).request_status ?? "") === statusFilter);
+            list = list.filter((it) => getClientRequestStatusView(it as any) === statusFilter);
         }
 
         const term = searchTerm.trim().toLowerCase();
@@ -301,7 +243,7 @@ export default function ClientRequestsPage() {
             const sid = getSampleId(it);
             const requestNo = sid ? requestNoBySampleId.get(sid) : null;
 
-            const st = requestStatusChip((it as any).request_status ?? null, t);
+            const st = requestStatusChip(it as any, t);
 
             const hay = [
                 String(requestNo ?? ""),
@@ -495,7 +437,7 @@ export default function ClientRequestsPage() {
 
                                                 const updated = fmtDate(it.updated_at ?? it.created_at);
                                                 const sched = fmtDate(it.scheduled_delivery_at);
-                                                const st = requestStatusChip(it.request_status ?? null, t);
+                                                const st = requestStatusChip(it as any, t);
 
                                                 const coaSampleId = Number((it as any).sample_id ?? sid);
 
@@ -561,10 +503,7 @@ export default function ClientRequestsPage() {
                 onClose={() => setCreateOpen(false)}
                 onCreated={async () => {
                     setCreateOpen(false);
-
-                    // Created via modal => already submitted (Fix #2)
                     setFlash({ type: "success", message: t("portalRequestsPage.flash.submitted", "Request submitted.") });
-
                     await load();
                 }}
             />

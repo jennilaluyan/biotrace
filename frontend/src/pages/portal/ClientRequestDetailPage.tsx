@@ -17,7 +17,8 @@ import {
     TestTube,
 } from "lucide-react";
 
-import type { Sample } from "../../services/samples";
+import type { ClientRequestStatusView, Sample } from "../../services/samples";
+import { getClientRequestStatusView } from "../../services/samples";
 import { clientSampleRequestService } from "../../services/sampleRequests";
 import { listParameters, type ParameterRow } from "../../services/parameters";
 import { formatDateTimeLocal } from "../../utils/date";
@@ -27,30 +28,46 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
-function normalizeStatusKey(raw?: string | null) {
-    return String(raw ?? "").trim().toLowerCase().replace(/\s+/g, "_");
-}
-
-/**
- * ✅ Fix #3:
- * Status label is shown as lower-case and short (prefer 1 word).
- */
-function shortRequestStatusLabel(raw?: string | null, locale = "en") {
-    const k = normalizeStatusKey(raw);
-    const isId = String(locale || "").toLowerCase().startsWith("id");
-
-    const map: Record<string, { en: string; id: string }> = {
-        draft: { en: "draft", id: "draf" },
-        submitted: { en: "submitted", id: "terkirim" },
-        needs_revision: { en: "revision", id: "revisi" },
-        returned: { en: "revision", id: "revisi" },
-        rejected: { en: "rejected", id: "ditolak" }, // ✅ FIX
-        ready_for_delivery: { en: "delivery", id: "pengantaran" },
-        physically_received: { en: "received", id: "diterima" },
+function statusLabel(t: any, bucket: ClientRequestStatusView): string {
+    const keyMap: Record<ClientRequestStatusView, string> = {
+        submitted: "portalRequestsPage.status.submitted",
+        returned: "portalRequestsPage.status.returned",
+        needs_revision: "portalRequestsPage.status.needsRevision",
+        ready_for_delivery: "portalRequestsPage.status.readyForDelivery",
+        received_by_admin: "portalRequestsPage.status.receivedByAdmin",
+        intake_inspection: "portalRequestsPage.status.intakeInspection",
+        testing: "portalRequestsPage.status.testing",
+        reported: "portalRequestsPage.status.reported",
+        rejected: "portalRequestsPage.status.rejected",
+        unknown: "portalRequestsPage.status.unknown",
     };
 
-    if (map[k]) return (isId ? map[k].id : map[k].en).toLowerCase();
-    return (k || "unknown").replace(/_/g, " ").toLowerCase();
+    const fallbackMap: Record<ClientRequestStatusView, string> = {
+        submitted: "Submitted",
+        returned: "Returned",
+        needs_revision: "Needs revision",
+        ready_for_delivery: "Ready for delivery",
+        received_by_admin: "Received by admin",
+        intake_inspection: "Intake inspection",
+        testing: "Testing",
+        reported: "Reported",
+        rejected: "Rejected",
+        unknown: "Unknown",
+    };
+
+    return t(keyMap[bucket], { defaultValue: fallbackMap[bucket] });
+}
+
+function statusToneByView(v: ClientRequestStatusView) {
+    if (v === "submitted") return "bg-blue-50 text-blue-700 border-blue-100";
+    if (v === "ready_for_delivery") return "bg-indigo-50 text-indigo-700 border-indigo-200";
+    if (v === "received_by_admin") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    if (v === "intake_inspection") return "bg-sky-50 text-sky-800 border-sky-200";
+    if (v === "testing") return "bg-violet-50 text-violet-800 border-violet-200";
+    if (v === "reported") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    if (v === "returned" || v === "needs_revision") return "bg-amber-50 text-amber-700 border-amber-200";
+    if (v === "rejected") return "bg-rose-50 text-rose-700 border-rose-200";
+    return "bg-gray-100 text-gray-700 border-gray-200";
 }
 
 const getValidationMessage = (e: any, fallback: string) => {
@@ -62,18 +79,6 @@ const getValidationMessage = (e: any, fallback: string) => {
         if (typeof firstVal === "string" && firstVal) return firstVal;
     }
     return e?.data?.message ?? e?.data?.error ?? fallback;
-};
-
-const statusTone = (raw?: string | null) => {
-    const s = (raw ?? "").toLowerCase();
-    if (s === "draft") return "bg-gray-100 text-gray-700 border-gray-200";
-    if (s === "submitted") return "bg-blue-50 text-blue-700 border-blue-100";
-    if (s === "needs_revision" || s === "returned") return "bg-amber-50 text-amber-700 border-amber-200";
-    if (s === "rejected") return "bg-rose-50 text-rose-700 border-rose-200"; // ✅ FIX
-    if (s === "returned_to_admin") return "bg-amber-50 text-amber-700 border-amber-200";
-    if (s === "ready_for_delivery") return "bg-indigo-50 text-indigo-700 border-indigo-200";
-    if (s === "physically_received") return "bg-emerald-50 text-emerald-700 border-emerald-200";
-    return "bg-gray-100 text-gray-700 border-gray-200";
 };
 
 function datetimeLocalFromIso(iso?: string | null): string {
@@ -104,8 +109,7 @@ function parameterLabel(p: any) {
 }
 
 export default function ClientRequestDetailPage() {
-    const { t, i18n } = useTranslation();
-    const locale = i18n.language || "en";
+    const { t } = useTranslation();
 
     const { id } = useParams();
     const navigate = useNavigate();
@@ -125,7 +129,6 @@ export default function ClientRequestDetailPage() {
     const [error, setError] = useState<string | null>(null);
     const [info, setInfo] = useState<string | null>(null);
 
-    // ✅ Fix #1: show UI request id (1..n) for this client
     const [clientRequestNo, setClientRequestNo] = useState<number | null>(null);
 
     const [sampleType, setSampleType] = useState("");
@@ -139,7 +142,6 @@ export default function ClientRequestDetailPage() {
     const [selectedParamId, setSelectedParamId] = useState<number | null>(null);
     const [paramPickerOpen, setParamPickerOpen] = useState(true);
 
-    // ✅ COA preview modal (client)
     const [coaPreviewOpen, setCoaPreviewOpen] = useState(false);
     const [coaPreviewSampleId, setCoaPreviewSampleId] = useState<number | null>(null);
 
@@ -148,12 +150,11 @@ export default function ClientRequestDetailPage() {
         setCoaPreviewOpen(true);
     };
 
-    const effectiveStatus = useMemo(() => String((data as any)?.request_status ?? ""), [data]);
+    const statusView = useMemo(() => getClientRequestStatusView(data as any), [data]);
 
     const canEdit = useMemo(() => {
-        const s = effectiveStatus.toLowerCase();
-        return s === "draft" || s === "needs_revision" || s === "returned" || s === "rejected" || s === "";
-    }, [effectiveStatus]);
+        return statusView === "returned" || statusView === "needs_revision" || statusView === "rejected";
+    }, [statusView]);
 
     const requestedParameterRows = useMemo(() => {
         const arr = (data as any)?.requested_parameters;
@@ -170,7 +171,6 @@ export default function ClientRequestDetailPage() {
         return Number.isFinite(sid) && sid > 0 ? sid : numericId;
     }, [data, numericId]);
 
-    // ✅ Fix #1: compute per-client request number mapping (1..n)
     useEffect(() => {
         const run = async () => {
             if (!Number.isFinite(numericId)) return;
@@ -281,6 +281,7 @@ export default function ClientRequestDetailPage() {
 
     const selectedParamLabel = useMemo(() => {
         if (!selectedParamId) return null;
+
         const fromList = paramItems.find((p) => Number(p.parameter_id) === selectedParamId);
         if (fromList) return parameterLabel(fromList);
 
@@ -304,8 +305,9 @@ export default function ClientRequestDetailPage() {
         return canEdit && !!sampleType.trim() && !!scheduledDeliveryAt.trim() && !!selectedParamId && !submitting;
     }, [canEdit, sampleType, scheduledDeliveryAt, selectedParamId, submitting]);
 
-    const saveDraft = async () => {
+    const saveChanges = async () => {
         if (!Number.isFinite(numericId)) return;
+
         if (!sampleType.trim()) {
             setError(t("portalRequestDetail.errors.sampleTypeRequired", "Sample type is required."));
             return;
@@ -320,9 +322,9 @@ export default function ClientRequestDetailPage() {
             setData(updated);
             hydrateForm(updated);
 
-            setInfo(t("portalRequestDetail.info.draftSaved", "Draft saved."));
+            setInfo(t("portalRequestDetail.info.draftSaved", "Changes saved."));
         } catch (e: any) {
-            setError(getValidationMessage(e, t("portalRequestDetail.errors.saveFailed", "Failed to save draft.")));
+            setError(getValidationMessage(e, t("portalRequestDetail.errors.saveFailed", "Failed to save changes.")));
         } finally {
             setSaving(false);
         }
@@ -349,7 +351,6 @@ export default function ClientRequestDetailPage() {
             setError(null);
             setSubmitting(true);
 
-            // ✅ Fix #2 still holds: detail submit uses submit endpoint (not draft).
             await clientSampleRequestService.submit(numericId, buildPayload() as any);
 
             navigate("/portal/requests", {
@@ -413,21 +414,16 @@ export default function ClientRequestDetailPage() {
     }
 
     const updatedAt = (data as any).updated_at ?? (data as any).created_at;
-
-    // ✅ Fix #1: UI ID uses clientRequestNo (1..n)
     const requestIdLabel = clientRequestNo ?? numericId;
 
-    // ✅ Fix #3: status label is short, lower-case
-    const statusText = shortRequestStatusLabel(effectiveStatus || "unknown", locale);
-    const statusLower = normalizeStatusKey(effectiveStatus);
+    const statusText = statusLabel(t, statusView).toLowerCase();
 
     const coaReleasedAt = (data as any)?.coa_released_to_client_at ?? null;
     const coaCheckedAt = (data as any)?.coa_checked_at ?? null;
     const coaNote = String((data as any)?.coa_release_note ?? "").trim() || null;
     const canDownloadCoa = !!coaReleasedAt;
 
-    const showHelpDraft = canEdit && (statusLower === "draft" || statusLower === "");
-    const showHelpSubmitted = !canEdit && statusLower === "submitted";
+    const showHelpSubmitted = !canEdit && statusView === "submitted";
 
     return (
         <div className="min-h-[60vh] pb-20">
@@ -458,7 +454,7 @@ export default function ClientRequestDetailPage() {
                         <span
                             className={cx(
                                 "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border",
-                                statusTone(effectiveStatus)
+                                statusToneByView(statusView)
                             )}
                         >
                             {statusText}
@@ -488,15 +484,15 @@ export default function ClientRequestDetailPage() {
                     {canEdit ? (
                         <button
                             type="button"
-                            onClick={saveDraft}
+                            onClick={saveChanges}
                             disabled={saving}
                             className={cx(
-                                "btn-outline inline-flex items-center gap-2 min-w-[120px]",
+                                "btn-outline inline-flex items-center gap-2 min-w-[140px]",
                                 saving && "opacity-60 cursor-not-allowed"
                             )}
                         >
                             {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                            {saving ? t("saving", "Saving…") : t("saveDraft", "Save draft")}
+                            {saving ? t("saving", "Saving…") : t("portalRequestDetail.actions.saveChanges", "Save changes")}
                         </button>
                     ) : null}
 
@@ -506,8 +502,7 @@ export default function ClientRequestDetailPage() {
                         disabled={!canSubmit}
                         className={cx(
                             "lims-btn-primary inline-flex items-center gap-2 min-w-[120px] shadow-sm",
-                            (!canSubmit || submitting) &&
-                            "opacity-60 cursor-not-allowed bg-gray-400 border-gray-400 text-white"
+                            (!canSubmit || submitting) && "opacity-60 cursor-not-allowed bg-gray-400 border-gray-400 text-white"
                         )}
                         aria-disabled={!canSubmit || submitting}
                     >
@@ -531,46 +526,29 @@ export default function ClientRequestDetailPage() {
                 </div>
             ) : null}
 
-            {requestReturnNote && (statusLower === "returned" || statusLower === "needs_revision" || statusLower === "rejected") ? (
+            {requestReturnNote && (statusView === "returned" || statusView === "needs_revision" || statusView === "rejected") ? (
                 <div
                     className={cx(
                         "mb-6 rounded-2xl border px-5 py-4 shadow-sm",
-                        statusLower === "rejected" ? "border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50"
+                        statusView === "rejected" ? "border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50"
                     )}
                 >
                     <div
                         className={cx(
                             "flex items-center gap-2 font-semibold mb-1",
-                            statusLower === "rejected" ? "text-rose-900" : "text-amber-900"
+                            statusView === "rejected" ? "text-rose-900" : "text-amber-900"
                         )}
                     >
                         <Info size={18} />
-                        {statusLower === "rejected"
+                        {statusView === "rejected"
                             ? t("portal.requestDetail.alerts.rejectedTitle", { defaultValue: "Request rejected" })
-                            : t("portal.requestDetail.alerts.revisionTitle", "Revision requested")}
+                            : statusView === "returned"
+                                ? t("portal.requestDetail.alerts.returnedTitle", { defaultValue: "Request returned" })
+                                : t("portal.requestDetail.alerts.revisionTitle", { defaultValue: "Revision requested" })}
                     </div>
 
-                    <div
-                        className={cx(
-                            "text-sm pl-7 whitespace-pre-wrap",
-                            statusLower === "rejected" ? "text-rose-800" : "text-amber-800"
-                        )}
-                    >
+                    <div className={cx("text-sm pl-7 whitespace-pre-wrap", statusView === "rejected" ? "text-rose-800" : "text-amber-800")}>
                         {requestReturnNote}
-                    </div>
-                </div>
-            ) : null}
-
-            {showHelpDraft ? (
-                <div className="mb-6 rounded-2xl border border-gray-200 bg-linear-to-r from-gray-50 to-white px-5 py-4 text-sm text-gray-700 shadow-sm">
-                    <div className="font-semibold text-gray-900 mb-1">
-                        {t("portalRequestDetail.helpers.readyTitle", "Ready to submit?")}
-                    </div>
-                    <div className="text-gray-600">
-                        {t(
-                            "portalRequestDetail.helpers.readyBody",
-                            "Fill sample type, scheduled delivery, and pick one parameter, then submit for admin review."
-                        )}
                     </div>
                 </div>
             ) : null}
@@ -639,7 +617,7 @@ export default function ClientRequestDetailPage() {
                         {t("portal.requestDetail.sections.detailsTitle", "Request details")}
                     </h2>
                     <p className="text-xs text-gray-500 mt-1">
-                        {t("portal.requestDetail.sections.detailsSub", "Editable while Draft / Returned.")}
+                        {t("portal.requestDetail.sections.detailsSub", "Editable when returned / revision / rejected.")}
                     </p>
                 </div>
 

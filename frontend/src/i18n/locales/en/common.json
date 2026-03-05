@@ -679,16 +679,16 @@
             "cta": "Create request"
         },
         "status": {
-            "draft": "Draft",
             "submitted": "Submitted",
+            "returned": "Returned",
             "needsRevision": "Needs revision",
             "readyForDelivery": "Ready for delivery",
-            "physicallyReceived": "Physically received",
-            "pickupRequired": "Pickup required",
-            "pickedUp": "Picked up",
-            "unknown": "Unknown",
+            "receivedByAdmin": "Received by admin",
+            "intakeInspection": "Intake inspection",
+            "testing": "Testing",
+            "reported": "Reported",
             "rejected": "Rejected",
-            "received": "Received"
+            "unknown": "Unknown"
         },
         "sub": {
             "pickedUpAt": "Picked up at {{date}}",
@@ -720,6 +720,9 @@
             "readyBody": "Fill sample type, scheduled delivery, and pick one parameter, then submit for admin review.",
             "submittedBody": "This request is submitted and waiting for admin review. Editing is disabled to prevent conflicting changes.",
             "deliveryHint": "Use a realistic time you can deliver the sample. This helps scheduling."
+        },
+        "actions": {
+            "saveChanges": "Save changes"
         },
         "parameterFallback": "Parameter #{{id}}"
     },
@@ -870,7 +873,8 @@
             "alerts": {
                 "revisionTitle": "Revision requested",
                 "notEditable": "This request can’t be edited in the current status.",
-                "rejectedTitle": "Request rejected"
+                "rejectedTitle": "Request rejected",
+                "returnedTitle": "Request returned"
             },
             "sections": {
                 "detailsTitle": "Request details",
