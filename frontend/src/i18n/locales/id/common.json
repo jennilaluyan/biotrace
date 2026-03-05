@@ -43,14 +43,14 @@
     "pageOfTotal": "Halaman {{page}} dari {{totalPages}} — {{total}} total",
     "common": {
         "actions": "Aksi",
-        "totalCount": "Total",
+        "totalCount": "Total: {{count}}",
+        "processing": "Memproses…",
+        "loading": "Memuat…",
         "refresh": "Muat ulang",
         "approve": "Setujui",
         "reject": "Tolak",
-        "processing": "Memproses...",
         "view": "Lihat",
         "search": "Cari",
-        "loading": "Memuat...",
         "active": "Aktif",
         "inactive": "Nonaktif"
     },
@@ -134,7 +134,7 @@
         "myRequests": "Permintaan Saya",
         "openNavigation": "Buka navigasi",
         "closeSidebar": "Tutup sidebar",
-        "parameters": "Parameters"
+        "parameters": "Parameter"
     },
     "dashboard": {
         "admin": {

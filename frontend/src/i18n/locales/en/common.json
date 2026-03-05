@@ -39,6 +39,8 @@
     "tips": "Tips",
     "summary": "Summary",
     "actions": "Actions",
+    "accept": "Accept",
+    "pageOfTotal": "Page {{page}} of {{totalPages}} — {{total}} total",
     "common": {
         "actions": "Actions",
         "totalCount": "Total: {{count}}",
@@ -46,11 +48,40 @@
         "approve": "Approve",
         "reject": "Reject",
         "processing": "Processing…",
-        "view": "View"
+        "view": "View",
+        "active": "Active",
+        "inactive": "Inactive"
     },
     "staffApprovals": {
-        "title": "Staffs",
+        "title": "Staff",
         "subtitle": "Review and approve new staff accounts requesting access.",
+        "tabs": {
+            "staffs": "Staff",
+            "approvals": "Approvals"
+        },
+        "staffsCardTitle": "Staff list",
+        "approvalsCardTitle": "Staff account requests",
+        "staffsEmptyTitle": "No staff yet",
+        "staffsEmptyHint": "Staff records will appear after accounts are approved and active.",
+        "statusOnline": "Online",
+        "statusOffline": "Offline",
+        "lastSeenNever": "Never",
+        "lastSeenJustNow": "Just now",
+        "lastSeenMinutes": "{{count}} minutes ago",
+        "lastSeenHours": "{{count}} hours ago",
+        "lastSeenDays": "{{count}} days ago",
+        "modal": {
+            "approveTitle": "Approve staff registration",
+            "approveSubtitle": "Approve this staff account to grant system access.",
+            "rejectTitle": "Reject staff registration",
+            "rejectSubtitle": "Write a short reason so the requester can fix the submission.",
+            "staffId": "Staff ID",
+            "note": {
+                "labelRequired": "Rejection note (required)",
+                "placeholder": "Briefly explain what needs to be fixed (e.g., missing data, wrong role, invalid email).",
+                "help": "This note will be stored and can be shown to the requester."
+            }
+        },
         "cardTitle": "Pending requests",
         "loading": "Loading pending approvals…",
         "emptyTitle": "Nothing to approve right now",
@@ -59,7 +90,10 @@
         "table": {
             "staff": "Staff",
             "role": "Role",
-            "requestedAt": "Requested"
+            "account": "Account",
+            "status": "Status",
+            "lastSeen": "Last seen",
+            "requestedAt": "Requested at"
         },
         "confirm": {
             "approve": "Approve this staff account?",
@@ -70,6 +104,29 @@
             "loadFailed": "Failed to load pending staff approvals.",
             "approveFailed": "Failed to approve the staff account.",
             "rejectFailed": "Failed to reject the staff account."
+        }
+    },
+    "staffPage": {
+        "title": "Staff",
+        "subtitle": "Manage staff records and approve new staff account requests.",
+        "tabs": {
+            "staffs": "Staff",
+            "approvals": "Approvals"
+        },
+        "staffs": {
+            "cardTitle": "Staff list",
+            "searchPlaceholder": "Search name, email, role…",
+            "table": {
+                "staff": "Staff",
+                "role": "Role",
+                "account": "Account",
+                "presence": "Status"
+            },
+            "status": {
+                "online": "Online",
+                "offline": "Offline"
+            },
+            "emptyTitle": "No staff yet."
         }
     },
     "nav": {
@@ -84,7 +141,14 @@
         "parameters": "Parameters",
         "documentTemplates": "Document templates",
         "clientApprovals": "Client approvals",
-        "samplesArchive": "Samples archive"
+        "samplesArchive": "Samples archive",
+        "qualityCoverVerify": "Quality Cover (Verify)",
+        "qualityCoverValidate": "Quality Cover (Validate)",
+        "auditLogs": "Audit logs",
+        "staffApprovals": "Staff",
+        "myRequests": "My requests",
+        "openNavigation": "Open navigation",
+        "closeSidebar": "Close sidebar"
     },
     "dashboard": {
         "admin": {
@@ -572,6 +636,14 @@
             "errors": {
                 "submitFailed": "Failed to submit request."
             }
+        },
+        "ack": {
+            "rejectionReasonTitle": "Rejection reason",
+            "approvalTitle": "Approved",
+            "noReason": "No reason provided.",
+            "approvedInfo": "Your request has been approved and applied.",
+            "decidedAt": "Decided at",
+            "markRead": "I've read this decision"
         }
     },
     "portalRequestsPage": {
@@ -583,7 +655,8 @@
             "loadFailed": "Failed to load sample requests."
         },
         "flash": {
-            "created": "Request created."
+            "created": "Request created.",
+            "submitted": "Request submitted."
         },
         "filters": {
             "searchLabel": "Search requests",
@@ -614,7 +687,8 @@
             "pickupRequired": "Pickup required",
             "pickedUp": "Picked up",
             "unknown": "Unknown",
-            "rejected": "Rejected"
+            "rejected": "Rejected",
+            "received": "Received"
         },
         "sub": {
             "pickedUpAt": "Picked up at {{date}}",
