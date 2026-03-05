@@ -11,20 +11,17 @@ class Method extends Model
 
     protected $table = 'methods';
     protected $primaryKey = 'method_id';
-
     public $timestamps = true;
 
     protected $fillable = [
-        'name',
         'code',
+        'name',
         'description',
         'is_active',
     ];
 
     protected $casts = [
-        'is_active'  => 'boolean',
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
+        'is_active' => 'boolean',
     ];
 
     public function sampleTests()

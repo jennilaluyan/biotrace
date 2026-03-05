@@ -95,7 +95,14 @@ class SampleRequestQueueController extends Controller
 
         if ($status !== '') {
             if (Schema::hasColumn('samples', 'request_status')) {
-                $query->where('request_status', $status);
+                $st = strtolower($status);
+
+                // support legacy alias "needs_revision"
+                if ($st === 'returned' || $st === 'needs_revision') {
+                    $query->whereIn('request_status', ['returned', 'needs_revision']);
+                } else {
+                    $query->where('request_status', $status);
+                }
             }
         }
 

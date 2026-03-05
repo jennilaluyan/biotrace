@@ -39,6 +39,8 @@
     "tips": "Tips",
     "summary": "Ringkasan",
     "actions": "Aksi",
+    "accept": "Setujui",
+    "pageOfTotal": "Halaman {{page}} dari {{totalPages}} — {{total}} total",
     "common": {
         "actions": "Aksi",
         "totalCount": "Total: {{count}}",
@@ -1906,17 +1908,31 @@
             "title": {
                 "return": "Kembalikan permintaan",
                 "approve": "Setujui permintaan",
-                "received": "Tandai diterima fisik"
+                "received": "Tandai diterima fisik",
+                "reject": "Tolak permintaan"
             },
             "subtitle": {
                 "return": "Kembalikan permintaan ke klien untuk revisi. Catatan wajib diisi.",
                 "approve": "Setujui permintaan dan lanjutkan ke langkah berikutnya.",
-                "received": "Konfirmasi sampel sudah diterima secara fisik oleh lab (meja admin)."
+                "received": "Konfirmasi sampel sudah diterima secara fisik oleh lab (meja admin).",
+                "reject": "Tolak permintaan. Alasan wajib diisi."
+            },
+            "buttons": {
+                "confirmReturn": "Kembalikan",
+                "confirmApprove": "Setujui",
+                "confirmReceived": "Tandai diterima",
+                "confirmReject": "Tolak"
             },
             "summary": {
                 "sampleId": "ID Sampel",
                 "current": "Saat ini",
-                "next": "Berikutnya"
+                "next": "Berikutnya",
+                "requestId": "ID Permintaan"
+            },
+            "method": {
+                "labelRequired": "Metode uji (wajib)",
+                "placeholderInput": "Tulis metode uji…",
+                "help": "Metode ini akan disimpan ke data sampel dan dipakai di Letter of Order (LoO)."
             },
             "note": {
                 "labelRequired": "Alasan / catatan pengembalian *",
@@ -1924,12 +1940,11 @@
                 "placeholderReturn": "Jelaskan apa yang perlu direvisi (wajib)…",
                 "placeholderApprove": "Catatan opsional untuk arsip internal…",
                 "placeholderReceived": "Catatan opsional (mis. kondisi diterima)…",
-                "helpReturn": "Catatan wajib agar klien tahu apa yang harus diperbaiki."
-            },
-            "buttons": {
-                "confirmReturn": "Kembalikan",
-                "confirmApprove": "Setujui",
-                "confirmReceived": "Tandai diterima"
+                "helpReturn": "Catatan wajib agar klien tahu apa yang harus diperbaiki.",
+                "labelRequiredReject": "Alasan penolakan (wajib)",
+                "labelRequiredReturn": "Catatan pengembalian (wajib)",
+                "placeholderReject": "Tulis alasan penolakan…",
+                "helpRequired": "Catatan ini disimpan untuk audit dan ditampilkan ke pengguna terkait."
             },
             "errors": {
                 "updateFailed": "Gagal memperbarui status permintaan."
@@ -2246,7 +2261,12 @@
         "waitingSampleIdAssignment": "Menunggu penetapan Sample ID",
         "sampleIdPendingVerification": "Perubahan Sample ID menunggu verifikasi",
         "sampleIdApprovedForAssignment": "Perubahan Sample ID disetujui (siap ditetapkan)",
-        "intakeValidated": "Intake tervalidasi"
+        "intakeValidated": "Intake tervalidasi",
+        "inspectionFailedReturnedToAdmin": "Gagal inspeksi (dikembalikan)",
+        "scDeliveredToAnalyst": "SC → Analis",
+        "analystReceived": "Diterima analis",
+        "analystReturnedToSc": "Analis → SC",
+        "scReceivedFromAnalyst": "SC terima dari analis"
     },
     "reagentStatus": {
         "draft": "Permintaan reagen (draf)",

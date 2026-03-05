@@ -37,7 +37,8 @@ class SampleRequestStatusController extends Controller
         $note = $request->input('note');
         $note = is_string($note) ? trim($note) : null;
 
-        $testMethodId = (int) ($request->input('test_method_id') ?? 0);
+        $testMethodId = (int) ($request->input('test_method_id') ?? $request->input('method_id') ?? 0);
+        $testMethodName = trim((string) ($request->input('test_method_name') ?? $request->input('method_name') ?? ''));
 
         $target = $this->resolveTargetStatus($action, $targetRaw);
         if ($target === '') {
@@ -61,11 +62,11 @@ class SampleRequestStatusController extends Controller
         // - Accept => test_method_id required
         // - Reject/Return => note required
         if ($action === 'accept' || $target === 'ready_for_delivery') {
-            if ($testMethodId <= 0) {
+            if ($testMethodId <= 0 && $testMethodName === '') {
                 return response()->json([
                     'message' => 'Test method is required to accept a request.',
                     'errors' => [
-                        'test_method_id' => ['Test method is required.'],
+                        'test_method_name' => ['Test method is required.'],
                     ],
                 ], 422);
             }
@@ -121,8 +122,11 @@ class SampleRequestStatusController extends Controller
                 if (Schema::hasColumn('samples', 'ready_at')) $locked->ready_at = $now;
                 if (Schema::hasColumn('samples', 'request_approved_at')) $locked->request_approved_at = $now;
 
-                // ✅ Store test method on the sample (source of truth for LoO)
-                $this->applyTestMethod($locked, $testMethodId, (int) $user->staff_id);
+                if ($testMethodId > 0) {
+                    $this->applyTestMethod($locked, $testMethodId, (int) $user->staff_id);
+                } else {
+                    $this->applyTestMethodName($locked, $testMethodName, (int) $user->staff_id);
+                }
 
                 // Clear return note if present
                 if (Schema::hasColumn('samples', 'request_return_note')) $locked->request_return_note = null;
@@ -269,6 +273,26 @@ class SampleRequestStatusController extends Controller
             DB::table('audit_logs')->insert(array_intersect_key($payload, $cols));
         } catch (\Throwable) {
             // never block primary action
+        }
+    }
+    private function applyTestMethodName(Sample $sample, string $name, int $staffId): void
+    {
+        $name = trim($name);
+        if ($name === '') return;
+
+        // clear FK if exists (optional)
+        if (Schema::hasColumn('samples', 'test_method_id')) {
+            $sample->test_method_id = null;
+        }
+
+        if (Schema::hasColumn('samples', 'test_method_name')) {
+            $sample->test_method_name = $name;
+        }
+        if (Schema::hasColumn('samples', 'test_method_set_by_staff_id')) {
+            $sample->test_method_set_by_staff_id = $staffId;
+        }
+        if (Schema::hasColumn('samples', 'test_method_set_at')) {
+            $sample->test_method_set_at = now();
         }
     }
 }

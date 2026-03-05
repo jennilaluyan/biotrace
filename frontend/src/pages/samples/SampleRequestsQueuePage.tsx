@@ -371,8 +371,10 @@ export default function SampleRequestsQueuePage() {
                 label: t("samples.pages.queue.filters.groups.submission", { defaultValue: "Submission" }),
                 options: [
                     { value: "submitted", label: t("requestStatus.submitted", { defaultValue: "submitted" }) },
-                    { value: "needs_revision", label: t("requestStatus.needsRevision", { defaultValue: "needs revision" }) },
-                    { value: "returned", label: t("requestStatus.returned", { defaultValue: "returned" }) },
+
+                    // canonical DB token is "returned" (UI label tetap "needs revision")
+                    { value: "returned", label: t("requestStatus.needsRevision", { defaultValue: "needs revision" }) },
+
                     { value: "rejected", label: t("requestStatus.rejected", { defaultValue: "rejected" }) },
                 ],
             },
@@ -485,8 +487,8 @@ export default function SampleRequestsQueuePage() {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder={t("samples.pages.queue.filters.searchPlaceholder", {
-                                    defaultValue: "Search by sample type, status, client…",
+                                placeholder={t("samples.pages.queue.searchPlaceholder", {
+                                    defaultValue: "Cari berdasarkan tipe sampel, status, klien…",
                                 })}
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
