@@ -402,16 +402,6 @@ export const SamplesPage = () => {
             {/* Header */}
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
                 <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("samplesPage.title")}</h1>
-
-                {canCreateSample && (
-                    <button
-                        type="button"
-                        onClick={() => navigate("/samples/new")}
-                        className="lims-btn-primary self-start md:self-auto"
-                    >
-                        {t("samplesPage.newSample")}
-                    </button>
-                )}
             </div>
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">

@@ -67,13 +67,14 @@ function compactRequestStatusToken(token: string, locale: string) {
     const isId = String(locale || "").toLowerCase().startsWith("id");
 
     const map: Record<string, { en: string; id: string }> = {
-        // submission / moderation
         submitted: { en: "submitted", id: "terkirim" },
         needs_revision: { en: "revision", id: "revisi" },
         returned: { en: "revision", id: "revisi" },
         rejected: { en: "rejected", id: "ditolak" },
 
-        // logistics / physical movement
+        // acceptance stage
+        accepted: { en: "accepted", id: "diterima" },
+
         ready_for_delivery: { en: "ready", id: "siap" },
         physically_received: { en: "received", id: "diterima" },
         in_transit_to_collector: { en: "transit", id: "transit" },
@@ -109,6 +110,7 @@ function requestStatusChipLabel(t: TFunction, locale: string, raw?: string | nul
         needs_revision: "requestStatus.needsRevision",
         returned: "requestStatus.returned",
         rejected: "requestStatus.rejected",
+        accepted: "requestStatus.accepted",
 
         // logistics / physical movement
         ready_for_delivery: "requestStatus.readyForDelivery",
@@ -153,6 +155,9 @@ function statusTone(raw?: string | null) {
     // submission
     if (k === "submitted") return "bg-blue-50 text-blue-700";
     if (k === "needs revision" || k === "returned" || k === "rejected") return "bg-red-100 text-red-700";
+
+    // acceptance
+    if (k === "accepted") return "bg-green-100 text-green-800";
 
     // logistics / physical movement
     if (k === "ready for delivery") return "bg-indigo-50 text-indigo-700";
@@ -260,14 +265,11 @@ export default function SampleRequestsQueuePage() {
     /**
      * Queue items:
      * - exclude draft
-     * - exclude rows that already have lab_sample_code (already promoted to lab sample)
+     * Note: do NOT filter out lab_sample_code here, because accepted requests may already have lab code
+     * and still need to be tracked in the request pipeline.
      */
     const items = useMemo(() => {
-        return itemsRaw.filter((r) => {
-            const st = normalizeToken(r.request_status);
-            if (st === "draft") return false;
-            return !r.lab_sample_code;
-        });
+        return itemsRaw.filter((r) => normalizeToken(r.request_status) !== "draft");
     }, [itemsRaw]);
 
     const total = pager?.total ?? 0;
@@ -371,10 +373,8 @@ export default function SampleRequestsQueuePage() {
                 label: t("samples.pages.queue.filters.groups.submission", { defaultValue: "Submission" }),
                 options: [
                     { value: "submitted", label: t("requestStatus.submitted", { defaultValue: "submitted" }) },
-
-                    // canonical DB token is "returned" (UI label tetap "needs revision")
+                    { value: "accepted", label: t("requestStatus.accepted", { defaultValue: "accepted" }) },
                     { value: "returned", label: t("requestStatus.needsRevision", { defaultValue: "needs revision" }) },
-
                     { value: "rejected", label: t("requestStatus.rejected", { defaultValue: "rejected" }) },
                 ],
             },
