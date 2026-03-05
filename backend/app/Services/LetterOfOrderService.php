@@ -268,8 +268,8 @@ class LetterOfOrderService
             'client_phone' => (string) ($client['phone'] ?? ''),
         ];
 
-        // Add doc meta vars (test_method must come from ADMIN-selected method on samples, not inferred from workflow_group)
-        $vars = array_merge($vars, $this->buildLooDocMetaVars($itemsSnapshot, $sampleIds));
+        // Add doc meta vars (test_method must come from ADMIN-selected method on samples)
+        $vars = array_merge($vars, $this->buildLooDocMetaVars($itemsSnapshot, $sampleIds, $generatedAt));
 
         // Signature placeholders (optional)
         try {
@@ -430,32 +430,43 @@ class LetterOfOrderService
         return implode("\n", $lines);
     }
 
-    private function buildLooDocMetaVars(array $itemsSnapshot, array $sampleIds): array
+    private function buildLooDocMetaVars(array $itemsSnapshot, array $sampleIds, Carbon $generatedAt): array
     {
         // sample_qty: derive from snapshot
         $qty = count($itemsSnapshot);
 
-        // sample_type: unique from snapshot
+        // sample_type:
+        // - if exactly 1 unique non-empty type => show it
+        // - if multiple different types => blank
         $types = [];
         foreach ($itemsSnapshot as $it) {
             $t = trim((string) ($it['sample_type'] ?? ''));
             if ($t !== '') $types[$t] = true;
         }
-        $sampleType = implode(', ', array_keys($types));
+        $uniqueTypes = array_keys($types);
+        $sampleType = count($uniqueTypes) === 1 ? (string) $uniqueTypes[0] : '';
 
-        // test_method: MUST come from samples (admin-selected), not workflow group
+        // test_method: ONLY from admin-selected method on samples
         $method = $this->resolveTestMethodFromSamples($sampleIds);
 
-        // dates: best-effort from samples
-        $received = $this->pickMinDateFromSamples($sampleIds, ['received_at', 'verified_at', 'created_at']);
-        $testingStart = $this->pickMinDateFromSamples($sampleIds, ['testing_started_at', 'analysis_started_at']);
+        // received date: prefer "received by admin" columns first (when available)
+        $received = $this->pickMinDateFromSamples($sampleIds, [
+            'admin_received_from_client_at',
+            'physically_received_at',
+            'received_at',
+            'verified_at',
+            'created_at',
+        ]);
+
+        // testing start date: MUST be "today" (LOO generation date), not derived from samples
+        $testingStart = $generatedAt;
 
         return [
             'test_method' => $method,
             'sample_type' => $sampleType,
             'sample_qty' => (string) $qty,
             'received_date' => $received ? $received->format('d/m/Y') : '',
-            'testing_start_date' => $testingStart ? $testingStart->format('d/m/Y') : '',
+            'testing_start_date' => $testingStart->format('d/m/Y'),
         ];
     }
 
@@ -498,7 +509,7 @@ class LetterOfOrderService
         if (count($sampleIds) === 0) return '';
         if (!Schema::hasTable('samples')) return '';
 
-        // 1) Preferred: method_id (admin-selected)
+        // 1) Preferred: method_id (admin-selected) => if exists, use ONLY this source.
         if (Schema::hasColumn('samples', 'method_id') && Schema::hasTable('methods')) {
             $rows = DB::table('samples as s')
                 ->join('methods as m', 'm.method_id', '=', 's.method_id')
@@ -516,10 +527,21 @@ class LetterOfOrderService
             }
 
             $out = implode(', ', array_keys($labels));
-            if ($out !== '') return $out;
+            if ($out !== '') {
+                // IMPORTANT: do NOT append legacy text fallback (prevents "lorem ipsum, PCR")
+                return $out;
+            }
         }
 
-        // 2) Fallback: plain text column on samples
+        // 2) Fallback: plain text columns, BUT filter out workflow-group labels.
+        $block = [
+            'pcr',
+            'sequencing',
+            'rapid',
+            'microbiology',
+            'pcr sars-cov-2',
+        ];
+
         foreach (['test_method', 'test_method_name', 'method_name'] as $col) {
             if (!Schema::hasColumn('samples', $col)) continue;
 
@@ -530,6 +552,10 @@ class LetterOfOrderService
                 ->pluck($col)
                 ->map(fn($x) => trim((string) $x))
                 ->filter()
+                ->filter(function (string $v) use ($block) {
+                    $k = strtolower(trim($v));
+                    return $k !== '' && !in_array($k, $block, true);
+                })
                 ->values()
                 ->all();
 
@@ -538,8 +564,8 @@ class LetterOfOrderService
             }
         }
 
-        // 3) Last resort: legacy inference from workflow group
-        return $this->inferTestMethodFromWorkflowGroup($sampleIds);
+        // 3) Do NOT infer from workflow_group (group is not a method)
+        return '';
     }
 
     private function formatMethodLabel(string $code, string $name): string
@@ -547,7 +573,7 @@ class LetterOfOrderService
         $code = trim($code);
         $name = trim($name);
 
-        if ($code !== '' && $name !== '') return "{$code} — {$name}";
+        // user wants method text only (e.g. "lorem ipsum"); code is optional fallback
         if ($name !== '') return $name;
         if ($code !== '') return $code;
         return '';
