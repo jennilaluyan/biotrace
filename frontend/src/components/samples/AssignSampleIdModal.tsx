@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, Wand2, X, Loader2, Lock } from "lucide-react";
+import { Check, ClipboardCheck, Copy, Lock, Wand2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { Sample } from "../../services/samples";
@@ -20,6 +20,12 @@ type NormalizeResult =
     | { ok: true; normalized: string; prefix: string; number: number; errorCode: null }
     | { ok: false; normalized: string; prefix: string; number: 0; errorCode: NormalizeErrorCode };
 
+/**
+ * Normalize to: `PREFIX 003`
+ * - Prefix: 1-5 letters
+ * - Number: 1-6 digits, must be > 0
+ * - Allows optional "-" or spaces between prefix & number
+ */
 function normalizeSampleId(raw: string): NormalizeResult {
     const s0 = String(raw ?? "").trim().toUpperCase();
     if (!s0) {
@@ -60,7 +66,7 @@ type Props = {
 export default function AssignSampleIdModal({ open, sample, onClose, onDone }: Props) {
     const { t } = useTranslation();
 
-    const sampleId = Number((sample as any)?.sample_id ?? (sample as any)?.id ?? 0);
+    const samplePk = Number((sample as any)?.sample_id ?? (sample as any)?.id ?? 0);
 
     const changeObj = (sample as any)?.sample_id_change ?? null;
     const changeStatus = String(
@@ -98,7 +104,7 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
 
-    // ESC close + lock scroll
+    // ESC close + lock scroll (kept for safety even if lims-modal styles already do this)
     useEffect(() => {
         if (!open) return;
 
@@ -110,6 +116,7 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
         const prevOverflow = document.body.style.overflow;
         const prevPaddingRight = document.body.style.paddingRight;
         const scrollBarWidth = window.innerWidth - document.documentElement.clientWidth;
+
         document.body.style.overflow = "hidden";
         if (scrollBarWidth > 0) document.body.style.paddingRight = `${scrollBarWidth}px`;
 
@@ -120,6 +127,7 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
         };
     }, [open, busy, onClose]);
 
+    // Reset state on open
     useEffect(() => {
         if (!open) return;
 
@@ -130,21 +138,30 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
 
         if (lockedToApproved) {
             setValue(approvedProposed);
-        } else if (pick) {
-            setValue(pick);
-        } else {
-            setValue("");
+            return;
         }
+
+        if (pick) {
+            const v = normalizeSampleId(pick);
+            setValue(v.ok ? v.normalized : pick);
+            return;
+        }
+
+        setValue("");
     }, [open, initialSuggestedFromSample, lockedToApproved, approvedProposed]);
 
+    // Fetch suggestion if not provided by sample payload
     useEffect(() => {
         if (!open) return;
         if (suggested) return;
-        if (!Number.isFinite(sampleId) || sampleId <= 0) return;
+        if (!Number.isFinite(samplePk) || samplePk <= 0) return;
+
+        let cancelled = false;
 
         (async () => {
             try {
-                const s = await getSuggestedSampleId(sampleId);
+                const s = await getSuggestedSampleId(samplePk);
+                if (cancelled) return;
                 if (!s) return;
 
                 const v = normalizeSampleId(s);
@@ -159,7 +176,11 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
                 // ignore
             }
         })();
-    }, [open, suggested, sampleId, lockedToApproved]);
+
+        return () => {
+            cancelled = true;
+        };
+    }, [open, suggested, samplePk, lockedToApproved]);
 
     const validation = useMemo(() => normalizeSampleId(value), [value]);
 
@@ -186,12 +207,20 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
     const paramsCount = Array.isArray(parameters) ? parameters.length : 0;
     const paramsLabel = t("samples.assignSampleId.parametersCount", { count: paramsCount });
 
-    const canSubmit = open && !busy && Number.isFinite(sampleId) && sampleId > 0 && validation.ok;
+    const canSubmit = open && !busy && Number.isFinite(samplePk) && samplePk > 0 && validation.ok;
 
     function normalizeErrorMessage(code: NormalizeErrorCode): string {
         if (code === "required") return t("samples.assignSampleId.errors.required");
         if (code === "format") return t("samples.assignSampleId.errors.format");
         return t("samples.assignSampleId.errors.number");
+    }
+
+    async function copyToClipboard(text: string) {
+        try {
+            await navigator.clipboard.writeText(text);
+        } catch {
+            // ignore
+        }
     }
 
     async function submit(): Promise<void> {
@@ -205,20 +234,20 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
         try {
             // If OM/LH already approved a proposed code, Admin just finalizes it.
             if (lockedToApproved) {
-                await assignSampleId(sampleId, code);
+                await assignSampleId(samplePk, code);
                 onDone({ type: "success", message: t("samples.assignSampleId.done.assigned") });
                 return;
             }
 
             // If Admin uses suggestion exactly, backend can auto-assign from suggestion.
             if (suggestedNorm && isSameAsSuggested) {
-                await assignSampleId(sampleId);
+                await assignSampleId(samplePk);
                 onDone({ type: "success", message: t("samples.assignSampleId.done.assigned") });
                 return;
             }
 
             // Otherwise propose a change request to OM/LH
-            await proposeSampleIdChange(sampleId, code);
+            await proposeSampleIdChange(samplePk, code);
             onDone({ type: "warning", message: t("samples.assignSampleId.done.sentForVerification") });
         } catch (e: any) {
             const msg = getErrorMessage(e, t("samples.assignSampleId.errors.submitFailedFallback"));
@@ -237,48 +266,74 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
         group: workflowGroup,
     });
 
-    const primaryLabel = busy
-        ? t("processing")
-        : lockedToApproved
-            ? t("samples.assignSampleId.buttons.finalize")
-            : isSameAsSuggested
-                ? t("samples.assignSampleId.buttons.assign")
-                : t("samples.assignSampleId.buttons.propose");
+    // Match ClientApprovalDecisionModal visual structure
+    const title = t("samples.assignSampleId.title");
+    const subtitle = headerSubtitle;
+
+    const Icon = lockedToApproved ? Lock : isSameAsSuggested ? Check : Wand2;
+    const iconTone = lockedToApproved
+        ? "bg-indigo-50 text-indigo-700"
+        : isSameAsSuggested
+            ? "bg-emerald-50 text-emerald-700"
+            : "bg-amber-50 text-amber-700";
+
+    const confirmLabel = lockedToApproved
+        ? t("samples.assignSampleId.buttons.finalize")
+        : isSameAsSuggested
+            ? t("samples.assignSampleId.buttons.assign")
+            : t("samples.assignSampleId.buttons.propose");
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4" role="dialog" aria-modal="true">
-            <div className="absolute inset-0 bg-black/40" onClick={() => (busy ? null : onClose())} aria-hidden="true" />
-
-            <div className="relative w-full max-w-xl rounded-2xl bg-white shadow-xl border border-gray-100 overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100">
-                    <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                            <div className="text-lg font-semibold text-gray-900">{t("samples.assignSampleId.title")}</div>
-                            <div className="text-xs text-gray-500 mt-1">{headerSubtitle}</div>
-                        </div>
-
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            disabled={busy}
-                            className={cx("lims-icon-button", busy && "opacity-60 cursor-not-allowed")}
-                            aria-label={t("close")}
-                            title={t("close")}
-                        >
-                            <X size={16} />
-                        </button>
+        <div
+            className="lims-modal-backdrop p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label={title}
+            onMouseDown={() => {
+                if (!busy) onClose();
+            }}
+        >
+            <div
+                className="lims-modal-panel max-w-xl"
+                onMouseDown={(e) => {
+                    e.stopPropagation();
+                }}
+            >
+                <div className="lims-modal-header">
+                    <div className={cx("h-9 w-9 rounded-full flex items-center justify-center", iconTone)} aria-hidden="true">
+                        <Icon size={18} />
                     </div>
+
+                    <div className="min-w-0">
+                        <div className="text-base font-semibold text-gray-900">{title}</div>
+                        <div className="text-xs text-gray-500 mt-0.5 truncate">{subtitle}</div>
+                    </div>
+
+                    <button
+                        type="button"
+                        className="ml-auto lims-icon-button"
+                        aria-label={t("close")}
+                        title={t("close")}
+                        onClick={onClose}
+                        disabled={!!busy}
+                    >
+                        <X size={16} />
+                    </button>
                 </div>
 
-                <div className="px-5 py-4 space-y-4">
+                <div className={cx("lims-modal-body", "space-y-4")}>
                     {err ? (
-                        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                        <div className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-900">
                             {err}
                         </div>
                     ) : null}
 
-                    <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                        <div className="text-xs text-gray-500">{t("summary")}</div>
+                    <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <ClipboardCheck size={14} />
+                            <span className="font-semibold">{t("summary")}</span>
+                        </div>
+
                         <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
                             <div>
                                 <div className="text-[11px] text-gray-500">{t("samples.assignSampleId.summary.client")}</div>
@@ -286,12 +341,14 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
                                     {clientName}
                                 </div>
                             </div>
+
                             <div>
                                 <div className="text-[11px] text-gray-500">{t("samples.assignSampleId.summary.group")}</div>
                                 <div className="font-semibold text-gray-900 truncate" title={String(workflowGroup)}>
                                     {workflowGroup}
                                 </div>
                             </div>
+
                             <div>
                                 <div className="text-[11px] text-gray-500">{t("samples.assignSampleId.summary.parameters")}</div>
                                 <div className="font-semibold text-gray-900">{paramsLabel}</div>
@@ -309,7 +366,10 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
                             <div className="flex items-center gap-2">
                                 <button
                                     type="button"
-                                    className={cx("lims-icon-button", (!suggested || lockedToApproved) && "opacity-40 cursor-not-allowed")}
+                                    className={cx(
+                                        "lims-icon-button",
+                                        (!suggested || lockedToApproved) && "opacity-40 cursor-not-allowed"
+                                    )}
                                     disabled={!suggested || busy || lockedToApproved}
                                     onClick={() => {
                                         if (!suggested) return;
@@ -325,13 +385,9 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
                                     type="button"
                                     className={cx("lims-icon-button", !suggested && "opacity-40 cursor-not-allowed")}
                                     disabled={!suggested || busy}
-                                    onClick={async () => {
+                                    onClick={() => {
                                         if (!suggested) return;
-                                        try {
-                                            await navigator.clipboard.writeText(prettySampleId(suggested));
-                                        } catch {
-                                            // ignore
-                                        }
+                                        copyToClipboard(prettySampleId(suggested));
                                     }}
                                     aria-label={t("samples.assignSampleId.actions.copySuggested")}
                                     title={t("samples.assignSampleId.actions.copySuggested")}
@@ -344,6 +400,7 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
 
                     <div>
                         <label className="block text-sm font-semibold text-gray-900">{t("samples.assignSampleId.fieldLabel")}</label>
+
                         <input
                             value={value}
                             onChange={(e) => setValue(e.target.value)}
@@ -392,13 +449,8 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
                     </div>
                 </div>
 
-                <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2 bg-white">
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        disabled={busy}
-                        className={cx("lims-btn", busy && "opacity-60 cursor-not-allowed")}
-                    >
+                <div className="lims-modal-footer">
+                    <button type="button" onClick={onClose} disabled={!!busy} className="btn-outline disabled:opacity-50">
                         {t("cancel")}
                     </button>
 
@@ -406,13 +458,10 @@ export default function AssignSampleIdModal({ open, sample, onClose, onDone }: P
                         type="button"
                         disabled={!canSubmit}
                         onClick={submit}
-                        className={cx(
-                            "lims-btn-primary inline-flex items-center gap-2",
-                            !canSubmit && "opacity-60 cursor-not-allowed"
-                        )}
+                        className={cx("lims-btn-primary", "disabled:opacity-50 disabled:cursor-not-allowed")}
+                        title={confirmLabel}
                     >
-                        {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-                        {primaryLabel}
+                        {busy ? t("common.processing", "Processing...") : confirmLabel}
                     </button>
                 </div>
             </div>
