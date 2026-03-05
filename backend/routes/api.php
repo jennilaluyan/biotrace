@@ -177,9 +177,10 @@ Route::prefix('v1')->group(function () {
 
         /*
         |------------------------------------------------------------------
-        | Staff Approvals
+        | Staffs (List + Approvals)
         |------------------------------------------------------------------
         */
+        Route::get('staffs', [StaffApprovalController::class, 'index']);
         Route::get('staffs/pending', [StaffApprovalController::class, 'pending']);
         Route::post('staffs/{staff}/approve', [StaffApprovalController::class, 'approve'])->whereNumber('staff');
         Route::post('staffs/{staff}/reject', [StaffApprovalController::class, 'reject'])->whereNumber('staff');

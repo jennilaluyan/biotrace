@@ -49,27 +49,42 @@
         "view": "Lihat"
     },
     "staffApprovals": {
-        "title": "Persetujuan staf",
-        "subtitle": "Tinjau dan setujui akun staf baru yang meminta akses.",
-        "cardTitle": "Permintaan tertunda",
-        "loading": "Memuat daftar persetujuan…",
-        "emptyTitle": "Belum ada yang perlu disetujui",
-        "emptyHint": "Permintaan staf baru akan muncul di sini saat diajukan.",
-        "statusPending": "Menunggu persetujuan",
+        "title": "Staf",
+        "subtitle": "Kelola daftar staf dan setujui permintaan akun staf baru.",
+        "tabs": {
+            "staffs": "Staf",
+            "approvals": "Persetujuan"
+        },
+        "staffsCardTitle": "Daftar staf",
+        "approvalsCardTitle": "Permintaan akun staf",
+        "staffsEmptyTitle": "Belum ada staf",
+        "staffsEmptyHint": "Data staf akan muncul setelah akun disetujui dan aktif.",
+        "statusOnline": "Online",
+        "statusOffline": "Offline",
+        "lastSeenNever": "Belum pernah",
+        "lastSeenJustNow": "Baru saja",
+        "lastSeenMinutes": "{{count}} menit lalu",
+        "lastSeenHours": "{{count}} jam lalu",
+        "lastSeenDays": "{{count}} hari lalu",
         "table": {
             "staff": "Staf",
             "role": "Peran",
-            "requestedAt": "Diajukan"
+            "account": "Akun",
+            "status": "Status",
+            "lastSeen": "Terakhir aktif",
+            "requestedAt": "Diajukan pada"
         },
-        "confirm": {
-            "approve": "Setujui akun staf ini?",
-            "reject": "Tolak akun staf ini?",
-            "rejectNotePrompt": "Catatan opsional untuk penolakan (akan terlihat oleh pemohon):"
-        },
-        "errors": {
-            "loadFailed": "Gagal memuat daftar persetujuan staf.",
-            "approveFailed": "Gagal menyetujui akun staf.",
-            "rejectFailed": "Gagal menolak akun staf."
+        "modal": {
+            "approveTitle": "Setujui pendaftaran staf",
+            "approveSubtitle": "Setujui akun staf ini untuk memberi akses ke sistem.",
+            "rejectTitle": "Tolak pendaftaran staf",
+            "rejectSubtitle": "Berikan alasan singkat agar staf bisa memperbaiki pengajuan.",
+            "staffId": "ID Staf",
+            "note": {
+                "labelRequired": "Catatan penolakan (wajib)",
+                "placeholder": "Jelaskan singkat apa yang perlu diperbaiki (mis. data kurang, role salah, email tidak valid).",
+                "help": "Catatan ini akan disimpan dan dapat ditampilkan ke staf."
+            }
         }
     },
     "nav": {
@@ -86,7 +101,7 @@
         "auditLogs": "Log Audit",
         "documentTemplates": "Template Dokumen",
         "clientApprovals": "Persetujuan Klien",
-        "staffApprovals": "Persetujuan Staf",
+        "staffApprovals": "Staf",
         "myRequests": "Permintaan Saya",
         "openNavigation": "Buka navigasi",
         "closeSidebar": "Tutup sidebar",
@@ -578,6 +593,14 @@
             "errors": {
                 "submitFailed": "Gagal mengirim permintaan."
             }
+        },
+        "ack": {
+            "rejectionReasonTitle": "Alasan penolakan",
+            "approvalTitle": "Disetujui",
+            "noReason": "Tidak ada alasan yang diberikan.",
+            "approvedInfo": "Permintaan Anda telah disetujui dan diterapkan.",
+            "decidedAt": "Diputuskan pada",
+            "markRead": "Saya sudah membaca keputusan ini"
         }
     },
     "portalRequestsPage": {

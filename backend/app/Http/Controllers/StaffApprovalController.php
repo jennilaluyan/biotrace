@@ -84,4 +84,51 @@ class StaffApprovalController extends Controller
 
         return response()->json(['message' => 'Staff rejected (remains inactive)']);
     }
+
+    public function index(Request $request)
+    {
+        if (!$this->isLabHead($request)) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $q = trim((string)$request->query('q', ''));
+
+        $rows = Staff::query()
+            ->with(['role:role_id,name'])
+            ->when($q !== '', function ($query) use ($q) {
+                $query->where(function ($w) use ($q) {
+                    $w->where('name', 'like', "%{$q}%")
+                        ->orWhere('email', 'like', "%{$q}%");
+                });
+            })
+            ->orderBy('name')
+            ->get(['staff_id', 'name', 'email', 'role_id', 'is_active', 'last_seen_at', 'created_at']);
+
+        $now = now();
+        $onlineThreshold = $now->copy()->subMinutes(15);
+
+        $data = $rows->map(function ($s) use ($onlineThreshold) {
+            $lastSeen = $s->last_seen_at ? \Illuminate\Support\Carbon::parse($s->last_seen_at) : null;
+
+            return [
+                'staff_id' => $s->staff_id,
+                'name' => $s->name,
+                'email' => $s->email,
+                'role_id' => (int)$s->role_id,
+                'is_active' => (bool)$s->is_active,
+                'last_seen_at' => $lastSeen ? $lastSeen->toISOString() : null,
+                'is_online' => $lastSeen ? $lastSeen->greaterThanOrEqualTo($onlineThreshold) : false,
+                'created_at' => $s->created_at ? \Illuminate\Support\Carbon::parse($s->created_at)->toISOString() : null,
+                'role' => $s->role ? [
+                    'role_id' => (int)$s->role->role_id,
+                    'name' => $s->role->name,
+                ] : null,
+            ];
+        });
+
+        return response()->json([
+            'data' => $data,
+            'meta' => ['total' => $data->count()],
+        ]);
+    }
 }

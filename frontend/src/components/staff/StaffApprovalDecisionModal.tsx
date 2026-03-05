@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Check, ClipboardCheck, X } from "lucide-react";
+import { AlertTriangle, Check, ClipboardCheck, X, Loader2 } from "lucide-react";
 
 import type { PendingStaff } from "../../services/staffs";
 import { getRoleLabelById } from "../../utils/roles";
@@ -178,7 +178,7 @@ export default function StaffApprovalDecisionModal(props: Props) {
                         <div className="mt-4">
                             <div className="flex items-baseline justify-between gap-3">
                                 <label className="block text-sm font-semibold text-gray-900">{noteLabel}</label>
-                                <div className="text-[11px] text-gray-500 tabular-nums">{note.trim().length}/500</div>
+                                <div className="text-[11px] text-gray-500 tabular-nums">{note.trim().length}/300</div>
                             </div>
 
                             <textarea
@@ -187,7 +187,7 @@ export default function StaffApprovalDecisionModal(props: Props) {
                                 value={note}
                                 onChange={(e) => setNote(e.target.value)}
                                 disabled={!!busy}
-                                maxLength={500}
+                                maxLength={300}
                             />
 
                             <div className="mt-2 text-[11px] text-gray-500">
@@ -208,10 +208,11 @@ export default function StaffApprovalDecisionModal(props: Props) {
                         onClick={submit}
                         className={cx(
                             isReject ? "lims-btn-danger" : "lims-btn-primary",
-                            "disabled:opacity-50 disabled:cursor-not-allowed"
+                            "disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
                         )}
                         title={confirmLabel}
                     >
+                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                         {busy ? t("common.processing", { defaultValue: "Processing..." }) : confirmLabel}
                     </button>
                 </div>
