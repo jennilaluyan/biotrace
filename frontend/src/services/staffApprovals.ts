@@ -24,8 +24,7 @@ export type StaffRow = {
     created_at?: string | null;
 };
 
-export const fetchStaffs = () =>
-    apiGet<{ data: StaffRow[] }>("/v1/staffs");
+export const fetchStaffs = () => apiGet<{ data: StaffRow[] }>("/v1/staffs");
 
 export const fetchPendingStaffs = () =>
     apiGet<{ data: PendingStaff[] }>("/v1/staffs/pending");
@@ -35,3 +34,14 @@ export const approveStaff = (staffId: number) =>
 
 export const rejectStaff = (staffId: number, payload: { note: string }) =>
     apiPost(`/v1/staffs/${staffId}/reject`, payload);
+
+/**
+ * Convenience service wrapper (keperluan import di beberapa page).
+ * Keeps backward compatibility dengan named exports yang sudah ada.
+ */
+export const staffApprovalsService = {
+    fetchStaffs,
+    fetchPendingStaffs,
+    approveStaff,
+    rejectStaff,
+} as const;
