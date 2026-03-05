@@ -114,7 +114,7 @@ function getRequestStatusBucket(raw?: string | null): RequestStatusBucket {
 
     if (k === "pickup_required") return "pickup_required";
     if (k === "picked_up") return "picked_up";
-    if (k === "rejected") return "rejected";
+    if (k === "rejected" || k === "denied") return "rejected";
 
     return "unknown";
 }
@@ -172,11 +172,12 @@ function requestStatusChip(raw: string | null | undefined, t: TFunction) {
     if (bucket === "needs_revision") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("amber") };
     if (bucket === "ready_for_delivery") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("indigo") };
     if (bucket === "received") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("emerald") };
+    if (bucket === "rejected") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("rose") };
 
     return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("gray") };
 }
 
-function statusChipClass(kind: "gray" | "primary" | "amber" | "indigo" | "emerald") {
+function statusChipClass(kind: "gray" | "primary" | "amber" | "indigo" | "emerald" | "rose") {
     switch (kind) {
         case "primary":
             return "bg-primary-soft/10 text-primary-soft";
@@ -186,6 +187,8 @@ function statusChipClass(kind: "gray" | "primary" | "amber" | "indigo" | "emeral
             return "bg-indigo-50 text-indigo-700";
         case "emerald":
             return "bg-emerald-50 text-emerald-700";
+        case "rose":
+            return "bg-rose-50 text-rose-800";
         default:
             return "bg-gray-100 text-gray-700";
     }
@@ -213,6 +216,7 @@ export default function ClientRequestsPage() {
         "needs_revision",
         "ready_for_delivery",
         "received",
+        "rejected",
     ];
     const [createOpen, setCreateOpen] = useState(false);
 

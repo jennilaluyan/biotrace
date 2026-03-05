@@ -613,7 +613,8 @@
             "physicallyReceived": "Physically received",
             "pickupRequired": "Pickup required",
             "pickedUp": "Picked up",
-            "unknown": "Unknown"
+            "unknown": "Unknown",
+            "rejected": "Rejected"
         },
         "sub": {
             "pickedUpAt": "Picked up at {{date}}",
