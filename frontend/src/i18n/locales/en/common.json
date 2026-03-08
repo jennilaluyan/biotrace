@@ -1095,9 +1095,32 @@
             "subtitle": "Approve or reject newly registered client applications.",
             "loading": "Loading pending applications…",
             "empty": "No pending client applications.",
+            "emptyTitle": "No pending applications",
+            "emptyBody": "New client registrations will appear here for review.",
             "statusPending": "Status: Pending",
+            "pendingLabel": "Pending",
             "approveAction": "Approve",
-            "rejectAction": "Reject"
+            "rejectAction": "Reject",
+            "table": {
+                "name": "Name",
+                "type": "Type",
+                "email": "Email"
+            },
+            "errors": {
+                "loadFailed": "Failed to load pending client applications.",
+                "approveFailed": "Failed to approve the client application.",
+                "rejectFailed": "Failed to reject the client application."
+            },
+            "detail": {
+                "header": "Client application",
+                "subheader": "Review details before approving or rejecting.",
+                "basicTitle": "Basic information",
+                "applicationId": "Application ID",
+                "requestedAt": "Requested at",
+                "invalidUrl": "Invalid application URL.",
+                "notFound": "This pending application was not found (it may have been processed already).",
+                "loadFailed": "Failed to load application details."
+            }
         },
         "filters": {
             "searchPlaceholder": "Search by name, email, institution…",
@@ -1185,6 +1208,7 @@
                 "phone": "Phone number",
                 "email": "Contact email",
                 "nik": "16 digit number",
+                "gender": "Select gender",
                 "street": "e.g. Jl. Sam Ratulangi No. 10",
                 "rtRw": "e.g. 001/002"
             }

@@ -1085,9 +1085,32 @@
             "subtitle": "Setujui atau tolak pendaftaran klien yang baru diajukan.",
             "loading": "Memuat pendaftaran yang menunggu…",
             "empty": "Tidak ada pendaftaran klien yang menunggu.",
+            "emptyTitle": "Tidak ada pendaftaran klien tertunda",
+            "emptyBody": "Pendaftaran klien baru akan muncul di sini untuk ditinjau.",
             "statusPending": "Status: Menunggu",
+            "pendingLabel": "Menunggu",
             "approveAction": "Setujui",
-            "rejectAction": "Tolak"
+            "rejectAction": "Tolak",
+            "table": {
+                "name": "Nama",
+                "type": "Tipe",
+                "email": "Email"
+            },
+            "errors": {
+                "loadFailed": "Gagal memuat pendaftaran klien yang menunggu.",
+                "approveFailed": "Gagal menyetujui pendaftaran klien.",
+                "rejectFailed": "Gagal menolak pendaftaran klien."
+            },
+            "detail": {
+                "header": "Pengajuan klien",
+                "subheader": "Tinjau detail sebelum menyetujui atau menolak.",
+                "basicTitle": "Informasi dasar",
+                "applicationId": "ID Pengajuan",
+                "requestedAt": "Diajukan pada",
+                "invalidUrl": "URL pengajuan tidak valid.",
+                "notFound": "Pengajuan tertunda ini tidak ditemukan (mungkin sudah diproses).",
+                "loadFailed": "Gagal memuat detail pengajuan."
+            }
         },
         "filters": {
             "searchPlaceholder": "Cari nama, email, institusi…",
@@ -1152,15 +1175,15 @@
             }
         },
         "form": {
-            "createTitle": "Tambah Client",
-            "editTitle": "Edit Client",
-            "viewTitle": "Detail Client",
+            "createTitle": "Tambah Klien",
+            "editTitle": "Edit Klien",
+            "viewTitle": "Detail Klien",
             "viewHint": "Mode tampilan saja.",
             "editHint": "Isi data dengan benar untuk keperluan dokumen dan komunikasi.",
             "personalSection": "Profil personal",
             "institutionSection": "Informasi institusi",
             "addressKtpSection": "Alamat (KTP)",
-            "submitCreate": "Buat client",
+            "submitCreate": "Buat klien",
             "submitEdit": "Simpan perubahan",
             "submitSaving": "Menyimpan...",
             "submitCreating": "Membuat...",
@@ -1170,11 +1193,12 @@
                 "nikInvalid": "NIK harus tepat 16 digit."
             },
             "placeholders": {
-                "nameIndividual": "Nama lengkap client",
+                "nameIndividual": "Nama lengkap klien",
                 "nameInstitution": "Nama institusi",
                 "phone": "Nomor telepon",
                 "email": "Email kontak",
                 "nik": "16 digit angka",
+                "gender": "Pilih jenis kelamin",
                 "street": "mis. Jl. Sam Ratulangi No. 10",
                 "rtRw": "mis. 001/002"
             }

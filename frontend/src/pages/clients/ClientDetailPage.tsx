@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
     ArrowLeft,
@@ -31,6 +32,29 @@ function initialsFromName(name?: string | null) {
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
+}
+
+type GenderValue = "female" | "male" | "other";
+
+function normalizeGenderValue(value?: string | null): GenderValue | "" {
+    const normalized = String(value ?? "").trim().toLowerCase();
+
+    if (!normalized) return "";
+    if (["female", "fmeale", "perempuan", "wanita"].includes(normalized)) return "female";
+    if (["male", "laki-laki", "laki laki", "lelaki", "pria"].includes(normalized)) return "male";
+    if (["other", "lainnya", "lain-lain", "lain lain"].includes(normalized)) return "other";
+
+    return "";
+}
+
+function genderLabel(t: TFunction, value?: string | null) {
+    const normalized = normalizeGenderValue(value);
+
+    if (normalized === "female") return t("auth.female", "Female");
+    if (normalized === "male") return t("auth.male", "Male");
+    if (normalized === "other") return t("auth.other", "Other");
+
+    return "—";
 }
 
 export const ClientDetailPage = () => {
@@ -278,7 +302,7 @@ export const ClientDetailPage = () => {
                                             </div>
                                             <div>
                                                 <div className="lims-detail-label">{t("clients.detail.labels.gender", "Gender")}</div>
-                                                <div className="lims-detail-value">{client.gender || "-"}</div>
+                                                <div className="lims-detail-value">{genderLabel(t, client.gender)}</div>
                                             </div>
                                         </div>
                                     </div>

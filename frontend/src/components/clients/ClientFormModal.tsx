@@ -8,6 +8,19 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
+type GenderValue = "female" | "male" | "other";
+
+function normalizeGenderValue(value?: string | null): GenderValue | "" {
+    const normalized = String(value ?? "").trim().toLowerCase();
+
+    if (!normalized) return "";
+    if (["female", "fmeale", "perempuan", "wanita"].includes(normalized)) return "female";
+    if (["male", "laki-laki", "laki laki", "lelaki", "pria"].includes(normalized)) return "male";
+    if (["other", "lainnya", "lain-lain", "lain lain"].includes(normalized)) return "other";
+
+    return "";
+}
+
 interface ClientFormModalProps {
     open: boolean;
     mode: "create" | "edit" | "view";
@@ -30,7 +43,7 @@ export const ClientFormModal = ({ open, mode, initialClient, onClose, onSubmit }
 
     const [nationalId, setNationalId] = useState(initialClient?.national_id ?? "");
     const [dateOfBirth, setDateOfBirth] = useState(initialClient?.date_of_birth ?? "");
-    const [gender, setGender] = useState(initialClient?.gender ?? "");
+    const [gender, setGender] = useState<GenderValue | "">(normalizeGenderValue(initialClient?.gender));
 
     // Address KTP
     const [ktpStreet, setKtpStreet] = useState(initialClient?.address_ktp ?? "");
@@ -62,7 +75,7 @@ export const ClientFormModal = ({ open, mode, initialClient, onClose, onSubmit }
 
         setNationalId(initialClient?.national_id ?? "");
         setDateOfBirth(initialClient?.date_of_birth ?? "");
-        setGender(initialClient?.gender ?? "");
+        setGender(normalizeGenderValue(initialClient?.gender));
 
         setKtpStreet(initialClient?.address_ktp ?? "");
         setKtpRtRw("");
@@ -351,13 +364,14 @@ export const ClientFormModal = ({ open, mode, initialClient, onClose, onSubmit }
                                         <div className="relative">
                                             <select
                                                 className="w-full rounded-xl border border-gray-300 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft/50 focus:border-primary-soft disabled:bg-gray-50 disabled:text-gray-500 transition-shadow appearance-none"
-                                                value={gender ?? ""}
-                                                onChange={(e) => setGender(e.target.value)}
+                                                value={gender}
+                                                onChange={(e) => setGender(e.target.value as GenderValue | "")}
                                                 disabled={disabled}
                                             >
-                                                <option value="">Select gender</option>
-                                                <option value="Male">Male</option>
-                                                <option value="Female">Female</option>
+                                                <option value="">{t("clients.form.placeholders.gender", "Select gender")}</option>
+                                                <option value="male">{t("auth.male", "Male")}</option>
+                                                <option value="female">{t("auth.female", "Female")}</option>
+                                                <option value="other">{t("auth.other", "Other")}</option>
                                             </select>
                                         </div>
                                     </div>
@@ -371,7 +385,9 @@ export const ClientFormModal = ({ open, mode, initialClient, onClose, onSubmit }
                                     </label>
                                     <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
                                         <div className="space-y-1">
-                                            <label className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Street / Full Address</label>
+                                            <label className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
+                                                {t("auth.ktpStreet", "Street / House no.")}
+                                            </label>
                                             <input
                                                 type="text"
                                                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft/50 disabled:bg-gray-100"
@@ -394,7 +410,9 @@ export const ClientFormModal = ({ open, mode, initialClient, onClose, onSubmit }
                                                 />
                                             </div>
                                             <div className="space-y-1">
-                                                <label className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Kelurahan</label>
+                                                <label className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
+                                                    {t("auth.ktpVillage", "Village/Subdistrict")}
+                                                </label>
                                                 <input
                                                     type="text"
                                                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft/50 disabled:bg-gray-100"
@@ -406,7 +424,9 @@ export const ClientFormModal = ({ open, mode, initialClient, onClose, onSubmit }
                                         </div>
                                         <div className="grid grid-cols-2 gap-3">
                                             <div className="space-y-1">
-                                                <label className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Kecamatan</label>
+                                                <label className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
+                                                    {t("auth.ktpDistrict", "District")}
+                                                </label>
                                                 <input
                                                     type="text"
                                                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft/50 disabled:bg-gray-100"
@@ -416,7 +436,9 @@ export const ClientFormModal = ({ open, mode, initialClient, onClose, onSubmit }
                                                 />
                                             </div>
                                             <div className="space-y-1">
-                                                <label className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">City</label>
+                                                <label className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
+                                                    {t("auth.ktpCity", "City/Regency")}
+                                                </label>
                                                 <input
                                                     type="text"
                                                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft/50 disabled:bg-gray-100"
@@ -478,7 +500,7 @@ export const ClientFormModal = ({ open, mode, initialClient, onClose, onSubmit }
                                         </div>
                                         <div className="p-4 bg-indigo-50/30 rounded-xl border border-indigo-100 grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div className="space-y-1">
-                                                <label className="text-[10px] font-medium text-gray-500 uppercase">Name</label>
+                                                <label className="text-[10px] font-medium text-gray-500 uppercase">{t("auth.name", "Name")}</label>
                                                 <input
                                                     type="text"
                                                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft/50 bg-white"
@@ -488,7 +510,7 @@ export const ClientFormModal = ({ open, mode, initialClient, onClose, onSubmit }
                                                 />
                                             </div>
                                             <div className="space-y-1">
-                                                <label className="text-[10px] font-medium text-gray-500 uppercase">Phone</label>
+                                                <label className="text-[10px] font-medium text-gray-500 uppercase">{t("auth.phone", "Phone")}</label>
                                                 <input
                                                     type="text"
                                                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft/50 bg-white"
@@ -498,7 +520,7 @@ export const ClientFormModal = ({ open, mode, initialClient, onClose, onSubmit }
                                                 />
                                             </div>
                                             <div className="md:col-span-2 space-y-1">
-                                                <label className="text-[10px] font-medium text-gray-500 uppercase">Email</label>
+                                                <label className="text-[10px] font-medium text-gray-500 uppercase">{t("auth.email", "Email")}</label>
                                                 <input
                                                     type="email"
                                                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft/50 bg-white"

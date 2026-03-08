@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { BadgeCheck, Check, Eye, Loader2, RefreshCw, Search, X, AlertTriangle } from "lucide-react";
 
@@ -15,8 +16,10 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
-function typeLabel(t: ClientApplication["type"]) {
-    return t === "institution" ? "Institution" : "Individual";
+function typeLabel(t: TFunction, type: ClientApplication["type"]) {
+    return type === "institution"
+        ? t("clients.badges.institution", "Institution")
+        : t("clients.badges.individual", "Individual");
 }
 
 type ApiErrorLike = {
@@ -177,9 +180,14 @@ export const ClientApprovalsPage = () => {
     if (!canApproveClients) {
         return (
             <div className="min-h-[60vh] flex flex-col items-center justify-center text-center px-4">
-                <h1 className="text-2xl font-semibold text-primary mb-2">403 – Access denied</h1>
-                <p className="text-sm text-gray-600">
-                    Your role <span className="font-semibold">({roleLabel})</span> is not allowed to approve clients.
+                <div className="bg-red-50 p-4 rounded-full mb-3">
+                    <AlertTriangle className="h-8 w-8 text-red-600" />
+                </div>
+                <h1 className="text-xl font-bold text-gray-900 mb-1">{t("clients.forbidden.title", "Access denied")}</h1>
+                <p className="text-sm text-gray-600 max-w-md">
+                    {t("clients.forbidden.bodyApprovals", "Your role ({{role}}) is not allowed to approve clients.", {
+                        role: roleLabel,
+                    })}
                 </p>
             </div>
         );
@@ -201,7 +209,7 @@ export const ClientApprovalsPage = () => {
                     <div className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-full px-3 py-1 inline-flex items-center gap-2">
                         <BadgeCheck className="h-4 w-4 text-gray-500" />
                         <span>
-                            {t("clients.approvals.pending", "Pending")}:{" "}
+                            {t("clients.approvals.pendingLabel", "Pending")}:{" "}
                             <span className="font-semibold text-gray-900">{pendingCount}</span>
                         </span>
                     </div>
@@ -233,7 +241,7 @@ export const ClientApprovalsPage = () => {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder={t("clients.approvals.searchPlaceholder", "Search name, email, institution…")}
+                                placeholder={t("clients.filters.searchPlaceholder", "Search by name, email, institution…")}
                                 className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                             />
                         </div>
@@ -241,7 +249,7 @@ export const ClientApprovalsPage = () => {
 
                     <div className="w-full md:w-56">
                         <label className="sr-only" htmlFor="pending-client-type-filter">
-                            {t("clients.approvals.typeFilter", "Client type")}
+                            {t("clients.detail.labels.clientType", "Client type")}
                         </label>
                         <select
                             id="pending-client-type-filter"
@@ -249,7 +257,7 @@ export const ClientApprovalsPage = () => {
                             onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
                             className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
                         >
-                            <option value="all">{t("common.all", "All")}</option>
+                            <option value="all">{t("clients.filters.typeAll", "All types")}</option>
                             <option value="individual">{t("clients.badges.individual", "Individual")}</option>
                             <option value="institution">{t("clients.badges.institution", "Institution")}</option>
                         </select>
@@ -317,7 +325,7 @@ export const ClientApprovalsPage = () => {
                                                                 : "bg-emerald-50 text-emerald-700 border-emerald-100"
                                                         )}
                                                     >
-                                                        {typeLabel(c.type)}
+                                                        {typeLabel(t, c.type)}
                                                     </span>
                                                 </td>
 

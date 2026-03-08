@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
     ArrowLeft,
@@ -78,8 +79,33 @@ function typeBadgeClass(type: ClientApplication["type"] | null | undefined) {
         : "bg-emerald-50 text-emerald-700 border-emerald-100";
 }
 
-function typeLabel(type: ClientApplication["type"] | null | undefined) {
-    return type === "institution" ? "Institution" : "Individual";
+type GenderValue = "female" | "male" | "other";
+
+function normalizeGenderValue(value?: string | null): GenderValue | "" {
+    const normalized = String(value ?? "").trim().toLowerCase();
+
+    if (!normalized) return "";
+    if (["female", "fmeale", "perempuan", "wanita"].includes(normalized)) return "female";
+    if (["male", "laki-laki", "laki laki", "lelaki", "pria"].includes(normalized)) return "male";
+    if (["other", "lainnya", "lain-lain", "lain lain"].includes(normalized)) return "other";
+
+    return "";
+}
+
+function typeLabel(t: TFunction, type: ClientApplication["type"] | null | undefined) {
+    return type === "institution"
+        ? t("clients.badges.institution", "Institution")
+        : t("clients.badges.individual", "Individual");
+}
+
+function genderLabel(t: TFunction, value?: string | null) {
+    const normalized = normalizeGenderValue(value);
+
+    if (normalized === "female") return t("auth.female", "Female");
+    if (normalized === "male") return t("auth.male", "Male");
+    if (normalized === "other") return t("auth.other", "Other");
+
+    return "—";
 }
 
 export const ClientApprovalDetailPage = () => {
@@ -320,7 +346,7 @@ export const ClientApprovalDetailPage = () => {
 
                                 <div className="flex flex-wrap items-center justify-center gap-2 mb-6">
                                     <span className={cx("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border", typeBadgeClass(item.type))}>
-                                        {typeLabel(item.type)}
+                                        {typeLabel(t, item.type)}
                                     </span>
 
                                     <span className="inline-flex items-center gap-1 text-xs text-gray-500 bg-white border border-gray-200 px-2 py-0.5 rounded-full">
@@ -395,7 +421,7 @@ export const ClientApprovalDetailPage = () => {
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
                                         <div>
                                             <div className="lims-detail-label">{t("clients.detail.labels.clientType", "Client type")}</div>
-                                            <div className="lims-detail-value">{typeLabel(item.type)}</div>
+                                            <div className="lims-detail-value">{typeLabel(t, item.type)}</div>
                                         </div>
 
                                         <div>
@@ -432,7 +458,7 @@ export const ClientApprovalDetailPage = () => {
 
                                             <div>
                                                 <div className="lims-detail-label">{t("clients.detail.labels.gender", "Gender")}</div>
-                                                <div className="lims-detail-value">{item.gender || "—"}</div>
+                                                <div className="lims-detail-value">{genderLabel(t, item.gender)}</div>
                                             </div>
                                         </div>
                                     </div>
