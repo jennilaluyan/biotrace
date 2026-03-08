@@ -110,6 +110,7 @@ Route::prefix('v1')->group(function () {
             Route::get('samples/{sample}', [ClientSampleRequestController::class, 'show'])->whereNumber('sample');
             Route::patch('samples/{sample}', [ClientSampleRequestController::class, 'update'])->whereNumber('sample');
             Route::post('samples/{sample}/submit', [ClientSampleRequestController::class, 'submit'])->whereNumber('sample');
+            Route::get('samples/{sample}/coa', [ClientSampleRequestController::class, 'downloadCoa'])->whereNumber('sample');
 
             Route::get('parameters', [ClientParameterController::class, 'index']);
         });
@@ -365,7 +366,6 @@ Route::prefix('v1')->group(function () {
 
         Route::post('reports/{report}/coa-check', [ReportDeliveryController::class, 'markCoaChecked'])->whereNumber('report');
         Route::post('reports/{report}/release-coa', [ReportDeliveryController::class, 'releaseCoaToClient'])->whereNumber('report');
-        Route::get('client/samples/{sample}/coa', [ClientSampleRequestController::class, 'downloadCoa'])->whereNumber('sample');
 
         Route::get('document-templates', [DocumentTemplateController::class, 'index']);
         Route::patch('document-templates/{doc_code}', [DocumentTemplateController::class, 'update']);
