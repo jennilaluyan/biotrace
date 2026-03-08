@@ -39,15 +39,6 @@ function localInputToIso(value?: string | null) {
     return d.toISOString();
 }
 
-function uniqUnits(...units: Array<string | null | undefined>) {
-    const set = new Set<string>();
-    for (const u of units) {
-        const s = String(u ?? "").trim();
-        if (s) set.add(s);
-    }
-    return Array.from(set);
-}
-
 type Props = {
     open: boolean;
     onClose: () => void;
@@ -232,19 +223,8 @@ export default function ReagentRequestCartModal(props: Props) {
 
                                     <tbody className="divide-y divide-gray-100">
                                         {items.map((it, idx) => {
-                                            const qty = Number(it.qty ?? 0);
-                                            const safeQty = Number.isFinite(qty) ? qty : 0;
-
-                                            const unitOptions = uniqUnits(
-                                                it.unit_text ?? null,
-                                                "pcs",
-                                                "box",
-                                                "bottle",
-                                                "mL",
-                                                "L",
-                                                "g",
-                                                "kg"
-                                            );
+                                            const qty = Number(it.qty ?? 1);
+                                            const safeQty = Number.isFinite(qty) && qty > 0 ? Math.floor(qty) : 1;
 
                                             const disabledRow = !canEdit;
 
@@ -265,7 +245,7 @@ export default function ReagentRequestCartModal(props: Props) {
                                                                     "border-gray-200 bg-white hover:bg-gray-50",
                                                                     disabledRow && "cursor-not-allowed"
                                                                 )}
-                                                                onClick={() => onUpdateItem(idx, { qty: Math.max(0, safeQty - 1) })}
+                                                                onClick={() => onUpdateItem(idx, { qty: Math.max(1, safeQty - 1) })}
                                                                 type="button"
                                                                 aria-label={t("reagents.cart.decrease")}
                                                                 disabled={disabledRow}
@@ -281,10 +261,16 @@ export default function ReagentRequestCartModal(props: Props) {
                                                                     disabledRow && "cursor-not-allowed bg-gray-50"
                                                                 )}
                                                                 type="number"
-                                                                min="0"
+                                                                min="1"
                                                                 step="1"
+                                                                inputMode="numeric"
                                                                 value={safeQty}
-                                                                onChange={(e) => onUpdateItem(idx, { qty: Number(e.target.value) })}
+                                                                onChange={(e) => {
+                                                                    const parsed = Number.parseInt(e.target.value, 10);
+                                                                    onUpdateItem(idx, {
+                                                                        qty: Number.isFinite(parsed) && parsed > 0 ? parsed : 1,
+                                                                    });
+                                                                }}
                                                                 disabled={disabledRow}
                                                                 title={disabledRow ? lockedHint : t("reagents.cart.table.qty")}
                                                             />
@@ -307,24 +293,19 @@ export default function ReagentRequestCartModal(props: Props) {
                                                     </td>
 
                                                     <td className="px-4 py-3">
-                                                        <select
+                                                        <input
                                                             className={cx(
-                                                                "h-9 w-full rounded-xl border border-gray-300 bg-white px-3 text-sm",
+                                                                "h-9 w-full rounded-xl border border-gray-300 px-3 text-sm",
                                                                 "focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent",
                                                                 disabledRow && "cursor-not-allowed bg-gray-50"
                                                             )}
+                                                            type="text"
                                                             value={it.unit_text ?? ""}
                                                             onChange={(e) => onUpdateItem(idx, { unit_text: e.target.value })}
+                                                            placeholder={t("reagents.cart.unitPlaceholder")}
                                                             disabled={disabledRow}
                                                             title={disabledRow ? lockedHint : t("reagents.cart.table.unit")}
-                                                        >
-                                                            <option value="">{t("reagents.cart.unitPlaceholder")}</option>
-                                                            {unitOptions.map((u) => (
-                                                                <option key={u} value={u}>
-                                                                    {u}
-                                                                </option>
-                                                            ))}
-                                                        </select>
+                                                        />
                                                     </td>
 
                                                     <td className="px-4 py-3">

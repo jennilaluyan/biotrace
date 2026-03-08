@@ -110,7 +110,7 @@ class ReagentRequestController extends Controller
 
                 foreach ($items as $it) {
                     $catalogId = (int) $it['catalog_id'];
-                    $qty = (float) $it['qty'];
+                    $qty = (int) $it['qty'];
 
                     $cat = DB::table('consumables_catalog')
                         ->where('catalog_id', $catalogId)
