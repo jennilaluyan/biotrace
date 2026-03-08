@@ -302,18 +302,30 @@ class SampleRequestStatusController extends Controller
                 $newValues['note'] = $note;
             }
 
+            $now = now();
+
             $payload = [
                 'entity_name' => 'samples',
                 'entity_id' => $sampleId,
                 'action' => $action,
                 'old_values' => json_encode($oldValues),
                 'new_values' => json_encode($newValues),
-                'created_at' => now(),
-                'updated_at' => now(),
             ];
 
             if (isset($cols['staff_id'])) {
                 $payload['staff_id'] = $staffId;
+            }
+            if (isset($cols['timestamp'])) {
+                $payload['timestamp'] = $now;
+            }
+            if (isset($cols['created_at'])) {
+                $payload['created_at'] = $now;
+            }
+            if (isset($cols['updated_at'])) {
+                $payload['updated_at'] = $now;
+            }
+            if (isset($cols['ip_address'])) {
+                $payload['ip_address'] = request()->ip();
             }
 
             DB::table('audit_logs')->insert(array_intersect_key($payload, $cols));

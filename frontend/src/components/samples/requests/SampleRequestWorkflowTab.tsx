@@ -303,24 +303,38 @@ function findActorFromLogs(logs: any[] | null, needles: string[], at?: string | 
         const candidates = logs
             .map((l) => {
                 const txt = logText(l);
-                const match = ns.some((n) => txt.includes(n));
-                return { l, match, t: safeTimeMs(logAt(l)) };
+                const actionText = normText(l?.action);
+                const exactActionMatch = ns.some((n) => actionText === n);
+                const textMatch = ns.some((n) => txt.includes(n));
+
+                return {
+                    l,
+                    exactActionMatch,
+                    textMatch,
+                    t: safeTimeMs(logAt(l)),
+                };
             })
-            .filter((x) => x.match);
+            .filter((x) => x.exactActionMatch || x.textMatch);
 
         if (candidates.length > 0) {
-            if (target) {
-                const closest = candidates
-                    .map((x) => ({ ...x, diff: x.t ? Math.abs(x.t - target) : Number.POSITIVE_INFINITY }))
-                    .sort((a, b) => a.diff - b.diff)[0];
-
-                if (closest && Number.isFinite(closest.diff) && closest.diff <= 6 * 60 * 60 * 1000) {
-                    return extractActorFromLog(closest.l);
+            const ranked = candidates.sort((a, b) => {
+                if (Number(b.exactActionMatch) !== Number(a.exactActionMatch)) {
+                    return Number(b.exactActionMatch) - Number(a.exactActionMatch);
                 }
-            }
 
-            const newest = candidates.sort((a, b) => (b.t || 0) - (a.t || 0))[0];
-            return newest ? extractActorFromLog(newest.l) : null;
+                if (target) {
+                    const aDiff = a.t ? Math.abs(a.t - target) : Number.POSITIVE_INFINITY;
+                    const bDiff = b.t ? Math.abs(b.t - target) : Number.POSITIVE_INFINITY;
+
+                    if (aDiff !== bDiff) {
+                        return aDiff - bDiff;
+                    }
+                }
+
+                return (b.t || 0) - (a.t || 0);
+            })[0];
+
+            return ranked ? extractActorFromLog(ranked.l) : null;
         }
     }
 
@@ -576,15 +590,12 @@ export function SampleRequestWorkflowTab(props: {
                     ],
                 },
                 [
-                    "admin accepted",
+                    "ADMIN_SAMPLE_REQUEST_ACCEPTED",
+                    "admin sample request accepted",
+                    "admin accepted request",
                     "accepted request",
                     "request accepted",
-                    "accept request",
-                    "request-status accept",
                     "sample request accepted",
-                    "sample_request_accepted",
-                    "accept",
-                    "request_status",
                 ],
                 acceptedAt ?? null
             );
@@ -614,7 +625,13 @@ export function SampleRequestWorkflowTab(props: {
                         "administrator_role_name",
                     ],
                 },
-                ["admin returned", "return request", "returned to client", "request-status return", "sample_request_returned", "return"],
+                [
+                    "ADMIN_SAMPLE_REQUEST_RETURNED",
+                    "admin sample request returned",
+                    "admin returned request",
+                    "return request",
+                    "returned to client",
+                ],
                 retAt ?? null
             );
 
@@ -644,7 +661,14 @@ export function SampleRequestWorkflowTab(props: {
                         "administrator_role_name",
                     ],
                 },
-                ["received from client", "admin received sample", "admin_received_from_client", "ADMIN_RECEIVED_FROM_CLIENT"],
+                [
+                    "ADMIN_SAMPLE_PHYSICALLY_RECEIVED",
+                    "admin physically received",
+                    "admin received sample from client",
+                    "received from client",
+                    "admin_received_from_client",
+                    "ADMIN_RECEIVED_FROM_CLIENT",
+                ],
                 at
             );
 

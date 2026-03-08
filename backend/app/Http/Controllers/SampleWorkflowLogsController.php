@@ -105,13 +105,21 @@ class SampleWorkflowLogsController extends Controller
             }
         }
 
-        // Order by performed_at (preferred), else created_at
+        $orderCandidates = [];
+
         if (isset($auditCols['performed_at'])) {
-            $q->orderByDesc('al.performed_at');
-        } elseif (isset($auditCols['created_at'])) {
-            $q->orderByDesc('al.created_at');
+            $orderCandidates[] = 'al.performed_at';
+        }
+        if (isset($auditCols['created_at'])) {
+            $orderCandidates[] = 'al.created_at';
+        }
+        if (isset($auditCols['timestamp'])) {
+            $orderCandidates[] = 'al.timestamp';
+        }
+
+        if (count($orderCandidates) > 0) {
+            $q->orderByRaw('COALESCE(' . implode(', ', $orderCandidates) . ') DESC');
         } else {
-            // last resort
             $q->orderByDesc('al.entity_id');
         }
 
@@ -153,13 +161,16 @@ class SampleWorkflowLogsController extends Controller
             $actorRoleDisplay = $this->roleDisplay($rawRole);
 
             $occurredAt =
-                (property_exists($row, 'performed_at') && $row->performed_at) ? (string) $row->performed_at : ((property_exists($row, 'created_at') && $row->created_at) ? (string) $row->created_at : null);
+                (property_exists($row, 'performed_at') && $row->performed_at) ? (string) $row->performed_at : (
+                    (property_exists($row, 'created_at') && $row->created_at) ? (string) $row->created_at : (
+                        (property_exists($row, 'timestamp') && $row->timestamp) ? (string) $row->timestamp : null
+                    )
+                );
 
             $action = is_string($row->action ?? null) ? (string) $row->action : null;
 
             $message = $this->messageFor($action, $new);
 
-            // Provide both flat fields + object to satisfy FE extractActorFromLog()
             $out[] = array_filter([
                 'id' => $row->audit_log_id ?? $row->id ?? null,
 
@@ -175,14 +186,17 @@ class SampleWorkflowLogsController extends Controller
                 'old_values' => $row->old_values ?? null,
                 'new_values' => $row->new_values ?? null,
 
-                // FE logAt() checks created_at / occurred_at / at
+                'timestamp' => $row->timestamp ?? null,
                 'created_at' => $row->created_at ?? null,
                 'performed_at' => $row->performed_at ?? null,
                 'occurred_at' => $occurredAt,
 
-                // FE extractActorFromLog() checks these keys
                 'actor_name' => $actorName,
                 'actor_role_name' => $actorRoleDisplay,
+                'performed_by_name' => $actorName,
+                'performedByName' => $actorName,
+                'performed_by_role_name' => $actorRoleDisplay,
+                'performedByRoleName' => $actorRoleDisplay,
 
                 'actor' => ($actorName || $actorRoleDisplay) ? array_filter([
                     'name' => $actorName,
@@ -235,16 +249,32 @@ class SampleWorkflowLogsController extends Controller
         $a = strtoupper(trim((string) $action));
         if ($a === '') return null;
 
-        if ($a === 'REQUEST_ACCEPTED') return 'admin accepted request';
-        if ($a === 'REQUEST_RETURNED') return 'admin returned request';
-        if ($a === 'REQUEST_PHYSICALLY_RECEIVED') return 'admin received sample from client';
+        if ($a === 'ADMIN_SAMPLE_REQUEST_ACCEPTED' || $a === 'REQUEST_ACCEPTED') {
+            return 'admin accepted request';
+        }
 
-        if ($a === 'SAMPLE_PHYSICAL_WORKFLOW_CHANGED') {
-            $ek = null;
+        if ($a === 'ADMIN_SAMPLE_REQUEST_RETURNED' || $a === 'REQUEST_RETURNED') {
+            return 'admin returned request';
+        }
+
+        if ($a === 'ADMIN_SAMPLE_PHYSICALLY_RECEIVED' || $a === 'REQUEST_PHYSICALLY_RECEIVED') {
+            return 'admin received sample from client';
+        }
+
+        if ($a === 'CLIENT_SAMPLE_REQUEST_SUBMITTED') {
+            return 'client submitted request';
+        }
+
+        if (str_starts_with($a, 'SAMPLE_PHYSICAL_WORKFLOW_')) {
+            $eventKey = null;
+
             if (is_array($newValues)) {
-                $ek = $newValues['event_key'] ?? $newValues['eventKey'] ?? null;
+                $eventKey = $newValues['event_key'] ?? $newValues['eventKey'] ?? null;
             }
-            return is_string($ek) && trim($ek) !== '' ? trim($ek) : 'sample physical workflow changed';
+
+            return is_string($eventKey) && trim($eventKey) !== ''
+                ? trim($eventKey)
+                : strtolower(str_replace('_', ' ', $a));
         }
 
         if (str_contains($a, 'INTAKE')) return 'intake checklist';
