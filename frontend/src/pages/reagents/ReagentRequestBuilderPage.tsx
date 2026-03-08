@@ -307,7 +307,7 @@ export default function ReagentRequestBuilderPage() {
                     item_name: cat.name ?? t("reagents.request.unnamedItem"),
                     specification: cat.specification ?? null,
                     qty: 1,
-                    unit_text: cat.default_unit_text ?? "",
+                    unit_text: "",
                     note: null,
                 },
             ];

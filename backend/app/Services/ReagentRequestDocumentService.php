@@ -187,7 +187,7 @@ class ReagentRequestDocumentService
         $rows = [];
 
         foreach ($items as $idx => $it) {
-            $qty = (string) ($it['qty'] ?? '');
+            $qty = $this->formatQtyHuman($it['qty'] ?? null);
             $unit = trim((string) ($it['unit_text'] ?? ''));
 
             $qtyText = trim($qty . ($unit !== '' ? ' ' . $unit : ''));
@@ -586,6 +586,41 @@ class ReagentRequestDocumentService
         $monthName = $months[(int) $dt->format('n')] ?? $dt->format('m');
 
         return $dayName . ', ' . $dt->format('d') . ' ' . $monthName . ' ' . $dt->format('Y');
+    }
+
+    private function formatQtyHuman($value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        if (is_int($value)) {
+            return (string) $value;
+        }
+
+        if (is_float($value)) {
+            if (floor($value) === $value) {
+                return (string) ((int) $value);
+            }
+
+            return rtrim(rtrim(number_format($value, 3, '.', ''), '0'), '.');
+        }
+
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return '';
+        }
+
+        if (!is_numeric($raw)) {
+            return $raw;
+        }
+
+        $num = (float) $raw;
+        if (floor($num) === $num) {
+            return (string) ((int) $num);
+        }
+
+        return rtrim(rtrim(number_format($num, 3, '.', ''), '0'), '.');
     }
 
     // -------------------------------------------------------------------------

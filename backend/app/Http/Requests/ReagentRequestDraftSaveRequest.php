@@ -19,7 +19,7 @@ class ReagentRequestDraftSaveRequest extends FormRequest
             'items' => ['sometimes', 'array'],
             'items.*.catalog_id' => ['required_with:items', 'integer', 'exists:consumables_catalog,catalog_id'],
             'items.*.qty' => ['required_with:items', 'numeric', 'min:0.000001'],
-            'items.*.unit_text' => ['nullable', 'string', 'max:50'],
+            'items.*.unit_text' => ['nullable', 'string', 'max:64'],
             'items.*.note' => ['nullable', 'string', 'max:500'],
 
             'bookings' => ['sometimes', 'array'],
