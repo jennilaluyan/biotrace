@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { Sample } from "../../../services/samples";
+import { formatDateTimeLocal } from "../../../utils/date";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -11,12 +12,33 @@ function unwrapRequestedParameters(sample: any) {
     return Array.isArray(a) ? a : [];
 }
 
+function displayText(value: unknown, fallback = "—") {
+    const text = String(value ?? "").trim();
+    return text || fallback;
+}
+
 export function SampleRequestInfoTab(props: { sample: Sample }) {
     const { t } = useTranslation();
     const s: any = props.sample as any;
 
     const requested = useMemo(() => unwrapRequestedParameters(s), [s]);
-    const testMethod = String(s?.test_method_name ?? s?.testMethodName ?? "").trim();
+    const testMethod = useMemo(
+        () => String(s?.test_method_name ?? s?.testMethodName ?? "").trim(),
+        [s?.test_method_name, s?.testMethodName]
+    );
+
+    const scheduledDeliveryText = useMemo(() => {
+        const raw = s?.scheduled_delivery_at;
+        if (!raw) return "—";
+        return formatDateTimeLocal(raw);
+    }, [s?.scheduled_delivery_at]);
+
+    const clientName = displayText(
+        s?.client?.name ?? s?.client_name,
+        t("samples.requestInfo.clientFallback", { defaultValue: "—" })
+    );
+
+    const clientEmail = String(s?.client?.email ?? s?.client_email ?? "").trim();
 
     return (
         <div className="space-y-4">
@@ -30,8 +52,12 @@ export function SampleRequestInfoTab(props: { sample: Sample }) {
 
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
-                        <div className="text-xs text-gray-500">{t("samples.requestInfo.sampleType", { defaultValue: "Sample type" })}</div>
-                        <div className="font-semibold text-gray-900 mt-0.5">{s?.sample_type ?? "—"}</div>
+                        <div className="text-xs text-gray-500">
+                            {t("samples.requestInfo.sampleType", { defaultValue: "Sample type" })}
+                        </div>
+                        <div className="font-semibold text-gray-900 mt-0.5">
+                            {displayText(s?.sample_type)}
+                        </div>
                     </div>
 
                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
@@ -47,15 +73,15 @@ export function SampleRequestInfoTab(props: { sample: Sample }) {
                         <div className="text-xs text-gray-500">
                             {t("samples.requestInfo.scheduledDelivery", { defaultValue: "Delivery schedule" })}
                         </div>
-                        <div className="font-semibold text-gray-900 mt-0.5">{s?.scheduled_delivery_at ?? "—"}</div>
+                        <div className="font-semibold text-gray-900 mt-0.5">{scheduledDeliveryText}</div>
                     </div>
 
                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
-                        <div className="text-xs text-gray-500">{t("samples.requestInfo.client", { defaultValue: "Client" })}</div>
-                        <div className="font-semibold text-gray-900 mt-0.5">
-                            {s?.client?.name ?? s?.client_name ?? t("samples.requestInfo.clientFallback", { defaultValue: "—" })}
+                        <div className="text-xs text-gray-500">
+                            {t("samples.requestInfo.client", { defaultValue: "Client" })}
                         </div>
-                        <div className="text-xs text-gray-500">{s?.client?.email ?? s?.client_email ?? ""}</div>
+                        <div className="font-semibold text-gray-900 mt-0.5">{clientName}</div>
+                        <div className="text-xs text-gray-500">{clientEmail}</div>
                     </div>
                 </div>
             </div>
@@ -67,15 +93,22 @@ export function SampleRequestInfoTab(props: { sample: Sample }) {
 
                 <div className="mt-3 space-y-2">
                     {requested.length === 0 ? (
-                        <div className="text-sm text-gray-600">{t("samples.requestInfo.noParameters", { defaultValue: "No parameters." })}</div>
+                        <div className="text-sm text-gray-600">
+                            {t("samples.requestInfo.noParameters", { defaultValue: "No parameters." })}
+                        </div>
                     ) : (
                         requested.map((p: any, idx: number) => {
                             const code = String(p?.code ?? "").trim();
                             const name = String(p?.name ?? "").trim();
-                            const label = (code ? `${code} — ` : "") + (name || t("samples.requestInfo.parameterFallback", { defaultValue: "Parameter" }));
+                            const label =
+                                (code ? `${code} — ` : "") +
+                                (name || t("samples.requestInfo.parameterFallback", { defaultValue: "Parameter" }));
 
                             return (
-                                <div key={`${p?.parameter_id ?? idx}`} className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
+                                <div
+                                    key={`${p?.parameter_id ?? idx}`}
+                                    className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2"
+                                >
                                     <div className="text-sm font-semibold text-gray-900">{label}</div>
                                     {p?.tag ? <div className="text-xs text-gray-500 mt-0.5">{String(p.tag)}</div> : null}
                                 </div>
@@ -86,16 +119,20 @@ export function SampleRequestInfoTab(props: { sample: Sample }) {
 
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                     <div>
-                        <div className="text-xs text-gray-500">{t("samples.requestInfo.examinationPurpose", { defaultValue: "Purpose" })}</div>
+                        <div className="text-xs text-gray-500">
+                            {t("samples.requestInfo.examinationPurpose", { defaultValue: "Purpose" })}
+                        </div>
                         <div className="mt-1 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-900">
-                            {s?.examination_purpose ?? "—"}
+                            {displayText(s?.examination_purpose)}
                         </div>
                     </div>
 
                     <div>
-                        <div className="text-xs text-gray-500">{t("samples.requestInfo.additionalNotes", { defaultValue: "Additional notes" })}</div>
+                        <div className="text-xs text-gray-500">
+                            {t("samples.requestInfo.additionalNotes", { defaultValue: "Additional notes" })}
+                        </div>
                         <div className="mt-1 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-900">
-                            {s?.additional_notes ?? "—"}
+                            {displayText(s?.additional_notes)}
                         </div>
                     </div>
                 </div>
