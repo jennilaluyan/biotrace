@@ -1028,7 +1028,6 @@
         "emailAlreadyUsed": "Email is already registered. Please sign in or use another email.",
         "passwordRuleHint": "At least 8 characters, with uppercase, lowercase, number, and symbol.",
         "passwordRuleError": "Weak password. Use at least 8 characters with uppercase, lowercase, number, and symbol.",
-        "requiredFieldsNote": "Fields marked with * are required.",
         "institutionNameRequired": "Institution name is required.",
         "ktpStreet": "Street / House no.",
         "ktpStreetPlaceholder": "e.g. Jl. Sam Ratulangi No.60",

@@ -1083,10 +1083,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             <button type="submit" disabled={regLoading} className="mt-6 self-start lims-btn-primary">
                 {regLoading ? t("auth.creating") : t("auth.signUp")}
             </button>
-
-            <p className="mt-3 text-[11px] text-gray-500">
-                {t("auth.requiredFieldsNote", { defaultValue: "Kolom bertanda * wajib diisi." })}
-            </p>
         </form>
     );
 

@@ -1018,7 +1018,6 @@
         "emailAlreadyUsed": "Email sudah terdaftar. Silakan login atau gunakan email lain.",
         "passwordRuleHint": "Minimal 8 karakter, berisi huruf besar, huruf kecil, angka, dan simbol.",
         "passwordRuleError": "Kata sandi lemah. Gunakan minimal 8 karakter dengan huruf besar, huruf kecil, angka, dan simbol.",
-        "requiredFieldsNote": "Kolom bertanda * wajib diisi.",
         "institutionNameRequired": "Nama institusi wajib diisi.",
         "ktpStreet": "Jalan / No. rumah",
         "ktpStreetPlaceholder": "mis. Jl. Sam Ratulangi No.60",
