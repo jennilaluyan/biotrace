@@ -315,6 +315,14 @@ class QualityCoverController extends Controller
         $cover->method_of_analysis = $payload['method_of_analysis'];
         $cover->qc_payload = $payload['qc_payload'];
 
+        if (array_key_exists('supporting_drive_url', $payload)) {
+            $cover->supporting_drive_url = $payload['supporting_drive_url'];
+        }
+
+        if (array_key_exists('supporting_notes', $payload)) {
+            $cover->supporting_notes = $payload['supporting_notes'];
+        }
+
         // ✅ parameter snapshot: set SEBELUM save (biar gak null lagi)
         $snap = $this->deriveParameterSnapshot($sample);
 

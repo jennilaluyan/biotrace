@@ -48,6 +48,7 @@ function titleCaseWords(input: string) {
 type ValidationKey =
     | "notAllowed"
     | "alreadySubmitted"
+    | "method.required"
     | "pcr.markerMissing"
     | "pcr.valueRequired"
     | "pcr.valueNumeric"
@@ -122,6 +123,7 @@ export function QualityCoverSection(props: Props) {
 
     const [cover, setCover] = useState<QualityCover | null>(null);
     const [qcPayload, setQcPayload] = useState<any>({});
+    const [methodOfAnalysis, setMethodOfAnalysis] = useState("");
 
     const [supportingDriveUrl, setSupportingDriveUrl] = useState("");
     const [supportingNotes, setSupportingNotes] = useState("");
@@ -156,6 +158,7 @@ export function QualityCoverSection(props: Props) {
 
                 setCover(c);
                 setQcPayload(c?.qc_payload ?? {});
+                setMethodOfAnalysis(String(c?.method_of_analysis ?? ""));
 
                 setSupportingDriveUrl(String(c?.supporting_drive_url ?? ""));
                 setSupportingNotes(String(c?.supporting_notes ?? ""));
@@ -191,6 +194,10 @@ export function QualityCoverSection(props: Props) {
         if (disabled) return { ok: false, key: "notAllowed" };
         if (cover?.status === "submitted") return { ok: false, key: "alreadySubmitted" };
 
+        if (!String(methodOfAnalysis ?? "").trim()) {
+            return { ok: false, key: "method.required" };
+        }
+
         if (qcGroup === "pcr") {
             const req = ["ORF1b", "RdRp", "RPP30"] as const;
 
@@ -223,13 +230,31 @@ export function QualityCoverSection(props: Props) {
         }
 
         return { ok: true };
-    }, [disabled, cover?.status, qcPayload, qcGroup]);
-
+    }, [disabled, cover?.status, methodOfAnalysis, qcPayload, qcGroup]);
     const submitDisabledReason = useMemo<string | null>(() => {
         if (validate.ok) return null;
 
         const ctx = validate.ctx ?? {};
-        const msg = t(`qualityCover.section.validation.${validate.key}`, ctx as any);
+
+        const fallbackMap: Record<ValidationKey, string> = {
+            notAllowed: "You are not allowed to submit this quality cover.",
+            alreadySubmitted: "This quality cover has already been submitted.",
+            "method.required": "Method of analysis is required.",
+            "pcr.markerMissing": "PCR marker data is incomplete.",
+            "pcr.valueRequired": "PCR value is required.",
+            "pcr.valueNumeric": "PCR value must be numeric.",
+            "pcr.resultRequired": "PCR result is required.",
+            "pcr.interpretationRequired": "PCR interpretation is required.",
+            "wgs.lineageRequired": "Lineage is required.",
+            "wgs.variantRequired": "Variant is required.",
+            "others.notesRequired": "Notes are required.",
+        };
+
+        const msg = t(`qualityCover.section.validation.${validate.key}`, {
+            ...ctx,
+            defaultValue: fallbackMap[validate.key],
+        });
+
         return typeof msg === "string" ? msg : String(msg);
     }, [validate, t]);
 
@@ -292,6 +317,7 @@ export function QualityCoverSection(props: Props) {
             const c = await saveQualityCoverDraft(sampleId, {
                 parameter_id: parameterId ?? null,
                 parameter_label: paramLabel !== "—" ? paramLabel : null,
+                method_of_analysis: methodOfAnalysis.trim() || null,
                 qc_payload: qcPayload,
                 supporting_drive_url: supportingDriveUrl.trim() || null,
                 supporting_notes: supportingNotes.trim() || null,
@@ -323,6 +349,7 @@ export function QualityCoverSection(props: Props) {
             const draft = await saveQualityCoverDraft(sampleId, {
                 parameter_id: parameterId ?? null,
                 parameter_label: paramLabel !== "—" ? paramLabel : null,
+                method_of_analysis: methodOfAnalysis.trim() || null,
                 qc_payload: qcPayload,
                 supporting_drive_url: supportingDriveUrl.trim() || null,
                 supporting_notes: supportingNotes.trim() || null,
@@ -337,6 +364,7 @@ export function QualityCoverSection(props: Props) {
             const submitted = await submitQualityCover(sampleId, {
                 parameter_id: parameterId ?? null,
                 parameter_label: paramLabel !== "—" ? paramLabel : null,
+                method_of_analysis: methodOfAnalysis.trim(),
                 qc_payload: qcPayload,
                 supporting_drive_url: supportingDriveUrl.trim() || null,
                 supporting_notes: supportingNotes.trim() || null,
@@ -465,6 +493,21 @@ export function QualityCoverSection(props: Props) {
                         <div className="text-xs text-gray-500">{t("qualityCover.section.meta.checkedBy")}</div>
                         <div className="font-semibold text-gray-900 mt-0.5">{checkedByName || "—"}</div>
                     </div>
+                </div>
+
+                <div className="mt-4">
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        {ts("qualityCover.section.methodOfAnalysis", { defaultValue: "Method of analysis" })}
+                    </label>
+                    <input
+                        value={methodOfAnalysis}
+                        onChange={(e) => setMethodOfAnalysis(e.target.value)}
+                        disabled={isLocked}
+                        className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                        placeholder={ts("qualityCover.section.methodOfAnalysisPlaceholder", {
+                            defaultValue: "Enter method of analysis",
+                        })}
+                    />
                 </div>
 
                 <div className="mt-4">

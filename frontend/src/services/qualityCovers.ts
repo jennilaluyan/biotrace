@@ -120,13 +120,7 @@ export type SaveQualityCoverDraftBody = {
 export type SubmitQualityCoverBody = {
     parameter_id: number | null;
     parameter_label: string | null;
-
-    /**
-     * Deprecated from Analyst UI.
-     * Kept optional for backward compatibility with older API/DB records.
-     */
-    method_of_analysis?: string | null;
-
+    method_of_analysis: string;
     qc_payload: any;
     supporting_drive_url: string | null;
     supporting_notes: string | null;

@@ -43,7 +43,7 @@
     "pageOfTotal": "Halaman {{page}} dari {{totalPages}} — {{total}} total",
     "common": {
         "actions": "Aksi",
-        "totalCount": "Total: {{count}}",
+        "totalCount": "Total: ",
         "processing": "Memproses…",
         "loading": "Memuat…",
         "refresh": "Muat ulang",
