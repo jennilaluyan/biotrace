@@ -11,7 +11,6 @@ import {
     ShieldCheck,
     RotateCcw,
     ChevronRight,
-    Lock,
     Loader2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -27,7 +26,7 @@ function cx(...arr: Array<string | false | null | undefined>) {
 type TimelineEvent = {
     key: string;
     title: string;
-    actor: string; // canonical-ish
+    actor: string;
     actorObj?: any;
     actorName?: string | null;
     actorRole?: string | null;
@@ -139,8 +138,9 @@ function normalizeRoleKey(raw?: string | null): RoleKey | null {
     if (!k) return null;
 
     if (k === "admin" || k.includes("administrator")) return "administrator";
-    if (k === "sample collector" || k === "samplecollector" || k === "collector" || k.includes("sample_collector"))
+    if (k === "sample collector" || k === "samplecollector" || k === "collector" || k.includes("sample_collector")) {
         return "sampleCollector";
+    }
     if (k === "om" || k.includes("operational manager")) return "operationalManager";
     if (k === "lh" || k.includes("lab head") || k.includes("laboratory head")) return "laboratoryHead";
     if (k.includes("analyst")) return "analyst";
@@ -329,10 +329,8 @@ function findActorFromLogs(logs: any[] | null, needles: string[], at?: string | 
 
 function pickActorMeta(s: any, cfg: { objKeys: string[]; nameKeys: string[]; roleKeys: string[] }) {
     const obj = pickObj(s, cfg.objKeys);
-
     const nameFromObjKey = pickStr(s, cfg.objKeys);
     const roleFromObjKey = pickStr(s, cfg.roleKeys);
-
     const name = pickStr(s, cfg.nameKeys) ?? nameFromObjKey;
     const role = roleFromObjKey ?? pickStr(s, cfg.roleKeys);
 
@@ -391,9 +389,7 @@ export function SampleRequestWorkflowTab(props: {
     wfError: string | null;
     verifyBusy: boolean;
     assignFlash: { type: "success" | "warning" | "error"; message: string } | null;
-
     workflowLogs?: any[] | null;
-
     onApprove: () => void;
     onOpenReturn: () => void;
     onMarkPhysicallyReceived: () => void;
@@ -434,12 +430,11 @@ export function SampleRequestWorkflowTab(props: {
     }
 
     function formatActor(fallbackRole: string, actorObj?: any, actorName?: string | null, actorRole?: string | null): string {
-        const n = (actorName && String(actorName).trim()) ? String(actorName).trim() : pickName(actorObj);
+        const n = actorName && String(actorName).trim() ? String(actorName).trim() : pickName(actorObj);
         const roleFromObj = roleLabelForDisplay(pickRoleName(actorObj));
         const roleFromLog = roleLabelForDisplay(actorRole);
         const fallbackRolePretty = fallbackActorLabel(fallbackRole);
 
-        // Client special case: always show "Client Name - Client"
         if (!n && String(fallbackRole).toLowerCase() === "client") {
             const cn = pickName(s?.client) ?? (typeof s?.client_name === "string" ? s.client_name.trim() : null);
             if (cn) return `${cn} - ${t("roles.client")}`;
@@ -449,10 +444,10 @@ export function SampleRequestWorkflowTab(props: {
         return roleFromLog ?? roleFromObj ?? fallbackRolePretty;
     }
 
-    const requestStatus = s?.request_status ?? null;
-    const requestStatusKey = String(requestStatus ?? "").trim().toLowerCase();
+    const requestStatusKey = String(s?.request_status ?? "").trim().toLowerCase();
     const labSampleCode = String(s?.lab_sample_code ?? "").trim();
     const returnNote = String(s?.request_return_note ?? "").trim() || null;
+    const isRequestWaitingClientRevision = ["returned", "needs_revision"].includes(requestStatusKey);
 
     const sampleIdChangeObj = s?.sample_id_change ?? s?.sample_id_change_request ?? s?.sampleIdChange ?? null;
 
@@ -470,13 +465,8 @@ export function SampleRequestWorkflowTab(props: {
     const isSampleIdChangeApproved = sampleIdChangeStatusKey === "approved";
     const isSampleIdChangeRejected = sampleIdChangeStatusKey === "rejected";
 
-    const canAdminAcceptRequest =
-        isAdmin && !labSampleCode && ["submitted", "returned", "needs_revision"].includes(requestStatusKey);
-
-    const canAdminReturnRequest =
-        isAdmin &&
-        !labSampleCode &&
-        ["submitted", "returned", "needs_revision", "returned_to_admin", "inspection_failed"].includes(requestStatusKey);
+    const canAdminAcceptRequest = isAdmin && !labSampleCode && requestStatusKey === "submitted";
+    const canAdminReturnRequest = isAdmin && !labSampleCode && requestStatusKey === "submitted";
 
     const canMarkPhysicallyReceived =
         isAdmin &&
@@ -515,11 +505,10 @@ export function SampleRequestWorkflowTab(props: {
         isAdmin &&
         !labSampleCode &&
         !!s?.admin_received_from_collector_at &&
-        (requestStatusKey === "returned" || requestStatusKey === "needs_revision") &&
+        isRequestWaitingClientRevision &&
         !s?.client_picked_up_at;
 
     const verifiedAt = s?.verified_at ?? null;
-
     const isSampleIdPendingVerification = requestStatusKey === "sample_id_pending_verification";
     const awaitingVerify = requestStatusKey === "awaiting_verification" && !labSampleCode;
 
@@ -536,8 +525,6 @@ export function SampleRequestWorkflowTab(props: {
         (requestStatusKey === "waiting_sample_id_assignment" ||
             requestStatusKey === "sample_id_approved_for_assignment" ||
             requestStatusKey === "approved_for_assignment");
-
-    const showActions = !labSampleCode;
 
     const timeline = useMemo<TimelineEvent[]>(() => {
         const out: TimelineEvent[] = [];
@@ -574,8 +561,7 @@ export function SampleRequestWorkflowTab(props: {
         }
 
         const acceptedAt = pickAt(s, ["request_accepted_at", "accepted_at", "approved_at", "request_approved_at"]);
-        const progressed =
-            requestStatusKey && !["draft", "submitted", "returned", "needs_revision"].includes(requestStatusKey);
+        const progressed = requestStatusKey && !["draft", "submitted", "returned", "needs_revision"].includes(requestStatusKey);
 
         if (progressed) {
             const adminAccept = resolveActor(
@@ -614,7 +600,7 @@ export function SampleRequestWorkflowTab(props: {
             });
         }
 
-        if (returnNote && (requestStatusKey === "returned" || requestStatusKey === "needs_revision")) {
+        if (returnNote && isRequestWaitingClientRevision) {
             const retAt = pickAt(s, ["request_returned_at", "returned_at", "request_updated_at", "updated_at"]);
 
             const adminReturn = resolveActor(
@@ -738,7 +724,13 @@ export function SampleRequestWorkflowTab(props: {
 
             const collectorIntake = resolveActor(
                 {
-                    objKeys: ["collector_intake_completed_by", "collector_intake_completed_by_staff", "collector_intake_completed_by_user", "collector", "sample_collector"],
+                    objKeys: [
+                        "collector_intake_completed_by",
+                        "collector_intake_completed_by_staff",
+                        "collector_intake_completed_by_user",
+                        "collector",
+                        "sample_collector",
+                    ],
                     nameKeys: [
                         "collector_intake_completed_by_name",
                         "collector_intake_completed_by_staff_name",
@@ -770,7 +762,13 @@ export function SampleRequestWorkflowTab(props: {
 
             const collectorReturn = resolveActor(
                 {
-                    objKeys: ["collector_returned_to_admin_by", "collector_returned_to_admin_by_staff", "collector_returned_to_admin_by_user", "collector", "sample_collector"],
+                    objKeys: [
+                        "collector_returned_to_admin_by",
+                        "collector_returned_to_admin_by_staff",
+                        "collector_returned_to_admin_by_user",
+                        "collector",
+                        "sample_collector",
+                    ],
                     nameKeys: [
                         "collector_returned_to_admin_by_name",
                         "collector_returned_to_admin_by_staff_name",
@@ -848,7 +846,6 @@ export function SampleRequestWorkflowTab(props: {
             });
         }
 
-        // ===== Sample ID Change timeline =====
         const sidReqAt = pickAt(sampleIdChangeObj, ["created_at", "requested_at", "submitted_at"]);
         const sidRequestedBy = sampleIdChangeObj?.requested_by ?? sampleIdChangeObj?.requestedBy ?? null;
         const sidReviewedBy = sampleIdChangeObj?.reviewed_by ?? sampleIdChangeObj?.reviewedBy ?? null;
@@ -874,9 +871,10 @@ export function SampleRequestWorkflowTab(props: {
             null;
 
         const sidDecidedAt = pickAt(sampleIdChangeObj, ["decided_at", "approved_at", "rejected_at", "updated_at"]);
+
         if (sampleIdChangeObj) {
             const fromLogs =
-                (!sidRequesterName && logs)
+                !sidRequesterName && logs
                     ? findActorFromLogs(
                         logs,
                         [
@@ -911,7 +909,7 @@ export function SampleRequestWorkflowTab(props: {
 
         if (sampleIdChangeObj && (isSampleIdChangeApproved || isSampleIdChangeRejected)) {
             const fromLogs =
-                (!sidReviewerName && logs)
+                !sidReviewerName && logs
                     ? findActorFromLogs(
                         logs,
                         [isSampleIdChangeApproved ? "approved sample id" : "rejected sample id", "sample id change", "sample_id_change", "REVIEW_SAMPLE_ID"],
@@ -947,7 +945,13 @@ export function SampleRequestWorkflowTab(props: {
                 {
                     objKeys: ["lab_sample_code_assigned_by", "sample_id_assigned_by", "assigned_by", "assignedBy", "admin", "administrator"],
                     nameKeys: ["lab_sample_code_assigned_by_name", "sample_id_assigned_by_name", "assigned_by_name", "admin_name", "administrator_name"],
-                    roleKeys: ["lab_sample_code_assigned_by_role_name", "sample_id_assigned_by_role_name", "assigned_by_role_name", "admin_role_name", "administrator_role_name"],
+                    roleKeys: [
+                        "lab_sample_code_assigned_by_role_name",
+                        "sample_id_assigned_by_role_name",
+                        "assigned_by_role_name",
+                        "admin_role_name",
+                        "administrator_role_name",
+                    ],
                 },
                 [
                     "assigned sample id",
@@ -990,20 +994,21 @@ export function SampleRequestWorkflowTab(props: {
         });
 
         return out;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
-        s,
+        i18n.language,
+        i18n.resolvedLanguage,
+        isRequestWaitingClientRevision,
+        isSampleIdChangeApproved,
+        isSampleIdChangePending,
+        isSampleIdChangeRejected,
+        labSampleCode,
         props.workflowLogs,
         requestStatusKey,
         returnNote,
-        verifiedAt,
-        labSampleCode,
+        s,
         sampleIdChangeObj,
-        isSampleIdChangePending,
-        isSampleIdChangeApproved,
-        isSampleIdChangeRejected,
-        i18n.resolvedLanguage,
-        i18n.language,
+        t,
+        verifiedAt,
     ]);
 
     const topBanner = useMemo(() => {
@@ -1052,6 +1057,12 @@ export function SampleRequestWorkflowTab(props: {
         canVerify ||
         (isAdmin && canAssignSampleId);
 
+    const shouldHideActionSection =
+        isAdmin &&
+        !labSampleCode &&
+        isRequestWaitingClientRevision &&
+        !anyAction;
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -1089,7 +1100,7 @@ export function SampleRequestWorkflowTab(props: {
                 </div>
             ) : null}
 
-            {showActions ? (
+            {shouldHideActionSection ? null : !labSampleCode ? (
                 <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
                     <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
                         <div className="text-sm font-bold text-gray-900">{t("samples.requestWorkflow.actions.title")}</div>
