@@ -8,32 +8,24 @@ use App\Models\QualityCover;
 use App\Models\Sample;
 use App\Models\Staff;
 use App\Services\CoaAutoGenerateService;
+use App\Services\FileStoreService;
 use App\Support\AuditLogger;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
-use App\Services\FileStoreService;
-use App\Models\FileBlob;
-use Illuminate\Http\UploadedFile;
 
 class QualityCoverController extends Controller
 {
     public function __construct(
         private readonly FileStoreService $files,
-        private readonly ?CoaAutoGenerateService $coa = null,
     ) {}
 
-    /**
-     * Role IDs used in your project (based on earlier rules):
-     * - OM = 5
-     * - LH = 6
-     * - Admin usually = 1 (if different, still safe because we fallback by name)
-     */
     private function roleId(Staff $staff): int
     {
         return (int) ($staff->role_id ?? 0);
@@ -46,14 +38,15 @@ class QualityCoverController extends Controller
 
     private function isAnalyst(Staff $staff): bool
     {
-        $name = $this->roleName($staff);
-        return $name === 'analyst';
+        return $this->roleName($staff) === 'analyst';
     }
 
     private function isOperationalManager(Staff $staff): bool
     {
         $id = $this->roleId($staff);
-        if ($id === 5) return true;
+        if ($id === 5) {
+            return true;
+        }
 
         $name = $this->roleName($staff);
         return in_array($name, ['operational manager', 'operation manager', 'om'], true);
@@ -62,7 +55,9 @@ class QualityCoverController extends Controller
     private function isLabHead(Staff $staff): bool
     {
         $id = $this->roleId($staff);
-        if ($id === 6) return true;
+        if ($id === 6) {
+            return true;
+        }
 
         $name = $this->roleName($staff);
         return in_array($name, ['lab head', 'laboratory head', 'lh'], true);
@@ -70,23 +65,28 @@ class QualityCoverController extends Controller
 
     private function isAdmin(Staff $staff): bool
     {
-        $name = $this->roleName($staff);
-        return $name === 'admin' || $this->roleId($staff) === 1;
+        return $this->roleName($staff) === 'admin' || $this->roleId($staff) === 1;
     }
 
     private function assertAnalyst(Staff $staff): void
     {
-        if (!$this->isAnalyst($staff)) abort(403, 'Forbidden.');
+        if (!$this->isAnalyst($staff)) {
+            abort(403, 'Forbidden.');
+        }
     }
 
     private function assertOperationalManager(Staff $staff): void
     {
-        if (!$this->isOperationalManager($staff) && !$this->isAdmin($staff)) abort(403, 'Forbidden.');
+        if (!$this->isOperationalManager($staff) && !$this->isAdmin($staff)) {
+            abort(403, 'Forbidden.');
+        }
     }
 
     private function assertLabHead(Staff $staff): void
     {
-        if (!$this->isLabHead($staff) && !$this->isAdmin($staff)) abort(403, 'Forbidden.');
+        if (!$this->isLabHead($staff) && !$this->isAdmin($staff)) {
+            abort(403, 'Forbidden.');
+        }
     }
 
     private function assertOmOrLh(Staff $staff): void
@@ -100,15 +100,10 @@ class QualityCoverController extends Controller
         }
     }
 
-    /**
-     * 🔒 Step 12 gate (server-side):
-     * Analyst tidak boleh akses Quality Cover sebelum sample "unlock" (masuk kolom kanban terakhir).
-     * Fail-open kalau kolomnya belum ada di DB (biar migration bertahap aman).
-     */
     private function assertQualityCoverUnlockedOrFail(Sample $sample): void
     {
         if (!Schema::hasColumn('samples', 'quality_cover_unlocked_at')) {
-            return; // fail-open kalau migration belum ada
+            return;
         }
 
         if (empty($sample->quality_cover_unlocked_at)) {
@@ -146,11 +141,9 @@ class QualityCoverController extends Controller
         $qualityCover->status = 'verified';
         $qualityCover->verified_at = now();
         $qualityCover->verified_by_staff_id = (int) $staff->staff_id;
-
         $qualityCover->rejected_at = null;
         $qualityCover->rejected_by_staff_id = null;
         $qualityCover->reject_reason = null;
-
         $qualityCover->save();
 
         AuditLogger::logQualityCoverOmVerified(
@@ -208,10 +201,8 @@ class QualityCoverController extends Controller
         $qualityCover->rejected_at = now();
         $qualityCover->rejected_by_staff_id = (int) $staff->staff_id;
         $qualityCover->reject_reason = $reason;
-
         $qualityCover->verified_at = null;
         $qualityCover->verified_by_staff_id = null;
-
         $qualityCover->save();
 
         AuditLogger::logQualityCoverOmRejected(
@@ -301,17 +292,12 @@ class QualityCoverController extends Controller
             $cover->status = 'draft';
         }
 
-        $group = (string) ($sample->workflow_group ?? 'others');
-        $group = strtolower(trim($group)) ?: 'others';
-
+        $group = strtolower(trim((string) ($sample->workflow_group ?? 'others'))) ?: 'others';
         $this->validateQcPayloadByGroup($payload['qc_payload'] ?? null, $group);
 
         $cover->workflow_group = $group;
-
-        // selalu set ulang pada submit
         $cover->date_of_analysis = Carbon::today();
         $cover->checked_by_staff_id = (int) $staff->staff_id;
-
         $cover->method_of_analysis = $payload['method_of_analysis'];
         $cover->qc_payload = $payload['qc_payload'];
 
@@ -323,31 +309,25 @@ class QualityCoverController extends Controller
             $cover->supporting_notes = $payload['supporting_notes'];
         }
 
-        // ✅ parameter snapshot: set SEBELUM save (biar gak null lagi)
         $snap = $this->deriveParameterSnapshot($sample);
 
-        if (array_key_exists('parameter_id', $payload)) {
-            $cover->parameter_id = $payload['parameter_id'];
-        } else {
-            $cover->parameter_id = $snap['parameter_id'];
-        }
+        $cover->parameter_id = array_key_exists('parameter_id', $payload)
+            ? $payload['parameter_id']
+            : $snap['parameter_id'];
 
-        if (array_key_exists('parameter_label', $payload)) {
-            $cover->parameter_label = $payload['parameter_label'];
-        } else {
-            $cover->parameter_label = $snap['parameter_label'];
-        }
+        $cover->parameter_label = array_key_exists('parameter_label', $payload)
+            ? $payload['parameter_label']
+            : $snap['parameter_label'];
 
         $cover->status = 'submitted';
         $cover->submitted_at = now();
-
         $cover->save();
 
         AuditLogger::logQualityCoverSubmitted(
             staffId: (int) $staff->staff_id,
             sampleId: (int) $sample->sample_id,
             qualityCoverId: (int) $cover->quality_cover_id,
-            workflowGroup: (string) $group,
+            workflowGroup: $group,
             methodOfAnalysis: (string) ($cover->method_of_analysis ?? null),
         );
 
@@ -375,8 +355,7 @@ class QualityCoverController extends Controller
         }
 
         $search = trim((string) $request->query('search', ''));
-        $perPage = (int) $request->query('per_page', 25);
-        $perPage = max(1, min(100, $perPage));
+        $perPage = max(1, min(100, (int) $request->query('per_page', 25)));
 
         $q = QualityCover::query()
             ->with([
@@ -432,8 +411,7 @@ class QualityCoverController extends Controller
         }
 
         $search = trim((string) $request->query('search', ''));
-        $perPage = (int) $request->query('per_page', 25);
-        $perPage = max(1, min(100, $perPage));
+        $perPage = max(1, min(100, (int) $request->query('per_page', 25)));
 
         $q = QualityCover::query()
             ->with([
@@ -507,11 +485,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * ✅ FIX UTAMA:
-     * Validasi QC harus COMMIT dulu.
-     * COA auto-generate boleh gagal TANPA menggagalkan validasi QC.
-     */
     public function lhValidate(Request $request, QualityCover $qualityCover): JsonResponse
     {
         /** @var Staff $staff */
@@ -539,17 +512,14 @@ class QualityCoverController extends Controller
         $sampleId = (int) $qualityCover->sample_id;
         $actorId = (int) $staff->staff_id;
 
-        // 1) Commit VALIDATION first (atomic)
         try {
             DB::transaction(function () use ($qualityCover, $sampleId, $actorId) {
                 $qualityCover->status = 'validated';
                 $qualityCover->validated_at = now();
                 $qualityCover->validated_by_staff_id = $actorId;
-
                 $qualityCover->rejected_at = null;
                 $qualityCover->rejected_by_staff_id = null;
                 $qualityCover->reject_reason = null;
-
                 $qualityCover->save();
 
                 $statusCol = Schema::hasColumn('samples', 'current_status')
@@ -563,6 +533,7 @@ class QualityCoverController extends Controller
             });
         } catch (\Throwable $e) {
             report($e);
+
             return response()->json([
                 'message' => 'Failed to validate quality cover.',
             ], 500);
@@ -576,7 +547,6 @@ class QualityCoverController extends Controller
             toStatus: 'validated',
         );
 
-        // 2) Try auto-generate COA AFTER validation commit
         $coa = null;
         $coaError = null;
 
@@ -591,6 +561,8 @@ class QualityCoverController extends Controller
                 : 'Failed to generate COA.';
         }
 
+        $batchMeta = $this->buildBatchMeta($sampleId);
+
         return response()->json([
             'message' => $coaError
                 ? ('Quality cover validated (LH), but COA generation failed: ' . $coaError)
@@ -599,8 +571,46 @@ class QualityCoverController extends Controller
                 'quality_cover' => $qualityCover->fresh(),
                 'report' => $coa,
                 'coa_error' => $coaError,
+                'batch' => $batchMeta,
             ],
         ]);
+    }
+
+    private function buildBatchMeta(int $sampleId): array
+    {
+        if (!Schema::hasTable('samples') || !Schema::hasColumn('samples', 'request_batch_id')) {
+            return [
+                'request_batch_id' => null,
+                'batch_total' => 1,
+                'is_batch' => false,
+            ];
+        }
+
+        $sample = DB::table('samples')
+            ->where('sample_id', $sampleId)
+            ->first(['request_batch_id']);
+
+        $batchId = is_string($sample?->request_batch_id ?? null)
+            ? trim((string) $sample->request_batch_id)
+            : '';
+
+        if ($batchId === '') {
+            return [
+                'request_batch_id' => null,
+                'batch_total' => 1,
+                'is_batch' => false,
+            ];
+        }
+
+        $batchTotal = (int) DB::table('samples')
+            ->where('request_batch_id', $batchId)
+            ->count();
+
+        return [
+            'request_batch_id' => $batchId,
+            'batch_total' => $batchTotal,
+            'is_batch' => $batchTotal > 1,
+        ];
     }
 
     public function lhReject(Request $request, QualityCover $qualityCover): JsonResponse
@@ -644,10 +654,8 @@ class QualityCoverController extends Controller
         $qualityCover->rejected_at = now();
         $qualityCover->rejected_by_staff_id = (int) $staff->staff_id;
         $qualityCover->reject_reason = $reason;
-
         $qualityCover->validated_at = null;
         $qualityCover->validated_by_staff_id = null;
-
         $qualityCover->save();
 
         AuditLogger::logQualityCoverLhRejected(
@@ -697,10 +705,8 @@ class QualityCoverController extends Controller
             $cover->status = 'draft';
         }
 
-        $group = (string) ($sample->workflow_group ?? 'others');
-        $group = strtolower(trim($group)) ?: 'others';
+        $group = strtolower(trim((string) ($sample->workflow_group ?? 'others'))) ?: 'others';
         $cover->workflow_group = $group;
-
         $cover->date_of_analysis = Carbon::today();
         $cover->checked_by_staff_id = (int) $staff->staff_id;
 
@@ -722,17 +728,13 @@ class QualityCoverController extends Controller
 
         $snap = $this->deriveParameterSnapshot($sample);
 
-        if (array_key_exists('parameter_id', $payload)) {
-            $cover->parameter_id = $payload['parameter_id'];
-        } else {
-            $cover->parameter_id = $snap['parameter_id'];
-        }
+        $cover->parameter_id = array_key_exists('parameter_id', $payload)
+            ? $payload['parameter_id']
+            : $snap['parameter_id'];
 
-        if (array_key_exists('parameter_label', $payload)) {
-            $cover->parameter_label = $payload['parameter_label'];
-        } else {
-            $cover->parameter_label = $snap['parameter_label'];
-        }
+        $cover->parameter_label = array_key_exists('parameter_label', $payload)
+            ? $payload['parameter_label']
+            : $snap['parameter_label'];
 
         $cover->save();
 
@@ -756,15 +758,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * POST /api/v1/quality-covers/{qualityCover}/supporting-files
-     * Multipart:
-     * - files[]: (0..n) any file types
-     *
-     * Rules:
-     * - Only Analyst
-     * - Only when QC is draft
-     */
     public function uploadSupportingFiles(Request $request, QualityCover $qualityCover): JsonResponse
     {
         /** @var Staff $staff */
@@ -779,12 +772,10 @@ class QualityCoverController extends Controller
             return response()->json(['message' => 'FileStoreService not available.'], 500);
         }
 
-        // Draft-only
         if (($qualityCover->status ?? null) !== 'draft') {
             throw new ConflictHttpException('Supporting docs can only be modified while QC is draft.');
         }
 
-        // Ensure sample unlock gate consistent with QC workflow
         $sample = Sample::query()->find((int) $qualityCover->sample_id);
         if ($sample) {
             $this->assertQualityCoverUnlockedOrFail($sample);
@@ -797,7 +788,6 @@ class QualityCoverController extends Controller
             ], 500);
         }
 
-        // Must be multipart/form-data (otherwise Laravel won't produce UploadedFile objects)
         $contentType = strtolower((string) $request->header('content-type', ''));
         if (!str_contains($contentType, 'multipart/form-data')) {
             return response()->json([
@@ -819,7 +809,7 @@ class QualityCoverController extends Controller
 
         $v = Validator::make(['files' => $incoming], [
             'files' => ['required', 'array', 'min:1', 'max:20'],
-            'files.*' => ['file', 'max:20480'], // 20MB each
+            'files.*' => ['file', 'max:20480'],
         ]);
 
         if ($v->fails()) {
@@ -828,12 +818,15 @@ class QualityCoverController extends Controller
                 'errors' => $v->errors(),
             ], 422);
         }
+
         $storedIds = [];
 
         DB::transaction(function () use ($incoming, $qualityCover, $staff, &$storedIds) {
             foreach ($incoming as $f) {
                 $bytes = @file_get_contents($f->getRealPath());
-                if ($bytes === false) continue;
+                if ($bytes === false) {
+                    continue;
+                }
 
                 $fileId = $this->files->storeBytes(
                     bytes: $bytes,
@@ -861,7 +854,6 @@ class QualityCoverController extends Controller
 
         $qualityCover = $qualityCover->fresh();
 
-        // Return ONLY file metadata (never include bytes)
         $supportingFiles = DB::table('quality_cover_supporting_files as qcsf')
             ->join('files as f', 'f.file_id', '=', 'qcsf.file_id')
             ->where('qcsf.quality_cover_id', (int) $qualityCover->quality_cover_id)
@@ -887,10 +879,6 @@ class QualityCoverController extends Controller
         ], 201);
     }
 
-    /**
-     * DELETE /api/v1/quality-covers/{qualityCover}/supporting-files/{fileId}
-     * Detach only (do not delete from files table).
-     */
     public function deleteSupportingFile(QualityCover $qualityCover, int $fileId): JsonResponse
     {
         /** @var Staff $staff */
@@ -928,10 +916,6 @@ class QualityCoverController extends Controller
         ]);
     }
 
-    /**
-     * ✅ more tolerant:
-     * - accept array OR JSON string (avoid TypeError)
-     */
     private function validateQcPayloadByGroup(mixed $qcPayload, string $group): void
     {
         $qc = null;
@@ -940,7 +924,9 @@ class QualityCoverController extends Controller
             $qc = $qcPayload;
         } elseif (is_string($qcPayload) && trim($qcPayload) !== '') {
             $decoded = json_decode($qcPayload, true);
-            if (is_array($decoded)) $qc = $decoded;
+            if (is_array($decoded)) {
+                $qc = $decoded;
+            }
         }
 
         if (!is_array($qc)) {
@@ -958,11 +944,9 @@ class QualityCoverController extends Controller
                 'ORF1b.value' => ['required', 'numeric'],
                 'ORF1b.result' => ['required', 'string', 'max:255'],
                 'ORF1b.interpretation' => ['required', 'string', 'max:255'],
-
                 'RdRp.value' => ['required', 'numeric'],
                 'RdRp.result' => ['required', 'string', 'max:255'],
                 'RdRp.interpretation' => ['required', 'string', 'max:255'],
-
                 'RPP30.value' => ['required', 'numeric'],
                 'RPP30.result' => ['required', 'string', 'max:255'],
                 'RPP30.interpretation' => ['required', 'string', 'max:255'],
@@ -993,7 +977,9 @@ class QualityCoverController extends Controller
 
         if (is_string($raw) && trim($raw) !== '') {
             $decoded = json_decode($raw, true);
-            if (is_array($decoded)) $raw = $decoded;
+            if (is_array($decoded)) {
+                $raw = $decoded;
+            }
         }
 
         $names = [];
@@ -1002,11 +988,19 @@ class QualityCoverController extends Controller
         if (is_array($raw)) {
             foreach ($raw as $p) {
                 if (is_array($p)) {
-                    if (!empty($p['name'])) $names[] = (string) $p['name'];
-                    if (isset($p['parameter_id']) && is_numeric($p['parameter_id'])) $ids[] = (int) $p['parameter_id'];
+                    if (!empty($p['name'])) {
+                        $names[] = (string) $p['name'];
+                    }
+                    if (isset($p['parameter_id']) && is_numeric($p['parameter_id'])) {
+                        $ids[] = (int) $p['parameter_id'];
+                    }
                 } elseif (is_object($p)) {
-                    if (!empty($p->name)) $names[] = (string) $p->name;
-                    if (isset($p->parameter_id) && is_numeric($p->parameter_id)) $ids[] = (int) $p->parameter_id;
+                    if (!empty($p->name)) {
+                        $names[] = (string) $p->name;
+                    }
+                    if (isset($p->parameter_id) && is_numeric($p->parameter_id)) {
+                        $ids[] = (int) $p->parameter_id;
+                    }
                 }
             }
         }

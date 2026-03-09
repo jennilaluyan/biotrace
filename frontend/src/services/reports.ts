@@ -7,6 +7,9 @@ export type ReportRow = {
     client_name: string;
     generated_at: string;
     is_locked: boolean;
+    request_batch_id?: string | null;
+    batch_total?: number;
+    sample_ids?: number[];
 };
 
 export type Paginator<T> = {
@@ -34,12 +37,10 @@ export async function fetchReports(
     if (query.q) qs.set("q", query.q);
     if (query.date) qs.set("date", query.date);
 
-    // apiGet SUDAH return data (BUKAN AxiosResponse)
     const payload = await apiGet<Paginator<ReportRow>>(
         `/v1/reports?${qs.toString()}`
     );
 
-    // HARD ASSERT — sekarang PASTI lolos
     if (
         !payload ||
         !Array.isArray(payload.data) ||

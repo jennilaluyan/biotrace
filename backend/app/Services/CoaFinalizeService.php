@@ -14,13 +14,6 @@ class CoaFinalizeService
         private readonly CoaXlsxDocumentService $xlsxDocs,
     ) {}
 
-    /**
-     * Finalize COA:
-     * - generate PDF from XLSX template (LibreOffice)
-     * - lock report + attach pdf_file_id
-     * - upsert LH signature slot
-     * - set sample status to "reported"
-     */
     public function finalize(int $reportId, int $actorStaffId, ?string $templateCode = null): array
     {
         return DB::transaction(function () use ($reportId, $actorStaffId, $templateCode) {
@@ -40,7 +33,6 @@ class CoaFinalizeService
 
             $generatedAt = now();
 
-            // Generate using XLSX template (stored in DB) -> PDF via LibreOffice
             $gen = $this->xlsxDocs->generateForReport(
                 reportId: (int) $report->report_id,
                 actorStaffId: (int) $actorStaffId,
@@ -56,7 +48,6 @@ class CoaFinalizeService
                 throw new RuntimeException('CoA XLSX generation failed (missing pdf_file_id/doc_code).');
             }
 
-            // Lock report + attach metadata
             $update = [
                 'is_locked' => true,
                 'updated_at' => now(),
@@ -66,7 +57,6 @@ class CoaFinalizeService
                 $update['pdf_file_id'] = $pdfFileId;
             }
 
-            // Store stable code (COA_PCR_MANDIRI / COA_PCR_KERJASAMA / COA_WGS)
             if (Schema::hasColumn('reports', 'template_code')) {
                 $update['template_code'] = $docCode;
             }
@@ -74,13 +64,15 @@ class CoaFinalizeService
             if (Schema::hasColumn('reports', 'finalized_at')) {
                 $update['finalized_at'] = $generatedAt;
             }
+
             if (Schema::hasColumn('reports', 'finalized_by')) {
                 $update['finalized_by'] = $actorStaffId;
             }
 
-            DB::table('reports')->where('report_id', $reportId)->update($update);
+            DB::table('reports')
+                ->where('report_id', $reportId)
+                ->update($update);
 
-            // Upsert LH signature (best-effort)
             if (Schema::hasTable('report_signatures')) {
                 DB::table('report_signatures')->updateOrInsert(
                     ['report_id' => $reportId, 'role_code' => 'LH'],
@@ -92,13 +84,22 @@ class CoaFinalizeService
                 );
             }
 
-            // Set sample -> reported (best-effort)
             if (Schema::hasTable('samples')) {
                 $statusCol = Schema::hasColumn('samples', 'current_status') ? 'current_status' : 'status';
 
-                DB::table('samples')
-                    ->where('sample_id', (int) $report->sample_id)
-                    ->update([$statusCol => 'reported']);
+                $sampleIds = Schema::hasTable('report_samples')
+                    ? DB::table('report_samples')
+                    ->where('report_id', $reportId)
+                    ->pluck('sample_id')
+                    ->map(fn($x) => (int) $x)
+                    ->all()
+                    : [(int) $report->sample_id];
+
+                if (!empty($sampleIds)) {
+                    DB::table('samples')
+                        ->whereIn('sample_id', $sampleIds)
+                        ->update([$statusCol => 'reported']);
+                }
             }
 
             return [
@@ -107,8 +108,6 @@ class CoaFinalizeService
                 'download_url' => "/api/v1/files/{$pdfFileId}",
                 'template_code' => $docCode,
                 'doc_code' => $docCode,
-
-                // helpful metadata (also saved in generated_documents)
                 'record_no' => (string) ($gen['record_no'] ?? ''),
                 'form_code' => (string) ($gen['form_code'] ?? ''),
             ];
@@ -118,6 +117,7 @@ class CoaFinalizeService
     private function normalizeTemplateCode(?string $templateCode): ?string
     {
         $t = is_string($templateCode) ? trim($templateCode) : '';
+
         return $t !== '' ? $t : null;
     }
 }

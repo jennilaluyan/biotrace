@@ -4,7 +4,7 @@ import { Save, Send, Loader2, Paperclip, Download, Trash2, UploadCloud } from "l
 
 import type { Sample } from "../../services/samples";
 import {
-    QualityCover,
+    type QualityCover as QualityCoverBase,
     getQualityCover,
     saveQualityCoverDraft,
     submitQualityCover,
@@ -24,6 +24,17 @@ type Props = {
     checkedByName: string;
     disabled?: boolean;
     onAfterSave?: () => void;
+};
+
+type QualityCoverBatchInfo = {
+    request_batch_id?: string | null;
+    batch_total?: number;
+    is_batch?: boolean;
+};
+
+type QualityCover = QualityCoverBase & {
+    batch?: QualityCoverBatchInfo;
+    supporting_files?: SupportingFile[] | null;
 };
 
 function prettyErr(e: any, fallback: string) {
@@ -82,6 +93,10 @@ function startDownloadFromBlob(blob: Blob, filename: string) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function toQualityCover(data: QualityCoverBase | null | undefined): QualityCover | null {
+    return data ? (data as QualityCover) : null;
+}
+
 export function QualityCoverSection(props: Props) {
     const { t } = useTranslation();
     const ts = (key: string, options?: any) => String(t(key, options));
@@ -137,6 +152,34 @@ export function QualityCoverSection(props: Props) {
 
     const [fileBusyId, setFileBusyId] = useState<number | null>(null);
 
+    const batchInfo = useMemo<QualityCoverBatchInfo | null>(() => {
+        const fromCover = cover?.batch ?? null;
+        const rawBatchId = (sample as any)?.request_batch_id ?? fromCover?.request_batch_id ?? null;
+        const requestBatchId = typeof rawBatchId === "string" ? rawBatchId.trim() : "";
+
+        const sampleBatchTotal = Number(
+            (sample as any)?.batch_summary?.batch_active_total ??
+            (sample as any)?.request_batch_total ??
+            fromCover?.batch_total ??
+            1
+        );
+
+        const normalizedBatchTotal =
+            Number.isFinite(sampleBatchTotal) && sampleBatchTotal > 0 ? sampleBatchTotal : Number(fromCover?.batch_total ?? 1);
+
+        const isBatch = Boolean(fromCover?.is_batch ?? (requestBatchId && normalizedBatchTotal > 1));
+
+        if (!isBatch) {
+            return null;
+        }
+
+        return {
+            request_batch_id: requestBatchId || fromCover?.request_batch_id || null,
+            batch_total: normalizedBatchTotal > 0 ? normalizedBatchTotal : 1,
+            is_batch: true,
+        };
+    }, [cover, sample]);
+
     function addPendingFiles(files: File[]) {
         const incoming = (files ?? []).filter(Boolean);
         if (incoming.length === 0) return;
@@ -156,12 +199,12 @@ export function QualityCoverSection(props: Props) {
                 const c = await getQualityCover(sampleId);
                 if (!alive) return;
 
-                setCover(c);
-                setQcPayload(c?.qc_payload ?? {});
-                setMethodOfAnalysis(String(c?.method_of_analysis ?? ""));
-
-                setSupportingDriveUrl(String(c?.supporting_drive_url ?? ""));
-                setSupportingNotes(String(c?.supporting_notes ?? ""));
+                const nextCover = toQualityCover(c);
+                setCover(nextCover);
+                setQcPayload(nextCover?.qc_payload ?? {});
+                setMethodOfAnalysis(String(nextCover?.method_of_analysis ?? ""));
+                setSupportingDriveUrl(String(nextCover?.supporting_drive_url ?? ""));
+                setSupportingNotes(String(nextCover?.supporting_notes ?? ""));
             } catch (e: any) {
                 if (!alive) return;
                 setQcError(prettyErr(e, t("qualityCover.section.errors.loadFailed")));
@@ -206,17 +249,21 @@ export function QualityCoverSection(props: Props) {
 
                 if (!obj) return { ok: false, key: "pcr.markerMissing", ctx: { marker: k } };
 
-                if (obj.value === null || obj.value === undefined || obj.value === "")
+                if (obj.value === null || obj.value === undefined || obj.value === "") {
                     return { ok: false, key: "pcr.valueRequired", ctx: { marker: k } };
+                }
 
-                if (Number.isNaN(Number(obj.value)))
+                if (Number.isNaN(Number(obj.value))) {
                     return { ok: false, key: "pcr.valueNumeric", ctx: { marker: k } };
+                }
 
-                if (!String(obj.result ?? "").trim())
+                if (!String(obj.result ?? "").trim()) {
                     return { ok: false, key: "pcr.resultRequired", ctx: { marker: k } };
+                }
 
-                if (!String(obj.interpretation ?? "").trim())
+                if (!String(obj.interpretation ?? "").trim()) {
                     return { ok: false, key: "pcr.interpretationRequired", ctx: { marker: k } };
+                }
             }
         }
 
@@ -231,6 +278,7 @@ export function QualityCoverSection(props: Props) {
 
         return { ok: true };
     }, [disabled, cover?.status, methodOfAnalysis, qcPayload, qcGroup]);
+
     const submitDisabledReason = useMemo<string | null>(() => {
         if (validate.ok) return null;
 
@@ -270,8 +318,8 @@ export function QualityCoverSection(props: Props) {
     }, []);
 
     const supportingFiles: SupportingFile[] = useMemo(() => {
-        const arr = (cover as any)?.supporting_files;
-        return Array.isArray(arr) ? (arr as SupportingFile[]) : [];
+        const arr = cover?.supporting_files;
+        return Array.isArray(arr) ? arr : [];
     }, [cover]);
 
     async function uploadPendingIfAny(qualityCoverId: number) {
@@ -282,7 +330,7 @@ export function QualityCoverSection(props: Props) {
 
         try {
             const updated = await uploadQualityCoverSupportingDocs(qualityCoverId, pendingFiles);
-            setCover(updated);
+            setCover(toQualityCover(updated));
             setPendingFiles([]);
         } catch (e: any) {
             setUploadError(prettyErr(e, "Failed to upload supporting documents."));
@@ -323,10 +371,11 @@ export function QualityCoverSection(props: Props) {
                 supporting_notes: supportingNotes.trim() || null,
             });
 
-            setCover(c);
+            const nextCover = toQualityCover(c);
+            setCover(nextCover);
 
-            if (c?.quality_cover_id) {
-                await uploadPendingIfAny(Number(c.quality_cover_id));
+            if (nextCover?.quality_cover_id) {
+                await uploadPendingIfAny(Number(nextCover.quality_cover_id));
             }
 
             onAfterSave?.();
@@ -355,10 +404,11 @@ export function QualityCoverSection(props: Props) {
                 supporting_notes: supportingNotes.trim() || null,
             });
 
-            setCover(draft);
+            const nextDraft = toQualityCover(draft);
+            setCover(nextDraft);
 
-            if (draft?.quality_cover_id) {
-                await uploadPendingIfAny(Number(draft.quality_cover_id));
+            if (nextDraft?.quality_cover_id) {
+                await uploadPendingIfAny(Number(nextDraft.quality_cover_id));
             }
 
             const submitted = await submitQualityCover(sampleId, {
@@ -370,10 +420,12 @@ export function QualityCoverSection(props: Props) {
                 supporting_notes: supportingNotes.trim() || null,
             });
 
-            setCover(submitted);
+            setCover(toQualityCover(submitted));
 
             const refreshed = await getQualityCover(sampleId);
-            if (refreshed) setCover(refreshed);
+            if (refreshed) {
+                setCover(toQualityCover(refreshed));
+            }
 
             onAfterSave?.();
         } catch (e: any) {
@@ -391,7 +443,7 @@ export function QualityCoverSection(props: Props) {
 
         try {
             const updated = await deleteQualityCoverSupportingDoc(Number(cover.quality_cover_id), Number(fileId));
-            setCover(updated);
+            setCover(toQualityCover(updated));
         } catch (e: any) {
             setUploadError(prettyErr(e, "Failed to remove supporting document."));
         }
@@ -400,8 +452,8 @@ export function QualityCoverSection(props: Props) {
     return (
         <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
-                <div>
-                    <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
                         <div className="text-sm font-bold text-gray-900">{t("qualityCover.section.title")}</div>
 
                         <span className={cx("text-[11px] px-2 py-0.5 rounded-full border", statusPillClass)}>
@@ -416,6 +468,23 @@ export function QualityCoverSection(props: Props) {
                     </div>
 
                     <div className="text-xs text-gray-500 mt-1">{t("qualityCover.section.subtitle")}</div>
+
+                    {batchInfo?.is_batch ? (
+                        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                            <div>
+                                {ts("qualityCover.section.batchBanner.message", {
+                                    defaultValue:
+                                        "COA untuk permintaan ini dibuat per batch, bukan per sampel. Quality cover ini tetap diisi per sampel, tetapi COA baru akan terbentuk setelah seluruh sampel aktif dalam batch sudah tervalidasi lengkap.",
+                                })}
+                            </div>
+                            <div className="mt-1 text-xs text-amber-700">
+                                {ts("qualityCover.section.batchBanner.total", {
+                                    defaultValue: "Batch total: {{count}}",
+                                    count: Number(batchInfo.batch_total ?? 0),
+                                })}
+                            </div>
+                        </div>
+                    ) : null}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -440,7 +509,8 @@ export function QualityCoverSection(props: Props) {
                         className={cx(
                             "lims-btn-primary inline-flex items-center justify-center gap-2 rounded-xl h-10 px-3",
                             "min-w-11",
-                            (!!submitDisabledReason || qcLoading || qcSubmitting || uploadingFiles) && "opacity-60 cursor-not-allowed"
+                            (!!submitDisabledReason || qcLoading || qcSubmitting || uploadingFiles) &&
+                            "opacity-60 cursor-not-allowed"
                         )}
                         onClick={onSubmit}
                         disabled={qcLoading || qcSubmitting || uploadingFiles || !!submitDisabledReason}
@@ -555,7 +625,9 @@ export function QualityCoverSection(props: Props) {
                                         </div>
 
                                         <div>
-                                            <label className="block text-xs text-gray-500">{t("qualityCover.section.pcr.interpretation")}</label>
+                                            <label className="block text-xs text-gray-500">
+                                                {t("qualityCover.section.pcr.interpretation")}
+                                            </label>
                                             <input
                                                 value={qcPayload?.[k]?.interpretation ?? ""}
                                                 onChange={(e) =>
@@ -627,7 +699,6 @@ export function QualityCoverSection(props: Props) {
                     ) : null}
                 </div>
 
-                {/* Supporting docs */}
                 <div className="mt-5 w-full rounded-2xl border border-gray-100 bg-white overflow-hidden flex flex-col">
                     <div className="w-full px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-start justify-between gap-3 flex-wrap">
                         <div className="min-w-0">
@@ -661,7 +732,9 @@ export function QualityCoverSection(props: Props) {
                                                 "rounded-2xl border-2 border-dashed p-6 bg-gray-50/60",
                                                 "flex flex-col items-center justify-center text-center",
                                                 "transition",
-                                                isLocked || uploadingFiles ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-gray-50",
+                                                isLocked || uploadingFiles
+                                                    ? "opacity-60 cursor-not-allowed"
+                                                    : "cursor-pointer hover:bg-gray-50",
                                                 isDragOver ? "border-primary ring-2 ring-primary-soft bg-white" : "border-gray-200"
                                             )}
                                             onClick={() => {
@@ -684,15 +757,21 @@ export function QualityCoverSection(props: Props) {
                                             }}
                                             role="button"
                                             aria-disabled={isLocked || uploadingFiles}
-                                            title={ts("qualityCover.section.supporting.upload", { defaultValue: "Upload supporting docs (0..n)" })}
+                                            title={ts("qualityCover.section.supporting.upload", {
+                                                defaultValue: "Upload supporting docs (0..n)",
+                                            })}
                                         >
                                             <UploadCloud className={cx("mb-3", isDragOver ? "text-primary" : "text-gray-600")} size={34} />
 
                                             <div className="text-sm font-semibold text-gray-900">
-                                                {ts("qualityCover.section.supporting.dropTitle", { defaultValue: "Drag and drop files here" })}
+                                                {ts("qualityCover.section.supporting.dropTitle", {
+                                                    defaultValue: "Drag and drop files here",
+                                                })}
                                             </div>
                                             <div className="text-xs text-gray-500 mt-1">
-                                                {ts("qualityCover.section.supporting.dropHint", { defaultValue: "or browse from your computer" })}
+                                                {ts("qualityCover.section.supporting.dropHint", {
+                                                    defaultValue: "or browse from your computer",
+                                                })}
                                             </div>
 
                                             <button
@@ -732,7 +811,9 @@ export function QualityCoverSection(props: Props) {
                                     <div className="space-y-4">
                                         <div>
                                             <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                                {ts("qualityCover.section.supporting.driveUrl", { defaultValue: "Google Drive link (optional)" })}
+                                                {ts("qualityCover.section.supporting.driveUrl", {
+                                                    defaultValue: "Google Drive link (optional)",
+                                                })}
                                             </label>
                                             <input
                                                 value={supportingDriveUrl}
@@ -745,7 +826,9 @@ export function QualityCoverSection(props: Props) {
 
                                         <div>
                                             <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                                {ts("qualityCover.section.supporting.notes", { defaultValue: "Other notes (optional)" })}
+                                                {ts("qualityCover.section.supporting.notes", {
+                                                    defaultValue: "Other notes (optional)",
+                                                })}
                                             </label>
                                             <textarea
                                                 value={supportingNotes}
@@ -791,8 +874,12 @@ export function QualityCoverSection(props: Props) {
                                                         className="lims-icon-button"
                                                         onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
                                                         disabled={isLocked || uploadingFiles}
-                                                        aria-label={ts("qualityCover.section.supporting.remove", { defaultValue: "Remove" })}
-                                                        title={ts("qualityCover.section.supporting.remove", { defaultValue: "Remove" })}
+                                                        aria-label={ts("qualityCover.section.supporting.remove", {
+                                                            defaultValue: "Remove",
+                                                        })}
+                                                        title={ts("qualityCover.section.supporting.remove", {
+                                                            defaultValue: "Remove",
+                                                        })}
                                                     >
                                                         <Trash2 size={16} />
                                                     </button>
@@ -832,10 +919,18 @@ export function QualityCoverSection(props: Props) {
                                                                 className="btn-outline px-3! py-1! text-xs inline-flex items-center gap-2"
                                                                 onClick={() => void downloadSupportingFile(f.file_id)}
                                                                 disabled={!!fileBusyId}
-                                                                title={ts("qualityCover.section.supporting.download", { defaultValue: "Download" })}
+                                                                title={ts("qualityCover.section.supporting.download", {
+                                                                    defaultValue: "Download",
+                                                                })}
                                                             >
-                                                                {busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                                                                {ts("qualityCover.section.supporting.download", { defaultValue: "Download" })}
+                                                                {busy ? (
+                                                                    <Loader2 size={14} className="animate-spin" />
+                                                                ) : (
+                                                                    <Download size={14} />
+                                                                )}
+                                                                {ts("qualityCover.section.supporting.download", {
+                                                                    defaultValue: "Download",
+                                                                })}
                                                             </button>
 
                                                             {!isLocked ? (
@@ -844,8 +939,12 @@ export function QualityCoverSection(props: Props) {
                                                                     className="lims-icon-button"
                                                                     onClick={() => onRemoveSupportingFile(f.file_id)}
                                                                     disabled={uploadingFiles || !!fileBusyId}
-                                                                    aria-label={ts("qualityCover.section.supporting.remove", { defaultValue: "Remove" })}
-                                                                    title={ts("qualityCover.section.supporting.remove", { defaultValue: "Remove" })}
+                                                                    aria-label={ts("qualityCover.section.supporting.remove", {
+                                                                        defaultValue: "Remove",
+                                                                    })}
+                                                                    title={ts("qualityCover.section.supporting.remove", {
+                                                                        defaultValue: "Remove",
+                                                                    })}
                                                                 >
                                                                     <Trash2 size={16} />
                                                                 </button>
@@ -858,7 +957,9 @@ export function QualityCoverSection(props: Props) {
                                     </div>
                                 ) : (
                                     <div className="text-[11px] text-gray-500">
-                                        {ts("qualityCover.section.supporting.noFiles", { defaultValue: "No supporting documents uploaded." })}
+                                        {ts("qualityCover.section.supporting.noFiles", {
+                                            defaultValue: "No supporting documents uploaded.",
+                                        })}
                                     </div>
                                 )}
                             </div>

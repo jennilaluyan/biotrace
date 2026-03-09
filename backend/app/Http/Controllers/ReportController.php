@@ -3,21 +3,19 @@
 namespace App\Http\Controllers;
 
 use App\Models\Report;
+use App\Models\ReportSignature;
+use App\Models\ReportSignatureRole;
+use App\Services\CoaXlsxDocumentService;
 use App\Services\ReportGenerationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use RuntimeException;
-use App\Services\CoaXlsxDocumentService;
 use Illuminate\Support\Facades\Schema;
+use RuntimeException;
 
 class ReportController extends Controller
 {
-    /**
-     * GET /api/v1/reports
-     * List reports (QA / Lab Head).
-     */
     public function index(Request $request): JsonResponse
     {
         $user = Auth::user();
@@ -29,11 +27,6 @@ class ReportController extends Controller
         $q = trim((string) $request->query('q', ''));
         $date = $request->query('date');
 
-        /**
-         * BASE QUERY
-         * - join samples + clients agar search client_name WORK
-         * - select minimal fields (performance-safe)
-         */
         $query = DB::table('reports')
             ->join('samples', 'samples.sample_id', '=', 'reports.sample_id')
             ->join('clients', 'clients.client_id', '=', 'samples.client_id')
@@ -47,10 +40,6 @@ class ReportController extends Controller
             )
             ->orderByDesc('reports.generated_at');
 
-        /**
-         * SEARCH FILTER
-         * q → report_no OR client_name OR sample_id
-         */
         if ($q !== '') {
             $qLower = mb_strtolower($q);
 
@@ -61,39 +50,26 @@ class ReportController extends Controller
             });
         }
 
-        /**
-         * DATE FILTER
-         */
         if ($date) {
             match ($date) {
                 'today' => $query->whereDate('reports.generated_at', now()),
-                '7d'    => $query->where('reports.generated_at', '>=', now()->subDays(7)),
-                '30d'   => $query->where('reports.generated_at', '>=', now()->subDays(30)),
+                '7d' => $query->where('reports.generated_at', '>=', now()->subDays(7)),
+                '30d' => $query->where('reports.generated_at', '>=', now()->subDays(30)),
                 default => null,
             };
         }
 
-        /**
-         * PAGINATION
-         */
         $reports = $query->paginate($perPage);
 
-        /**
-         * RESPONSE FORMAT — TETAP SAMA (LOCKED)
-         */
         return response()->json([
             'current_page' => $reports->currentPage(),
-            'data'         => $reports->items(),
-            'per_page'     => $reports->perPage(),
-            'total'        => $reports->total(),
-            'last_page'    => $reports->lastPage(),
+            'data' => $reports->items(),
+            'per_page' => $reports->perPage(),
+            'total' => $reports->total(),
+            'last_page' => $reports->lastPage(),
         ], 200);
     }
 
-    /**
-     * POST /api/v1/samples/{id}/reports
-     * Generate report for sample (MVP infra).
-     */
     public function store(Request $request, int $id): JsonResponse
     {
         $user = Auth::user();
@@ -106,11 +82,21 @@ class ReportController extends Controller
             return response()->json(['message' => 'Invalid actor staff id.'], 422);
         }
 
-        // If already exists, return it (idempotent behavior)
-        $existing = Report::query()->where('sample_id', $id)->first();
+        $batchId = Schema::hasTable('samples') && Schema::hasColumn('samples', 'request_batch_id')
+            ? DB::table('samples')->where('sample_id', $id)->value('request_batch_id')
+            : null;
+
+        $existing = Report::query()
+            ->when(
+                $batchId,
+                fn($q) => $q->where('request_batch_id', $batchId),
+                fn($q) => $q->where('sample_id', $id)
+            )
+            ->first();
+
         if ($existing) {
             return response()->json([
-                'message' => 'Report already exists for this sample.',
+                'message' => 'Report already exists for this sample or batch.',
                 'data' => $this->buildReportPayload((int) $existing->report_id),
             ], 200);
         }
@@ -124,17 +110,12 @@ class ReportController extends Controller
                 'data' => $this->buildReportPayload((int) $report->report_id),
             ], 201);
         } catch (RuntimeException $e) {
-            // Service throws RuntimeException for business rules
             return response()->json([
                 'message' => $e->getMessage(),
             ], 422);
         }
     }
 
-    /**
-     * GET /api/v1/reports/{id}
-     * Show report metadata + items + signatures.
-     */
     public function show(int $id): JsonResponse
     {
         $report = Report::query()->where('report_id', $id)->first();
@@ -148,10 +129,6 @@ class ReportController extends Controller
         ], 200);
     }
 
-    /**
-     * POST /api/v1/reports/{id}/finalize
-     * Finalize & lock report (Lab Head only).
-     */
     public function finalize(Request $request, int $id): JsonResponse
     {
         $user = Auth::user();
@@ -159,7 +136,6 @@ class ReportController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        // LH only (role_id = 6)
         if ((int) ($user->role_id ?? 0) !== 6) {
             return response()->json(['message' => 'Forbidden. Lab Head only.'], 403);
         }
@@ -175,7 +151,7 @@ class ReportController extends Controller
             ], 409);
         }
 
-        $signature = \App\Models\ReportSignature::query()
+        $signature = ReportSignature::query()
             ->where('report_id', $id)
             ->where('role_code', 'LH')
             ->first();
@@ -198,21 +174,17 @@ class ReportController extends Controller
 
                 $hash = hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE));
 
-                // Sign as LH
                 $signature->signed_by = $user->staff_id;
                 $signature->signed_at = $now;
                 $signature->signature_hash = $hash;
                 $signature->save();
 
-                // Generate COA PDF from XLSX template and attach to report
                 $svc = app(CoaXlsxDocumentService::class);
                 $svc->generateForReport((int) $report->report_id, (int) $user->staff_id, true, $now);
 
-                // Lock report
                 $report->is_locked = true;
                 $report->updated_at = $now;
 
-                // Optional: store hash in reports.document_hash if exists
                 if (Schema::hasColumn('reports', 'document_hash')) {
                     $report->document_hash = $hash;
                 }
@@ -232,10 +204,6 @@ class ReportController extends Controller
         ], 200);
     }
 
-    /**
-     * Build full report payload without depending on Eloquent relations
-     * (safe even if relations are not defined yet).
-     */
     private function buildReportPayload(int $reportId): array
     {
         $report = DB::table('reports')->where('report_id', $reportId)->first();
@@ -246,24 +214,34 @@ class ReportController extends Controller
             ->get()
             ->values();
 
-        $allowedCodes = \App\Models\ReportSignatureRole::query()->pluck('role_code')->all();
+        $allowedCodes = ReportSignatureRole::query()->pluck('role_code')->all();
 
-        $signatures = \App\Models\ReportSignature::query()
+        $signatures = ReportSignature::query()
             ->where('report_id', $reportId)
             ->when(!empty($allowedCodes), fn($q) => $q->whereIn('role_code', $allowedCodes))
             ->orderBy('role_code')
             ->get();
 
+        $sampleIds = Schema::hasTable('report_samples')
+            ? DB::table('report_samples')
+            ->where('report_id', $reportId)
+            ->orderBy('batch_item_no')
+            ->pluck('sample_id')
+            ->map(fn($x) => (int) $x)
+            ->all()
+            : [(int) ($report->sample_id ?? 0)];
+
+        $sampleIds = array_values(array_filter($sampleIds, fn($x) => $x > 0));
+
         return [
             'report' => $report,
             'items' => $items,
             'signatures' => $signatures,
+            'sample_ids' => $sampleIds,
+            'batch_total' => count($sampleIds),
         ];
     }
 
-    /**
-     * Build canonical payload for digital signature hashing.
-     */
     private function buildSignaturePayload(int $reportId, int $signedBy, string $signedAt): array
     {
         $report = DB::table('reports')

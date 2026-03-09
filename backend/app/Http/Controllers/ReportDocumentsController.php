@@ -5,15 +5,14 @@ namespace App\Http\Controllers;
 use App\Models\LetterOfOrder;
 use App\Services\CoaDocCodeAliasService;
 use App\Services\FileStoreService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class ReportDocumentsController extends Controller
 {
-    // Samakan dengan CoaDownloadController (Admin=2, OM=5, LH=6)
     private const COA_VIEWER_ROLE_IDS = [2, 5, 6];
 
     public function __construct(
@@ -34,7 +33,10 @@ class ReportDocumentsController extends Controller
 
         $getSampleIdsByLoId = function (int $loId): array {
             try {
-                if (!Schema::hasTable('letter_of_order_items')) return [];
+                if (!Schema::hasTable('letter_of_order_items')) {
+                    return [];
+                }
+
                 return DB::table('letter_of_order_items')
                     ->where('lo_id', $loId)
                     ->pluck('sample_id')
@@ -47,9 +49,6 @@ class ReportDocumentsController extends Controller
             }
         };
 
-        // =========================
-        // LOO (Letter of Order)
-        // =========================
         $loos = LetterOfOrder::query()
             ->with(['items', 'sample.client'])
             ->orderByDesc('generated_at')
@@ -63,20 +62,23 @@ class ReportDocumentsController extends Controller
             if ($lo->items) {
                 foreach ($lo->items as $it) {
                     $sid = (int) ($it->sample_id ?? 0);
-                    if ($sid > 0) $sampleIds[] = $sid;
+                    if ($sid > 0) {
+                        $sampleIds[] = $sid;
+                    }
                 }
             }
+
             $sampleIds = array_values(array_unique(array_filter($sampleIds, fn($x) => $x > 0)));
 
-            if ($sampleId && !in_array($sampleId, $sampleIds, true)) continue;
+            if ($sampleId && !in_array($sampleId, $sampleIds, true)) {
+                continue;
+            }
 
             $payload = is_array($lo->payload) ? $lo->payload : (array) $lo->payload;
             $pdfFileId = (int) ($payload['pdf_file_id'] ?? 0);
 
             $docName = 'Letter of Order (LOO)';
             $docCode = (string) $lo->number;
-
-            // ✅ selalu lewat endpoint gate => baru stream
             $downloadUrl = url("/api/v1/reports/documents/loo/{$loId}/pdf");
 
             $docs[] = [
@@ -90,20 +92,14 @@ class ReportDocumentsController extends Controller
                 'created_at' => $lo->created_at?->toIso8601String(),
                 'sample_ids' => $sampleIds,
                 'lo_id' => $loId,
-
                 'file_url' => null,
-
                 'record_no' => (string) ($payload['record_no'] ?? ''),
                 'form_code' => (string) ($payload['form_code'] ?? ''),
                 'pdf_file_id' => $pdfFileId,
-
                 'download_url' => $downloadUrl,
             ];
         }
 
-        // =========================
-        // Reagent Request (approved) - DB only
-        // =========================
         try {
             if (Schema::hasTable('reagent_requests') && Schema::hasTable('generated_documents')) {
                 $rrQuery = DB::table('reagent_requests as rr')
@@ -135,16 +131,20 @@ class ReportDocumentsController extends Controller
                 foreach ($rrs as $rr) {
                     $rrId = (int) ($rr->reagent_request_id ?? 0);
                     $loId = (int) ($rr->lo_id ?? 0);
-                    if ($rrId <= 0) continue;
+
+                    if ($rrId <= 0) {
+                        continue;
+                    }
 
                     $sampleIds = $loId > 0 ? $getSampleIdsByLoId($loId) : [];
                     $sampleIds = array_values(array_unique(array_filter($sampleIds, fn($x) => $x > 0)));
 
-                    if ($sampleId && !in_array($sampleId, $sampleIds, true)) continue;
+                    if ($sampleId && !in_array($sampleId, $sampleIds, true)) {
+                        continue;
+                    }
 
                     $looNumber = $rr->loo_number ? (string) $rr->loo_number : null;
                     $pdfFileId = (int) ($rr->pdf_file_id ?? 0);
-
                     $downloadUrl = url("/api/v1/reports/documents/reagent-request/{$rrId}/pdf");
 
                     $docs[] = [
@@ -159,24 +159,17 @@ class ReportDocumentsController extends Controller
                         'sample_ids' => $sampleIds,
                         'lo_id' => $loId,
                         'reagent_request_id' => $rrId,
-
                         'file_url' => null,
-
                         'record_no' => (string) ($rr->record_no ?? ''),
                         'form_code' => (string) ($rr->form_code ?? ''),
                         'pdf_file_id' => $pdfFileId,
-
                         'download_url' => $downloadUrl,
                     ];
                 }
             }
         } catch (\Throwable) {
-            // keep endpoint alive even if schema differs
         }
 
-        // =========================
-        // COA (locked reports) - DB only
-        // =========================
         if (
             $canSeeCoa
             && Schema::hasTable('reports')
@@ -207,10 +200,12 @@ class ReportDocumentsController extends Controller
                     $canJoinSamples = Schema::hasTable('samples') && Schema::hasColumn('samples', 'sample_id');
                     $canJoinClients = Schema::hasTable('clients');
 
-                    // ✅ Guard: jangan join "samples as s" lebih dari sekali
                     $joinedSamples = false;
                     $ensureSamplesJoin = function () use (&$q, &$joinedSamples) {
-                        if ($joinedSamples) return;
+                        if ($joinedSamples) {
+                            return;
+                        }
+
                         $q->leftJoin('samples as s', 's.sample_id', '=', 'r.sample_id');
                         $joinedSamples = true;
                     };
@@ -248,25 +243,37 @@ class ReportDocumentsController extends Controller
                         'r.pdf_file_id',
                     ];
 
-                    if ($workflowGroupCol) $select[] = $workflowGroupCol . ' as workflow_group';
-                    if ($clientTypeAliasCol) $select[] = 'c.' . $clientTypeAliasCol . ' as client_type';
+                    if ($workflowGroupCol) {
+                        $select[] = $workflowGroupCol . ' as workflow_group';
+                    }
+
+                    if ($clientTypeAliasCol) {
+                        $select[] = 'c.' . $clientTypeAliasCol . ' as client_type';
+                    }
 
                     $rows = $q->get($select);
 
                     foreach ($rows as $r) {
                         $rid = (int) ($r->report_id ?? 0);
                         $sid = (int) ($r->sample_id ?? 0);
-                        if ($rid <= 0 || $sid <= 0) continue;
+
+                        if ($rid <= 0 || $sid <= 0) {
+                            continue;
+                        }
 
                         $no = (string) ($r->report_no ?? ('COA #' . $rid));
                         $pdfFileId = (int) ($r->pdf_file_id ?? 0);
-                        if ($pdfFileId <= 0) continue;
 
-                        // ✅ FIX: gunakan gate endpoint kita sendiri (bukan /reports/{id}/pdf)
+                        if ($pdfFileId <= 0) {
+                            continue;
+                        }
+
                         $downloadUrl = url("/api/v1/reports/documents/coa/{$rid}/pdf");
-
                         $coaDocCode = $this->inferCoaDocCode($r, $no);
                         $coaName = $this->coaLabel($coaDocCode);
+
+                        $sampleIds = $this->resolveReportSampleIds($rid, $sid);
+                        $sampleIds = array_values(array_filter($sampleIds, fn($x) => $x > 0));
 
                         $docs[] = [
                             'type' => 'COA',
@@ -278,10 +285,9 @@ class ReportDocumentsController extends Controller
                             'status' => 'locked',
                             'generated_at' => null,
                             'created_at' => $r->created_at ? (string) $r->created_at : null,
-                            'sample_ids' => [$sid],
-
+                            'sample_ids' => $sampleIds,
+                            'batch_total' => count($sampleIds),
                             'file_url' => null,
-
                             'pdf_file_id' => $pdfFileId,
                             'doc_code' => $coaDocCode,
                             'download_url' => $downloadUrl,
@@ -307,12 +313,23 @@ class ReportDocumentsController extends Controller
         $ct = strtolower((string) ($row->client_type ?? ''));
 
         if ($wf !== '') {
-            if (str_contains($wf, 'wgs')) return 'COA_WGS';
-            if (str_contains($wf, 'antigen')) return 'COA_ANTIGEN';
-            if (str_contains($wf, 'group_19_22') || str_contains($wf, '19_22')) return 'COA_GROUP_19_22';
-            if (str_contains($wf, 'group_23_32') || str_contains($wf, '23_32')) return 'COA_GROUP_23_32';
+            if (str_contains($wf, 'wgs')) {
+                return 'COA_WGS';
+            }
+            if (str_contains($wf, 'antigen')) {
+                return 'COA_ANTIGEN';
+            }
+            if (str_contains($wf, 'group_19_22') || str_contains($wf, '19_22')) {
+                return 'COA_GROUP_19_22';
+            }
+            if (str_contains($wf, 'group_23_32') || str_contains($wf, '23_32')) {
+                return 'COA_GROUP_23_32';
+            }
         }
-        if ($no !== '' && (str_contains($no, '/adm/16/') || str_contains($no, 'wgs'))) return 'COA_WGS';
+
+        if ($no !== '' && (str_contains($no, '/adm/16/') || str_contains($no, 'wgs'))) {
+            return 'COA_WGS';
+        }
 
         if (
             $ct !== '' &&
@@ -326,9 +343,12 @@ class ReportDocumentsController extends Controller
 
     private function coaLabel(string $docCode): string
     {
-        if ($this->coaAlias) return $this->coaAlias->label($docCode);
+        if ($this->coaAlias) {
+            return $this->coaAlias->label($docCode);
+        }
 
         $dc = strtoupper(trim($docCode));
+
         return match ($dc) {
             'COA_WGS' => 'COA WGS',
             'COA_PCR_KERJASAMA' => 'COA PCR Kerja Sama',
@@ -340,16 +360,42 @@ class ReportDocumentsController extends Controller
         };
     }
 
+    private function resolveReportSampleIds(int $reportId, int $fallbackSampleId): array
+    {
+        if (
+            !Schema::hasTable('report_samples')
+            || !Schema::hasColumn('report_samples', 'report_id')
+            || !Schema::hasColumn('report_samples', 'sample_id')
+        ) {
+            return [$fallbackSampleId];
+        }
+
+        $query = DB::table('report_samples')
+            ->where('report_id', $reportId);
+
+        if (Schema::hasColumn('report_samples', 'batch_item_no')) {
+            $query->orderBy('batch_item_no');
+        }
+
+        $sampleIds = $query
+            ->pluck('sample_id')
+            ->map(fn($x) => (int) $x)
+            ->filter(fn($x) => $x > 0)
+            ->values()
+            ->all();
+
+        return $sampleIds !== [] ? $sampleIds : [$fallbackSampleId];
+    }
+
     public function pdf(string $type, int $id)
     {
         $user = Auth::user();
-        if (!$user) return response()->json(['message' => 'Unauthenticated.'], 401);
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
 
         $type = strtolower(trim($type));
 
-        // =========================
-        // COA (stream existing PDF by file id)
-        // =========================
         if ($type === 'coa') {
             $roleId = (int) ($user->role_id ?? 0);
             if (!in_array($roleId, self::COA_VIEWER_ROLE_IDS, true)) {
@@ -370,13 +416,14 @@ class ReportDocumentsController extends Controller
 
             $q = DB::table('reports')->where($idCol, $id);
 
-            // lock gate if exists (matches list behavior)
             if (Schema::hasColumn('reports', 'is_locked')) {
                 $q->where('is_locked', '=', 1);
             }
 
             $r = $q->first(['pdf_file_id']);
-            if (!$r) return response()->json(['message' => 'Document not found.'], 404);
+            if (!$r) {
+                return response()->json(['message' => 'Document not found.'], 404);
+            }
 
             $pdfFileId = (int) ($r->pdf_file_id ?? 0);
             if ($pdfFileId <= 0) {
@@ -389,17 +436,16 @@ class ReportDocumentsController extends Controller
 
             try {
                 return $this->files->streamResponse($pdfFileId, false);
-            } catch (ModelNotFoundException $e) {
+            } catch (ModelNotFoundException) {
                 return response()->json(['message' => 'File not found.'], 404);
             }
         }
 
-        // =========================
-        // LOO
-        // =========================
         if ($type === 'loo') {
             $lo = LetterOfOrder::query()->where('lo_id', $id)->first();
-            if (!$lo) return response()->json(['message' => 'Document not found.'], 404);
+            if (!$lo) {
+                return response()->json(['message' => 'Document not found.'], 404);
+            }
 
             if (!Schema::hasTable('loo_sample_approvals')) {
                 return response()->json(['message' => 'Approvals table not found.'], 500);
@@ -413,7 +459,9 @@ class ReportDocumentsController extends Controller
             } elseif (isset($payload['items']) && is_array($payload['items'])) {
                 foreach ($payload['items'] as $it) {
                     $sid = (int) ($it['sample_id'] ?? 0);
-                    if ($sid > 0) $sampleIds[] = $sid;
+                    if ($sid > 0) {
+                        $sampleIds[] = $sid;
+                    }
                 }
                 $sampleIds = array_values(array_unique($sampleIds));
             }
@@ -433,8 +481,14 @@ class ReportDocumentsController extends Controller
             foreach ($rows as $r) {
                 $sid = (int) $r->sample_id;
                 $rc = strtoupper((string) $r->role_code);
-                if (!isset($seen[$sid])) $seen[$sid] = ['OM' => false, 'LH' => false];
-                if ($rc === 'OM' || $rc === 'LH') $seen[$sid][$rc] = true;
+
+                if (!isset($seen[$sid])) {
+                    $seen[$sid] = ['OM' => false, 'LH' => false];
+                }
+
+                if ($rc === 'OM' || $rc === 'LH') {
+                    $seen[$sid][$rc] = true;
+                }
             }
 
             $hasReady = false;
@@ -453,7 +507,7 @@ class ReportDocumentsController extends Controller
             if ($pdfFileId > 0) {
                 try {
                     return $this->files->streamResponse($pdfFileId, false);
-                } catch (ModelNotFoundException $e) {
+                } catch (ModelNotFoundException) {
                     return response()->json(['message' => 'File not found.'], 404);
                 }
             }
@@ -465,16 +519,15 @@ class ReportDocumentsController extends Controller
             ], 422);
         }
 
-        // =========================
-        // REAGENT REQUEST (DB only)
-        // =========================
         if (in_array($type, ['reagent-request', 'reagent_request', 'rr'], true)) {
             if (!Schema::hasTable('reagent_requests')) {
                 return response()->json(['message' => 'Reagent requests table not found.'], 500);
             }
 
             $rr = DB::table('reagent_requests')->where('reagent_request_id', $id)->first();
-            if (!$rr) return response()->json(['message' => 'Document not found.'], 404);
+            if (!$rr) {
+                return response()->json(['message' => 'Document not found.'], 404);
+            }
 
             $st = strtolower(trim((string) ($rr->status ?? '')));
             if ($st !== 'approved') {
@@ -494,7 +547,7 @@ class ReportDocumentsController extends Controller
                 if ($pdfFileId > 0) {
                     try {
                         return $this->files->streamResponse($pdfFileId, false);
-                    } catch (ModelNotFoundException $e) {
+                    } catch (ModelNotFoundException) {
                         return response()->json(['message' => 'File not found.'], 404);
                     }
                 }
@@ -514,7 +567,7 @@ class ReportDocumentsController extends Controller
     {
         try {
             return $this->files->streamResponse($fileId, false);
-        } catch (\Exception $e) {
+        } catch (\Exception) {
             return response()->json(['message' => 'File not found.'], 404);
         }
     }
