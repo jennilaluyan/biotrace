@@ -110,7 +110,6 @@ function parameterLabel(p: any) {
 
 export default function ClientRequestDetailPage() {
     const { t } = useTranslation();
-
     const { id } = useParams();
     const navigate = useNavigate();
 
@@ -152,9 +151,43 @@ export default function ClientRequestDetailPage() {
 
     const statusView = useMemo(() => getClientRequestStatusView(data as any), [data]);
 
+    const rawRequestStatus = useMemo(
+        () => String((data as any)?.request_status ?? "").trim().toLowerCase(),
+        [data]
+    );
+
+    const intakeChecklist = useMemo(
+        () => (data as any)?.intake_checklist ?? (data as any)?.intakeChecklist ?? null,
+        [data]
+    );
+
+    const failedChecklistItems = useMemo(() => {
+        const rawItems =
+            intakeChecklist?.checklist?.items ??
+            intakeChecklist?.items ??
+            [];
+
+        return Array.isArray(rawItems)
+            ? rawItems.filter((it: any) => it && it.passed === false)
+            : [];
+    }, [intakeChecklist]);
+
+    const intakeGeneralNote = useMemo(
+        () => String(intakeChecklist?.notes ?? intakeChecklist?.checklist?.general_note ?? "").trim(),
+        [intakeChecklist]
+    );
+
+    const isFailedIntakePickupFlow = useMemo(() => {
+        return (
+            !!(data as any)?.admin_received_from_collector_at &&
+            ["returned", "rejected"].includes(rawRequestStatus)
+        );
+    }, [data, rawRequestStatus]);
+
     const canEdit = useMemo(() => {
+        if (isFailedIntakePickupFlow || !!(data as any)?.client_picked_up_at) return false;
         return statusView === "returned" || statusView === "needs_revision" || statusView === "rejected";
-    }, [statusView]);
+    }, [statusView, isFailedIntakePickupFlow, data]);
 
     const requestedParameterRows = useMemo(() => {
         const arr = (data as any)?.requested_parameters;
@@ -273,6 +306,7 @@ export default function ClientRequestDetailPage() {
         };
 
         void run();
+
         return () => {
             cancelled = true;
         };
@@ -337,10 +371,12 @@ export default function ClientRequestDetailPage() {
             setError(t("portalRequestDetail.errors.sampleTypeRequired", "Sample type is required."));
             return;
         }
+
         if (!scheduledDeliveryAt.trim()) {
             setError(t("portalRequestDetail.errors.scheduledDeliveryRequired", "Scheduled delivery time is required."));
             return;
         }
+
         if (!selectedParamId) {
             setError(t("portalRequestDetail.errors.parameterRequired", "Please select one parameter."));
             return;
@@ -415,7 +451,6 @@ export default function ClientRequestDetailPage() {
 
     const updatedAt = (data as any).updated_at ?? (data as any).created_at;
     const requestIdLabel = clientRequestNo ?? numericId;
-
     const statusText = statusLabel(t, statusView).toLowerCase();
 
     const coaReleasedAt = (data as any)?.coa_released_to_client_at ?? null;
@@ -476,7 +511,9 @@ export default function ClientRequestDetailPage() {
                     </div>
 
                     <div className="text-xs text-gray-500 mt-1.5 flex items-center gap-1">
-                        {t("portal.requestDetail.lastUpdated", "Last updated {{at}}", { at: formatDateTimeLocal(updatedAt) })}
+                        {t("portal.requestDetail.lastUpdated", "Last updated {{at}}", {
+                            at: formatDateTimeLocal(updatedAt),
+                        })}
                     </div>
                 </div>
 
@@ -550,6 +587,67 @@ export default function ClientRequestDetailPage() {
                     <div className={cx("text-sm pl-7 whitespace-pre-wrap", statusView === "rejected" ? "text-rose-800" : "text-amber-800")}>
                         {requestReturnNote}
                     </div>
+                </div>
+            ) : null}
+
+            {isFailedIntakePickupFlow ? (
+                <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 shadow-sm">
+                    <div className="flex items-center gap-2 font-semibold text-rose-900 mb-1">
+                        <Info size={18} />
+                        {t("portalRequestDetail.failedIntake.title", {
+                            defaultValue: "Sample pickup required",
+                        })}
+                    </div>
+
+                    <div className="text-sm text-rose-800 pl-7">
+                        {t("portalRequestDetail.failedIntake.body", {
+                            defaultValue:
+                                "This request became read-only because Sample Collector failed the intake and admin has asked you to pick the sample up.",
+                        })}
+                    </div>
+
+                    {failedChecklistItems.length ? (
+                        <div className="mt-4 pl-7">
+                            <div className="text-xs font-semibold text-rose-900 mb-2">
+                                {t("portalRequestDetail.failedIntake.listTitle", {
+                                    defaultValue: "Failed intake reasons",
+                                })}
+                            </div>
+
+                            <ul className="space-y-2">
+                                {failedChecklistItems.map((it: any, idx: number) => (
+                                    <li key={`${it?.key ?? idx}`} className="rounded-xl border border-rose-200 bg-white/70 px-3 py-2">
+                                        <div className="text-sm font-semibold text-rose-900">
+                                            {String(it?.key ?? `item_${idx + 1}`)}
+                                        </div>
+                                        <div className="text-sm text-rose-800 mt-1 whitespace-pre-wrap">
+                                            {String(it?.note ?? "—")}
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ) : null}
+
+                    {intakeGeneralNote ? (
+                        <div className="mt-4 pl-7">
+                            <div className="text-xs font-semibold text-rose-900 mb-1">
+                                {t("portalRequestDetail.failedIntake.generalNote", {
+                                    defaultValue: "Additional note",
+                                })}
+                            </div>
+                            <div className="text-sm text-rose-800 whitespace-pre-wrap">{intakeGeneralNote}</div>
+                        </div>
+                    ) : null}
+
+                    {(data as any)?.client_picked_up_at ? (
+                        <div className="mt-4 pl-7 text-xs text-rose-700">
+                            {t("portalRequestDetail.failedIntake.pickedUpAt", {
+                                at: formatDateTimeLocal((data as any).client_picked_up_at),
+                                defaultValue: "Picked up at {{at}}",
+                            })}
+                        </div>
+                    ) : null}
                 </div>
             ) : null}
 

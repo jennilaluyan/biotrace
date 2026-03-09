@@ -5,7 +5,13 @@ import { ChevronLeft, ChevronRight, Eye, RefreshCw, Search, X } from "lucide-rea
 
 import { getErrorMessage } from "../../utils/errors";
 import { formatDateTimeLocal } from "../../utils/date";
-import { fetchSampleArchive, type PaginatedMeta, type SampleArchiveListItem } from "../../services/sampleArchive";
+import {
+    fetchSampleArchive,
+    type PaginatedMeta,
+    type SampleArchiveKind,
+    type SampleArchiveListItem,
+} from "../../services/sampleArchive";
+import ArchivedFailedRequestsTab from "../../components/samples/archive/ArchivedFailedRequestsTab";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -21,18 +27,19 @@ export function SampleArchivePage() {
     const { t } = useTranslation();
     const navigate = useNavigate();
 
-    const [items, setItems] = useState<SampleArchiveListItem[]>([]);
-    const [meta, setMeta] = useState<PaginatedMeta | null>(null);
-
-    const [q, setQ] = useState("");
-    const [page, setPage] = useState(1);
-
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const perPage = 15;
 
-    async function load(nextPage = page, nextQ = q) {
+    const [items, setItems] = useState<SampleArchiveListItem[]>([]);
+    const [meta, setMeta] = useState<PaginatedMeta | null>(null);
+
+    const [kind, setKind] = useState<SampleArchiveKind>("reported");
+    const [q, setQ] = useState("");
+    const [page, setPage] = useState(1);
+
+    async function load(nextPage = page, nextQ = q, nextKind = kind) {
         try {
             setLoading(true);
             setError(null);
@@ -42,6 +49,7 @@ export function SampleArchivePage() {
                 page: nextPage,
                 per_page: perPage,
                 q: trimmed ? trimmed : undefined,
+                kind: nextKind,
             });
 
             setItems(res.data ?? []);
@@ -54,9 +62,12 @@ export function SampleArchivePage() {
     }
 
     useEffect(() => {
-        load(page, q);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [page]);
+        load(page, q, kind);
+    }, [page, kind]);
+
+    useEffect(() => {
+        setPage(1);
+    }, [kind]);
 
     const canPrev = (meta?.current_page ?? page) > 1;
     const canNext = meta ? meta.current_page < meta.last_page : items.length === perPage;
@@ -95,6 +106,32 @@ export function SampleArchivePage() {
                 >
                     <RefreshCw size={16} className={cx(loading && "animate-spin")} />
                 </button>
+            </div>
+
+            <div className="px-4 md:px-6 pt-4">
+                <div className="inline-flex rounded-2xl border border-gray-200 bg-gray-50 p-1">
+                    <button
+                        type="button"
+                        onClick={() => setKind("reported")}
+                        className={cx(
+                            "px-4 py-2 rounded-xl text-sm font-semibold transition",
+                            kind === "reported" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
+                        )}
+                    >
+                        {t("samples.pages.archive.tabs.reported", { defaultValue: "Reported samples" })}
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => setKind("failed_requests")}
+                        className={cx(
+                            "px-4 py-2 rounded-xl text-sm font-semibold transition",
+                            kind === "failed_requests" ? "bg-white shadow-sm text-gray-900" : "text-gray-600 hover:text-gray-800"
+                        )}
+                    >
+                        {t("samples.pages.archive.tabs.failedRequests", { defaultValue: "Failed request returns" })}
+                    </button>
+                </div>
             </div>
 
             <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">

@@ -25,6 +25,7 @@ export type SampleRequestStatus =
     | "physically_received"
     | "in_transit_to_collector"
     | "under_inspection"
+    | "inspection_failed"
     | "inspection_failed_returned_to_admin"
     | "returned_to_admin"
     | "intake_checklist_passed"
@@ -94,6 +95,17 @@ export type SampleStatusHistoryItem = {
     } | null;
 };
 
+export type IntakeChecklistRecord = {
+    checklist?: Record<string, any> | null;
+    notes?: string | null;
+    is_passed?: boolean | null;
+    checked_at?: string | null;
+    checker?: {
+        staff_id?: number;
+        name?: string | null;
+    } | null;
+};
+
 export interface Sample {
     sample_id: number;
     client_id: number;
@@ -134,6 +146,7 @@ export interface Sample {
     collector_returned_to_admin_at?: string | null;
     admin_received_from_collector_at?: string | null;
     client_picked_up_at?: string | null;
+    archived_at?: string | null;
 
     lo_id?: number | null;
     lo_number?: string | null;
@@ -158,6 +171,8 @@ export interface Sample {
 
     // Return/Reject note
     request_return_note?: string | null;
+    intake_checklist?: IntakeChecklistRecord | null;
+    intakeChecklist?: IntakeChecklistRecord | null;
 
     // Pre-Step 12 gate fields (unlock QC after last kanban column)
     quality_cover_unlocked_at?: string | null;

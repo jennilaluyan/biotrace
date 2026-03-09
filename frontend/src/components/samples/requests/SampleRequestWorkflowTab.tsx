@@ -395,6 +395,86 @@ function ActionCard(props: {
     );
 }
 
+function tryParseJsonObject(raw: any): Record<string, any> | null {
+    if (typeof raw !== "string" || !raw.trim()) return null;
+    try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
+function getIntakeChecklistRecord(s: any) {
+    return s?.intake_checklist ?? s?.intakeChecklist ?? null;
+}
+
+function buildFailedIntakeNote(sample: any): string | null {
+    const intake = getIntakeChecklistRecord(sample);
+    const detailed =
+        intake?.checklist?.items ??
+        intake?.items ??
+        [];
+
+    const failedLines = Array.isArray(detailed)
+        ? detailed
+            .filter((it: any) => it && it.passed === false)
+            .map((it: any) => String(it?.note ?? "").trim())
+            .filter(Boolean)
+        : [];
+
+    const generalNote = String(
+        intake?.notes ??
+        intake?.checklist?.general_note ??
+        intake?.general_note ??
+        ""
+    ).trim();
+
+    const out = [...failedLines];
+    if (generalNote) out.push(generalNote);
+
+    return out.length ? out.join("\n") : null;
+}
+
+function didCollectorIntakeFail(sample: any, logs: any[] | null): boolean {
+    const intake = getIntakeChecklistRecord(sample);
+
+    if (typeof intake?.is_passed === "boolean") {
+        return !intake.is_passed;
+    }
+
+    const parsedChecklist = intake?.checklist;
+    if (typeof parsedChecklist?.is_passed === "boolean") {
+        return !parsedChecklist.is_passed;
+    }
+
+    for (const log of logs ?? []) {
+        const actionText = normText(log?.action);
+        const payload = tryParseJsonObject(log?.new_values);
+        const oldPayload = tryParseJsonObject(log?.old_values);
+
+        if (
+            actionText === "sample_intake_failed" ||
+            actionText === "sample intake failed" ||
+            actionText === "sample_intake_checklist_submitted"
+        ) {
+            if (payload?.is_passed === false || oldPayload?.is_passed === false) return true;
+            if (payload?.request_status === "inspection_failed") return true;
+        }
+
+        const txt = logText(log);
+        if (txt.includes("sample intake failed") || txt.includes('"is_passed":false')) {
+            return true;
+        }
+    }
+
+    const rs = String(sample?.request_status ?? "").trim().toLowerCase();
+    return (
+        !!sample?.collector_intake_completed_at &&
+        ["inspection_failed", "returned_to_admin", "returned", "rejected"].includes(rs)
+    );
+}
+
 export function SampleRequestWorkflowTab(props: {
     sample: Sample;
     roleId: number;
@@ -406,6 +486,7 @@ export function SampleRequestWorkflowTab(props: {
     workflowLogs?: any[] | null;
     onApprove: () => void;
     onOpenReturn: () => void;
+    onOpenReject: () => void;
     onMarkPhysicallyReceived: () => void;
     onDoPhysicalWorkflow: (action: string) => void;
     onOpenIntakeChecklist: () => void;
@@ -461,7 +542,9 @@ export function SampleRequestWorkflowTab(props: {
     const requestStatusKey = String(s?.request_status ?? "").trim().toLowerCase();
     const labSampleCode = String(s?.lab_sample_code ?? "").trim();
     const returnNote = String(s?.request_return_note ?? "").trim() || null;
-    const isRequestWaitingClientRevision = ["returned", "needs_revision"].includes(requestStatusKey);
+    const isRequestWaitingClientRevision = ["returned", "needs_revision", "rejected"].includes(
+        requestStatusKey
+    );
 
     const sampleIdChangeObj = s?.sample_id_change ?? s?.sample_id_change_request ?? s?.sampleIdChange ?? null;
 
@@ -480,7 +563,22 @@ export function SampleRequestWorkflowTab(props: {
     const isSampleIdChangeRejected = sampleIdChangeStatusKey === "rejected";
 
     const canAdminAcceptRequest = isAdmin && !labSampleCode && requestStatusKey === "submitted";
-    const canAdminReturnRequest = isAdmin && !labSampleCode && requestStatusKey === "submitted";
+
+    const canAdminReturnRequest =
+        isAdmin &&
+        !labSampleCode &&
+        (requestStatusKey === "submitted" ||
+            (requestStatusKey === "returned_to_admin" &&
+                !!s?.admin_received_from_collector_at &&
+                !s?.client_picked_up_at));
+
+    const canAdminRejectRequest =
+        isAdmin &&
+        !labSampleCode &&
+        (requestStatusKey === "submitted" ||
+            (requestStatusKey === "returned_to_admin" &&
+                !!s?.admin_received_from_collector_at &&
+                !s?.client_picked_up_at));
 
     const canMarkPhysicallyReceived =
         isAdmin &&
@@ -520,7 +618,7 @@ export function SampleRequestWorkflowTab(props: {
         !labSampleCode &&
         !!s?.admin_received_from_collector_at &&
         isRequestWaitingClientRevision &&
-        !s?.client_picked_up_at;
+        !s?.client_picked_up_at
 
     const verifiedAt = s?.verified_at ?? null;
     const isSampleIdPendingVerification = requestStatusKey === "sample_id_pending_verification";
@@ -611,9 +709,8 @@ export function SampleRequestWorkflowTab(props: {
             });
         }
 
-        if (returnNote && isRequestWaitingClientRevision) {
+        if (returnNote && isRequestWaitingClientRevision && !s?.admin_received_from_collector_at) {
             const retAt = pickAt(s, ["request_returned_at", "returned_at", "request_updated_at", "updated_at"]);
-
             const adminReturn = resolveActor(
                 {
                     objKeys: ["returned_by", "returnedBy", "request_returned_by", "admin", "administrator"],
@@ -634,7 +731,6 @@ export function SampleRequestWorkflowTab(props: {
                 ],
                 retAt ?? null
             );
-
             out.push({
                 key: "admin_return",
                 title: t("samples.requestWorkflow.timeline.adminReturned"),
@@ -644,6 +740,83 @@ export function SampleRequestWorkflowTab(props: {
                 actorRole: adminReturn.role,
                 at: retAt ?? null,
                 note: returnNote,
+            });
+        }
+
+        if (returnNote && isRequestWaitingClientRevision && !!s?.admin_received_from_collector_at) {
+            const at = pickAt(s, ["request_returned_at", "returned_at", "request_updated_at", "updated_at"]);
+            const adminNotify = resolveActor(
+                {
+                    objKeys: ["returned_by", "returnedBy", "request_returned_by", "admin", "administrator"],
+                    nameKeys: ["returned_by_name", "request_returned_by_name", "admin_name", "administrator_name"],
+                    roleKeys: [
+                        "returned_by_role_name",
+                        "request_returned_by_role_name",
+                        "admin_role_name",
+                        "administrator_role_name",
+                    ],
+                },
+                [
+                    "ADMIN_SAMPLE_REQUEST_RETURNED",
+                    "ADMIN_SAMPLE_REQUEST_REJECTED",
+                    "admin returned request",
+                    "admin rejected request",
+                    "returned to client",
+                    "rejected request",
+                ],
+                at ?? null
+            );
+
+            out.push({
+                key: "admin_notify_client_pickup",
+                title: t("samples.requestWorkflow.timeline.adminNotifiedClientPickup"),
+                actor: "admin",
+                actorObj: adminNotify.obj,
+                actorName: adminNotify.name,
+                actorRole: adminNotify.role,
+                at: at ?? null,
+                note: returnNote,
+            });
+        }
+
+        if (s?.collector_intake_completed_at) {
+            const at = String(s.collector_intake_completed_at);
+            const failed = didCollectorIntakeFail(s, logs);
+            const failedNote = failed ? buildFailedIntakeNote(s) : null;
+
+            const collectorIntake = resolveActor(
+                {
+                    objKeys: [
+                        "collector_intake_completed_by",
+                        "collector_intake_completed_by_staff",
+                        "collector_intake_completed_by_user",
+                        "collector",
+                        "sample_collector",
+                    ],
+                    nameKeys: [
+                        "collector_intake_completed_by_name",
+                        "collector_intake_completed_by_staff_name",
+                        "collector_intake_completed_by_user_name",
+                        "collector_name",
+                        "sample_collector_name",
+                    ],
+                    roleKeys: ["collector_intake_completed_by_role_name", "collector_role_name"],
+                },
+                ["intake completed", "collector intake", "collector_intake_completed", "INTAKE_CHECKLIST", "COLLECTOR_INTAKE_COMPLETED"],
+                at
+            );
+
+            out.push({
+                key: "collector_intake",
+                title: failed
+                    ? t("samples.requestWorkflow.timeline.collectorIntakeFailed")
+                    : t("samples.requestWorkflow.timeline.collectorIntakePassed"),
+                actor: "sample_collector",
+                actorObj: collectorIntake.obj,
+                actorName: collectorIntake.name,
+                actorRole: collectorIntake.role,
+                at,
+                note: failedNote,
             });
         }
 
@@ -738,45 +911,6 @@ export function SampleRequestWorkflowTab(props: {
                 actorObj: collectorRecv.obj,
                 actorName: collectorRecv.name,
                 actorRole: collectorRecv.role,
-                at,
-            });
-        }
-
-        if (s?.collector_intake_completed_at) {
-            const at = String(s.collector_intake_completed_at);
-            const failed = requestStatusKey === "inspection_failed";
-
-            const collectorIntake = resolveActor(
-                {
-                    objKeys: [
-                        "collector_intake_completed_by",
-                        "collector_intake_completed_by_staff",
-                        "collector_intake_completed_by_user",
-                        "collector",
-                        "sample_collector",
-                    ],
-                    nameKeys: [
-                        "collector_intake_completed_by_name",
-                        "collector_intake_completed_by_staff_name",
-                        "collector_intake_completed_by_user_name",
-                        "collector_name",
-                        "sample_collector_name",
-                    ],
-                    roleKeys: ["collector_intake_completed_by_role_name", "collector_role_name"],
-                },
-                ["intake completed", "collector intake", "collector_intake_completed", "INTAKE_CHECKLIST", "COLLECTOR_INTAKE_COMPLETED"],
-                at
-            );
-
-            out.push({
-                key: "collector_intake",
-                title: failed
-                    ? t("samples.requestWorkflow.timeline.collectorIntakeFailed")
-                    : t("samples.requestWorkflow.timeline.collectorIntakePassed"),
-                actor: "sample_collector",
-                actorObj: collectorIntake.obj,
-                actorName: collectorIntake.name,
-                actorRole: collectorIntake.role,
                 at,
             });
         }
@@ -1071,6 +1205,7 @@ export function SampleRequestWorkflowTab(props: {
     const anyAction =
         canAdminAcceptRequest ||
         canAdminReturnRequest ||
+        canAdminRejectRequest ||
         canMarkPhysicallyReceived ||
         canAdminBringToCollector ||
         canCollectorReceive ||
@@ -1146,10 +1281,30 @@ export function SampleRequestWorkflowTab(props: {
 
                         {canAdminReturnRequest ? (
                             <ActionCard
-                                title={t("samples.requestWorkflow.actions.adminReturn.title")}
-                                subtitle={t("samples.requestWorkflow.actions.adminReturn.subtitle")}
+                                title={
+                                    requestStatusKey === "returned_to_admin"
+                                        ? t("samples.requestWorkflow.actions.adminNotifyClientPickup.title")
+                                        : t("samples.requestWorkflow.actions.adminReturn.title")
+                                }
+                                subtitle={
+                                    requestStatusKey === "returned_to_admin"
+                                        ? t("samples.requestWorkflow.actions.adminNotifyClientPickup.subtitle")
+                                        : t("samples.requestWorkflow.actions.adminReturn.subtitle")
+                                }
                                 icon={<RotateCcw size={18} />}
                                 onClick={props.onOpenReturn}
+                                disabled={props.wfBusy}
+                                tone="danger"
+                                right={<span className="text-xs font-semibold">{t("samples.requestWorkflow.open")}</span>}
+                            />
+                        ) : null}
+
+                        {canAdminRejectRequest ? (
+                            <ActionCard
+                                title={t("samples.requestWorkflow.actions.adminReject.title")}
+                                subtitle={t("samples.requestWorkflow.actions.adminReject.subtitle")}
+                                icon={<RotateCcw size={18} />}
+                                onClick={props.onOpenReject}
                                 disabled={props.wfBusy}
                                 tone="danger"
                                 right={<span className="text-xs font-semibold">{t("samples.requestWorkflow.open")}</span>}

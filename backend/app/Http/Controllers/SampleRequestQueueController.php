@@ -84,6 +84,11 @@ class SampleRequestQueueController extends Controller
                 $query->whereNull('lab_sample_code');
             }
 
+            // request yang sudah diambil klien selesai dan pindah ke archive
+            if (Schema::hasColumn('samples', 'client_picked_up_at')) {
+                $query->whereNull('client_picked_up_at');
+            }
+
             // Draft is client-private
             if (Schema::hasColumn('samples', 'request_status')) {
                 $query->where(function ($w) {

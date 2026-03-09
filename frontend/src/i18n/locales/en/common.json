@@ -724,7 +724,14 @@
         "actions": {
             "saveChanges": "Save changes"
         },
-        "parameterFallback": "Parameter #{{id}}"
+        "parameterFallback": "Parameter #{{id}}",
+        "failedIntake": {
+            "title": "Sample pickup required",
+            "body": "This request became read-only because Sample Collector failed the intake and admin has asked you to pick the sample up.",
+            "listTitle": "Failed intake reasons",
+            "generalNote": "Additional note",
+            "pickedUpAt": "Picked up at {{at}}"
+        }
     },
     "portalRequestForm": {
         "title": "Create Sample Request",
@@ -1861,6 +1868,14 @@
                 "assignSampleId": {
                     "title": "Assign sample ID",
                     "subtitle": "Assign the final lab code (BML)."
+                },
+                "adminNotifyClientPickup": {
+                    "title": "Notify client to pick up sample",
+                    "subtitle": "Use this after admin receives the failed sample back from Sample Collector."
+                },
+                "adminReject": {
+                    "title": "Reject request",
+                    "subtitle": "Reject this request with a required note."
                 }
             },
             "history": {
@@ -1886,6 +1901,7 @@
                 "sampleIdPending": "Sample ID change is pending verification",
                 "sampleIdAssigned": "Admin assigned sample ID",
                 "clientPickedUp": "Client picked up sample",
+                "adminNotifiedClientPickup": "Admin notified client to pick up sample",
                 "notes": {
                     "suggestedToProposed": "Suggested: {{suggested}} → Proposed: {{proposed}}",
                     "assigned": "Assigned: {{code}}"
@@ -2203,6 +2219,18 @@
                 "emptyTitle": "No archived samples",
                 "emptyHint": "Nothing matches your search. Try a shorter keyword.",
                 "loadError": "Failed to load archive.",
+                "tabs": {
+                    "reported": "Reported samples",
+                    "failedRequests": "Failed request returns"
+                },
+                "failedTable": {
+                    "request": "Request",
+                    "client": "Client",
+                    "sampleType": "Sample type",
+                    "status": "Status",
+                    "archived": "Archived",
+                    "actions": "Actions"
+                },
                 "table": {
                     "labCode": "Lab Code",
                     "client": "Client",
@@ -2230,6 +2258,12 @@
                 "timelineHint": "A chronological trail of workflow events.",
                 "timelineEmpty": "No timeline events recorded.",
                 "timelineBy": "By: {{name}}",
+                "failedIntakeTitle": "Failed intake details",
+                "failedIntakeHint": "This request was archived after Sample Collector intake failed and the client picked the sample up again.",
+                "requestStatus": "Request status",
+                "pickupAt": "Client picked up at",
+                "failedItems": "Failed checklist items",
+                "generalNote": "General note",
                 "docs": {
                     "looShort": "LOO",
                     "coaShort": "COA",

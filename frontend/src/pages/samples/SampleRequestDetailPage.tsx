@@ -330,9 +330,9 @@ export default function SampleRequestDetailPage() {
     const [pageRefreshing, setPageRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Approval flow: accept requires method selection in modal
     const [acceptModalOpen, setAcceptModalOpen] = useState(false);
     const [returnModalOpen, setReturnModalOpen] = useState(false);
+    const [rejectModalOpen, setRejectModalOpen] = useState(false);
 
     const [intakeOpen, setIntakeOpen] = useState(false);
 
@@ -640,6 +640,7 @@ export default function SampleRequestDetailPage() {
                                             workflowLogs={workflowLogs}
                                             onApprove={openAcceptModal}
                                             onOpenReturn={() => setReturnModalOpen(true)}
+                                            onOpenReject={() => setRejectModalOpen(true)}
                                             onMarkPhysicallyReceived={doMarkPhysicallyReceived}
                                             onDoPhysicalWorkflow={doPhysicalWorkflow}
                                             onOpenIntakeChecklist={() => setIntakeOpen(true)}
@@ -826,6 +827,18 @@ export default function SampleRequestDetailPage() {
                             action="return"
                             currentStatus={(sample as any)?.request_status ?? null}
                             onClose={() => setReturnModalOpen(false)}
+                            onUpdated={async () => {
+                                await load({ silent: true });
+                                setTab("workflow");
+                            }}
+                        />
+
+                        <UpdateRequestStatusModal
+                            open={rejectModalOpen}
+                            sampleId={requestId}
+                            action="reject"
+                            currentStatus={(sample as any)?.request_status ?? null}
+                            onClose={() => setRejectModalOpen(false)}
                             onUpdated={async () => {
                                 await load({ silent: true });
                                 setTab("workflow");

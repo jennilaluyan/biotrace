@@ -22,24 +22,29 @@ export type ArchiveTimelineEvent = {
     meta?: Record<string, any> | null;
 };
 
+export type SampleArchiveKind = "reported" | "failed_requests";
+
 export type SampleArchiveListItem = {
     sample_id: number;
+    archive_kind?: SampleArchiveKind | null;
     lab_sample_code?: string | null;
     workflow_group?: string | null;
-
+    sample_type?: string | null;
+    scheduled_delivery_at?: string | null;
     client_id?: number | null;
     client_name?: string | null;
-
     current_status?: string | null;
     request_status?: string | null;
-
+    request_return_note?: string | null;
+    collector_intake_completed_at?: string | null;
+    collector_returned_to_admin_at?: string | null;
+    admin_received_from_collector_at?: string | null;
+    client_picked_up_at?: string | null;
     archived_at?: string | null;
-
     lo_id?: number | null;
     lo_number?: string | null;
     lo_generated_at?: string | null;
     lo_file_url?: string | null;
-
     coa_report_id?: number | null;
     coa_number?: string | null;
     coa_generated_at?: string | null;
@@ -49,12 +54,10 @@ export type SampleArchiveListItem = {
 export type SampleArchiveDetail = SampleArchiveListItem & {
     sample?: any;
     client?: any;
-
-    requested_parameters?: Array<{ parameter_id: number; name: string }> | null;
-
+    intake_checklist?: any;
+    requested_parameters?: Array<{ parameter_id: number; code?: string | null; name: string }> | null;
     documents?: ArchiveDocument[] | null;
     timeline?: ArchiveTimelineEvent[] | null;
-
     raw?: any;
 };
 
@@ -143,13 +146,17 @@ export async function fetchSampleArchive(params: {
     client_id?: number;
     page?: number;
     per_page?: number;
+    kind?: SampleArchiveKind;
 }): Promise<{ data: SampleArchiveListItem[]; meta?: PaginatedMeta }> {
     const payload = await apiGetWith404Fallback<any>([...LIST_ENDPOINTS], { params });
     return normalizeListPayload(payload);
 }
 
-export async function fetchSampleArchiveDetail(sampleId: number): Promise<{ data: SampleArchiveDetail }> {
+export async function fetchSampleArchiveDetail(
+    sampleId: number,
+    kind: SampleArchiveKind = "reported"
+): Promise<{ data: SampleArchiveDetail }> {
     const paths = LIST_ENDPOINTS.map((base) => `${base}/${sampleId}`);
-    const payload = await apiGetWith404Fallback<any>(paths);
+    const payload = await apiGetWith404Fallback<any>(paths, { params: { kind } });
     return normalizeDetailPayload(payload);
 }

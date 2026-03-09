@@ -79,6 +79,7 @@ class Sample extends Model
         'collector_returned_to_admin_at',
         'admin_received_from_collector_at',
         'client_picked_up_at',
+        'archived_at',
 
         // OM/LH verification gate + LOA metadata
         'verified_at',
@@ -121,6 +122,7 @@ class Sample extends Model
         'collector_returned_to_admin_at' => 'datetime',
         'admin_received_from_collector_at' => 'datetime',
         'client_picked_up_at' => 'datetime',
+        'archived_at' => 'datetime',
 
         'sample_id_number' => 'integer',
         'sample_id_assigned_at' => 'datetime',

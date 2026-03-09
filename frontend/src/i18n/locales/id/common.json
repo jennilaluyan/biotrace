@@ -714,7 +714,14 @@
             "submittedBody": "Permintaan ini sudah dikirim dan sedang menunggu tinjauan admin. Pengeditan dinonaktifkan.",
             "deliveryHint": "Gunakan waktu yang realistis untuk Anda mengantar sampel. Ini membantu penjadwalan."
         },
-        "parameterFallback": "Parameter #{{id}}"
+        "parameterFallback": "Parameter #{{id}}",
+        "failedIntake": {
+            "title": "Sampel harus diambil",
+            "body": "Request ini sekarang read-only karena intake oleh Pengambil Sampel gagal dan admin sudah meminta klien untuk mengambil kembali sampelnya.",
+            "listTitle": "Alasan intake gagal",
+            "generalNote": "Catatan tambahan",
+            "pickedUpAt": "Diambil pada {{at}}"
+        }
     },
     "portalRequestForm": {
         "title": "Buat Sample Request",
@@ -1851,6 +1858,14 @@
                 "assignSampleId": {
                     "title": "Tetapkan Sample ID",
                     "subtitle": "Tetapkan kode lab final (BML)."
+                },
+                "adminNotifyClientPickup": {
+                    "title": "Hubungi klien untuk mengambil sampel",
+                    "subtitle": "Gunakan setelah admin menerima kembali sampel gagal dari Pengambil Sampel."
+                },
+                "adminReject": {
+                    "title": "Tolak permintaan",
+                    "subtitle": "Tolak permintaan ini dengan catatan wajib."
                 }
             },
             "history": {
@@ -1879,7 +1894,8 @@
                 "notes": {
                     "suggestedToProposed": "Saran: {{suggested}} → Usulan: {{proposed}}",
                     "assigned": "Ditetapkan: {{code}}"
-                }
+                },
+                "adminNotifiedClientPickup": "Admin menghubungi klien untuk mengambil sampel"
             }
         },
         "kanban": {
@@ -2210,6 +2226,18 @@
                     "coa": "COA",
                     "archived": "Diarsipkan",
                     "actions": "Aksi"
+                },
+                "tabs": {
+                    "reported": "Sampel selesai",
+                    "failedRequests": "Request gagal intake"
+                },
+                "failedTable": {
+                    "request": "Request",
+                    "client": "Klien",
+                    "sampleType": "Jenis sampel",
+                    "status": "Status",
+                    "archived": "Diarsipkan",
+                    "actions": "Aksi"
                 }
             },
             "archiveDetail": {
@@ -2235,7 +2263,13 @@
                     "coaShort": "COA",
                     "loo": "Letter of Order (LOO)",
                     "coa": "Certificate of Analysis (COA)"
-                }
+                },
+                "failedIntakeTitle": "Detail intake gagal",
+                "failedIntakeHint": "Request ini masuk arsip setelah intake oleh Pengambil Sampel gagal dan sampel diambil kembali oleh klien.",
+                "requestStatus": "Status request",
+                "pickupAt": "Diambil klien pada",
+                "failedItems": "Item checklist yang gagal",
+                "generalNote": "Catatan umum"
             }
         }
     },

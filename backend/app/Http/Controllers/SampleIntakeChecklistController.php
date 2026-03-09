@@ -239,17 +239,30 @@ class SampleIntakeChecklistController extends Controller
             }
             $sample->save();
 
+            $intakeAuditPayload = [
+                'is_passed' => $isPassed,
+                'request_status' => $sample->request_status,
+                'lab_sample_code' => $sample->lab_sample_code ?? null,
+                'checklist' => $normalized,
+                'notes' => $generalNote ? trim($generalNote) : null,
+            ];
+
             AuditLogger::write(
                 action: 'SAMPLE_INTAKE_CHECKLIST_SUBMITTED',
                 staffId: (int) $actor->staff_id,
                 entityName: 'samples',
                 entityId: (int) $sample->sample_id,
                 oldValues: null,
-                newValues: [
-                    'is_passed' => $isPassed,
-                    'request_status' => $sample->request_status,
-                    'lab_sample_code' => $sample->lab_sample_code ?? null,
-                ]
+                newValues: $intakeAuditPayload
+            );
+
+            AuditLogger::write(
+                action: $isPassed ? 'SAMPLE_INTAKE_PASSED' : 'SAMPLE_INTAKE_FAILED',
+                staffId: (int) $actor->staff_id,
+                entityName: 'samples',
+                entityId: (int) $sample->sample_id,
+                oldValues: null,
+                newValues: $intakeAuditPayload
             );
 
             AuditLogger::logSampleRequestStatusChanged(
@@ -261,18 +274,6 @@ class SampleIntakeChecklistController extends Controller
                 note: $isPassed
                     ? 'Intake checklist passed — awaiting OM/LH verification'
                     : 'Intake checklist failed'
-            );
-
-            AuditLogger::write(
-                action: $isPassed ? 'SAMPLE_INTAKE_PASSED' : 'SAMPLE_INTAKE_FAILED',
-                staffId: (int) $actor->staff_id,
-                entityName: 'samples',
-                entityId: (int) $sample->sample_id,
-                oldValues: null,
-                newValues: [
-                    'is_passed' => $isPassed,
-                    'lab_sample_code' => $sample->lab_sample_code ?? null,
-                ]
             );
         });
 

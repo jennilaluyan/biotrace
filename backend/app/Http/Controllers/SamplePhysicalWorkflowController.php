@@ -238,9 +238,19 @@ class SamplePhysicalWorkflowController extends Controller
             ], 422);
         }
 
-        if ($action === 'client_picked_up' && $rs === '') {
-            // no-op; keep guard structure symmetrical (optional)
+        if ($action === 'client_picked_up' && !in_array($rs, [
+            'returned',
+            'rejected',
+            SampleRequestStatus::RETURNED_TO_ADMIN->value, // toleransi data lama
+        ], true)) {
+            return response()->json([
+                'status' => 422,
+                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
+                'message' => "Client pickup can only be recorded after admin has closed the failed intake flow.",
+                'details' => [['field' => 'action', 'message' => 'Invalid request_status for this action.']],
+            ], 422);
         }
+
         // Guard: do not set twice
         if (!empty($sample->{$targetCol})) {
             return response()->json([
@@ -277,7 +287,9 @@ class SamplePhysicalWorkflowController extends Controller
             }
 
             if ($action === 'client_picked_up') {
-                $sample->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
+                if (Schema::hasColumn('samples', 'archived_at') && empty($sample->archived_at)) {
+                    $sample->archived_at = now();
+                }
             }
 
             if ($action === 'sc_delivered_to_analyst') {
@@ -350,6 +362,7 @@ class SamplePhysicalWorkflowController extends Controller
                 'analyst_received_at' => $sample->analyst_received_at ?? null,
 
                 'client_picked_up_at' => $sample->client_picked_up_at ?? null,
+                'archived_at' => Schema::hasColumn('samples', 'archived_at') ? ($sample->archived_at ?? null) : null,
             ],
         ], 200);
     }

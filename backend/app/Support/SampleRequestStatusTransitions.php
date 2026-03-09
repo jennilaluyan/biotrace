@@ -18,17 +18,16 @@ final class SampleRequestStatusTransitions
      */
     public const ROLE_TRANSITIONS = [
         'Administrator' => [
-            // ✅ New rule: first decision from client-submitted request
             'submitted' => ['ready_for_delivery', 'rejected', 'returned'],
-
-            // Keep compatibility (older flow)
             'returned' => ['submitted'],
 
-            // Normal intake
+            // flow gagal intake dari Sample Collector
+            'inspection_failed' => ['returned', 'rejected'],
+            'returned_to_admin' => ['returned', 'rejected'],
+
             'ready_for_delivery' => ['physically_received'],
             'physically_received' => ['in_transit_to_collector'],
 
-            // Sample ID assignment flow
             'waiting_sample_id_assignment' => ['intake_validated', 'sample_id_pending_verification'],
             'sample_id_approved_for_assignment' => ['intake_validated'],
         ],
