@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+    createContext,
+    useCallback,
+    useContext,
+    useEffect,
+    useState,
+    type ReactNode,
+} from "react";
 import i18n from "i18next";
 
 import {
@@ -17,8 +24,14 @@ export type ClientUser = {
     id: number;
     name: string;
     email: string;
-    type?: string;
     locale?: LocaleCode;
+    institution_name?: string;
+    institution_address?: string;
+    contact_person_name?: string;
+    contact_person_phone?: string;
+    contact_person_email?: string;
+    type?: "individual" | "institution";
+    phone?: string;
 };
 
 type ClientAuthContextType = {
@@ -46,75 +59,136 @@ function readStoredClient(): ClientUser | null {
     }
 }
 
-function storeClient(c: ClientUser | null) {
-    if (!c) {
+function storeClient(client: ClientUser | null) {
+    if (!client) {
         localStorage.removeItem(CLIENT_KEY);
         return;
     }
-    localStorage.setItem(CLIENT_KEY, JSON.stringify(c));
+
+    localStorage.setItem(CLIENT_KEY, JSON.stringify(client));
 }
 
-function normalizeLocale(v: any): LocaleCode | null {
-    return v === "en" || v === "id" ? v : null;
+function normalizeLocale(value: unknown): LocaleCode | null {
+    return value === "en" || value === "id" ? value : null;
 }
 
-async function applyLocaleFromClient(profile: any) {
-    const loc = normalizeLocale(profile?.locale);
-    if (!loc) return;
+function normalizeClientType(value: unknown): ClientUser["type"] {
+    const normalized = String(value ?? "").trim().toLowerCase();
 
-    try {
-        document.documentElement.lang = loc;
-    } catch {
-        // ignore
+    if (normalized === "individual" || normalized === "institution") {
+        return normalized;
     }
 
+    return undefined;
+}
+
+function normalizeString(value: unknown): string | undefined {
+    if (value == null) return undefined;
+
+    const normalized = String(value).trim();
+    return normalized === "" ? undefined : normalized;
+}
+
+function setDocumentLanguage(locale: LocaleCode) {
+    document.documentElement.lang = locale;
+}
+
+async function applyLocaleFromClient(profile: Pick<ClientUser, "locale"> | null | undefined) {
+    const locale = normalizeLocale(profile?.locale);
+    if (!locale) return;
+
     try {
-        await i18n.changeLanguage(loc);
-    } catch {
-        // ignore
+        setDocumentLanguage(locale);
+    } catch { }
+
+    try {
+        await i18n.changeLanguage(locale);
+    } catch { }
+}
+
+function extractClientObject(payload: any): Record<string, unknown> | null {
+    if (!payload || typeof payload !== "object") return null;
+
+    let candidate = payload.client ?? payload.data?.client ?? payload.data ?? payload;
+
+    if (
+        candidate &&
+        typeof candidate === "object" &&
+        "client" in candidate &&
+        candidate.client &&
+        typeof candidate.client === "object"
+    ) {
+        candidate = candidate.client;
     }
+
+    return candidate && typeof candidate === "object"
+        ? (candidate as Record<string, unknown>)
+        : null;
 }
 
 function normalizeClient(payload: any): ClientUser | null {
-    if (!payload) return null;
-
-    let c = payload.client ?? payload.data?.client ?? payload.data ?? payload;
-
-    if (c && typeof c === "object" && (c as any).client && typeof (c as any).client === "object") {
-        c = (c as any).client;
-    }
-
-    if (!c || typeof c !== "object") return null;
+    const client = extractClientObject(payload);
+    if (!client) return null;
 
     const idRaw =
-        (c as any).id ??
-        (c as any).client_id ??
-        (c as any).clientId ??
-        (c as any).user_id ??
-        (c as any).userId;
+        client.id ??
+        client.client_id ??
+        client.clientId ??
+        client.user_id ??
+        client.userId;
 
     const emailRaw =
-        (c as any).email ??
-        (c as any).email_address ??
-        (c as any).contact_email ??
-        (c as any).client_email ??
-        (c as any).username ??
-        (c as any).mail;
+        client.email ??
+        client.email_address ??
+        client.contact_email ??
+        client.client_email ??
+        client.username ??
+        client.mail;
 
-    if (idRaw == null || emailRaw == null) return null;
+    const id = Number(idRaw);
+    const email = normalizeString(emailRaw);
 
-    const nameRaw = (c as any).name ?? (c as any).full_name ?? (c as any).client_name ?? "";
-    const typeRaw = (c as any).type ?? (c as any).client_type ?? (c as any).category ?? undefined;
+    if (!Number.isFinite(id) || !email) {
+        return null;
+    }
 
-    const localeRaw = (c as any).locale ?? (c as any).language ?? (c as any).lang ?? null;
-    const locale = normalizeLocale(localeRaw) ?? undefined;
+    const institutionName =
+        normalizeString(client.institution_name) ??
+        normalizeString(client.institutionName);
+
+    const name =
+        normalizeString(client.name) ??
+        normalizeString(client.full_name) ??
+        normalizeString(client.client_name) ??
+        institutionName ??
+        "";
+
+    const locale =
+        normalizeLocale(client.locale) ??
+        normalizeLocale(client.language) ??
+        normalizeLocale(client.lang) ??
+        undefined;
 
     return {
-        id: Number(idRaw),
-        name: String(nameRaw ?? ""),
-        email: String(emailRaw ?? ""),
-        type: typeRaw ? String(typeRaw) : undefined,
+        id,
+        name,
+        email,
         locale,
+        institution_name: institutionName,
+        institution_address:
+            normalizeString(client.institution_address) ??
+            normalizeString(client.institutionAddress),
+        contact_person_name:
+            normalizeString(client.contact_person_name) ??
+            normalizeString(client.contactPersonName),
+        contact_person_phone:
+            normalizeString(client.contact_person_phone) ??
+            normalizeString(client.contactPersonPhone),
+        contact_person_email:
+            normalizeString(client.contact_person_email) ??
+            normalizeString(client.contactPersonEmail),
+        type: normalizeClientType(client.type ?? client.client_type ?? client.category),
+        phone: normalizeString(client.phone),
     };
 }
 
@@ -124,18 +198,13 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
 
     const isClientAuthenticated = !!client;
 
-    const clientRef = useRef<ClientUser | null>(null);
-    useEffect(() => {
-        clientRef.current = client;
-    }, [client]);
-
-    const hardClearClient = () => {
+    const hardClearClient = useCallback(() => {
         setClient(null);
         storeClient(null);
         clearLastRoute("client");
-    };
+    }, []);
 
-    const refreshClient = async () => {
+    const refreshClient = useCallback(async () => {
         const token = getClientAuthToken();
         if (!token) {
             hardClearClient();
@@ -143,140 +212,115 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
         }
 
         try {
-            const res = await clientFetchProfile();
-            const normalized = normalizeClient(res);
+            const response = await clientFetchProfile();
+            const normalized = normalizeClient(response);
 
             if (!normalized) {
-                console.error("Client profile response shape not recognized:", res);
+                console.error("Client profile response shape not recognized:", response);
                 return;
             }
 
             setClient(normalized);
             storeClient(normalized);
             await applyLocaleFromClient(normalized);
-        } catch (err: any) {
-            if (err?.status === 401) {
+        } catch (error: any) {
+            if (error?.status === 401) {
                 hardClearClient();
                 publishAuthEvent("client", "session_expired");
                 return;
             }
-            console.error("Failed to refresh client session:", err);
+
+            console.error("Failed to refresh client session:", error);
         }
-    };
+    }, [hardClearClient]);
 
-    const setLocale = async (locale: LocaleCode) => {
-        const next = normalizeLocale(locale);
-        if (!next) return;
+    const setLocale = useCallback(
+        async (locale: LocaleCode) => {
+            const nextLocale = normalizeLocale(locale);
+            if (!nextLocale) return;
 
-        const current = normalizeLocale(i18n.resolvedLanguage ?? i18n.language) ?? "id";
-        if (current === next) return;
+            const currentLocale =
+                normalizeLocale(i18n.resolvedLanguage ?? i18n.language) ?? "id";
 
-        if (!clientRef.current) {
-            try {
-                document.documentElement.lang = next;
-            } catch {
-                // ignore
-            }
-            await i18n.changeLanguage(next);
-            return;
-        }
+            if (currentLocale === nextLocale) return;
 
-        try {
-            document.documentElement.lang = next;
-        } catch {
-            // ignore
-        }
+            if (!client) {
+                try {
+                    setDocumentLanguage(nextLocale);
+                } catch { }
 
-        try {
-            await i18n.changeLanguage(next);
-
-            const updated = await updateClientLocale(next);
-            const savedLocale = normalizeLocale(updated?.locale) ?? next;
-
-            setClient((c) => {
-                if (!c) return c;
-                const merged = { ...c, locale: savedLocale };
-                storeClient(merged);
-                return merged;
-            });
-
-            publishAuthEvent("client", "refresh");
-        } catch (err) {
-            try {
-                document.documentElement.lang = current;
-            } catch {
-                // ignore
-            }
-            try {
-                await i18n.changeLanguage(current);
-            } catch {
-                // ignore
-            }
-            throw err;
-        }
-    };
-
-    useEffect(() => {
-        let cancelled = false;
-
-        (async () => {
-            try {
-                setLoading(true);
-                if (getTenant() !== "portal") return;
-                await refreshClient();
-            } finally {
-                if (!cancelled) setLoading(false);
-            }
-        })();
-
-        return () => {
-            cancelled = true;
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    useEffect(() => {
-        if (getTenant() !== "portal") return;
-
-        const unsub = subscribeAuthEvents((evt) => {
-            if (evt.actor !== "client") return;
-
-            if (evt.action === "logout" || evt.action === "session_expired") {
-                hardClearClient();
+                await i18n.changeLanguage(nextLocale);
                 return;
             }
 
-            if (evt.action === "login" || evt.action === "refresh") {
-                refreshClient();
+            try {
+                setDocumentLanguage(nextLocale);
+            } catch { }
+
+            try {
+                await i18n.changeLanguage(nextLocale);
+
+                const updated = await updateClientLocale(nextLocale);
+                const savedLocale = normalizeLocale(updated?.locale) ?? nextLocale;
+
+                setClient((currentClient) => {
+                    if (!currentClient) return currentClient;
+
+                    const merged = { ...currentClient, locale: savedLocale };
+                    storeClient(merged);
+                    return merged;
+                });
+
+                publishAuthEvent("client", "refresh");
+            } catch (error) {
+                try {
+                    setDocumentLanguage(currentLocale);
+                } catch { }
+
+                try {
+                    await i18n.changeLanguage(currentLocale);
+                } catch { }
+
+                throw error;
             }
-        });
+        },
+        [client]
+    );
 
-        return unsub;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    const loginClient = async (email: string, password: string) => {
+    const loginClient = useCallback(async (email: string, password: string) => {
         setLoading(true);
+
         try {
-            const res = await clientLoginRequest(email, password);
-            const normalized = normalizeClient(res);
+            const response = await clientLoginRequest(email, password);
+            const normalized = normalizeClient(response);
 
             if (normalized) {
                 setClient(normalized);
                 storeClient(normalized);
                 await applyLocaleFromClient(normalized);
             } else {
-                await refreshClient();
+                const profileResponse = await clientFetchProfile();
+                const profile = normalizeClient(profileResponse);
+
+                if (!profile) {
+                    console.error("Client profile response shape not recognized:", profileResponse);
+                    return;
+                }
+
+                setClient(profile);
+                storeClient(profile);
+                await applyLocaleFromClient(profile);
             }
 
             publishAuthEvent("client", "login");
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
-    const logoutClient = async () => {
+    const logoutClient = useCallback(async () => {
         setLoading(true);
+
         try {
             await clientLogoutRequest();
         } finally {
@@ -284,7 +328,54 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
             setLoading(false);
             publishAuthEvent("client", "logout");
         }
-    };
+    }, [hardClearClient]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const bootstrap = async () => {
+            try {
+                setLoading(true);
+
+                if (getTenant() !== "portal") {
+                    return;
+                }
+
+                await refreshClient();
+            } finally {
+                if (!cancelled) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        void bootstrap();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [refreshClient]);
+
+    useEffect(() => {
+        if (getTenant() !== "portal") {
+            return;
+        }
+
+        return subscribeAuthEvents((event) => {
+            if (event.actor !== "client") {
+                return;
+            }
+
+            if (event.action === "logout" || event.action === "session_expired") {
+                hardClearClient();
+                return;
+            }
+
+            if (event.action === "login" || event.action === "refresh") {
+                void refreshClient();
+            }
+        });
+    }, [hardClearClient, refreshClient]);
 
     return (
         <ClientAuthContext.Provider
@@ -305,7 +396,11 @@ export const ClientAuthProvider = ({ children }: { children: ReactNode }) => {
 };
 
 export const useClientAuthContext = () => {
-    const ctx = useContext(ClientAuthContext);
-    if (!ctx) throw new Error("useClientAuthContext must be used inside ClientAuthProvider");
-    return ctx;
+    const context = useContext(ClientAuthContext);
+
+    if (!context) {
+        throw new Error("useClientAuthContext must be used inside ClientAuthProvider");
+    }
+
+    return context;
 };

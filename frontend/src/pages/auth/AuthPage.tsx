@@ -34,10 +34,6 @@ interface AuthPageProps {
     tenant?: Tenant;
 }
 
-function cx(...arr: Array<string | false | null | undefined>) {
-    return arr.filter(Boolean).join(" ");
-}
-
 function digitsOnly(s: string) {
     return String(s ?? "").replace(/\D+/g, "");
 }
@@ -99,7 +95,6 @@ function isValidPhonePlus62(displayPhone: string) {
 function isValidEmailFormat(email: string) {
     const s = String(email ?? "").trim();
     if (!s) return false;
-    // Simple & practical email format check (client-side)
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
@@ -109,8 +104,6 @@ function isValidPassword(pw: string) {
     return PASSWORD_REGEX.test(String(pw ?? ""));
 }
 
-// Laravel-ish:
-// - { message, errors: {field: [msg]} }
 function extractApiMessage(err: any, fallback: string) {
     const data = err?.response?.data ?? err?.data;
 
@@ -143,7 +136,6 @@ function buildKtpAddress(a: AddressKtp) {
     const province = a.province.trim();
     const postalCode = a.postalCode.trim();
 
-    // Consistent string for backend (still 1 field), but captured in detailed UI
     return `${street}, RT ${rt}/RW ${rw}, Kel. ${village}, Kec. ${district}, ${city}, ${province} ${postalCode}`.trim();
 }
 
@@ -248,8 +240,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             { id: ROLE_ID.ANALYST, label: t("roles.analyst") },
             { id: ROLE_ID.OPERATIONAL_MANAGER, label: t("roles.operationalManager") },
         ],
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [i18n.resolvedLanguage, i18n.language]
+        [i18n.resolvedLanguage, i18n.language, t]
     );
 
     const scrollRegisterToTop = () => {
@@ -331,7 +322,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                 return t("auth.invalidEmailFormat", { defaultValue: "Format email salah." });
             }
 
-            // Kalau backend ngasih petunjuk, kita manfaatkan.
             if (status === 401 || status === 403 || status === 404) {
                 if (raw.includes("password")) {
                     return t("auth.wrongPassword", { defaultValue: "Password salah." });
@@ -343,18 +333,15 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                     return t("auth.accountNotFound", { defaultValue: "Akun tidak ditemukan. Periksa email kamu." });
                 }
 
-                // fallback aman
                 return t("auth.invalidCredentials", { defaultValue: "Email atau password salah." });
             }
         }
 
-        // Register
         if (kind === "register") {
             if (status === 409) {
                 return t("auth.emailAlreadyUsed", { defaultValue: "Email sudah terdaftar. Coba login atau pakai email lain." });
             }
 
-            // Laravel validation biasanya 422 + errors
             if (status === 422 && data?.errors && typeof data.errors === "object") {
                 const emailErr = (data.errors as any)?.email;
                 if (Array.isArray(emailErr) && emailErr.length) {
@@ -388,27 +375,145 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         "w-full rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent-green focus:border-accent-green";
     const formBaseClass = "flex flex-col items-stretch justify-center w-full max-w-md mx-auto px-4 md:px-10 py-10";
 
+    const isIndividualClient = regClientType === "individual";
+    const isInstitutionClient = regClientType === "institution";
+
+    const failRegister = (message: string) => {
+        setRegError(message);
+        clearRegisterPasswordsOnly();
+        scrollRegisterToTop();
+        return false;
+    };
+
     const validateRegisterCommon = () => {
         if (!isValidEmailFormat(regEmail)) {
-            setRegError(t("auth.invalidEmailFormat", { defaultValue: "Format email salah." }));
-            return false;
+            return failRegister(t("auth.invalidEmailFormat", { defaultValue: "Format email salah." }));
         }
 
         if (!isValidPassword(regPassword)) {
-            setRegError(
+            return failRegister(
                 t("auth.passwordRuleError", {
                     defaultValue: "Password lemah. Minimal 8 karakter, ada huruf besar, huruf kecil, angka, dan simbol.",
                 })
             );
-            return false;
         }
 
         if (regPassword !== regPasswordConfirmation) {
-            setRegError(t("auth.passwordMismatch"));
-            return false;
+            return failRegister(t("auth.passwordMismatch"));
         }
 
         return true;
+    };
+
+    const validatePortalRegister = () => {
+        if (!regClientType) {
+            return failRegister(t("auth.clientTypeRequired"));
+        }
+
+        if (isIndividualClient) {
+            const safeName = regName.trim();
+            if (!safeName) {
+                return failRegister(t("auth.nameRequired"));
+            }
+
+            const phoneDisplay = formatPhoneDisplayPlus62(regPhone);
+            if (!isValidPhonePlus62(phoneDisplay)) {
+                return failRegister(
+                    t("auth.phoneDigitsRange", {
+                        defaultValue: `Nomor telepon harus ${PHONE_LOCAL_MIN}-${PHONE_LOCAL_MAX} digit (tanpa +62).`,
+                    })
+                );
+            }
+
+            if (!isValidNIK(regNationalId)) {
+                return failRegister(t("auth.nikInvalid"));
+            }
+
+            if (!isKtpAddressComplete(ktpAddress)) {
+                return failRegister(
+                    t("auth.ktpAddressRequired", {
+                        defaultValue: "Alamat KTP wajib diisi lengkap (jalan, RT/RW, kelurahan, kecamatan, kota, provinsi, kode pos).",
+                    })
+                );
+            }
+
+            return true;
+        }
+
+        const institutionName = regInstitutionName.trim();
+        const contactName = regContactPersonName.trim();
+        const contactEmail = regContactPersonEmail.trim();
+        const contactPhoneDisplay = formatPhoneDisplayPlus62(regContactPersonPhone);
+
+        if (!institutionName) {
+            return failRegister(
+                t("auth.institutionNameRequired", {
+                    defaultValue: "Nama institusi wajib diisi.",
+                })
+            );
+        }
+
+        if (!contactName) {
+            return failRegister(
+                t("auth.contactPersonNameRequired", {
+                    defaultValue: "Nama narahubung wajib diisi.",
+                })
+            );
+        }
+
+        if (!isValidPhonePlus62(contactPhoneDisplay)) {
+            return failRegister(
+                t("auth.contactPhoneRequired", {
+                    defaultValue: `Nomor telepon narahubung wajib valid (${PHONE_LOCAL_MIN}-${PHONE_LOCAL_MAX} digit tanpa +62).`,
+                })
+            );
+        }
+
+        if (!isValidEmailFormat(contactEmail)) {
+            return failRegister(
+                t("auth.contactEmailInvalid", {
+                    defaultValue: "Email narahubung tidak valid.",
+                })
+            );
+        }
+
+        return true;
+    };
+
+    const buildPortalRegisterPayload = () => {
+        const payload: any = {
+            type: regClientType,
+            email: regEmail.trim(),
+            password: regPassword,
+            password_confirmation: regPasswordConfirmation,
+        };
+
+        if (isIndividualClient) {
+            const safeName = regName.trim();
+            const phoneDisplay = formatPhoneDisplayPlus62(regPhone);
+
+            payload.name = safeName;
+            payload.phone = phoneE164Plus62(phoneDisplay);
+            payload.national_id = regNationalId ? nikDigits(regNationalId) : undefined;
+            payload.date_of_birth = regDob || undefined;
+            payload.gender = regGender || undefined;
+            payload.address_ktp = buildKtpAddress(ktpAddress);
+            payload.address_domicile = regAddressDomicile.trim() || undefined;
+            return payload;
+        }
+
+        const institutionName = regInstitutionName.trim();
+        const contactName = regContactPersonName.trim();
+        const contactEmail = regContactPersonEmail.trim();
+        const contactPhoneDisplay = formatPhoneDisplayPlus62(regContactPersonPhone);
+
+        payload.institution_name = institutionName;
+        payload.institution_address = regInstitutionAddress.trim() || null;
+        payload.contact_person_name = contactName;
+        payload.contact_person_phone = phoneE164Plus62(contactPhoneDisplay);
+        payload.contact_person_email = contactEmail;
+
+        return payload;
     };
 
     const handleLoginSubmit = async (e: FormEvent) => {
@@ -463,8 +568,6 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         }
 
         if (!validateRegisterCommon()) {
-            clearRegisterPasswordsOnly();
-            scrollRegisterToTop();
             return;
         }
 
@@ -472,102 +575,11 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
             setRegLoading(true);
 
             if (isPortal) {
-                const safeName =
-                    regName?.trim() || (regClientType === "institution" ? regInstitutionName?.trim() : "") || "";
-
-                if (!regClientType) {
-                    setRegError(t("auth.clientTypeRequired"));
-                    clearRegisterPasswordsOnly();
+                if (!validatePortalRegister()) {
                     return;
                 }
 
-                if (!safeName) {
-                    setRegError(t("auth.nameRequired"));
-                    clearRegisterPasswordsOnly();
-                    return;
-                }
-
-                const displayPhone = formatPhoneDisplayPlus62(regPhone);
-                if (!isValidPhonePlus62(displayPhone)) {
-                    setRegError(
-                        t("auth.phoneDigitsRange", {
-                            defaultValue: `Nomor telepon harus ${PHONE_LOCAL_MIN}-${PHONE_LOCAL_MAX} digit (tanpa +62).`,
-                        })
-                    );
-                    clearRegisterPasswordsOnly();
-                    scrollRegisterToTop();
-                    return;
-                }
-                const normalizedPhone = phoneE164Plus62(displayPhone);
-
-                const payload: any = {
-                    type: regClientType,
-                    name: safeName,
-                    email: regEmail.trim(),
-                    phone: normalizedPhone,
-                    password: regPassword,
-                    password_confirmation: regPasswordConfirmation,
-                };
-
-                if (regClientType === "individual") {
-                    if (!isValidNIK(regNationalId)) {
-                        setRegError(t("auth.nikInvalid"));
-                        clearRegisterPasswordsOnly();
-                        scrollRegisterToTop();
-                        return;
-                    }
-
-                    if (!isKtpAddressComplete(ktpAddress)) {
-                        setRegError(
-                            t("auth.ktpAddressRequired", {
-                                defaultValue: "Alamat KTP wajib diisi lengkap (jalan, RT/RW, kelurahan, kecamatan, kota, provinsi, kode pos).",
-                            })
-                        );
-                        clearRegisterPasswordsOnly();
-                        scrollRegisterToTop();
-                        return;
-                    }
-
-                    payload.national_id = nikDigits(regNationalId);
-                    payload.date_of_birth = regDob || null;
-                    payload.gender = regGender || null;
-                    payload.address_ktp = buildKtpAddress(ktpAddress);
-                    payload.address_domicile = regAddressDomicile?.trim() || null;
-                } else {
-                    // Institution: buat lebih tegas: nama institusi wajib
-                    const instName = regInstitutionName.trim();
-                    if (!instName) {
-                        setRegError(
-                            t("auth.institutionNameRequired", { defaultValue: "Nama institusi wajib diisi." })
-                        );
-                        clearRegisterPasswordsOnly();
-                        scrollRegisterToTop();
-                        return;
-                    }
-
-                    payload.institution_name = instName;
-                    payload.institution_address = regInstitutionAddress?.trim() || null;
-                    payload.contact_person_name = regContactPersonName?.trim() || null;
-
-                    const cpDisplay = formatPhoneDisplayPlus62(regContactPersonPhone);
-                    const cpLocal = getLocalPhoneDigits(cpDisplay);
-
-                    if (cpLocal.length > 0 && !isValidPhonePlus62(cpDisplay)) {
-                        setRegError(
-                            t("auth.contactPhoneDigitsRange", {
-                                defaultValue: `Nomor telepon PIC harus ${PHONE_LOCAL_MIN}-${PHONE_LOCAL_MAX} digit (tanpa +62).`,
-                            })
-                        );
-                        clearRegisterPasswordsOnly();
-                        scrollRegisterToTop();
-                        return;
-                    }
-
-                    payload.contact_person_phone = cpLocal.length ? phoneE164Plus62(cpDisplay) : null;
-                    payload.contact_person_email = regContactPersonEmail?.trim() || null;
-                }
-
-                await clientRegisterRequest(payload);
+                await clientRegisterRequest(buildPortalRegisterPayload());
 
                 setRegSuccess(t("auth.clientRegSubmitted"));
                 scrollRegisterToTop();
@@ -576,10 +588,8 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                 return;
             }
 
-            // Staff
             if (!regName.trim()) {
-                setRegError(t("auth.staffNameRequired"));
-                clearRegisterPasswordsOnly();
+                failRegister(t("auth.staffNameRequired"));
                 return;
             }
 
@@ -678,47 +688,40 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                 </select>
             </div>
 
-            <div>
-                <Label
-                    text={
-                        regClientType === "institution" ? t("auth.clientOrInstitutionName") : t("auth.fullName")
-                    }
-                    required
-                />
-                <input
-                    type="text"
-                    value={regName}
-                    onChange={(e) => setRegName(e.target.value)}
-                    className={inputClass}
-                    placeholder={regClientType === "institution" ? t("auth.institutionExample") : t("auth.yourFullName")}
-                    required
-                />
-                {regClientType === "institution" && (
-                    <p className="mt-1 text-[11px] text-gray-500">{t("auth.tipInstitutionFallback")}</p>
-                )}
-            </div>
-
-            <div>
-                <Label text={t("auth.phone")} required />
-                <input
-                    type="tel"
-                    value={regPhone}
-                    onChange={(e) => setRegPhone(formatPhoneDisplayPlus62(e.target.value))}
-                    onBlur={() => setRegPhone((v) => formatPhoneDisplayPlus62(v))}
-                    className={inputClass}
-                    placeholder={t("auth.phoneExample")}
-                    inputMode="tel"
-                    required
-                />
-                <p className="mt-1 text-[11px] text-gray-500">
-                    {t("auth.phoneDigitsHint", {
-                        defaultValue: `Wajib ${PHONE_LOCAL_MIN}-${PHONE_LOCAL_MAX} digit (contoh: +62 812 3456 789).`,
-                    })}
-                </p>
-            </div>
-
-            {regClientType === "individual" ? (
+            {isIndividualClient ? (
                 <>
+                    <div>
+                        <Label text={t("auth.fullName")} required />
+                        <input
+                            type="text"
+                            value={regName}
+                            onChange={(e) => setRegName(e.target.value)}
+                            className={inputClass}
+                            placeholder={t("auth.fullName")}
+                            autoComplete="name"
+                            required
+                        />
+                    </div>
+
+                    <div>
+                        <Label text={t("auth.phone")} required />
+                        <input
+                            type="tel"
+                            value={regPhone}
+                            onChange={(e) => setRegPhone(formatPhoneDisplayPlus62(e.target.value))}
+                            onBlur={() => setRegPhone((v) => formatPhoneDisplayPlus62(v))}
+                            className={inputClass}
+                            placeholder={t("auth.phoneExample", { defaultValue: "+62 812 3456 789" })}
+                            inputMode="tel"
+                            required
+                        />
+                        <p className="mt-1 text-[11px] text-gray-500">
+                            {t("auth.phoneDigitsHint", {
+                                defaultValue: `Wajib ${PHONE_LOCAL_MIN}-${PHONE_LOCAL_MAX} digit (contoh: +62 812 3456 789).`,
+                            })}
+                        </p>
+                    </div>
+
                     <div>
                         <Label text={t("auth.nationalId")} required />
                         <input
@@ -866,7 +869,9 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                             </div>
 
                             <p className="text-[11px] text-gray-500">
-                                {t("auth.ktpAddressNote", { defaultValue: "Alamat KTP wajib lengkap untuk keperluan administrasi & verifikasi." })}
+                                {t("auth.ktpAddressNote", {
+                                    defaultValue: "Alamat KTP wajib lengkap untuk keperluan administrasi & verifikasi.",
+                                })}
                             </p>
                         </div>
                     </div>
@@ -891,63 +896,76 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                             value={regInstitutionName}
                             onChange={(e) => setRegInstitutionName(e.target.value)}
                             className={inputClass}
-                            placeholder={t("auth.institutionCompanyName")}
+                            placeholder={t("auth.institutionName")}
                             required
                         />
                     </div>
 
                     <div>
-                        <label className={labelClass}>{t("auth.institutionAddressOptional")}</label>
+                        <Label
+                            text={t("auth.institutionAddress", {
+                                defaultValue: "Alamat institusi",
+                            })}
+                        />
                         <input
                             type="text"
                             value={regInstitutionAddress}
                             onChange={(e) => setRegInstitutionAddress(e.target.value)}
                             className={inputClass}
-                            placeholder={t("auth.institutionAddressPlaceholder")}
+                            placeholder={t("auth.institutionAddress", {
+                                defaultValue: "Alamat institusi",
+                            })}
                         />
                     </div>
 
                     <div className="pt-2">
-                        <p className="text-xs font-semibold text-gray-700 mb-2">{t("auth.contactPersonOptional")}</p>
+                        <div className="mt-2 text-xs font-semibold text-gray-700">
+                            {t("auth.contactPerson", {
+                                defaultValue: "Narahubung",
+                            })}
+                        </div>
 
-                        <div className="space-y-3">
+                        <div className="space-y-3 mt-2">
                             <div>
-                                <label className={labelClass}>{t("auth.name")}</label>
+                                <Label text={t("auth.name")} required />
                                 <input
                                     type="text"
                                     value={regContactPersonName}
                                     onChange={(e) => setRegContactPersonName(e.target.value)}
                                     className={inputClass}
-                                    placeholder={t("auth.contactPersonNamePlaceholder")}
+                                    placeholder={t("auth.name")}
+                                    required
                                 />
                             </div>
 
                             <div>
-                                <label className={labelClass}>{t("auth.phone")}</label>
+                                <Label text={t("auth.phone")} required />
                                 <input
                                     type="tel"
                                     value={regContactPersonPhone}
                                     onChange={(e) => setRegContactPersonPhone(formatPhoneDisplayPlus62(e.target.value))}
                                     onBlur={() => setRegContactPersonPhone((v) => formatPhoneDisplayPlus62(v))}
                                     className={inputClass}
-                                    placeholder={t("auth.phoneExample")}
+                                    placeholder="+62"
                                     inputMode="tel"
+                                    required
                                 />
                                 <p className="mt-1 text-[11px] text-gray-500">
                                     {t("auth.phoneDigitsHint", {
-                                        defaultValue: `Jika diisi, wajib ${PHONE_LOCAL_MIN}-${PHONE_LOCAL_MAX} digit.`,
+                                        defaultValue: `Wajib ${PHONE_LOCAL_MIN}-${PHONE_LOCAL_MAX} digit (contoh: +62 812 3456 789).`,
                                     })}
                                 </p>
                             </div>
 
                             <div>
-                                <label className={labelClass}>{t("auth.email")}</label>
+                                <Label text={t("auth.email")} required />
                                 <input
                                     type="email"
                                     value={regContactPersonEmail}
                                     onChange={(e) => setRegContactPersonEmail(e.target.value)}
                                     className={inputClass}
                                     placeholder={t("auth.enterEmail")}
+                                    required
                                 />
                             </div>
                         </div>

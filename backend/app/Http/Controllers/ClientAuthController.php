@@ -29,37 +29,31 @@ class ClientAuthController extends Controller
 
         $rules = [
             'type' => ['required', 'in:individual,institution'],
-            'name' => ['required', 'string', 'max:150'],
-
-            // A3: required +62 + min 10 digits
-            'phone' => ['required', 'string', 'max:30', 'regex:/^\+62\d{10,13}$/'],
-
+            'name' => ['nullable', 'string', 'max:150'],
+            'phone' => ['nullable', 'string', 'max:30', 'regex:/^\+62\d{10,13}$/'],
             'email' => ['required', 'email', 'max:150'],
             'email_ci' => ['required', 'string', 'max:150'],
-
             'password' => ['required', 'string', 'min:8'],
             'password_confirmation' => ['required', 'same:password'],
 
-            // A2: required if individual, exactly 16 digits
             'national_id' => ['required_if:type,individual', 'digits:16'],
-
             'date_of_birth' => ['nullable', 'date'],
             'gender' => ['nullable', 'string', 'max:10'],
             'address_ktp' => ['nullable', 'string', 'max:255'],
             'address_domicile' => ['nullable', 'string', 'max:255'],
 
-            'institution_name' => ['nullable', 'string', 'max:200'],
+            'institution_name' => ['required_if:type,institution', 'string', 'max:200'],
             'institution_address' => ['nullable', 'string', 'max:255'],
-            'contact_person_name' => ['nullable', 'string', 'max:150'],
-            'contact_person_phone' => ['nullable', 'string', 'max:30', 'regex:/^\+62\d{10,13}$/'],
-            'contact_person_email' => ['nullable', 'email', 'max:150'],
+            'contact_person_name' => ['required_if:type,institution', 'string', 'max:150'],
+            'contact_person_phone' => ['required_if:type,institution', 'string', 'max:30', 'regex:/^\+62\d{10,13}$/'],
+            'contact_person_email' => ['required_if:type,institution', 'email', 'max:150'],
         ];
 
         $messages = [
             'type.required' => 'Client type is required.',
             'type.in' => 'Client type must be individual or institution.',
-            'name.required' => 'Name is required.',
-            'phone.required' => 'Phone is required.',
+            'name.required' => 'Name is required for individual clients.',
+            'phone.required' => 'Phone is required for individual clients.',
             'phone.regex' => 'Phone number is incomplete. Please enter at least 10 digits after +62.',
             'email.required' => 'Email is required.',
             'email.email' => 'Email format is invalid.',
@@ -69,19 +63,34 @@ class ClientAuthController extends Controller
             'password_confirmation.same' => 'Password confirmation does not match.',
             'national_id.required_if' => 'National ID (NIK) is required for individual clients.',
             'national_id.digits' => 'National ID (NIK) must be exactly 16 digits.',
+            'institution_name.required_if' => 'Institution name is required for institution clients.',
+            'contact_person_name.required_if' => 'Contact person name is required for institution clients.',
+            'contact_person_phone.required_if' => 'Contact person phone is required for institution clients.',
             'contact_person_phone.regex' => 'Contact person phone is incomplete. Please enter at least 10 digits after +62.',
+            'contact_person_email.required_if' => 'Contact person email is required for institution clients.',
             'contact_person_email.email' => 'Contact person email format is invalid.',
         ];
 
         $data = $request->validate($rules, $messages);
 
-        if ($data['type'] === 'institution' && empty($data['institution_name'])) {
-            return response()->json([
-                'message' => 'Validation error.',
-                'errors' => [
-                    'institution_name' => ['Institution name is required for institution clients.'],
-                ],
-            ], 422);
+        if ($data['type'] === 'institution') {
+            $data['institution_name'] = trim((string) ($data['institution_name'] ?? ''));
+            $data['contact_person_name'] = trim((string) ($data['contact_person_name'] ?? ''));
+            $data['contact_person_email'] = trim((string) ($data['contact_person_email'] ?? ''));
+
+            $data['name'] = $data['institution_name'];
+            $data['phone'] = $data['contact_person_phone'];
+        } else {
+            $data['name'] = trim((string) ($data['name'] ?? ''));
+
+            if ($data['name'] === '') {
+                return response()->json([
+                    'message' => 'Validation error.',
+                    'errors' => [
+                        'name' => ['Name is required for individual clients.'],
+                    ],
+                ], 422);
+            }
         }
 
         // 1) Block if already exists in approved clients
@@ -199,8 +208,17 @@ class ClientAuthController extends Controller
                 'token' => $token,
                 'client' => [
                     'id' => $client->client_id,
-                    'name' => $client->name,
+                    'type' => $client->type,
+                    'name' => $client->type === 'institution'
+                        ? ($client->institution_name ?: $client->name)
+                        : $client->name,
                     'email' => $client->email,
+                    'phone' => $client->phone,
+                    'institution_name' => $client->institution_name,
+                    'institution_address' => $client->institution_address,
+                    'contact_person_name' => $client->contact_person_name,
+                    'contact_person_phone' => $client->contact_person_phone,
+                    'contact_person_email' => $client->contact_person_email,
                     'locale' => $client->locale ?? 'id',
                 ],
             ], 200);

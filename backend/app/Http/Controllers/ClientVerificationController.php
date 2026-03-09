@@ -57,7 +57,9 @@ class ClientVerificationController extends Controller
                 $w->where('name', 'ilike', "%{$search}%")
                     ->orWhere('email', 'ilike', "%{$search}%")
                     ->orWhere('phone', 'ilike', "%{$search}%")
-                    ->orWhere('institution_name', 'ilike', "%{$search}%");
+                    ->orWhere('institution_name', 'ilike', "%{$search}%")
+                    ->orWhere('contact_person_name', 'ilike', "%{$search}%")
+                    ->orWhere('contact_person_email', 'ilike', "%{$search}%");
             });
         }
 
@@ -156,26 +158,25 @@ class ClientVerificationController extends Controller
             }
 
             // Create client
+            $isInstitution = $app->type === 'institution';
+
             $payload = [
                 'type' => $app->type,
-                'name' => $app->name,
-                'phone' => $app->phone,
+                'name' => $isInstitution
+                    ? ($app->institution_name ?: $app->name)
+                    : $app->name,
+                'phone' => $isInstitution
+                    ? ($app->contact_person_phone ?: $app->phone)
+                    : $app->phone,
                 'email' => $app->email,
                 'staff_id' => null,
-
-                // move password hash from application
                 'password_hash' => $app->password_hash,
-
-                // approved client becomes active
                 'is_active' => true,
-
-                // optional fields
                 'national_id' => $app->national_id ?? null,
                 'date_of_birth' => $app->date_of_birth ?? null,
                 'gender' => $app->gender ?? null,
                 'address_ktp' => $app->address_ktp ?? null,
                 'address_domicile' => $app->address_domicile ?? null,
-
                 'institution_name' => $app->institution_name ?? null,
                 'institution_address' => $app->institution_address ?? null,
                 'contact_person_name' => $app->contact_person_name ?? null,

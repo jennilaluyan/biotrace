@@ -967,7 +967,13 @@
         "clientType": "Client type",
         "individual": "Individual",
         "institution": "Institution",
-        "clientOrInstitutionName": "Client/Institution name",
+        "institutionName": "Institution name",
+        "institutionAddress": "Institution address",
+        "contactPerson": "Contact person",
+        "contactPersonNameRequired": "Contact person name is required.",
+        "contactPhoneRequired": "Contact person phone is required.",
+        "contactEmailRequired": "Contact person email is required.",
+        "contactEmailInvalid": "Contact person email format is invalid.",
         "phone": "Phone",
         "nationalId": "National ID (NIK)",
         "dobOptional": "Date of birth (optional)",
@@ -978,9 +984,6 @@
         "addressKtp": "Address (KTP)",
         "addressKtpOptional": "Address (KTP) (optional)",
         "addressDomicileOptional": "Address (domicile) (optional)",
-        "institutionName": "Institution name",
-        "institutionAddressOptional": "Institution address (optional)",
-        "contactPersonOptional": "Contact person (optional)",
         "name": "Name",
         "enterEmail": "Enter your email",
         "enterPassword": "Enter your password",
@@ -1206,7 +1209,12 @@
             "validation": {
                 "nameRequired": "Name is required.",
                 "emailRequired": "Email is required.",
-                "nikInvalid": "NIK must be exactly 16 digits."
+                "nikInvalid": "NIK must be exactly 16 digits.",
+                "institutionNameRequired": "Institution name is required.",
+                "contactPersonNameRequired": "Contact person name is required.",
+                "contactPersonPhoneRequired": "Contact person phone is required.",
+                "contactPersonEmailRequired": "Contact person email is required.",
+                "contactPersonEmailInvalid": "Contact person email format is invalid."
             },
             "placeholders": {
                 "nameIndividual": "Client full name",

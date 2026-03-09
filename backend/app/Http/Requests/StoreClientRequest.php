@@ -16,48 +16,56 @@ class StoreClientRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        // HANYA generate email_ci kalau kolomnya memang ada
-        if (!Schema::hasColumn('clients', 'email_ci')) {
-            return;
-        }
+        $payload = [];
 
         $email = $this->input('email');
-        if (!is_string($email)) return;
+        if (is_string($email)) {
+            $email = trim($email);
 
-        $email = trim($email);
-        if ($email === '') {
-            $this->merge(['email' => null, 'email_ci' => null]);
-            return;
+            if ($email === '') {
+                $payload['email'] = null;
+                $payload['email_ci'] = null;
+            } else {
+                $payload['email'] = $email;
+
+                if (Schema::hasColumn('clients', 'email_ci')) {
+                    $payload['email_ci'] = mb_strtolower($email);
+                }
+            }
         }
 
-        $this->merge([
-            'email' => $email,
-            'email_ci' => mb_strtolower($email),
-        ]);
+        if ($this->input('type') === 'institution') {
+            $institutionName = trim((string) $this->input('institution_name', ''));
+            $contactPhone = trim((string) $this->input('contact_person_phone', ''));
+
+            $payload['name'] = $institutionName !== '' ? $institutionName : null;
+            $payload['phone'] = $contactPhone !== '' ? $contactPhone : null;
+        }
+
+        if ($payload !== []) {
+            $this->merge($payload);
+        }
     }
 
     public function rules(): array
     {
         $rules = [
             'type' => ['required', 'in:individual,institution'],
-
-            'name'  => ['required', 'string', 'max:150'],
+            'name' => ['nullable', 'string', 'max:150'],
             'phone' => ['nullable', 'string', 'max:30'],
-            'email' => ['nullable', 'email', 'max:150'],
+            'email' => ['required', 'email', 'max:150'],
 
-            // Individual fields
-            'national_id'       => ['nullable', 'string', 'max:50'],
-            'date_of_birth'     => ['nullable', 'date'],
-            'gender'            => ['nullable', 'string', 'max:10'],
-            'address_ktp'       => ['nullable', 'string', 'max:255'],
-            'address_domicile'  => ['nullable', 'string', 'max:255'],
+            'national_id' => ['nullable', 'string', 'max:50'],
+            'date_of_birth' => ['nullable', 'date'],
+            'gender' => ['nullable', 'string', 'max:10'],
+            'address_ktp' => ['nullable', 'string', 'max:255'],
+            'address_domicile' => ['nullable', 'string', 'max:255'],
 
-            // Institutional fields
-            'institution_name'      => ['nullable', 'string', 'max:200'],
-            'institution_address'   => ['nullable', 'string', 'max:255'],
-            'contact_person_name'   => ['nullable', 'string', 'max:150'],
-            'contact_person_phone'  => ['nullable', 'string', 'max:30'],
-            'contact_person_email'  => ['nullable', 'email', 'max:150'],
+            'institution_name' => ['required_if:type,institution', 'string', 'max:200'],
+            'institution_address' => ['nullable', 'string', 'max:255'],
+            'contact_person_name' => ['required_if:type,institution', 'string', 'max:150'],
+            'contact_person_phone' => ['required_if:type,institution', 'string', 'max:30'],
+            'contact_person_email' => ['required_if:type,institution', 'email', 'max:150'],
         ];
 
         // Kalau email_ci ada → validasi unique ke email_ci (case-insensitive)
@@ -82,6 +90,11 @@ class StoreClientRequest extends FormRequest
         return [
             'email.unique' => 'Email sudah terdaftar.',
             'email_ci.unique' => 'Email sudah terdaftar.',
+            'institution_name.required_if' => 'Nama institusi wajib diisi.',
+            'contact_person_name.required_if' => 'Nama narahubung wajib diisi.',
+            'contact_person_phone.required_if' => 'Telepon narahubung wajib diisi.',
+            'contact_person_email.required_if' => 'Email narahubung wajib diisi.',
+            'contact_person_email.email' => 'Format email narahubung tidak valid.',
         ];
     }
 }
