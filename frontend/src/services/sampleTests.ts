@@ -1,9 +1,34 @@
-import { apiGet, apiPost, apiPatch } from "./api";
+import { apiGet, apiPatch, apiPost } from "./api";
 
 const RAW_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
 const API_VER =
     (import.meta.env.VITE_API_VER as string | undefined) ??
     (RAW_BASE === "/api" || RAW_BASE.endsWith("/api") ? "/v1" : "/api/v1");
+
+type QueryParams = Record<string, string | number | boolean | null | undefined>;
+
+function buildQueryString(params?: QueryParams) {
+    const qs = new URLSearchParams();
+
+    for (const [key, value] of Object.entries(params ?? {})) {
+        if (value === undefined || value === null || value === "") continue;
+        qs.set(key, String(value));
+    }
+
+    const query = qs.toString();
+    return query ? `?${query}` : "";
+}
+
+function unwrapApi<T>(res: any): T {
+    return (res?.data?.data ?? res?.data) as T;
+}
+
+function extractCollection<T>(value: any): T[] {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.data)) return value.data;
+    if (Array.isArray(value?.items)) return value.items;
+    return [];
+}
 
 export type Paginated<T> = {
     current_page: number;
@@ -21,12 +46,28 @@ export type Paginated<T> = {
     total?: number;
 };
 
+export type ApiEnvelope<T> = {
+    status: number;
+    message?: string | null;
+    data: T;
+    timestamp?: string;
+    context?: any;
+    meta?: any;
+};
+
 export type Unit = {
     unit_id: number;
     name: string;
     symbol?: string | null;
     description?: string | null;
     is_active: boolean;
+};
+
+export type UnitLite = {
+    unit_id: number;
+    code?: string | null;
+    name?: string | null;
+    symbol?: string | null;
 };
 
 export type Method = {
@@ -37,10 +78,29 @@ export type Method = {
     is_active: boolean;
 };
 
+export type MethodLite = {
+    method_id: number;
+    code?: string | null;
+    name: string;
+    description?: string | null;
+    is_active?: boolean;
+};
+
 export type Parameter = {
     parameter_id: number;
     code?: string | null;
     name: string;
+    unit?: string | null;
+    unit_id?: number | null;
+    method_ref?: string | null;
+    status?: string | null;
+    tag?: string | null;
+};
+
+export type ParameterLite = {
+    parameter_id: number;
+    code?: string | null;
+    name?: string | null;
     unit?: string | null;
     unit_id?: number | null;
     method_ref?: string | null;
@@ -79,7 +139,6 @@ export type SampleTest = {
     completed_at?: string | null;
     created_at?: string | null;
     updated_at?: string | null;
-
     parameter?: Parameter;
     method?: Method | null;
     assignee?: StaffLite | null;
@@ -94,66 +153,175 @@ export type TestResultPayload = {
     notes?: string | null;
 };
 
-export type UnitLite = {
-    unit_id: number;
-    code?: string | null;
-    name?: string | null;
-    symbol?: string | null;
+export type SampleTestStatus =
+    | "draft"
+    | "in_progress"
+    | "measured"
+    | "verified"
+    | "validated"
+    | "failed"
+    | string;
+
+export type BulkSampleTestItem = {
+    parameter_id: number;
+    method_id?: number | null;
+    assigned_to?: number | null;
 };
 
-export type SampleTestStatus = "draft" | "in_progress" | "measured" | "verified" | "validated" | string;
+export type BulkCreateTestItem = BulkSampleTestItem;
 
-// ---- API response shape (based on ApiResponse::success)
-type ApiSuccess<T> = {
-    timestamp?: string;
-    status: number;
-    message?: string | null;
-    data: T;
-    context?: any;
-    meta?: any;
+export type BulkCreateResponse = {
+    sample_id: number;
+    created_count: number;
+    skipped_count: number;
+    skipped_parameter_ids?: number[];
+    sample_ids?: number[];
 };
 
-function unwrap<T>(res: any): T {
-    return (res?.data?.data ?? res?.data) as T;
+export type BulkRunResult = {
+    okIds: number[];
+    failed: Array<{ id: number; error: unknown }>;
+};
+
+export async function listParameters(params?: {
+    page?: number;
+    per_page?: number;
+    q?: string;
+}) {
+    return apiGet<ApiEnvelope<Paginated<ParameterLite>>>(
+        `${API_VER}/parameters${buildQueryString(params)}`
+    );
+}
+
+export async function listMethods(params?: {
+    page?: number;
+    per_page?: number;
+    q?: string;
+}) {
+    return apiGet<ApiEnvelope<Paginated<MethodLite>>>(
+        `${API_VER}/methods${buildQueryString(params)}`
+    );
+}
+
+export async function listUnits(params?: { page?: number; per_page?: number }) {
+    return apiGet<ApiEnvelope<Paginated<UnitLite> | UnitLite[]>>(
+        `${API_VER}/units${buildQueryString(params)}`
+    );
+}
+
+export async function listSampleTestsBySample(
+    sampleId: number,
+    params?: { page?: number; per_page?: number; status?: string; assigned_to?: number }
+) {
+    return apiGet<ApiEnvelope<Paginated<SampleTest>>>(
+        `${API_VER}/samples/${sampleId}/sample-tests${buildQueryString(params)}`
+    );
+}
+
+export async function bulkCreateSampleTests(
+    sampleId: number,
+    tests: BulkSampleTestItem[],
+    sampleIds?: number[]
+) {
+    const body: { tests: BulkSampleTestItem[]; sample_ids?: number[] } = { tests };
+
+    if (Array.isArray(sampleIds) && sampleIds.length > 0) {
+        body.sample_ids = sampleIds;
+    }
+
+    return apiPost<ApiEnvelope<BulkCreateResponse>>(
+        `${API_VER}/samples/${sampleId}/sample-tests/bulk`,
+        body
+    );
+}
+
+export async function fetchUnits(perPage = 200): Promise<UnitLite[]> {
+    const res = await listUnits({ per_page: perPage });
+    return extractCollection<UnitLite>(unwrapApi(res));
+}
+
+export async function createSampleTestResult(
+    sampleTestId: number,
+    payload: TestResultPayload
+) {
+    return apiPost<ApiEnvelope<TestResult>>(
+        `${API_VER}/sample-tests/${sampleTestId}/results`,
+        payload
+    );
+}
+
+export async function updateSampleTestResult(
+    resultId: number,
+    payload: TestResultPayload
+) {
+    return apiPatch<ApiEnvelope<TestResult>>(
+        `${API_VER}/test-results/${resultId}`,
+        payload
+    );
+}
+
+export async function updateSampleTestStatus(
+    sampleTestId: number,
+    status: SampleTestStatus
+) {
+    return apiPost<ApiEnvelope<any>>(
+        `${API_VER}/sample-tests/${sampleTestId}/status`,
+        { status }
+    );
+}
+
+export async function fetchReagentCalculationBySample(sampleId: number) {
+    return apiGet<ApiEnvelope<any>>(`${API_VER}/samples/${sampleId}/reagent-calculation`);
+}
+
+export function unwrapCalc(res: any) {
+    const data = unwrapApi<any>(res);
+    if (!data) return null;
+    return data?.calc ?? data;
+}
+
+export async function verifySampleTest(id: number, note?: string | null) {
+    const payload = note ? { note } : {};
+    return apiPost<ApiEnvelope<any>>(`${API_VER}/sample-tests/${id}/verify`, payload);
+}
+
+export async function validateSampleTest(id: number, note?: string | null) {
+    const payload = note ? { note } : {};
+    return apiPost<ApiEnvelope<any>>(`${API_VER}/sample-tests/${id}/validate`, payload);
 }
 
 async function listBySample(
     sampleId: number,
     params?: { status?: string; assigned_to?: number; per_page?: number; page?: number }
 ) {
-    const res = await apiGet(`/samples/${sampleId}/sample-tests`, { params });
-    return unwrap<Paginated<SampleTest>>(res);
+    const res = await listSampleTestsBySample(sampleId, params);
+    return unwrapApi<Paginated<SampleTest>>(res);
 }
 
 async function bulkCreate(
     sampleId: number,
     payload: {
-        tests: Array<{ parameter_id: number; method_id?: number | null; assigned_to?: number | null }>;
+        tests: BulkSampleTestItem[];
+        sample_ids?: number[];
     }
 ) {
-    const res = await apiPost(`/samples/${sampleId}/sample-tests/bulk`, payload);
-    return unwrap<any>(res);
+    const res = await bulkCreateSampleTests(sampleId, payload.tests, payload.sample_ids);
+    return unwrapApi<BulkCreateResponse>(res);
 }
 
-async function updateStatus(sampleTestId: number, status: string) {
-    const res = await apiPost(`/sample-tests/${sampleTestId}/status`, { status });
-    return unwrap<any>(res);
+async function updateStatus(sampleTestId: number, status: SampleTestStatus) {
+    const res = await updateSampleTestStatus(sampleTestId, status);
+    return unwrapApi<any>(res);
 }
 
-async function createResult(
-    sampleTestId: number,
-    payload: { value_raw?: string | null; value_final?: string | null; unit_id?: number | null; flags?: any }
-) {
-    const res = await apiPost(`/sample-tests/${sampleTestId}/results`, payload);
-    return unwrap<TestResult>(res);
+async function createResult(sampleTestId: number, payload: TestResultPayload) {
+    const res = await createSampleTestResult(sampleTestId, payload);
+    return unwrapApi<TestResult>(res);
 }
 
-async function updateResult(
-    resultId: number,
-    payload: { value_raw?: string | null; value_final?: string | null; unit_id?: number | null; flags?: any }
-) {
-    const res = await apiPatch(`/test-results/${resultId}`, payload);
-    return unwrap<TestResult>(res);
+async function updateResult(resultId: number, payload: TestResultPayload) {
+    const res = await updateSampleTestResult(resultId, payload);
+    return unwrapApi<TestResult>(res);
 }
 
 export const sampleTestService = {
@@ -165,158 +333,6 @@ export const sampleTestService = {
     updateResult,
 };
 
-export type ApiEnvelope<T> = {
-    status: number;
-    message?: string | null;
-    data: T;
-    timestamp?: string;
-    context?: any;
-};
-
-export type ParameterLite = {
-    parameter_id: number;
-    code?: string | null;
-    name?: string | null;
-    unit?: string | null;
-    unit_id?: number | null;
-    method_ref?: string | null;
-    status?: string | null;
-    tag?: string | null;
-};
-
-export type MethodLite = {
-    method_id: number;
-    code?: string | null;
-    name: string;
-    description?: string | null;
-    is_active?: boolean;
-};
-
-export type BulkCreateTestItem = {
-    parameter_id: number;
-    method_id: number;
-    assigned_to?: number | null;
-};
-
-export type BulkCreateResponse = {
-    sample_id: number;
-    created_count: number;
-    skipped_count: number;
-    skipped_parameter_ids?: number[];
-};
-
-export async function listParameters(params?: {
-    page?: number;
-    per_page?: number;
-    q?: string;
-}) {
-    const qs = new URLSearchParams();
-    if (params?.page) qs.set("page", String(params.page));
-    if (params?.per_page) qs.set("per_page", String(params.per_page));
-    if (params?.q) qs.set("q", params.q);
-    const suffix = qs.toString() ? `?${qs.toString()}` : "";
-
-    return apiGet<ApiEnvelope<Paginated<ParameterLite>>>(
-        `${API_VER}/parameters${suffix}`
-    );
-}
-
-export async function listMethods(params?: {
-    page?: number;
-    per_page?: number;
-    q?: string;
-}) {
-    const qs = new URLSearchParams();
-    if (params?.page) qs.set("page", String(params.page));
-    if (params?.per_page) qs.set("per_page", String(params.per_page));
-    if (params?.q) qs.set("q", params.q);
-    const suffix = qs.toString() ? `?${qs.toString()}` : "";
-
-    return apiGet<ApiEnvelope<Paginated<MethodLite>>>(
-        `${API_VER}/methods${suffix}`
-    );
-}
-
-export async function listUnits(params?: { page?: number; per_page?: number }) {
-    const qs = new URLSearchParams();
-    if (params?.page) qs.set("page", String(params.page));
-    if (params?.per_page) qs.set("per_page", String(params.per_page));
-    const suffix = qs.toString() ? `?${qs.toString()}` : "";
-
-    return apiGet(`${API_VER}/units${suffix}`);
-}
-
-export async function listSampleTestsBySample(
-    sampleId: number,
-    params?: { page?: number; per_page?: number; status?: string }
-) {
-    const qs = new URLSearchParams();
-    if (params?.page) qs.set("page", String(params.page));
-    if (params?.per_page) qs.set("per_page", String(params.per_page));
-    if (params?.status) qs.set("status", params.status);
-    const suffix = qs.toString() ? `?${qs.toString()}` : "";
-
-    return apiGet(`${API_VER}/samples/${sampleId}/sample-tests${suffix}`);
-}
-
-export async function bulkCreateSampleTests(
-    sampleId: number,
-    tests: BulkCreateTestItem[]
-) {
-    return apiPost<ApiEnvelope<BulkCreateResponse>>(
-        `${API_VER}/samples/${sampleId}/sample-tests/bulk`,
-        { tests }
-    );
-}
-
-// ✅ Load units for dropdown
-export async function fetchUnits(perPage = 200): Promise<UnitLite[]> {
-    const res = await apiGet<any>(`/v1/units?per_page=${perPage}`);
-    // adapt ke response kamu: bisa res.data.data atau res.data.items
-    return res?.data?.data ?? res?.data?.items ?? res?.data ?? [];
-}
-
-// ✅ create result
-export async function createSampleTestResult(sampleTestId: number, payload: any) {
-    // kalau baseURL kamu sudah "/api", pakai "/v1/..."
-    return apiPost(`/v1/sample-tests/${sampleTestId}/results`, payload);
-}
-
-// ✅ update result
-export async function updateSampleTestResult(resultId: number, payload: any) {
-    return apiPatch(`/v1/test-results/${resultId}`, payload);
-}
-
-// ✅ update status
-export async function updateSampleTestStatus(sampleTestId: number, status: "in_progress" | "measured" | "failed") {
-    return apiPost(`/v1/sample-tests/${sampleTestId}/status`, { status });
-}
-
-export async function fetchReagentCalculationBySample(sampleId: number) {
-    return apiGet(`/v1/samples/${sampleId}/reagent-calculation`);
-}
-
-export function unwrapCalc(res: any) {
-    const data = res?.data?.data;
-    if (!data) return null;
-    return data?.calc ?? data;
-}
-
-export async function verifySampleTest(id: number, note?: string | null) {
-    const payload = note ? { note } : {};
-    return apiPost<ApiEnvelope<any>>(`/v1/sample-tests/${id}/verify`, payload);
-}
-
-export async function validateSampleTest(id: number, note?: string | null) {
-    const payload = note ? { note } : {};
-    return apiPost<ApiEnvelope<any>>(`/v1/sample-tests/${id}/validate`, payload);
-}
-
-export type BulkRunResult = {
-    okIds: number[];
-    failed: Array<{ id: number; error: any }>;
-};
-
 export async function runBulkLimited(
     ids: number[],
     runner: (id: number) => Promise<any>,
@@ -324,18 +340,20 @@ export async function runBulkLimited(
 ): Promise<BulkRunResult> {
     const queue = [...ids];
     const okIds: number[] = [];
-    const failed: Array<{ id: number; error: any }> = [];
+    const failed: Array<{ id: number; error: unknown }> = [];
 
     const workerCount = Math.max(1, Math.min(concurrency, ids.length || 1));
 
-    const workers = Array.from({ length: workerCount }).map(async () => {
+    const workers = Array.from({ length: workerCount }, async () => {
         while (queue.length > 0) {
-            const id = queue.shift()!;
+            const id = queue.shift();
+            if (id == null) continue;
+
             try {
                 await runner(id);
                 okIds.push(id);
-            } catch (e) {
-                failed.push({ id, error: e });
+            } catch (error) {
+                failed.push({ id, error });
             }
         }
     });
@@ -366,8 +384,10 @@ export async function runSerial<T>(
     worker: (item: T) => Promise<any>
 ) {
     const results: any[] = [];
+
     for (const item of items) {
         results.push(await worker(item));
     }
+
     return results;
 }

@@ -16,13 +16,10 @@ class TestingBoardMoveRequest extends FormRequest
         return [
             'sample_id' => ['required', 'integer', 'min:1'],
             'to_column_id' => ['required', 'integer', 'min:1'],
-
-            // optional
             'workflow_group' => ['nullable', 'string', 'max:50'],
             'note' => ['nullable', 'string'],
-
-            // ✅ NEW: finalize last stage (record exited_at without moving)
             'finalize' => ['nullable', 'boolean'],
+            'apply_to_batch' => ['nullable', 'boolean'],
         ];
     }
 }

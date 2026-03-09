@@ -24,12 +24,13 @@ type CandidateSample = {
     sample_id: number;
     lab_sample_code?: string | null;
     sample_type?: string | null;
-
     verified_at?: string | null;
     received_at?: string | null;
     physically_received_at?: string | null;
     admin_received_from_client_at?: string | null;
-
+    request_batch_id?: string | null;
+    request_batch_item_no?: number | null;
+    request_batch_total?: number | null;
     client?: { name?: string | null; organization?: string | null } | null;
     requested_parameters?: RequestedParameter[] | null;
 };
@@ -41,10 +42,6 @@ function normalizeRole(label: string) {
     return String(label || "").trim().toLowerCase();
 }
 
-/**
- * Derive role code used by approvals from visible label.
- * Keep forgiving (labels can vary slightly).
- */
 function getActorRoleCode(roleLabel: string): "OM" | "LH" | null {
     const r = normalizeRole(roleLabel);
     if (r === "om" || r.includes("operational manager")) return "OM";
@@ -62,10 +59,6 @@ function toStrOrNull(v: any): string | null {
     return s ? s : null;
 }
 
-/**
- * Normalize absolute URL into same-origin path when possible.
- * This helps preview modal avoid cross-origin session issues.
- */
 function normalizeUrlToSameOriginPath(url: string): string {
     const raw = String(url || "").trim();
     if (!raw) return raw;
@@ -78,39 +71,47 @@ function normalizeUrlToSameOriginPath(url: string): string {
             return raw;
         }
     }
+
     return raw;
 }
 
-/**
- * Prefer download_url -> pdf_file_id -> pdf_url -> fallback.
- */
 function resolveResultUrl(res: any): string | null {
     const obj = res?.data ?? res;
 
-    const dl = obj?.download_url ?? res?.download_url;
-    if (typeof dl === "string" && dl.trim() !== "") return normalizeUrlToSameOriginPath(dl);
+    const downloadUrl = obj?.download_url ?? res?.download_url;
+    if (typeof downloadUrl === "string" && downloadUrl.trim() !== "") {
+        return normalizeUrlToSameOriginPath(downloadUrl);
+    }
 
     const pdfFileId = toIntOrZero(obj?.pdf_file_id ?? obj?.pdfFileId ?? res?.pdf_file_id ?? res?.pdfFileId);
     if (pdfFileId > 0) return `/api/v1/files/${pdfFileId}`;
 
-    const pdf = obj?.pdf_url ?? res?.pdf_url;
-    if (typeof pdf === "string" && pdf.trim() !== "") return normalizeUrlToSameOriginPath(pdf);
+    const pdfUrl = obj?.pdf_url ?? res?.pdf_url;
+    if (typeof pdfUrl === "string" && pdfUrl.trim() !== "") {
+        return normalizeUrlToSameOriginPath(pdfUrl);
+    }
 
-    const loId = obj?.lo_id ?? obj?.loo_id ?? obj?.id ?? res?.lo_id ?? res?.id;
-    if (typeof loId === "number" && loId > 0) return `/api/v1/reports/documents/loo/${loId}/pdf`;
+    const looId = obj?.lo_id ?? obj?.loo_id ?? obj?.id ?? res?.lo_id ?? res?.id;
+    if (typeof looId === "number" && looId > 0) {
+        return `/api/v1/reports/documents/loo/${looId}/pdf`;
+    }
 
-    const fu = obj?.file_url ?? res?.file_url;
-    if (typeof fu === "string" && fu.trim() !== "") {
-        const s = normalizeUrlToSameOriginPath(fu);
-        if (/^https?:\/\//i.test(s)) return s;
-        if (s.startsWith("/api/") || s.startsWith("/v1/")) return s;
+    const fileUrl = obj?.file_url ?? res?.file_url;
+    if (typeof fileUrl === "string" && fileUrl.trim() !== "") {
+        const normalized = normalizeUrlToSameOriginPath(fileUrl);
+        if (/^https?:\/\//i.test(normalized)) return normalized;
+        if (normalized.startsWith("/api/") || normalized.startsWith("/v1/")) return normalized;
     }
 
     return null;
 }
 
-function pickReceivedAt(s: CandidateSample): string | null {
-    return s.received_at ?? s.physically_received_at ?? s.admin_received_from_client_at ?? null;
+function pickReceivedAt(sample: CandidateSample): string | null {
+    return sample.received_at ?? sample.physically_received_at ?? sample.admin_received_from_client_at ?? null;
+}
+
+function getErrorMessage(err: any, fallback: string): string {
+    return err?.response?.data?.message ?? err?.data?.message ?? err?.message ?? fallback;
 }
 
 export function LooGeneratorPage() {
@@ -124,18 +125,14 @@ export function LooGeneratorPage() {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const [items, setItems] = useState<CandidateSample[]>([]);
+    const [candidates, setCandidates] = useState<CandidateSample[]>([]);
     const [q, setQ] = useState("");
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
-    // Server-backed approvals per sample (single source of truth).
     const [approvals, setApprovals] = useState<Record<number, ApprovalState>>({});
-
-    // Selection & param selection (used for bulk generate).
     const [selected, setSelected] = useState<Record<number, boolean>>({});
     const [paramSel, setParamSel] = useState<Record<number, Record<number, boolean>>>({});
 
-    // Preview modal state
     const [resultUrl, setResultUrl] = useState<string | null>(null);
     const [resultNumber, setResultNumber] = useState<string | null>(null);
     const [resultRecordNo, setResultRecordNo] = useState<string | null>(null);
@@ -156,21 +153,19 @@ export function LooGeneratorPage() {
         setPreviewOpen(false);
     }, []);
 
-    /**
-     * Initialize selection maps for a new list:
-     * - selected: false by default
-     * - paramSel: all requested parameters checked by default (fast path for users)
-     */
     const initSelectionMaps = useCallback((list: CandidateSample[]) => {
         const nextSelected: Record<number, boolean> = {};
         const nextParamSel: Record<number, Record<number, boolean>> = {};
 
-        for (const s of list) {
-            nextSelected[s.sample_id] = false;
+        for (const sample of list) {
+            nextSelected[sample.sample_id] = false;
 
-            const map: Record<number, boolean> = {};
-            for (const p of s.requested_parameters ?? []) map[p.parameter_id] = true;
-            nextParamSel[s.sample_id] = map;
+            const nextSampleParamSel: Record<number, boolean> = {};
+            for (const parameter of sample.requested_parameters ?? []) {
+                nextSampleParamSel[parameter.parameter_id] = true;
+            }
+
+            nextParamSel[sample.sample_id] = nextSampleParamSel;
         }
 
         setSelected(nextSelected);
@@ -184,23 +179,24 @@ export function LooGeneratorPage() {
         }
 
         try {
-            // ✅ Service already normalizes OM/LH keys internally.
-            const st = await looService.getApprovals(sampleIds);
+            const state = await looService.getApprovals(sampleIds);
 
             const next: Record<number, ApprovalState> = {};
-            for (const sid of sampleIds) {
-                const row = st?.[sid] ?? null;
-                next[sid] = {
+            for (const sampleId of sampleIds) {
+                const row = state?.[sampleId] ?? null;
+                next[sampleId] = {
                     OM: !!row?.OM,
                     LH: !!row?.LH,
                     ready: !!row?.ready,
                 };
             }
+
             setApprovals(next);
         } catch {
-            // Keep UI stable with safe defaults.
             const next: Record<number, ApprovalState> = {};
-            for (const sid of sampleIds) next[sid] = { OM: false, LH: false, ready: false };
+            for (const sampleId of sampleIds) {
+                next[sampleId] = { OM: false, LH: false, ready: false };
+            }
             setApprovals(next);
         }
     }, []);
@@ -213,7 +209,10 @@ export function LooGeneratorPage() {
             try {
                 setLoading(true);
                 setError(null);
-                if (shouldResetResult) resetResult();
+
+                if (shouldResetResult) {
+                    resetResult();
+                }
 
                 const res = await apiGet<any>("/v1/samples/requests", {
                     params: { mode: "loo_candidates", q: query || undefined },
@@ -222,23 +221,17 @@ export function LooGeneratorPage() {
                 const data = (res?.data?.data ?? res?.data ?? res) as any[];
                 const list: CandidateSample[] = Array.isArray(data) ? data : [];
 
-                setItems(list);
+                setCandidates(list);
                 initSelectionMaps(list);
 
-                const ids = list.map((x) => x.sample_id);
-                await refreshApprovals(ids);
+                await refreshApprovals(list.map((row) => row.sample_id));
             } catch (err: any) {
-                const msg =
-                    err?.response?.data?.message ??
-                    err?.data?.message ??
-                    err?.message ??
-                    t("loo.generator.errors.loadFailed", "Failed to load candidates.");
-                setError(msg);
+                setError(getErrorMessage(err, t("loo.generator.errors.loadFailed", "Failed to load candidates.")));
             } finally {
                 setLoading(false);
             }
         },
-        [q, initSelectionMaps, refreshApprovals, resetResult, t]
+        [initSelectionMaps, q, refreshApprovals, resetResult, t]
     );
 
     useEffect(() => {
@@ -246,92 +239,128 @@ export function LooGeneratorPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Debounced search reload
     useEffect(() => {
-        if (debounceRef.current) window.clearTimeout(debounceRef.current);
+        if (debounceRef.current) {
+            window.clearTimeout(debounceRef.current);
+        }
 
         debounceRef.current = window.setTimeout(() => {
             load({ query: q });
         }, 350);
 
         return () => {
-            if (debounceRef.current) window.clearTimeout(debounceRef.current);
+            if (debounceRef.current) {
+                window.clearTimeout(debounceRef.current);
+            }
         };
     }, [q, load]);
 
-    /**
-     * Auto-refresh approvals only (not the entire list), so we don't destroy selection.
-     * Fixes: "LH already approved but OM doesn't see it" / "refresh then disappear".
-     */
     useEffect(() => {
-        if (pollRef.current) window.clearInterval(pollRef.current);
+        if (pollRef.current) {
+            window.clearInterval(pollRef.current);
+        }
 
         pollRef.current = window.setInterval(() => {
             if (busy || loading) return;
-            refreshApprovals(items.map((x) => x.sample_id));
+            refreshApprovals(candidates.map((row) => row.sample_id));
         }, 12000);
 
         const onFocus = () => {
             if (busy || loading) return;
-            refreshApprovals(items.map((x) => x.sample_id));
+            refreshApprovals(candidates.map((row) => row.sample_id));
         };
 
         window.addEventListener("focus", onFocus);
         document.addEventListener("visibilitychange", onFocus);
 
         return () => {
-            if (pollRef.current) window.clearInterval(pollRef.current);
+            if (pollRef.current) {
+                window.clearInterval(pollRef.current);
+            }
             window.removeEventListener("focus", onFocus);
             document.removeEventListener("visibilitychange", onFocus);
         };
-    }, [busy, loading, items, refreshApprovals]);
+    }, [busy, loading, candidates, refreshApprovals]);
+
+    const candidateById = useMemo(() => {
+        return candidates.reduce<Record<number, CandidateSample>>((acc, row) => {
+            acc[Number(row.sample_id)] = row;
+            return acc;
+        }, {});
+    }, [candidates]);
 
     const itemsShown = useMemo(() => {
-        const list = items ?? [];
-        if (statusFilter === "all") return list;
+        if (statusFilter === "all") return candidates;
 
-        return list.filter((s) => {
-            const st = approvals[s.sample_id] ?? { OM: false, LH: false, ready: false };
-            if (statusFilter === "ready") return !!st.ready;
-            if (statusFilter === "needs_approval") return !st.ready;
+        return candidates.filter((sample) => {
+            const state = approvals[sample.sample_id] ?? { OM: false, LH: false, ready: false };
+            if (statusFilter === "ready") return !!state.ready;
+            if (statusFilter === "needs_approval") return !state.ready;
             return true;
         });
-    }, [items, approvals, statusFilter]);
+    }, [approvals, candidates, statusFilter]);
 
-    const selectedIds = useMemo(() => {
-        return Object.keys(selected)
-            .map((k) => Number(k))
-            .filter((id) => selected[id]);
-    }, [selected]);
+    const selectedIds = useMemo(
+        () =>
+            Object.keys(selected)
+                .filter((key) => selected[Number(key)])
+                .map(Number),
+        [selected]
+    );
 
-    const readySelectedIds = useMemo(() => {
-        return selectedIds.filter((sid) => !!approvals[sid]?.ready);
-    }, [selectedIds, approvals]);
+    const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+
+    const selectedSamples = useMemo(
+        () => candidates.filter((row) => selectedIdSet.has(Number(row.sample_id))),
+        [candidates, selectedIdSet]
+    );
+
+    const selectedBatchIds = useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    selectedSamples
+                        .map((row) => String(row.request_batch_id ?? "").trim())
+                        .filter(Boolean)
+                )
+            ),
+        [selectedSamples]
+    );
+
+    const hasMixedBatchSelection = selectedBatchIds.length > 1;
+
+    const readySelectedIds = useMemo(
+        () =>
+            selectedIds.filter((id) => approvals[id]?.ready).filter((id) => {
+                if (!selectedBatchIds.length) return true;
+                const sample = candidateById[id];
+                return String(sample?.request_batch_id ?? "").trim() === selectedBatchIds[0];
+            }),
+        [approvals, candidateById, selectedBatchIds, selectedIds]
+    );
 
     const anyReadyInList = useMemo(() => {
-        return items.some((s) => !!approvals[s.sample_id]?.ready);
-    }, [items, approvals]);
+        return candidates.some((sample) => !!approvals[sample.sample_id]?.ready);
+    }, [approvals, candidates]);
 
     const readyCountInList = useMemo(() => {
-        return items.filter((s) => !!approvals[s.sample_id]?.ready).length;
-    }, [items, approvals]);
+        return candidates.filter((sample) => !!approvals[sample.sample_id]?.ready).length;
+    }, [approvals, candidates]);
 
     const selectedShownCount = useMemo(() => {
-        return itemsShown.filter((s) => !!selected[s.sample_id]).length;
+        return itemsShown.filter((sample) => !!selected[sample.sample_id]).length;
     }, [itemsShown, selected]);
 
-    const toggleAllShown = (v: boolean) => {
+    const toggleAllShown = (value: boolean) => {
         setSelected((prev) => {
             const next = { ...prev };
-            for (const s of itemsShown) next[s.sample_id] = v;
+            for (const sample of itemsShown) {
+                next[sample.sample_id] = value;
+            }
             return next;
         });
     };
 
-    /**
-     * Optimistic update + reconcile with server truth.
-     * IMPORTANT: backend may return lowercase keys (om/lh/ready) -> service normalizes.
-     */
     const setApprovalFor = useCallback(
         async (sampleId: number, nextApproved: boolean) => {
             if (!actorRole) return;
@@ -340,10 +369,9 @@ export function LooGeneratorPage() {
                 setBusy(true);
                 setError(null);
 
-                // Optimistic UI update
                 setApprovals((prev) => {
-                    const cur = prev[sampleId] ?? { OM: false, LH: false, ready: false };
-                    const next = { ...cur };
+                    const current = prev[sampleId] ?? { OM: false, LH: false, ready: false };
+                    const next = { ...current };
 
                     if (actorRole === "OM") next.OM = nextApproved;
                     if (actorRole === "LH") next.LH = nextApproved;
@@ -354,9 +382,8 @@ export function LooGeneratorPage() {
 
                 const res = await looService.setApproval(sampleId, nextApproved);
 
-                // ✅ Always trust the normalized server state
-                setApprovals((p) => ({
-                    ...p,
+                setApprovals((prev) => ({
+                    ...prev,
                     [sampleId]: {
                         OM: !!res.state.OM,
                         LH: !!res.state.LH,
@@ -364,37 +391,31 @@ export function LooGeneratorPage() {
                     },
                 }));
             } catch (err: any) {
-                const msg =
-                    err?.response?.data?.message ??
-                    err?.data?.message ??
-                    err?.message ??
-                    t("loo.generator.errors.approvalFailed", "Failed to update approval.");
-                setError(msg);
-
-                // Rollback via refresh
-                await refreshApprovals(items.map((x) => x.sample_id));
+                setError(getErrorMessage(err, t("loo.generator.errors.approvalFailed", "Failed to update approval.")));
+                await refreshApprovals(candidates.map((row) => row.sample_id));
             } finally {
                 setBusy(false);
             }
         },
-        [actorRole, items, refreshApprovals, t]
+        [actorRole, candidates, refreshApprovals, t]
     );
 
-    const buildParamMapFor = (ids: number[]): Record<number, number[]> => {
+    const buildParamMapFor = (sampleIds: number[]): Record<number, number[]> => {
         const out: Record<number, number[]> = {};
-        for (const sid of ids) {
-            const map = paramSel[sid] ?? {};
-            const pids = Object.keys(map)
-                .map((k) => Number(k))
-                .filter((pid) => map[pid]);
-            out[sid] = pids;
+
+        for (const sampleId of sampleIds) {
+            const map = paramSel[sampleId] ?? {};
+            out[sampleId] = Object.keys(map)
+                .map(Number)
+                .filter((parameterId) => map[parameterId]);
         }
+
         return out;
     };
 
     const generateDisabledReason = (() => {
         if (busy) return t(["processing", "common.processing"], "Processing…");
-        if (items.length === 0) return t("loo.generator.disabled.noCandidates", "No candidates available.");
+        if (candidates.length === 0) return t("loo.generator.disabled.noCandidates", "No candidates available.");
         if (!anyReadyInList) return t("loo.generator.disabled.noneReadyInList", "No ready samples in the list.");
         if (readySelectedIds.length === 0) return t("loo.generator.disabled.pickReady", "Select at least one ready sample.");
         return "";
@@ -408,19 +429,25 @@ export function LooGeneratorPage() {
             return;
         }
 
-        if (!readySelectedIds.length) {
+        if (readySelectedIds.length === 0) {
             setError(t("loo.generator.errors.noneReadySelected", "None of the selected samples are ready."));
             return;
         }
 
-        const map = buildParamMapFor(readySelectedIds);
+        if (hasMixedBatchSelection) {
+            setError(
+                t("loo.generator.errors.mixedBatch", "Institutional LOO cannot mix different request batches.")
+            );
+            return;
+        }
 
-        // Validate at least one param per ready sample
-        for (const sid of readySelectedIds) {
-            if (!map[sid] || map[sid].length === 0) {
+        const paramMap = buildParamMapFor(readySelectedIds);
+
+        for (const sampleId of readySelectedIds) {
+            if (!paramMap[sampleId] || paramMap[sampleId].length === 0) {
                 setError(
                     t("loo.generator.errors.paramRequiredForSample", "Select at least one parameter for sample #{{id}}.", {
-                        id: sid,
+                        id: sampleId,
                     })
                 );
                 return;
@@ -432,19 +459,19 @@ export function LooGeneratorPage() {
             setError(null);
             resetResult();
 
-            const res = await looService.generateForSamples(readySelectedIds, map);
+            const res = await looService.generateForSamples(readySelectedIds, paramMap);
             const obj = (res as any)?.data ?? (res as any);
 
             const looNumber =
                 typeof obj?.number === "string"
-                    ? (obj.number as string)
+                    ? obj.number
                     : typeof obj?.loo_number === "string"
-                        ? (obj.loo_number as string)
+                        ? obj.loo_number
                         : null;
 
             setResultNumber(looNumber);
-            setResultRecordNo(toStrOrNull(obj?.record_no ?? obj?.payload?.record_no) ?? null);
-            setResultFormCode(toStrOrNull(obj?.form_code ?? obj?.payload?.form_code) ?? null);
+            setResultRecordNo(toStrOrNull(obj?.record_no ?? obj?.payload?.record_no));
+            setResultFormCode(toStrOrNull(obj?.form_code ?? obj?.payload?.form_code));
 
             const url = resolveResultUrl(res);
             if (!url) {
@@ -453,22 +480,14 @@ export function LooGeneratorPage() {
             }
 
             setResultUrl(url);
-
-            // Refresh list after generating (result stays visible)
             await load({ resetResult: false, query: q });
         } catch (err: any) {
-            const msg =
-                err?.response?.data?.message ??
-                err?.data?.message ??
-                err?.message ??
-                t("loo.generator.errors.generateFailed", "Failed to generate LOO.");
-            setError(msg);
+            setError(getErrorMessage(err, t("loo.generator.errors.generateFailed", "Failed to generate LOO.")));
         } finally {
             setBusy(false);
         }
     };
 
-    // Small consistent chip styling
     const chipBase = "inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold";
     const chipOk = "bg-emerald-50 text-emerald-700 border-emerald-200";
     const chipNeutral = "bg-gray-50 text-gray-700 border-gray-200";
@@ -476,13 +495,12 @@ export function LooGeneratorPage() {
 
     return (
         <div className="min-h-[60vh]">
-            {/* Header */}
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
+            <div className="flex flex-col gap-3 px-0 py-2 md:flex-row md:items-center md:justify-between">
                 <div>
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                    <h1 className="text-lg font-bold text-gray-900 md:text-xl">
                         {t(["nav.looWorkspace", "loo.generator.title"], "LOO Workspace")}
                     </h1>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="mt-1 text-xs text-gray-500">
                         {t(
                             "loo.generator.subtitle",
                             "Pick eligible samples, collect approvals, then generate the Letter of Order (LOO)."
@@ -511,10 +529,8 @@ export function LooGeneratorPage() {
                 </div>
             </div>
 
-            {/* Card */}
-            <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                {/* Filter bar */}
-                <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
+            <div className="mt-2 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+                <div className="flex flex-col gap-3 border-b border-gray-100 bg-white px-4 py-4 md:flex-row md:items-center md:px-6">
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="loo-search">
                             {t(["search", "common.search"], "Search")}
@@ -533,7 +549,7 @@ export function LooGeneratorPage() {
                                     if (e.key === "Enter") load({ query: q });
                                 }}
                                 placeholder={t("loo.generator.searchPlaceholder", "Search by sample code / client / sample type…")}
-                                className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                className="w-full rounded-xl border border-gray-300 py-2 pl-9 pr-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-soft"
                             />
                         </div>
                     </div>
@@ -542,6 +558,7 @@ export function LooGeneratorPage() {
                         <label className="sr-only" htmlFor="loo-status-filter">
                             {t("loo.generator.filters.statusLabel", "Status filter")}
                         </label>
+
                         <div className="relative">
                             <select
                                 id="loo-status-filter"
@@ -549,7 +566,7 @@ export function LooGeneratorPage() {
                                 onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
                                 className={cx(
                                     "w-full appearance-none rounded-xl border border-gray-300 bg-white px-3 py-2 pr-9 text-sm",
-                                    "focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                    "focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-soft"
                                 )}
                             >
                                 <option value="all">{t("loo.generator.filters.statusAll", "All")}</option>
@@ -560,7 +577,7 @@ export function LooGeneratorPage() {
                         </div>
                     </div>
 
-                    <div className="w-full md:w-auto flex flex-col sm:flex-row gap-2">
+                    <div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto">
                         <button
                             type="button"
                             className="btn-outline inline-flex items-center gap-2"
@@ -583,14 +600,13 @@ export function LooGeneratorPage() {
                     </div>
                 </div>
 
-                <div className="px-4 md:px-6 py-4">
-                    {error && (
-                        <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl mb-4">
+                <div className="px-4 py-4 md:px-6">
+                    {error ? (
+                        <div className="mb-4 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
                             {error}
                         </div>
-                    )}
+                    ) : null}
 
-                    {/* Guidance */}
                     <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
                         <div className="flex items-start gap-2">
                             <span className="mt-0.5 text-gray-500">
@@ -602,8 +618,7 @@ export function LooGeneratorPage() {
                         </div>
                     </div>
 
-                    {/* Summary */}
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 mb-4">
+                    <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-gray-600">
                         <span className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1">
                             {t("loo.generator.summary.visible", "Visible")}{" "}
                             <span className="font-semibold text-gray-900">{itemsShown.length}</span>
@@ -622,20 +637,32 @@ export function LooGeneratorPage() {
                         </span>
                     </div>
 
+                    {selectedBatchIds.length === 1 ? (
+                        <div className="mt-3 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3 text-xs text-sky-800">
+                            {t("loo.generator.batch.selected", "Institutional batch selected")}: {selectedBatchIds[0]}
+                        </div>
+                    ) : null}
+
+                    {hasMixedBatchSelection ? (
+                        <div className="mt-3 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-xs text-rose-700">
+                            {t("loo.generator.batch.mixed", "Mixed institutional batches are not allowed in one LOO.")}
+                        </div>
+                    ) : null}
+
                     {loading ? (
-                        <div className="text-sm text-gray-600 flex items-center gap-2">
+                        <div className="flex items-center gap-2 text-sm text-gray-600">
                             <RefreshCw className="h-4 w-4 animate-spin text-primary" />
                             <span>{t(["loading", "common.loading"], "Loading…")}</span>
                         </div>
                     ) : itemsShown.length === 0 ? (
                         <div className="rounded-2xl border border-gray-200 bg-white px-5 py-8 text-center">
-                            <div className="mx-auto h-10 w-10 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-500">
+                            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-gray-50 text-gray-500">
                                 <FileText size={18} />
                             </div>
                             <div className="mt-3 text-sm font-semibold text-gray-900">
                                 {t("loo.generator.emptyTitle", "No candidates found.")}
                             </div>
-                            <div className="mt-1 text-xs text-gray-500 max-w-xl mx-auto">
+                            <div className="mx-auto mt-1 max-w-xl text-xs text-gray-500">
                                 {t("loo.generator.emptyBody", "Try adjusting your search or status filter, then refresh.")}
                             </div>
                             <div className="mt-4">
@@ -646,37 +673,30 @@ export function LooGeneratorPage() {
                         </div>
                     ) : (
                         <div className="space-y-3">
-                            {itemsShown.map((s) => {
-                                const sid = s.sample_id;
-                                const st = approvals[sid] ?? { OM: false, LH: false, ready: false };
-                                const checked = !!selected[sid];
-                                const rx = pickReceivedAt(s);
-
-                                const params = s.requested_parameters ?? [];
-                                const selMap = paramSel[sid] ?? {};
-
-                                const readyChip = st.ready ? chipOk : chipWarn;
-
-                                const canApproveThisRole =
-                                    (actorRole === "OM") || (actorRole === "LH");
-
-                                const myApproved = actorRole === "OM" ? st.OM : actorRole === "LH" ? st.LH : false;
+                            {itemsShown.map((sample) => {
+                                const sampleId = sample.sample_id;
+                                const state = approvals[sampleId] ?? { OM: false, LH: false, ready: false };
+                                const checked = !!selected[sampleId];
+                                const receivedAt = pickReceivedAt(sample);
+                                const params = sample.requested_parameters ?? [];
+                                const selectedParamMap = paramSel[sampleId] ?? {};
+                                const readyChip = state.ready ? chipOk : chipWarn;
+                                const myApproved = actorRole === "OM" ? state.OM : actorRole === "LH" ? state.LH : false;
 
                                 return (
                                     <div
-                                        key={sid}
+                                        key={sampleId}
                                         className={cx(
                                             "rounded-2xl border p-4",
-                                            st.ready ? "border-emerald-200 bg-emerald-50/20" : "border-gray-200 bg-white"
+                                            state.ready ? "border-emerald-200 bg-emerald-50/20" : "border-gray-200 bg-white"
                                         )}
                                     >
-                                        {/* Top row */}
-                                        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                                             <div className="flex items-start gap-3">
                                                 <input
                                                     type="checkbox"
                                                     checked={checked}
-                                                    onChange={(e) => setSelected((p) => ({ ...p, [sid]: e.target.checked }))}
+                                                    onChange={(e) => setSelected((prev) => ({ ...prev, [sampleId]: e.target.checked }))}
                                                     disabled={busy}
                                                     className="mt-1"
                                                 />
@@ -684,53 +704,67 @@ export function LooGeneratorPage() {
                                                 <div className="min-w-0">
                                                     <div className="flex flex-wrap items-center gap-2">
                                                         <div className="text-sm font-semibold text-gray-900">
-                                                            #{sid}{" "}
-                                                            {s.lab_sample_code ? (
-                                                                <span className="ml-2 font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
-                                                                    {s.lab_sample_code}
+                                                            #{sampleId}{" "}
+                                                            {sample.lab_sample_code ? (
+                                                                <span className="ml-2 rounded-full border border-gray-200 bg-white px-3 py-1 font-mono text-xs">
+                                                                    {sample.lab_sample_code}
                                                                 </span>
                                                             ) : null}
                                                         </div>
 
                                                         <span className={cx(chipBase, readyChip)}>
-                                                            {st.ready ? t("loo.generator.approval.readyStatus", "Ready") : t("loo.generator.approval.notReadyStatus", "Not ready")}
+                                                            {state.ready
+                                                                ? t("loo.generator.approval.readyStatus", "Ready")
+                                                                : t("loo.generator.approval.notReadyStatus", "Not ready")}
                                                         </span>
+
+                                                        {sample.request_batch_id ? (
+                                                            <span className={cx(chipBase, "bg-sky-50 text-sky-700 border-sky-200")}>
+                                                                {t("loo.generator.batch.label", "Batch")} {sample.request_batch_id}
+                                                                {sample.request_batch_item_no && sample.request_batch_total
+                                                                    ? ` · ${sample.request_batch_item_no}/${sample.request_batch_total}`
+                                                                    : ""}
+                                                            </span>
+                                                        ) : null}
                                                     </div>
 
-                                                    <div className="text-xs text-gray-600 mt-1">
-                                                        {s.client?.name ?? NA}
-                                                        {s.client?.organization ? ` · ${s.client.organization}` : ""}
-                                                        {s.sample_type ? ` · ${s.sample_type}` : ""}
+                                                    <div className="mt-1 text-xs text-gray-600">
+                                                        {sample.client?.name ?? NA}
+                                                        {sample.client?.organization ? ` · ${sample.client.organization}` : ""}
+                                                        {sample.sample_type ? ` · ${sample.sample_type}` : ""}
                                                     </div>
 
-                                                    <div className="text-[11px] text-gray-500 mt-1">
+                                                    <div className="mt-1 text-[11px] text-gray-500">
                                                         {t("loo.generator.timestamps.verified", "Verified")}{" "}
-                                                        {s.verified_at ? formatDateTimeLocal(s.verified_at) : NA} ·{" "}
+                                                        {sample.verified_at ? formatDateTimeLocal(sample.verified_at) : NA} ·{" "}
                                                         {t("loo.generator.timestamps.received", "Received")}{" "}
-                                                        {rx ? formatDateTimeLocal(rx) : NA}
+                                                        {receivedAt ? formatDateTimeLocal(receivedAt) : NA}
                                                     </div>
 
                                                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                                                        <span className={cx(chipBase, st.OM ? chipOk : chipNeutral)}>
+                                                        <span className={cx(chipBase, state.OM ? chipOk : chipNeutral)}>
                                                             {t("loo.generator.approval.om", "OM")}:{" "}
-                                                            {st.OM ? t("loo.generator.approval.approved", "Approved") : t("loo.generator.approval.pending", "Pending")}
+                                                            {state.OM
+                                                                ? t("loo.generator.approval.approved", "Approved")
+                                                                : t("loo.generator.approval.pending", "Pending")}
                                                         </span>
-                                                        <span className={cx(chipBase, st.LH ? chipOk : chipNeutral)}>
+                                                        <span className={cx(chipBase, state.LH ? chipOk : chipNeutral)}>
                                                             {t("loo.generator.approval.lh", "LH")}:{" "}
-                                                            {st.LH ? t("loo.generator.approval.approved", "Approved") : t("loo.generator.approval.pending", "Pending")}
+                                                            {state.LH
+                                                                ? t("loo.generator.approval.approved", "Approved")
+                                                                : t("loo.generator.approval.pending", "Pending")}
                                                         </span>
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            {/* Action button (only for current actor role) */}
                                             <div className="flex items-center justify-end gap-2">
-                                                {canAct && canApproveThisRole ? (
+                                                {canAct ? (
                                                     myApproved ? (
                                                         <button
                                                             type="button"
                                                             className="btn-outline"
-                                                            onClick={() => setApprovalFor(sid, false)}
+                                                            onClick={() => setApprovalFor(sampleId, false)}
                                                             disabled={busy}
                                                             title={t("loo.generator.approval.revokeHint", "Revoke your approval")}
                                                         >
@@ -740,7 +774,7 @@ export function LooGeneratorPage() {
                                                         <button
                                                             type="button"
                                                             className="lims-btn-primary"
-                                                            onClick={() => setApprovalFor(sid, true)}
+                                                            onClick={() => setApprovalFor(sampleId, true)}
                                                             disabled={busy}
                                                             title={t("loo.generator.approval.approveHint", "Approve this sample")}
                                                         >
@@ -755,41 +789,47 @@ export function LooGeneratorPage() {
                                             </div>
                                         </div>
 
-                                        {/* Parameters (only show when selected to save space) */}
                                         {checked ? (
                                             <div className="mt-4">
-                                                <div className="text-xs font-semibold text-gray-800 mb-2">
+                                                <div className="mb-2 text-xs font-semibold text-gray-800">
                                                     {t("loo.generator.params.title", "Parameters")}{" "}
-                                                    <span className="text-gray-500">{t("loo.generator.params.minOne", "(pick at least one)")}</span>
+                                                    <span className="text-gray-500">
+                                                        {t("loo.generator.params.minOne", "(pick at least one)")}
+                                                    </span>
                                                 </div>
 
                                                 <div className="flex flex-wrap gap-2">
-                                                    {params.length ? (
-                                                        params.map((p) => {
-                                                            const pid = p.parameter_id;
-                                                            const on = !!selMap[pid];
-
-                                                            const fallback = t("loo.generator.params.fallback", "Parameter #{{id}}", { id: pid });
-                                                            const label = (p.code ? `${p.code} — ` : "") + (p.name ?? fallback);
+                                                    {params.length > 0 ? (
+                                                        params.map((parameter) => {
+                                                            const parameterId = parameter.parameter_id;
+                                                            const active = !!selectedParamMap[parameterId];
+                                                            const fallback = t("loo.generator.params.fallback", "Parameter #{{id}}", {
+                                                                id: parameterId,
+                                                            });
+                                                            const label =
+                                                                (parameter.code ? `${parameter.code} — ` : "") + (parameter.name ?? fallback);
 
                                                             return (
                                                                 <button
-                                                                    key={pid}
+                                                                    key={parameterId}
                                                                     type="button"
                                                                     className={cx(
-                                                                        "inline-flex items-center rounded-full px-3 py-1 text-xs border",
-                                                                        on
-                                                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                                                            : "bg-gray-50 text-gray-700 border-gray-200"
+                                                                        "inline-flex items-center rounded-full border px-3 py-1 text-xs",
+                                                                        active
+                                                                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                                                            : "border-gray-200 bg-gray-50 text-gray-700"
                                                                     )}
                                                                     onClick={() =>
                                                                         setParamSel((prev) => ({
                                                                             ...prev,
-                                                                            [sid]: { ...(prev[sid] ?? {}), [pid]: !on },
+                                                                            [sampleId]: {
+                                                                                ...(prev[sampleId] ?? {}),
+                                                                                [parameterId]: !active,
+                                                                            },
                                                                         }))
                                                                     }
                                                                     disabled={busy}
-                                                                    aria-pressed={on}
+                                                                    aria-pressed={active}
                                                                     title={label}
                                                                 >
                                                                     {label}
@@ -797,12 +837,14 @@ export function LooGeneratorPage() {
                                                             );
                                                         })
                                                     ) : (
-                                                        <span className="text-xs text-gray-500">{t("loo.generator.params.none", "No parameters found.")}</span>
+                                                        <span className="text-xs text-gray-500">
+                                                            {t("loo.generator.params.none", "No parameters found.")}
+                                                        </span>
                                                     )}
                                                 </div>
 
-                                                {!st.ready ? (
-                                                    <div className="mt-3 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                                                {!state.ready ? (
+                                                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
                                                         {t(
                                                             "loo.generator.params.notReadyNote",
                                                             "You can choose parameters now, but generating is only possible after OM & LH approvals."
@@ -817,8 +859,7 @@ export function LooGeneratorPage() {
                         </div>
                     )}
 
-                    {/* Actions */}
-                    <div className="mt-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                    <div className="mt-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div className="text-[11px] text-gray-500">
                             <span className="inline-flex items-center gap-2">
                                 <span className="text-gray-400">
@@ -853,7 +894,6 @@ export function LooGeneratorPage() {
                         </div>
                     </div>
 
-                    {/* Result */}
                     {resultUrl ? (
                         <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
                             <div className="font-semibold">{t("loo.generator.result.title", "LOO generated")}</div>
@@ -871,7 +911,7 @@ export function LooGeneratorPage() {
                                 <span className="font-mono">{resultFormCode ?? NA}</span>
                             </div>
 
-                            <div className="mt-3 flex items-center gap-2 flex-wrap">
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
                                 <button type="button" className="btn-outline" onClick={() => setPreviewOpen(true)}>
                                     {t("loo.generator.result.openPreview", "Open preview")}
                                 </button>

@@ -75,23 +75,23 @@ class LetterOfOrderService
 
     private function forceReportsLooPath(string $pathOrAnything, string $looNumber): string
     {
-        $p = str_replace('\\', '/', trim((string) $pathOrAnything));
+        $path = str_replace('\\', '/', trim((string) $pathOrAnything));
 
-        if (preg_match('/^https?:\/\//i', $p)) {
-            $u = parse_url($p, PHP_URL_PATH);
-            if (is_string($u) && $u !== '') {
-                $p = $u;
+        if (preg_match('/^https?:\/\//i', $path)) {
+            $urlPath = parse_url($path, PHP_URL_PATH);
+            if (is_string($urlPath) && $urlPath !== '') {
+                $path = $urlPath;
             }
         }
 
-        $p = ltrim($p, '/');
+        $path = ltrim($path, '/');
 
-        if (str_starts_with($p, 'letters/loo/')) {
-            $p = preg_replace('#^letters/loo/#', 'reports/loo/', $p);
+        if (str_starts_with($path, 'letters/loo/')) {
+            $path = preg_replace('#^letters/loo/#', 'reports/loo/', $path);
         }
 
-        if (str_starts_with($p, 'reports/loo/')) {
-            return $p;
+        if (str_starts_with($path, 'reports/loo/')) {
+            return $path;
         }
 
         $year = now()->format('Y');
@@ -289,11 +289,9 @@ class LetterOfOrderService
             'form_code' => $formCodeFull,
             'form_code_full' => $formCodeFull,
             'form_code_date' => $formCodeDate,
-
             'loo_number' => $number,
             'loa_number' => $number,
             'generated_date' => $generatedAt->format('d/m/Y'),
-
             'client_name' => (string) ($client['name'] ?? ''),
             'client_organization' => (string) ($client['organization'] ?? ''),
             'client_email' => (string) ($client['email'] ?? ''),
@@ -456,9 +454,9 @@ class LetterOfOrderService
 
         $types = [];
         foreach ($itemsSnapshot as $it) {
-            $t = trim((string) ($it['sample_type'] ?? ''));
-            if ($t !== '') {
-                $types[$t] = true;
+            $type = trim((string) ($it['sample_type'] ?? ''));
+            if ($type !== '') {
+                $types[$type] = true;
             }
         }
 
@@ -567,9 +565,9 @@ class LetterOfOrderService
                 ->pluck($col)
                 ->map(fn($x) => trim((string) $x))
                 ->filter()
-                ->filter(function (string $v) use ($block) {
-                    $k = strtolower(trim($v));
-                    return $k !== '' && !in_array($k, $block, true);
+                ->filter(function (string $value) use ($block) {
+                    $key = strtolower(trim($value));
+                    return $key !== '' && !in_array($key, $block, true);
                 })
                 ->values()
                 ->all();
@@ -613,6 +611,9 @@ class LetterOfOrderService
                 ->get([
                     'sample_id',
                     'client_id',
+                    'request_batch_id',
+                    'request_batch_item_no',
+                    'request_batch_total',
                     'lab_sample_code',
                     'sample_type',
                     'verified_at',
@@ -623,14 +624,60 @@ class LetterOfOrderService
                 throw new RuntimeException('Some samples not found.');
             }
 
-            foreach ($samples as $s) {
-                $sid = (int) $s->sample_id;
+            $clientIds = $samples->pluck('client_id')
+                ->map(fn($x) => (int) $x)
+                ->unique()
+                ->values()
+                ->all();
 
-                if (empty($s->verified_at)) {
+            if (count($clientIds) > 1) {
+                throw new RuntimeException('All LOO items must belong to the same client.');
+            }
+
+            $batchIds = $samples->pluck('request_batch_id')
+                ->map(fn($x) => trim((string) $x))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            if (count($batchIds) > 1) {
+                throw new RuntimeException('All LOO items must belong to the same institutional batch.');
+            }
+
+            if (count($batchIds) === 1) {
+                $expectedSet = DB::table('samples')
+                    ->where('client_id', (int) $clientIds[0])
+                    ->where('request_batch_id', (string) $batchIds[0])
+                    ->when(
+                        Schema::hasColumn('samples', 'batch_excluded_at'),
+                        fn($q) => $q->whereNull('batch_excluded_at')
+                    )
+                    ->pluck('sample_id')
+                    ->map(fn($x) => (int) $x)
+                    ->sort()
+                    ->values()
+                    ->all();
+
+                $providedSet = collect($sampleIds)
+                    ->map(fn($x) => (int) $x)
+                    ->sort()
+                    ->values()
+                    ->all();
+
+                if ($expectedSet !== $providedSet) {
+                    throw new RuntimeException('Institutional batch LOO must include all active samples in the batch.');
+                }
+            }
+
+            foreach ($samples as $sample) {
+                $sid = (int) $sample->sample_id;
+
+                if (empty($sample->verified_at)) {
                     throw new RuntimeException("Sample {$sid} is not verified yet.");
                 }
 
-                if (empty($s->lab_sample_code)) {
+                if (empty($sample->lab_sample_code)) {
                     throw new RuntimeException("Sample {$sid} has no lab_sample_code yet.");
                 }
             }
@@ -647,35 +694,46 @@ class LetterOfOrderService
                 ]);
 
             $paramsBySample = [];
-            foreach ($paramRows as $r) {
-                $sid = (int) $r->sample_id;
+            foreach ($paramRows as $row) {
+                $sid = (int) $row->sample_id;
+
                 if (!isset($paramsBySample[$sid])) {
                     $paramsBySample[$sid] = [];
                 }
 
                 $paramsBySample[$sid][] = [
-                    'parameter_id' => (int) $r->parameter_id,
-                    'code' => (string) ($r->code ?? ''),
-                    'name' => (string) ($r->name ?? ''),
+                    'parameter_id' => (int) $row->parameter_id,
+                    'code' => (string) ($row->code ?? ''),
+                    'name' => (string) ($row->name ?? ''),
                 ];
             }
 
-            $sortedSamples = $samples->sortBy(fn($s) => (string) ($s->lab_sample_code ?? ''))->values();
+            $sortedSamples = $samples
+                ->sortBy([
+                    fn($sample) => trim((string) ($sample->request_batch_id ?? '')) !== '' ? 0 : 1,
+                    fn($sample) => (int) ($sample->request_batch_item_no ?? 0),
+                    fn($sample) => (string) ($sample->lab_sample_code ?? ''),
+                    fn($sample) => (int) ($sample->sample_id ?? 0),
+                ])
+                ->values();
 
             $items = [];
-            foreach ($sortedSamples as $idx => $s) {
-                $sid = (int) $s->sample_id;
+            foreach ($sortedSamples as $idx => $sample) {
+                $sid = (int) $sample->sample_id;
 
                 $items[] = [
                     'no' => $idx + 1,
                     'sample_id' => $sid,
-                    'lab_sample_code' => (string) $s->lab_sample_code,
-                    'sample_type' => $s->sample_type ?? null,
+                    'lab_sample_code' => (string) $sample->lab_sample_code,
+                    'sample_type' => $sample->sample_type ?? null,
                     'parameters' => $paramsBySample[$sid] ?? [],
                 ];
             }
 
             $anchorSampleId = (int) $sortedSamples->first()->sample_id;
+            $requestBatchId = $batchIds[0] ?? null;
+            $batchTotal = count($sampleIds);
+
             $existing = $this->findExistingByAnchorSampleId($anchorSampleId);
 
             if ($existing) {
@@ -695,6 +753,8 @@ class LetterOfOrderService
                 $payload['loa_number'] = $number;
                 $payload['sample_ids'] = $sampleIds;
                 $payload['items'] = $items;
+                $payload['request_batch_id'] = $requestBatchId;
+                $payload['batch_total'] = $batchTotal;
                 $payload['generated_at'] = $payload['generated_at'] ?? now()->toISOString();
 
                 $forceRegenerate = ((string) $existing->loa_status === 'draft');
@@ -722,6 +782,8 @@ class LetterOfOrderService
                 ],
                 'sample_ids' => $sampleIds,
                 'items' => $items,
+                'request_batch_id' => $requestBatchId,
+                'batch_total' => $batchTotal,
                 'pdf_generated_at' => null,
                 'pdf_file_id' => null,
                 'docx_file_id' => null,
@@ -756,12 +818,12 @@ class LetterOfOrderService
             }
 
             if ($this->isItemsTableUsable()) {
-                foreach ($items as $it) {
+                foreach ($items as $item) {
                     DB::table('letter_of_order_items')->insert([
                         'lo_id' => (int) $loa->lo_id,
-                        'sample_id' => (int) $it['sample_id'],
-                        'lab_sample_code' => (string) $it['lab_sample_code'],
-                        'parameters' => json_encode($it['parameters']),
+                        'sample_id' => (int) $item['sample_id'],
+                        'lab_sample_code' => (string) $item['lab_sample_code'],
+                        'parameters' => json_encode($item['parameters']),
                         'created_at' => now(),
                         'updated_at' => null,
                     ]);
@@ -777,19 +839,19 @@ class LetterOfOrderService
 
             $codeGen = app(\App\Services\LabSampleCodeGenerator::class);
 
-            foreach ($sampleModels as $s) {
-                $code = (string) ($s->lab_sample_code ?? '');
+            foreach ($sampleModels as $sample) {
+                $code = (string) ($sample->lab_sample_code ?? '');
 
                 if (trim($code) === '') {
                     $code = $codeGen->nextCode();
 
                     \App\Models\Sample::query()
-                        ->where('sample_id', $s->sample_id)
+                        ->where('sample_id', $sample->sample_id)
                         ->update(['lab_sample_code' => $code]);
                 }
 
                 \App\Models\Sample::query()
-                    ->where('sample_id', $s->sample_id)
+                    ->where('sample_id', $sample->sample_id)
                     ->update([
                         'loa_generated_at' => $now,
                         'loa_generated_by_staff_id' => $actorStaffId,
@@ -800,10 +862,10 @@ class LetterOfOrderService
                 ->orderBy('sort_order')
                 ->get(['role_code']);
 
-            foreach ($roles as $r) {
+            foreach ($roles as $role) {
                 LooSignature::query()->create([
                     'lo_id' => (int) $loa->lo_id,
-                    'role_code' => $r->role_code,
+                    'role_code' => $role->role_code,
                     'signed_by_staff' => null,
                     'signed_by_client' => null,
                     'signed_at' => null,

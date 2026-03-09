@@ -1,3 +1,4 @@
+import { unwrapApi } from "../utils/apiData";
 import { apiGet, apiPost, apiPatch, apiPut, apiDelete } from "./api";
 import type { Sample, PaginatedResponse } from "./samples";
 
@@ -287,15 +288,13 @@ export async function fetchTestingBoard(opts?: { group?: string; sample_id?: num
 
 export async function moveTestingCard(payload: {
     sample_id: number;
-    from_column_id: number | null;
     to_column_id: number;
-    workflow_group?: string | null;
-    note?: string | null;
-
-    // ✅ NEW
+    workflow_group?: string;
     finalize?: boolean;
+    apply_to_batch?: boolean;
 }) {
-    return apiPost(`${BOARD_BASE}/move`, payload);
+    const res = await apiPost<any>("/v1/testing-board/move", payload);
+    return unwrapApi(res);
 }
 
 export async function renameTestingColumn(columnId: number, name: string) {

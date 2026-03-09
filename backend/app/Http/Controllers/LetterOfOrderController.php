@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\LetterOfOrder;
 use App\Models\Staff;
 use App\Services\LetterOfOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Models\LetterOfOrder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class LetterOfOrderController extends Controller
 {
@@ -20,6 +22,99 @@ class LetterOfOrderController extends Controller
         }
     }
 
+    private function approvalsTableExists(): bool
+    {
+        return Schema::hasTable('loo_sample_approvals');
+    }
+
+    private function buildDownloadUrl(LetterOfOrder $loa): string
+    {
+        return url("/api/v1/reports/documents/loo/{$loa->lo_id}/pdf");
+    }
+
+    private function attachApiAttributes(LetterOfOrder $loa): LetterOfOrder
+    {
+        $downloadUrl = $this->buildDownloadUrl($loa);
+
+        $loa->setAttribute('download_url', $downloadUrl);
+        $loa->setAttribute('pdf_url', $downloadUrl);
+
+        return $loa;
+    }
+
+    private function resolveReadyApprovedSampleIds(array $sampleIds): array
+    {
+        $rows = DB::table('loo_sample_approvals')
+            ->whereIn('sample_id', $sampleIds)
+            ->whereIn('role_code', ['OM', 'LH'])
+            ->whereNotNull('approved_at')
+            ->get(['sample_id', 'role_code']);
+
+        $seen = [];
+        foreach ($rows as $row) {
+            $sampleId = (int) $row->sample_id;
+            $roleCode = (string) $row->role_code;
+
+            if (!isset($seen[$sampleId])) {
+                $seen[$sampleId] = ['OM' => false, 'LH' => false];
+            }
+
+            if ($roleCode === 'OM' || $roleCode === 'LH') {
+                $seen[$sampleId][$roleCode] = true;
+            }
+        }
+
+        $readyIds = [];
+        foreach ($seen as $sampleId => $statuses) {
+            if (!empty($statuses['OM']) && !empty($statuses['LH'])) {
+                $readyIds[] = (int) $sampleId;
+            }
+        }
+
+        return $readyIds;
+    }
+
+    private function ensureBulkSamplesBelongToSameClientAndBatch(array $sampleIds): array
+    {
+        $batchRows = DB::table('samples')
+            ->whereIn('sample_id', $sampleIds)
+            ->get(['sample_id', 'client_id', 'request_batch_id']);
+
+        $clientIds = $batchRows
+            ->pluck('client_id')
+            ->map(fn($value) => (int) $value)
+            ->unique()
+            ->values()
+            ->all();
+
+        if (count($clientIds) > 1) {
+            abort(response()->json([
+                'message' => 'Selected samples must belong to the same client.',
+                'code' => 'MIXED_CLIENTS_NOT_ALLOWED',
+            ], 422));
+        }
+
+        $batchIds = $batchRows
+            ->pluck('request_batch_id')
+            ->map(fn($value) => trim((string) $value))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (count($batchIds) > 1) {
+            abort(response()->json([
+                'message' => 'Selected samples must belong to the same institutional batch.',
+                'code' => 'MIXED_BATCHES_NOT_ALLOWED',
+            ], 422));
+        }
+
+        return [
+            'client_id' => $clientIds[0] ?? null,
+            'request_batch_id' => $batchIds[0] ?? null,
+        ];
+    }
+
     public function generate(Request $request, int $sampleId): JsonResponse
     {
         /** @var Staff $staff */
@@ -28,46 +123,25 @@ class LetterOfOrderController extends Controller
             return response()->json(['message' => 'Authenticated staff not found.'], 500);
         }
 
-        // OM(5) / LH(6)
         $this->assertStaffRoleAllowed($staff, [5, 6]);
 
-        // ✅ NEW: allow bulk generation using sample_ids[]
         $request->validate([
             'sample_ids' => ['nullable', 'array', 'min:1'],
             'sample_ids.*' => ['integer', 'min:1', 'distinct'],
         ]);
 
+        if (!$this->approvalsTableExists()) {
+            return response()->json([
+                'message' => 'Approvals table not found. Run migrations.',
+                'code' => 'APPROVALS_TABLE_MISSING',
+            ], 500);
+        }
+
         $sampleIds = $request->input('sample_ids');
 
         if (is_array($sampleIds) && count($sampleIds) > 0) {
             $sampleIds = array_values(array_unique(array_map('intval', $sampleIds)));
-
-            // Step 2: Only include samples that are approved by BOTH OM & LH (intersection)
-            if (!\Illuminate\Support\Facades\Schema::hasTable('loo_sample_approvals')) {
-                return response()->json([
-                    'message' => 'Approvals table not found. Run migrations.',
-                    'code' => 'APPROVALS_TABLE_MISSING',
-                ], 500);
-            }
-
-            $rows = \Illuminate\Support\Facades\DB::table('loo_sample_approvals')
-                ->whereIn('sample_id', $sampleIds)
-                ->whereIn('role_code', ['OM', 'LH'])
-                ->whereNotNull('approved_at')
-                ->get(['sample_id', 'role_code']);
-
-            $seen = [];
-            foreach ($rows as $r) {
-                $sid = (int) $r->sample_id;
-                $rc  = (string) $r->role_code;
-                if (!isset($seen[$sid])) $seen[$sid] = ['OM' => false, 'LH' => false];
-                if ($rc === 'OM' || $rc === 'LH') $seen[$sid][$rc] = true;
-            }
-
-            $readyIds = [];
-            foreach ($seen as $sid => $st) {
-                if (!empty($st['OM']) && !empty($st['LH'])) $readyIds[] = (int) $sid;
-            }
+            $readyIds = $this->resolveReadyApprovedSampleIds($sampleIds);
 
             if (count($readyIds) <= 0) {
                 return response()->json([
@@ -76,51 +150,28 @@ class LetterOfOrderController extends Controller
                 ], 422);
             }
 
+            $batchMeta = $this->ensureBulkSamplesBelongToSameClientAndBatch($readyIds);
+
             $loa = $this->svc->ensureDraftForSamples($readyIds, (int) $staff->staff_id);
-
-            // Attach info for frontend clarity
             $loa->setAttribute('included_sample_ids', $readyIds);
+            $loa->setAttribute('request_batch_id', $batchMeta['request_batch_id']);
         } else {
-            // single-sample legacy route: still enforce approval intersection for that sample
-            $sid = (int) $sampleId;
+            $singleSampleId = (int) $sampleId;
+            $readyIds = $this->resolveReadyApprovedSampleIds([$singleSampleId]);
 
-            if (!\Illuminate\Support\Facades\Schema::hasTable('loo_sample_approvals')) {
-                return response()->json([
-                    'message' => 'Approvals table not found. Run migrations.',
-                    'code' => 'APPROVALS_TABLE_MISSING',
-                ], 500);
-            }
-
-            $approvedRoles = \Illuminate\Support\Facades\DB::table('loo_sample_approvals')
-                ->where('sample_id', $sid)
-                ->whereIn('role_code', ['OM', 'LH'])
-                ->whereNotNull('approved_at')
-                ->pluck('role_code')
-                ->map(fn($x) => (string) $x)
-                ->all();
-
-            $om = in_array('OM', $approvedRoles, true);
-            $lh = in_array('LH', $approvedRoles, true);
-
-            if (!($om && $lh)) {
+            if (!in_array($singleSampleId, $readyIds, true)) {
                 return response()->json([
                     'message' => 'Sample ini belum disetujui oleh OM dan LH.',
                     'code' => 'SAMPLE_NOT_READY',
                 ], 422);
             }
 
-            $loa = $this->svc->ensureDraftForSample($sid, (int) $staff->staff_id);
-            $loa->setAttribute('included_sample_ids', [$sid]);
+            $loa = $this->svc->ensureDraftForSample($singleSampleId, (int) $staff->staff_id);
+            $loa->setAttribute('included_sample_ids', [$singleSampleId]);
         }
 
         $loa = $loa->loadMissing(['signatures', 'items']);
-
-        // expose only via API endpoint (private file)
-        $downloadUrl = url("/api/v1/reports/documents/loo/{$loa->lo_id}/pdf");
-
-        // Attach transient attributes so frontend can use them
-        $loa->setAttribute('download_url', $downloadUrl);
-        $loa->setAttribute('pdf_url', $downloadUrl);
+        $loa = $this->attachApiAttributes($loa);
 
         return response()->json([
             'message' => 'LoO generated.',
@@ -136,12 +187,6 @@ class LetterOfOrderController extends Controller
             return response()->json(['message' => 'Authenticated staff not found.'], 500);
         }
 
-        // Optional: batasi siapa boleh lihat detail LOO
-        // OM(5) / LH(6) / Analyst(4?) -> sesuaikan kalau perlu.
-        // Kalau kamu mau semua staff bisa lihat: hapus blok ini.
-        // $this->assertStaffRoleAllowed($staff, [4, 5, 6]);
-
-        // Backend kamu konsisten pakai lo_id (lihat generate: $loa->lo_id)
         $loa = LetterOfOrder::query()
             ->where('lo_id', (int) $looId)
             ->first();
@@ -153,13 +198,8 @@ class LetterOfOrderController extends Controller
             ], 404);
         }
 
-        // Load relations yang kamu sudah pakai di generate()
         $loa = $loa->loadMissing(['signatures', 'items']);
-
-        // expose only via API endpoint (private file) – sama seperti generate()
-        $downloadUrl = url("/api/v1/reports/documents/loo/{$loa->lo_id}/pdf");
-        $loa->setAttribute('download_url', $downloadUrl);
-        $loa->setAttribute('pdf_url', $downloadUrl);
+        $loa = $this->attachApiAttributes($loa);
 
         return response()->json([
             'message' => 'OK',
@@ -181,7 +221,6 @@ class LetterOfOrderController extends Controller
 
         $roleCode = strtoupper(trim((string) $request->input('role_code')));
 
-        // map role_id -> allowed sign code (consistent with ReportSignatureController)
         $actorRoleCode = match ((int) $staff->role_id) {
             5 => 'OM',
             6 => 'LH',
@@ -208,7 +247,6 @@ class LetterOfOrderController extends Controller
             return response()->json(['message' => 'Authenticated staff not found.'], 500);
         }
 
-        // send: OM only
         $this->assertStaffRoleAllowed($staff, [5]);
 
         $loa = $this->svc->sendToClient($loaId, (int) $staff->staff_id);

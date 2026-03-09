@@ -58,6 +58,7 @@ class TestingBoardController extends Controller
             (int) $staff->staff_id,
             $boardGroup,
             (bool) ($payload['finalize'] ?? false),
+            (bool) ($payload['apply_to_batch'] ?? false),
         );
 
         return response()->json([

@@ -38,37 +38,42 @@ type Props = {
     onQualityCoverUnlocked?: () => void;
 };
 
-function deriveGroupFromBackend(sample: any): string {
-    const g = sample?.workflow_group ?? sample?.workflowGroup ?? sample?.workflow_group_name ?? null;
-    const s = String(g ?? "").trim().toLowerCase();
-    if (!s) return "default";
-
-    // legacy -> new
-    if (s === "pcr_sars_cov_2") return "pcr";
-    if (s === "wgs_sars_cov_2") return "sequencing";
-    if (s === "antigen") return "rapid";
-    if (s === "group_19_22" || s === "group_23_32") return "microbiology";
-
-    // already new (or unknown)
-    return s;
-}
-
-function normalizeCard(c: any): TestingBoardCard {
-    const entered = c?.entered_at ?? c?.enteredAt ?? c?.moved_at ?? c?.movedAt ?? null;
-    const exited = c?.exited_at ?? c?.exitedAt ?? null;
-
-    return {
-        ...(c as any),
-        entered_at: entered,
-        exited_at: exited,
-    } as any;
-}
-
 type StageStamp = {
     column_id: number;
     entered_at: string | null;
     exited_at: string | null;
 };
+
+function deriveGroupFromBackend(sample: any): string {
+    const group =
+        sample?.workflow_group ??
+        sample?.workflowGroup ??
+        sample?.workflow_group_name ??
+        null;
+
+    const normalized = String(group ?? "").trim().toLowerCase();
+    if (!normalized) return "default";
+
+    if (normalized === "pcr_sars_cov_2") return "pcr";
+    if (normalized === "wgs_sars_cov_2") return "sequencing";
+    if (normalized === "antigen") return "rapid";
+    if (normalized === "group_19_22" || normalized === "group_23_32") {
+        return "microbiology";
+    }
+
+    return normalized;
+}
+
+function normalizeCard(card: any): TestingBoardCard {
+    const entered = card?.entered_at ?? card?.enteredAt ?? card?.moved_at ?? card?.movedAt ?? null;
+    const exited = card?.exited_at ?? card?.exitedAt ?? null;
+
+    return {
+        ...(card as any),
+        entered_at: entered,
+        exited_at: exited,
+    } as TestingBoardCard;
+}
 
 function timelineKeyV2(sampleId: number) {
     return `biotrace.testing_board.timeline.v2:${sampleId}`;
@@ -78,18 +83,23 @@ function readTimeline(sampleId: number): Record<number, StageStamp> {
     try {
         const raw = localStorage.getItem(timelineKeyV2(sampleId));
         if (!raw) return {};
+
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object") return {};
+
         const out: Record<number, StageStamp> = {};
-        for (const [k, v] of Object.entries(parsed)) {
-            const colId = Number(k);
-            if (!Number.isFinite(colId)) continue;
-            out[colId] = {
-                column_id: colId,
-                entered_at: (v as any)?.entered_at ?? null,
-                exited_at: (v as any)?.exited_at ?? null,
+
+        for (const [key, value] of Object.entries(parsed)) {
+            const columnId = Number(key);
+            if (!Number.isFinite(columnId)) continue;
+
+            out[columnId] = {
+                column_id: columnId,
+                entered_at: (value as any)?.entered_at ?? null,
+                exited_at: (value as any)?.exited_at ?? null,
             };
         }
+
         return out;
     } catch {
         return {};
@@ -99,40 +109,53 @@ function readTimeline(sampleId: number): Record<number, StageStamp> {
 function writeTimeline(sampleId: number, map: Record<number, StageStamp>) {
     try {
         localStorage.setItem(timelineKeyV2(sampleId), JSON.stringify(map ?? {}));
-    } catch {
-        // ignore
-    }
+    } catch { }
 }
 
-function mergeTimeline(prev: Record<number, StageStamp>, patch: Record<number, Partial<StageStamp>>) {
+function mergeTimeline(
+    prev: Record<number, StageStamp>,
+    patch: Record<number, Partial<StageStamp>>
+) {
     const next: Record<number, StageStamp> = { ...(prev ?? {}) };
-    for (const [k, v] of Object.entries(patch ?? {})) {
-        const colId = Number(k);
-        if (!Number.isFinite(colId)) continue;
-        const cur = next[colId] ?? { column_id: colId, entered_at: null, exited_at: null };
-        next[colId] = {
-            column_id: colId,
-            entered_at: (v as any)?.entered_at ?? cur.entered_at ?? null,
-            exited_at: (v as any)?.exited_at ?? cur.exited_at ?? null,
+
+    for (const [key, value] of Object.entries(patch ?? {})) {
+        const columnId = Number(key);
+        if (!Number.isFinite(columnId)) continue;
+
+        const current = next[columnId] ?? {
+            column_id: columnId,
+            entered_at: null,
+            exited_at: null,
+        };
+
+        next[columnId] = {
+            column_id: columnId,
+            entered_at: (value as any)?.entered_at ?? current.entered_at ?? null,
+            exited_at: (value as any)?.exited_at ?? current.exited_at ?? null,
         };
     }
+
     return next;
 }
 
 function buildTimelineFromBackend(res: any): Record<number, StageStamp> {
     const candidates =
-        (res?.events ?? res?.timeline ?? res?.history ?? res?.card_events ?? res?.cardEvents ?? []) as any[];
+        (res?.events ??
+            res?.timeline ??
+            res?.history ??
+            res?.card_events ??
+            res?.cardEvents ??
+            []) as any[];
 
     if (!Array.isArray(candidates) || candidates.length === 0) return {};
 
     const out: Record<number, StageStamp> = {};
 
-    const upsert = (colId: number, patch: Partial<StageStamp>) => {
-        const cur = out[colId] ?? { column_id: colId, entered_at: null, exited_at: null };
-        const next: StageStamp = {
-            column_id: colId,
-            entered_at: patch.entered_at ?? cur.entered_at ?? null,
-            exited_at: patch.exited_at ?? cur.exited_at ?? null,
+    const upsert = (columnId: number, patch: Partial<StageStamp>) => {
+        const current = out[columnId] ?? {
+            column_id: columnId,
+            entered_at: null,
+            exited_at: null,
         };
 
         const pickEarliest = (a: string | null, b: string | null) => {
@@ -140,39 +163,50 @@ function buildTimelineFromBackend(res: any): Record<number, StageStamp> {
             if (!b) return a;
             return new Date(a).getTime() <= new Date(b).getTime() ? a : b;
         };
+
         const pickLatest = (a: string | null, b: string | null) => {
             if (!a) return b;
             if (!b) return a;
             return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
         };
 
-        next.entered_at = pickEarliest(cur.entered_at, next.entered_at);
-        next.exited_at = pickLatest(cur.exited_at, next.exited_at);
-
-        out[colId] = next;
+        out[columnId] = {
+            column_id: columnId,
+            entered_at: pickEarliest(current.entered_at, patch.entered_at ?? null),
+            exited_at: pickLatest(current.exited_at, patch.exited_at ?? null),
+        };
     };
 
-    for (const e of candidates) {
-        const fromId = Number(e?.from_column_id ?? e?.fromColumnId ?? 0) || null;
-        const toId = Number(e?.to_column_id ?? e?.toColumnId ?? 0) || null;
+    for (const event of candidates) {
+        const fromId = Number(event?.from_column_id ?? event?.fromColumnId ?? 0) || null;
+        const toId = Number(event?.to_column_id ?? event?.toColumnId ?? 0) || null;
 
-        const movedAt = e?.moved_at ?? e?.movedAt ?? e?.created_at ?? e?.createdAt ?? null;
+        const movedAt =
+            event?.moved_at ?? event?.movedAt ?? event?.created_at ?? event?.createdAt ?? null;
 
-        const enteredAt = e?.entered_at ?? e?.enteredAt ?? movedAt ?? null;
-        const exitedAt = e?.exited_at ?? e?.exitedAt ?? null;
+        const enteredAt = event?.entered_at ?? event?.enteredAt ?? movedAt ?? null;
+        const exitedAt = event?.exited_at ?? event?.exitedAt ?? null;
 
-        if (toId) upsert(toId, { entered_at: enteredAt });
-        if (fromId) upsert(fromId, { exited_at: movedAt ?? exitedAt ?? null });
+        if (toId) {
+            upsert(toId, { entered_at: enteredAt });
+        }
+
+        if (fromId) {
+            upsert(fromId, { exited_at: movedAt ?? exitedAt ?? null });
+        }
     }
 
     return out;
 }
 
-export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocked }: Props) => {
+export const SampleTestingKanbanTab = ({
+    sampleId,
+    sample,
+    onQualityCoverUnlocked,
+}: Props) => {
     const { t, i18n } = useTranslation();
 
     const [group, setGroup] = useState<string>(() => deriveGroupFromBackend(sample));
-
     const [loading, setLoading] = useState(false);
     const [busyMove, setBusyMove] = useState(false);
     const [busyCols, setBusyCols] = useState(false);
@@ -180,37 +214,53 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
     const [columns, setColumns] = useState<TestingBoardColumn[]>([]);
     const [cards, setCards] = useState<TestingBoardCard[]>([]);
-
     const [mode, setMode] = useState<"synced" | "local">("local");
-
     const [timeline, setTimeline] = useState<Record<number, StageStamp>>({});
     const [lastColumnId, setLastColumnId] = useState<number | null>(null);
 
-    // Rename Modal State
     const [renameOpen, setRenameOpen] = useState(false);
     const [renameTarget, setRenameTarget] = useState<TestingBoardColumn | null>(null);
     const [renameSaving, setRenameSaving] = useState(false);
     const [renameError, setRenameError] = useState<string | null>(null);
 
-    // Add Modal State
     const [addOpen, setAddOpen] = useState(false);
     const [addSide, setAddSide] = useState<"left" | "right">("right");
     const [addRelative, setAddRelative] = useState<TestingBoardColumn | null>(null);
     const [addSaving, setAddSaving] = useState(false);
     const [addError, setAddError] = useState<string | null>(null);
 
-    // Delete Modal State
     const [delOpen, setDelOpen] = useState(false);
     const [delTarget, setDelTarget] = useState<TestingBoardColumn | null>(null);
     const [delSaving, setDelSaving] = useState(false);
     const [delError, setDelError] = useState<string | null>(null);
 
-    // workflow group should come from backend sample.workflow_group
+    const batchItems = useMemo(
+        () => (Array.isArray(sample?.batch_items) ? sample.batch_items : []),
+        [sample?.batch_items]
+    );
+
+    const batchActiveTotal = useMemo(() => {
+        if (batchItems.length > 0) {
+            return batchItems.filter((item: any) => !item?.batch_excluded_at).length;
+        }
+
+        const total = Number(sample?.batch_summary?.batch_active_total ?? sample?.request_batch_total ?? 1);
+        return Number.isFinite(total) && total > 0 ? total : 1;
+    }, [batchItems, sample?.batch_summary?.batch_active_total, sample?.request_batch_total]);
+
+    const canApplyToBatch =
+        !!sample?.request_batch_id && batchActiveTotal > 1;
+
+    const [applyToBatch, setApplyToBatch] = useState(canApplyToBatch);
+
     useEffect(() => {
-        const next = deriveGroupFromBackend(sample);
-        setGroup(next);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        const nextGroup = deriveGroupFromBackend(sample);
+        setGroup(nextGroup);
     }, [sampleId, sample?.workflow_group, sample?.workflowGroup, sample?.workflow_group_name]);
+
+    useEffect(() => {
+        setApplyToBatch(canApplyToBatch);
+    }, [canApplyToBatch]);
 
     useEffect(() => {
         if (!sampleId || Number.isNaN(sampleId)) return;
@@ -220,16 +270,14 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
     useEffect(() => {
         if (!sampleId || Number.isNaN(sampleId)) return;
         writeTimeline(sampleId, timeline);
-    }, [timeline, sampleId]);
+    }, [sampleId, timeline]);
 
     const fmt = useCallback(
-        (x?: string | null) => {
-            if (!x) return t("samples.kanbanTab.timestamp.none");
-            return formatDateTimeLocal(x);
+        (value?: string | null) => {
+            if (!value) return t("samples.kanbanTab.timestamp.none");
+            return formatDateTimeLocal(value);
         },
-        // ensure re-render when language changes
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [i18n.resolvedLanguage, i18n.language]
+        [i18n.resolvedLanguage, i18n.language, t]
     );
 
     const load = useCallback(async () => {
@@ -244,14 +292,20 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             const rawMode = String((res as any)?.mode ?? "");
             setMode(rawMode === "backend" ? "synced" : "local");
 
-            const nextCols = [...(res.columns ?? [])].sort((a, b) => a.position - b.position);
-            setColumns(nextCols);
+            const nextColumns = [...(res.columns ?? [])].sort((a, b) => a.position - b.position);
+            setColumns(nextColumns);
 
-            const computedLast = (res as any)?.last_column_id ?? (res as any)?.board?.last_column_id ?? null;
+            const computedLast =
+                (res as any)?.last_column_id ??
+                (res as any)?.board?.last_column_id ??
+                null;
+
             setLastColumnId(computedLast ? Number(computedLast) : null);
 
-            const incomingCardsRaw: TestingBoardCard[] = Array.isArray(res.cards) ? res.cards : [];
-            const incomingCards = incomingCardsRaw.map((c: any) => normalizeCard(c));
+            const incomingCards = Array.isArray(res.cards)
+                ? res.cards.map((card: any) => normalizeCard(card))
+                : [];
+
             setCards(incomingCards);
 
             const fromBackend = buildTimelineFromBackend(res);
@@ -262,20 +316,21 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                 return mergeTimeline(base, fromBackend);
             });
 
-            const mine = incomingCards.find((c) => Number(c.sample_id) === Number(sampleId));
+            const mine = incomingCards.find((card) => Number(card.sample_id) === Number(sampleId));
             if (mine?.column_id) {
-                const colId = Number(mine.column_id);
+                const columnId = Number(mine.column_id);
+
                 setTimeline((prev) =>
                     mergeTimeline(prev, {
-                        [colId]: {
-                            entered_at: mine.entered_at ?? prev?.[colId]?.entered_at ?? null,
-                            exited_at: mine.exited_at ?? prev?.[colId]?.exited_at ?? null,
+                        [columnId]: {
+                            entered_at: mine.entered_at ?? prev?.[columnId]?.entered_at ?? null,
+                            exited_at: mine.exited_at ?? prev?.[columnId]?.exited_at ?? null,
                         },
                     })
                 );
             }
-        } catch (e: any) {
-            setError(getErrorMessage(e, t("samples.kanbanTab.errors.loadFailed")));
+        } catch (err: any) {
+            setError(getErrorMessage(err, t("samples.kanbanTab.errors.loadFailed")));
             setColumns([]);
             setCards([]);
         } finally {
@@ -284,48 +339,59 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
     }, [group, sampleId, t]);
 
     useEffect(() => {
-        load();
+        void load();
     }, [load]);
 
-    const sortedCols = useMemo(() => [...columns].sort((a, b) => a.position - b.position), [columns]);
-    const firstCol = sortedCols[0];
+    const sortedColumns = useMemo(
+        () => [...columns].sort((a, b) => a.position - b.position),
+        [columns]
+    );
+
+    const firstColumn = sortedColumns[0] ?? null;
 
     const myCard = useMemo(() => {
-        const hit = (cards ?? []).find((c) => Number(c.sample_id) === Number(sampleId));
-        return hit ? normalizeCard(hit as any) : null;
+        const found = cards.find((card) => Number(card.sample_id) === Number(sampleId));
+        return found ? normalizeCard(found) : null;
     }, [cards, sampleId]);
 
-    const currentColIndex = useMemo(() => {
+    const currentColumnIndex = useMemo(() => {
         if (!myCard?.column_id) return -1;
-        return sortedCols.findIndex((c) => Number(c.column_id) === Number(myCard.column_id));
-    }, [myCard, sortedCols]);
+        return sortedColumns.findIndex(
+            (column) => Number(column.column_id) === Number(myCard.column_id)
+        );
+    }, [myCard, sortedColumns]);
 
-    const nextCol = useMemo(() => {
-        if (currentColIndex < 0) return null;
-        return sortedCols[currentColIndex + 1] ?? null;
-    }, [sortedCols, currentColIndex]);
+    const nextColumn = useMemo(() => {
+        if (currentColumnIndex < 0) return null;
+        return sortedColumns[currentColumnIndex + 1] ?? null;
+    }, [currentColumnIndex, sortedColumns]);
 
     const alreadyStarted = !!myCard?.column_id;
-
     const headerCode = sample?.lab_sample_code || "—";
     const headerType = sample?.sample_type || "—";
 
     const isAtLastColumn = useMemo(() => {
         if (!alreadyStarted) return false;
-        const cur = Number(myCard?.column_id ?? 0);
-        const last = lastColumnId ? Number(lastColumnId) : Number(sortedCols[sortedCols.length - 1]?.column_id ?? 0);
-        return cur > 0 && last > 0 && cur === last;
-    }, [alreadyStarted, myCard, lastColumnId, sortedCols]);
+
+        const current = Number(myCard?.column_id ?? 0);
+        const last =
+            lastColumnId
+                ? Number(lastColumnId)
+                : Number(sortedColumns[sortedColumns.length - 1]?.column_id ?? 0);
+
+        return current > 0 && last > 0 && current === last;
+    }, [alreadyStarted, lastColumnId, myCard, sortedColumns]);
 
     const isLastStageEnded = useMemo(() => {
         if (!isAtLastColumn) return false;
-        const colId = Number(myCard?.column_id ?? 0);
-        const exited = timeline?.[colId]?.exited_at ?? null;
-        const exited2 = (myCard as any)?.exited_at ?? null;
-        return !!(exited || exited2);
+
+        const columnId = Number(myCard?.column_id ?? 0);
+        const timelineExited = timeline?.[columnId]?.exited_at ?? null;
+        const cardExited = (myCard as any)?.exited_at ?? null;
+
+        return !!(timelineExited || cardExited);
     }, [isAtLastColumn, myCard, timeline]);
 
-    // DONE detector: prefer backend done flags, fallback to kanban computed
     const isSampleDone = useMemo(() => {
         const hardDoneFlags = [
             (sample as any)?.testing_completed_at,
@@ -335,7 +401,86 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
         if (hardDoneFlags.length > 0) return true;
         return isAtLastColumn && isLastStageEnded;
-    }, [sample, isAtLastColumn, isLastStageEnded]);
+    }, [isAtLastColumn, isLastStageEnded, sample]);
+
+    const applyOptimisticMove = useCallback(
+        (toColumnId: number, stamp: string) => {
+            const fromColumnId = myCard?.column_id ? Number(myCard.column_id) : null;
+
+            setTimeline((prev) => {
+                const patch: Record<number, Partial<StageStamp>> = {};
+
+                if (fromColumnId) {
+                    patch[fromColumnId] = { exited_at: stamp };
+                }
+
+                patch[toColumnId] = {
+                    entered_at: prev?.[toColumnId]?.entered_at ?? stamp,
+                    exited_at: null,
+                };
+
+                return mergeTimeline(prev, patch);
+            });
+
+            setCards((prev) => {
+                const current = Array.isArray(prev) ? prev : [];
+                const hasMine = current.some(
+                    (card) => Number(card.sample_id) === Number(sampleId)
+                );
+
+                if (hasMine) {
+                    return current.map((card) =>
+                        Number(card.sample_id) === Number(sampleId)
+                            ? normalizeCard({
+                                ...card,
+                                column_id: toColumnId,
+                                entered_at: stamp,
+                                exited_at: null,
+                            })
+                            : normalizeCard(card)
+                    );
+                }
+
+                return [
+                    ...current.map((card) => normalizeCard(card)),
+                    normalizeCard({
+                        sample_id: sampleId,
+                        lab_sample_code: sample?.lab_sample_code ?? null,
+                        sample_type: sample?.sample_type ?? null,
+                        column_id: toColumnId,
+                        entered_at: stamp,
+                        exited_at: null,
+                    }),
+                ];
+            });
+        },
+        [myCard, sample?.lab_sample_code, sample?.sample_type, sampleId]
+    );
+
+    const applyOptimisticFinalize = useCallback(
+        (columnId: number, stamp: string) => {
+            setTimeline((prev) =>
+                mergeTimeline(prev, {
+                    [columnId]: {
+                        entered_at:
+                            prev?.[columnId]?.entered_at ??
+                            (myCard as any)?.entered_at ??
+                            stamp,
+                        exited_at: stamp,
+                    },
+                })
+            );
+
+            setCards((prev) =>
+                (Array.isArray(prev) ? prev : []).map((card) =>
+                    Number(card.sample_id) === Number(sampleId)
+                        ? normalizeCard({ ...card, exited_at: stamp })
+                        : normalizeCard(card)
+                )
+            );
+        },
+        [myCard, sampleId]
+    );
 
     const doMove = async (toColumnId: number) => {
         if (!toColumnId) return;
@@ -344,47 +489,14 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
         setError(null);
 
         const nowIso = new Date().toISOString();
-        const fromColId = myCard?.column_id ? Number(myCard.column_id) : null;
-
-        // optimistic timeline
-        setTimeline((prev) => {
-            const patch: any = {};
-            if (fromColId) patch[fromColId] = { exited_at: nowIso };
-            patch[toColumnId] = { entered_at: prev?.[toColumnId]?.entered_at ?? nowIso, exited_at: null };
-            return mergeTimeline(prev, patch);
-        });
-
-        // optimistic card
-        setCards((prev) => {
-            const arr = Array.isArray(prev) ? prev : [];
-            const hasMine = arr.some((c) => Number(c.sample_id) === Number(sampleId));
-            const updated = hasMine
-                ? arr.map((c) =>
-                    Number(c.sample_id) === Number(sampleId)
-                        ? normalizeCard({ ...c, column_id: toColumnId, entered_at: nowIso, exited_at: null })
-                        : normalizeCard(c)
-                )
-                : [
-                    ...arr.map((c: any) => normalizeCard(c)),
-                    normalizeCard({
-                        sample_id: sampleId,
-                        lab_sample_code: sample?.lab_sample_code ?? null,
-                        sample_type: sample?.sample_type ?? null,
-                        column_id: toColumnId,
-                        entered_at: nowIso,
-                        exited_at: null,
-                    }),
-                ];
-            return updated;
-        });
+        applyOptimisticMove(toColumnId, nowIso);
 
         try {
             const res = await moveTestingCard({
                 sample_id: sampleId,
-                from_column_id: fromColId ?? null,
                 to_column_id: toColumnId,
                 workflow_group: group,
-                note: null,
+                apply_to_batch: applyToBatch,
             });
 
             const movedAt =
@@ -392,20 +504,12 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                 (res as any)?.data?.moved_at ??
                 (res as any)?.data?.data?.entered_at ??
                 (res as any)?.data?.entered_at ??
-                null;
+                nowIso;
 
-            const stamp = movedAt ? String(movedAt) : nowIso;
-
-            setTimeline((prev) => {
-                const patch: any = {};
-                if (fromColId) patch[fromColId] = { exited_at: stamp };
-                patch[toColumnId] = { entered_at: prev?.[toColumnId]?.entered_at ?? stamp, exited_at: null };
-                return mergeTimeline(prev, patch);
-            });
-
+            applyOptimisticMove(toColumnId, String(movedAt));
             await load();
-        } catch (e: any) {
-            setError(getErrorMessage(e, t("samples.kanbanTab.errors.moveFailed")));
+        } catch (err: any) {
+            setError(getErrorMessage(err, t("samples.kanbanTab.errors.moveFailed")));
             await load();
         } finally {
             setBusyMove(false);
@@ -414,50 +518,35 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
 
     const doFinalizeLastStage = async () => {
         if (!alreadyStarted) return;
-        const colId = Number(myCard?.column_id ?? 0);
-        if (!colId) return;
+
+        const columnId = Number(myCard?.column_id ?? 0);
+        if (!columnId) return;
 
         setBusyMove(true);
         setError(null);
 
         const nowIso = new Date().toISOString();
-
-        setTimeline((prev) =>
-            mergeTimeline(prev, {
-                [colId]: {
-                    entered_at: prev?.[colId]?.entered_at ?? (myCard as any)?.entered_at ?? nowIso,
-                    exited_at: nowIso,
-                },
-            })
-        );
-
-        setCards((prev) =>
-            (Array.isArray(prev) ? prev : []).map((c) =>
-                Number(c.sample_id) === Number(sampleId) ? normalizeCard({ ...c, exited_at: nowIso }) : normalizeCard(c)
-            )
-        );
+        applyOptimisticFinalize(columnId, nowIso);
 
         try {
             await moveTestingCard({
                 sample_id: sampleId,
-                from_column_id: colId,
-                to_column_id: colId,
+                to_column_id: columnId,
                 workflow_group: group,
-                note: null,
                 finalize: true,
+                apply_to_batch: applyToBatch,
             });
 
             await load();
             onQualityCoverUnlocked?.();
-        } catch (e: any) {
-            setError(getErrorMessage(e, t("samples.kanbanTab.errors.finishFailed")));
+        } catch (err: any) {
+            setError(getErrorMessage(err, t("samples.kanbanTab.errors.finishFailed")));
             await load();
         } finally {
             setBusyMove(false);
         }
     };
 
-    // Column CRUD (synced only) + LOCK when sample DONE
     const canEditColumns =
         mode === "synced" &&
         !isSampleDone &&
@@ -477,11 +566,11 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
     }
 
     async function submitAdd(name: string) {
-        if (!addRelative) return;
-        if (!canEditColumns) return;
+        if (!addRelative || !canEditColumns) return;
 
         setAddSaving(true);
         setAddError(null);
+
         try {
             await addTestingColumn({
                 group,
@@ -489,61 +578,62 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                 relative_to_column_id: addRelative.column_id,
                 side: addSide,
             } as any);
+
             setAddOpen(false);
             setAddRelative(null);
             await load();
-        } catch (e: any) {
-            setAddError(getErrorMessage(e, t("samples.kanbanTab.errors.addColumnFailed")));
+        } catch (err: any) {
+            setAddError(getErrorMessage(err, t("samples.kanbanTab.errors.addColumnFailed")));
         } finally {
             setAddSaving(false);
         }
     }
 
-    function openRename(col: TestingBoardColumn) {
+    function openRename(column: TestingBoardColumn) {
         if (!canEditColumns) return;
         setRenameError(null);
-        setRenameTarget(col);
+        setRenameTarget(column);
         setRenameOpen(true);
     }
 
     async function submitRename(nextName: string) {
-        if (!renameTarget) return;
-        if (!canEditColumns) return;
+        if (!renameTarget || !canEditColumns) return;
 
         setRenameSaving(true);
         setRenameError(null);
+
         try {
             await renameTestingColumn(renameTarget.column_id, nextName);
             setRenameOpen(false);
             setRenameTarget(null);
             await load();
-        } catch (e: any) {
-            setRenameError(getErrorMessage(e, t("samples.kanbanTab.errors.renameColumnFailed")));
+        } catch (err: any) {
+            setRenameError(getErrorMessage(err, t("samples.kanbanTab.errors.renameColumnFailed")));
         } finally {
             setRenameSaving(false);
         }
     }
 
-    function openDelete(col: TestingBoardColumn) {
+    function openDelete(column: TestingBoardColumn) {
         if (!canEditColumns) return;
         setDelError(null);
-        setDelTarget(col);
+        setDelTarget(column);
         setDelOpen(true);
     }
 
     async function submitDelete() {
-        if (!delTarget) return;
-        if (!canEditColumns) return;
+        if (!delTarget || !canEditColumns) return;
 
         setDelSaving(true);
         setDelError(null);
+
         try {
             await deleteTestingColumn(delTarget.column_id);
             setDelOpen(false);
             setDelTarget(null);
             await load();
-        } catch (e: any) {
-            setDelError(getErrorMessage(e, t("samples.kanbanTab.errors.deleteColumnFailed")));
+        } catch (err: any) {
+            setDelError(getErrorMessage(err, t("samples.kanbanTab.errors.deleteColumnFailed")));
         } finally {
             setDelSaving(false);
         }
@@ -552,7 +642,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
     const primaryAction = (() => {
         if (isSampleDone) {
             return (
-                <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold border border-emerald-200 bg-emerald-50 text-emerald-700">
+                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
                     <CheckCircle2 size={16} />
                     {t("samples.kanbanTab.actions.done")}
                 </span>
@@ -565,10 +655,10 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                     type="button"
                     className={cx(
                         "lims-btn-primary inline-flex items-center gap-2",
-                        (!firstCol || busyMove) && "opacity-60 cursor-not-allowed"
+                        (!firstColumn || busyMove) && "cursor-not-allowed opacity-60"
                     )}
-                    disabled={!firstCol || busyMove}
-                    onClick={() => firstCol && doMove(firstCol.column_id)}
+                    disabled={!firstColumn || busyMove}
+                    onClick={() => firstColumn && void doMove(firstColumn.column_id)}
                 >
                     <Play size={16} />
                     {t("samples.kanbanTab.actions.start")}
@@ -576,13 +666,16 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             );
         }
 
-        if (alreadyStarted && nextCol) {
+        if (alreadyStarted && nextColumn) {
             return (
                 <button
                     type="button"
-                    className={cx("lims-btn-primary inline-flex items-center gap-2", busyMove && "opacity-60 cursor-not-allowed")}
+                    className={cx(
+                        "lims-btn-primary inline-flex items-center gap-2",
+                        busyMove && "cursor-not-allowed opacity-60"
+                    )}
                     disabled={busyMove}
-                    onClick={() => doMove(nextCol.column_id)}
+                    onClick={() => void doMove(nextColumn.column_id)}
                 >
                     <ChevronRight size={16} />
                     {t("samples.kanbanTab.actions.next")}
@@ -594,9 +687,12 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             return (
                 <button
                     type="button"
-                    className={cx("lims-btn-primary inline-flex items-center gap-2", busyMove && "opacity-60 cursor-not-allowed")}
+                    className={cx(
+                        "lims-btn-primary inline-flex items-center gap-2",
+                        busyMove && "cursor-not-allowed opacity-60"
+                    )}
                     disabled={busyMove}
-                    onClick={doFinalizeLastStage}
+                    onClick={() => void doFinalizeLastStage()}
                 >
                     <Square size={16} />
                     {t("samples.kanbanTab.actions.finish")}
@@ -605,7 +701,7 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
         }
 
         return (
-            <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold border border-emerald-200 bg-emerald-50 text-emerald-700">
+            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
                 <CheckCircle2 size={16} />
                 {t("samples.kanbanTab.actions.done")}
             </span>
@@ -617,69 +713,95 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
             ? "border-emerald-200 bg-emerald-50 text-emerald-700"
             : "border-amber-200 bg-amber-50 text-amber-800";
 
-    const showBusy = loading || busyMove || busyCols || renameSaving || addSaving || delSaving;
+    const showBusy =
+        loading || busyMove || busyCols || renameSaving || addSaving || delSaving;
 
     return (
         <div className="space-y-4">
-            <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
-                <div className="px-4 py-4 border-b border-gray-100 flex items-start justify-between gap-3 flex-wrap">
+            <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 px-4 py-4">
                     <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <h2 className="text-sm md:text-base font-extrabold text-gray-900">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <h2 className="text-sm font-extrabold text-gray-900 md:text-base">
                                 {t("samples.kanbanTab.title")}
                             </h2>
 
-                            {isSampleDone && (
-                                <span className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold border border-gray-200 bg-gray-50 text-gray-700">
+                            {isSampleDone ? (
+                                <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] font-semibold text-gray-700">
                                     <Lock size={14} />
                                     {t("samples.kanbanTab.badges.locked")}
                                 </span>
-                            )}
+                            ) : null}
                         </div>
 
-                        <div className="mt-2 flex items-center gap-2 flex-wrap">
-                            <span className="inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold border border-gray-200 bg-gray-50 text-gray-700">
-                                <span className="font-semibold">{t("samples.kanbanTab.header.labCode")}:</span>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] font-semibold text-gray-700">
+                                <span className="font-semibold">
+                                    {t("samples.kanbanTab.header.labCode")}:
+                                </span>
                                 <span className="ml-1 font-mono">{headerCode}</span>
                             </span>
 
-                            <span className="inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold border border-gray-200 bg-gray-50 text-gray-700">
-                                <span className="font-semibold">{t("samples.kanbanTab.header.sampleType")}:</span>
+                            <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] font-semibold text-gray-700">
+                                <span className="font-semibold">
+                                    {t("samples.kanbanTab.header.sampleType")}:
+                                </span>
                                 <span className="ml-1">{headerType}</span>
                             </span>
+
+                            {canApplyToBatch ? (
+                                <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700">
+                                    {batchActiveTotal}{" "}
+                                    {t("samples.kanbanTab.batch.samples", {
+                                        defaultValue: "samples in batch",
+                                    })}
+                                </span>
+                            ) : null}
                         </div>
 
-                        <div className="mt-2 text-[11px] text-gray-500 flex items-center gap-2 flex-wrap">
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
                             <span
-                                className={cx("inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold border", badgeModeClass)}
-                                title={mode === "synced" ? t("samples.kanbanTab.tooltips.synced") : t("samples.kanbanTab.tooltips.local")}
+                                className={cx(
+                                    "inline-flex items-center rounded-full border px-2 py-1 text-[11px] font-semibold",
+                                    badgeModeClass
+                                )}
+                                title={
+                                    mode === "synced"
+                                        ? t("samples.kanbanTab.tooltips.synced")
+                                        : t("samples.kanbanTab.tooltips.local")
+                                }
                             >
-                                {mode === "synced" ? t("samples.kanbanTab.badges.synced") : t("samples.kanbanTab.badges.local")}
+                                {mode === "synced"
+                                    ? t("samples.kanbanTab.badges.synced")
+                                    : t("samples.kanbanTab.badges.local")}
                             </span>
 
                             <span
-                                className="inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold border border-gray-200 bg-gray-50 text-gray-700"
+                                className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] font-semibold text-gray-700"
                                 title={t("samples.kanbanTab.tooltips.group")}
                             >
                                 {group || "default"}
                             </span>
 
-                            {alreadyStarted && sortedCols.length > 0 && (
-                                <span className="inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold border border-gray-200 bg-gray-50 text-gray-700">
+                            {alreadyStarted && sortedColumns.length > 0 ? (
+                                <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] font-semibold text-gray-700">
                                     {t("samples.kanbanTab.progress", {
-                                        current: Math.max(1, currentColIndex + 1),
-                                        total: sortedCols.length,
+                                        current: Math.max(1, currentColumnIndex + 1),
+                                        total: sortedColumns.length,
                                     })}
                                 </span>
-                            )}
+                            ) : null}
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex flex-wrap items-center gap-2">
                         <button
                             type="button"
-                            className={cx("lims-icon-button", showBusy && "opacity-60 cursor-not-allowed")}
-                            onClick={load}
+                            className={cx(
+                                "lims-icon-button",
+                                showBusy && "cursor-not-allowed opacity-60"
+                            )}
+                            onClick={() => void load()}
                             disabled={showBusy}
                             aria-label={t("refresh")}
                             title={t("refresh")}
@@ -691,25 +813,56 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                     </div>
                 </div>
 
-                {error && (
+                {canApplyToBatch ? (
+                    <div className="border-b border-sky-100 bg-sky-50 px-4 py-3">
+                        <label className="flex items-start gap-3">
+                            <input
+                                type="checkbox"
+                                className="mt-1"
+                                checked={applyToBatch}
+                                onChange={(e) => setApplyToBatch(e.target.checked)}
+                                disabled={busyMove || loading}
+                            />
+                            <div>
+                                <div className="text-sm font-semibold text-sky-900">
+                                    {t("samples.kanbanTab.batch.applyTitle", {
+                                        defaultValue: "Apply move to institutional batch",
+                                    })}
+                                </div>
+                                <div className="mt-1 text-xs text-sky-700">
+                                    {t("samples.kanbanTab.batch.applySubtitle", {
+                                        defaultValue:
+                                            "When enabled, moving this card will also move all active samples in the same institutional batch.",
+                                    })}{" "}
+                                    ({batchActiveTotal})
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+                ) : null}
+
+                {error ? (
                     <div className="px-4 pt-4">
-                        <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
+                        <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
                             {error}
                         </div>
                     </div>
-                )}
+                ) : null}
 
                 <div className="px-4 py-4">
-                    {loading && sortedCols.length === 0 ? (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            {[0, 1, 2].map((k) => (
-                                <div key={k} className="rounded-2xl border border-gray-200 bg-white overflow-hidden animate-pulse">
-                                    <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
-                                        <div className="h-4 w-1/2 bg-gray-200 rounded" />
-                                        <div className="h-3 w-1/3 bg-gray-200 rounded mt-2" />
+                    {loading && sortedColumns.length === 0 ? (
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                            {[0, 1, 2].map((key) => (
+                                <div
+                                    key={key}
+                                    className="animate-pulse overflow-hidden rounded-2xl border border-gray-200 bg-white"
+                                >
+                                    <div className="border-b border-gray-100 bg-gray-50 px-4 py-3">
+                                        <div className="h-4 w-1/2 rounded bg-gray-200" />
+                                        <div className="mt-2 h-3 w-1/3 rounded bg-gray-200" />
                                     </div>
                                     <div className="px-4 py-4">
-                                        <div className="h-20 bg-gray-100 rounded-xl" />
+                                        <div className="h-20 rounded-xl bg-gray-100" />
                                     </div>
                                 </div>
                             ))}
@@ -717,128 +870,214 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                     ) : (
                         <>
                             <div className="overflow-x-auto">
-                                <div className="min-w-[980px] grid grid-flow-col auto-cols-[320px] gap-4 pb-2">
-                                    {sortedCols.map((col) => {
-                                        const isHere = alreadyStarted && Number(myCard?.column_id) === Number(col.column_id);
-                                        const idx = sortedCols.findIndex((c) => Number(c.column_id) === Number(col.column_id));
-                                        const isDone = alreadyStarted && currentColIndex >= 0 && idx < currentColIndex;
+                                <div className="grid min-w-[980px] auto-cols-[320px] grid-flow-col gap-4 pb-2">
+                                    {sortedColumns.map((column) => {
+                                        const isHere =
+                                            alreadyStarted &&
+                                            Number(myCard?.column_id) === Number(column.column_id);
 
-                                        const stamp = timeline?.[Number(col.column_id)] ?? null;
-                                        const enteredAt = stamp?.entered_at ?? (isHere ? (myCard as any)?.entered_at ?? null : null);
-                                        const exitedAt = stamp?.exited_at ?? (isHere ? (myCard as any)?.exited_at ?? null : null);
+                                        const index = sortedColumns.findIndex(
+                                            (item) =>
+                                                Number(item.column_id) === Number(column.column_id)
+                                        );
+
+                                        const isDone =
+                                            alreadyStarted &&
+                                            currentColumnIndex >= 0 &&
+                                            index < currentColumnIndex;
+
+                                        const stamp =
+                                            timeline?.[Number(column.column_id)] ?? null;
+
+                                        const enteredAt =
+                                            stamp?.entered_at ??
+                                            (isHere ? (myCard as any)?.entered_at ?? null : null);
+
+                                        const exitedAt =
+                                            stamp?.exited_at ??
+                                            (isHere ? (myCard as any)?.exited_at ?? null : null);
+
                                         const hasAnyStamp = !!enteredAt || !!exitedAt;
 
-                                        const statusKey = isHere ? "current" : isDone ? "done" : "pending";
-                                        const statusText = t(`samples.kanbanTab.column.status.${statusKey}`);
+                                        const statusKey = isHere
+                                            ? "current"
+                                            : isDone
+                                                ? "done"
+                                                : "pending";
+
+                                        const statusText = t(
+                                            `samples.kanbanTab.column.status.${statusKey}`
+                                        );
 
                                         return (
                                             <div
-                                                key={col.column_id}
+                                                key={column.column_id}
                                                 className={cx(
-                                                    "group rounded-2xl border bg-white overflow-hidden",
-                                                    isHere ? "border-primary ring-2 ring-primary-soft" : "border-gray-200"
+                                                    "group overflow-hidden rounded-2xl border bg-white",
+                                                    isHere
+                                                        ? "border-primary ring-2 ring-primary-soft"
+                                                        : "border-gray-200"
                                                 )}
                                             >
-                                                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-start justify-between gap-2">
+                                                <div className="flex items-start justify-between gap-2 border-b border-gray-100 bg-gray-50 px-4 py-3">
                                                     <div className="min-w-0">
-                                                        <div className="text-sm font-extrabold text-gray-900 truncate">{col.name}</div>
-                                                        <div className="text-xs text-gray-500 mt-0.5">
-                                                            <span className={cx("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold border",
-                                                                statusKey === "current"
-                                                                    ? "border-blue-200 bg-blue-50 text-blue-700"
-                                                                    : statusKey === "done"
-                                                                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                                                        : "border-gray-200 bg-white text-gray-700"
-                                                            )}>
+                                                        <div className="truncate text-sm font-extrabold text-gray-900">
+                                                            {column.name}
+                                                        </div>
+                                                        <div className="mt-0.5 text-xs text-gray-500">
+                                                            <span
+                                                                className={cx(
+                                                                    "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                                                                    statusKey === "current"
+                                                                        ? "border-blue-200 bg-blue-50 text-blue-700"
+                                                                        : statusKey === "done"
+                                                                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                                                            : "border-gray-200 bg-white text-gray-700"
+                                                                )}
+                                                            >
                                                                 {statusText}
                                                             </span>
                                                         </div>
                                                     </div>
 
-                                                    {/* Column actions (synced only) */}
                                                     <div
                                                         className={cx(
                                                             "flex items-center gap-1",
-                                                            canEditColumns ? "opacity-100" : "opacity-50",
-                                                            // reduce visual noise: show on hover for desktop
-                                                            "md:opacity-0 md:group-hover:opacity-100 md:transition-opacity"
+                                                            canEditColumns
+                                                                ? "opacity-100"
+                                                                : "opacity-50",
+                                                            "md:opacity-0 md:transition-opacity md:group-hover:opacity-100"
                                                         )}
                                                     >
                                                         <button
                                                             type="button"
-                                                            className={cx("lims-icon-button", !canEditColumns && "cursor-not-allowed")}
+                                                            className={cx(
+                                                                "lims-icon-button",
+                                                                !canEditColumns &&
+                                                                "cursor-not-allowed"
+                                                            )}
                                                             disabled={!canEditColumns}
                                                             title={
                                                                 isSampleDone
-                                                                    ? t("samples.kanbanTab.columnActions.locked")
-                                                                    : t("samples.kanbanTab.columnActions.addBefore")
+                                                                    ? t(
+                                                                        "samples.kanbanTab.columnActions.locked"
+                                                                    )
+                                                                    : t(
+                                                                        "samples.kanbanTab.columnActions.addBefore"
+                                                                    )
                                                             }
-                                                            aria-label={t("samples.kanbanTab.columnActions.addBefore")}
-                                                            onClick={() => openAdd("left", col)}
+                                                            aria-label={t(
+                                                                "samples.kanbanTab.columnActions.addBefore"
+                                                            )}
+                                                            onClick={() => openAdd("left", column)}
                                                         >
                                                             <Plus size={16} />
                                                         </button>
 
                                                         <button
                                                             type="button"
-                                                            className={cx("lims-icon-button", !canEditColumns && "cursor-not-allowed")}
+                                                            className={cx(
+                                                                "lims-icon-button",
+                                                                !canEditColumns &&
+                                                                "cursor-not-allowed"
+                                                            )}
                                                             disabled={!canEditColumns}
                                                             title={
                                                                 isSampleDone
-                                                                    ? t("samples.kanbanTab.columnActions.locked")
-                                                                    : t("samples.kanbanTab.columnActions.rename")
+                                                                    ? t(
+                                                                        "samples.kanbanTab.columnActions.locked"
+                                                                    )
+                                                                    : t(
+                                                                        "samples.kanbanTab.columnActions.rename"
+                                                                    )
                                                             }
-                                                            aria-label={t("samples.kanbanTab.columnActions.rename")}
-                                                            onClick={() => openRename(col)}
+                                                            aria-label={t(
+                                                                "samples.kanbanTab.columnActions.rename"
+                                                            )}
+                                                            onClick={() => openRename(column)}
                                                         >
                                                             <Pencil size={16} />
                                                         </button>
 
                                                         <button
                                                             type="button"
-                                                            className={cx("lims-icon-button", !canEditColumns && "cursor-not-allowed")}
+                                                            className={cx(
+                                                                "lims-icon-button",
+                                                                !canEditColumns &&
+                                                                "cursor-not-allowed"
+                                                            )}
                                                             disabled={!canEditColumns}
                                                             title={
                                                                 isSampleDone
-                                                                    ? t("samples.kanbanTab.columnActions.locked")
-                                                                    : t("samples.kanbanTab.columnActions.delete")
+                                                                    ? t(
+                                                                        "samples.kanbanTab.columnActions.locked"
+                                                                    )
+                                                                    : t(
+                                                                        "samples.kanbanTab.columnActions.delete"
+                                                                    )
                                                             }
-                                                            aria-label={t("samples.kanbanTab.columnActions.delete")}
-                                                            onClick={() => openDelete(col)}
+                                                            aria-label={t(
+                                                                "samples.kanbanTab.columnActions.delete"
+                                                            )}
+                                                            onClick={() => openDelete(column)}
                                                         >
                                                             <Trash2 size={16} />
                                                         </button>
 
                                                         <button
                                                             type="button"
-                                                            className={cx("lims-icon-button", !canEditColumns && "cursor-not-allowed")}
+                                                            className={cx(
+                                                                "lims-icon-button",
+                                                                !canEditColumns &&
+                                                                "cursor-not-allowed"
+                                                            )}
                                                             disabled={!canEditColumns}
                                                             title={
                                                                 isSampleDone
-                                                                    ? t("samples.kanbanTab.columnActions.locked")
-                                                                    : t("samples.kanbanTab.columnActions.addAfter")
+                                                                    ? t(
+                                                                        "samples.kanbanTab.columnActions.locked"
+                                                                    )
+                                                                    : t(
+                                                                        "samples.kanbanTab.columnActions.addAfter"
+                                                                    )
                                                             }
-                                                            aria-label={t("samples.kanbanTab.columnActions.addAfter")}
-                                                            onClick={() => openAdd("right", col)}
+                                                            aria-label={t(
+                                                                "samples.kanbanTab.columnActions.addAfter"
+                                                            )}
+                                                            onClick={() => openAdd("right", column)}
                                                         >
                                                             <Plus size={16} className="rotate-180" />
                                                         </button>
                                                     </div>
                                                 </div>
 
-                                                <div className="px-3 py-3 min-h-[210px]">
+                                                <div className="min-h-[210px] px-3 py-3">
                                                     {hasAnyStamp || isHere ? (
                                                         <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
-                                                            <div className="text-xs font-semibold text-gray-900">{headerCode}</div>
-                                                            <div className="text-[11px] text-gray-500 mt-1">{headerType}</div>
+                                                            <div className="text-xs font-semibold text-gray-900">
+                                                                {headerCode}
+                                                            </div>
+                                                            <div className="mt-1 text-[11px] text-gray-500">
+                                                                {headerType}
+                                                            </div>
 
                                                             <div className="mt-3 grid grid-cols-1 gap-1 text-[11px] text-gray-700">
                                                                 <div>
-                                                                    <span className="font-semibold">{t("samples.kanbanTab.column.entered")}:</span>{" "}
+                                                                    <span className="font-semibold">
+                                                                        {t(
+                                                                            "samples.kanbanTab.column.entered"
+                                                                        )}
+                                                                        :
+                                                                    </span>{" "}
                                                                     {fmt(enteredAt)}
                                                                 </div>
                                                                 <div>
-                                                                    <span className="font-semibold">{t("samples.kanbanTab.column.exited")}:</span>{" "}
+                                                                    <span className="font-semibold">
+                                                                        {t(
+                                                                            "samples.kanbanTab.column.exited"
+                                                                        )}
+                                                                        :
+                                                                    </span>{" "}
                                                                     {fmt(exitedAt)}
                                                                 </div>
                                                             </div>
@@ -855,15 +1094,16 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                                 </div>
                             </div>
 
-                            {sortedCols.length === 0 && !loading && (
-                                <div className="text-sm text-gray-600">{t("samples.kanbanTab.empty.noColumns")}</div>
-                            )}
+                            {sortedColumns.length === 0 && !loading ? (
+                                <div className="text-sm text-gray-600">
+                                    {t("samples.kanbanTab.empty.noColumns")}
+                                </div>
+                            ) : null}
                         </>
                     )}
                 </div>
             </div>
 
-            {/* Add modal */}
             <AddKanbanColumnModal
                 open={addOpen}
                 side={addSide}
@@ -879,13 +1119,14 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                 onSubmit={submitAdd}
             />
 
-            {/* Rename modal */}
             <RenameKanbanColumnModal
                 open={renameOpen}
                 currentName={renameTarget?.name ?? ""}
                 title={
                     renameTarget
-                        ? t("samples.kanbanTab.renameModal.titleNamed", { name: renameTarget.name })
+                        ? t("samples.kanbanTab.renameModal.titleNamed", {
+                            name: renameTarget.name,
+                        })
                         : t("samples.kanbanTab.renameModal.title")
                 }
                 loading={renameSaving}
@@ -899,7 +1140,6 @@ export const SampleTestingKanbanTab = ({ sampleId, sample, onQualityCoverUnlocke
                 onSubmit={submitRename}
             />
 
-            {/* Delete modal */}
             <DeleteKanbanColumnModal
                 open={delOpen}
                 columnName={delTarget?.name ?? ""}

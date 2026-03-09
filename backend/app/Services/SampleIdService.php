@@ -232,27 +232,19 @@ class SampleIdService
     public function assignFinal(Staff $actor, Sample $sample, ?string $inputSampleId = null): Sample
     {
         if (!empty($sample->lab_sample_code)) {
-            return $sample;
+            return $sample->fresh() ?? $sample;
         }
 
         $rs = (string) ($sample->request_status ?? '');
-
         $allowed = [
             SampleRequestStatus::WAITING_SAMPLE_ID_ASSIGNMENT->value,
             SampleRequestStatus::SAMPLE_ID_APPROVED_FOR_ASSIGNMENT->value,
         ];
 
         if (!in_array($rs, $allowed, true)) {
-            throw new \RuntimeException('Sample ID can only be assigned when request_status is waiting_sample_id_assignment or sample_id_approved_for_assignment.');
-        }
-
-        $suggested = $this->gen->normalize($this->gen->suggestForSample($sample));
-        $inputNorm = !empty($inputSampleId) ? $this->gen->normalize((string) $inputSampleId) : null;
-
-        $isOverride = $inputNorm !== null && $inputNorm !== $suggested;
-
-        if ($isOverride && $rs !== SampleRequestStatus::SAMPLE_ID_APPROVED_FOR_ASSIGNMENT->value) {
-            throw new \RuntimeException('Override requires approval. Use propose-change first.');
+            throw new \RuntimeException(
+                'Sample ID can only be assigned when request_status is waiting_sample_id_assignment or sample_id_approved_for_assignment.'
+            );
         }
 
         $sample->loadMissing('intakeChecklist');
@@ -266,7 +258,15 @@ class SampleIdService
             throw new \RuntimeException('Only PASSED intake checklists can be assigned sample id.');
         }
 
-        return DB::transaction(function () use ($actor, $sample, $rs, $suggested) {
+        $suggested = $this->gen->normalize($this->gen->suggestForSample($sample));
+        $inputNorm = !empty($inputSampleId) ? $this->gen->normalize((string) $inputSampleId) : null;
+        $isOverride = $inputNorm !== null && $inputNorm !== $suggested;
+
+        if ($isOverride && $rs !== SampleRequestStatus::SAMPLE_ID_APPROVED_FOR_ASSIGNMENT->value) {
+            throw new \RuntimeException('Override requires approval. Use propose-change first.');
+        }
+
+        return DB::transaction(function () use ($actor, $sample, $rs, $suggested, $inputNorm) {
             $now = Carbon::now();
 
             $old = [
@@ -291,7 +291,7 @@ class SampleIdService
 
                 $final = $this->gen->normalize((string) $approved->proposed_sample_id);
             } else {
-                $final = $suggested;
+                $final = $inputNorm ?: $suggested;
             }
 
             $parsed = $this->gen->parseNormalized($final);
@@ -312,7 +312,6 @@ class SampleIdService
             $sample->sample_id_number = (int) $parsed['number'];
             $sample->sample_id_assigned_at = $now;
             $sample->sample_id_assigned_by_staff_id = (int) $actor->staff_id;
-
             $sample->request_status = SampleRequestStatus::INTAKE_VALIDATED->value;
 
             if (empty($sample->received_at)) {
@@ -320,17 +319,6 @@ class SampleIdService
             }
 
             $sample->save();
-
-            AuditLogger::write(
-                action: 'SAMPLE_INTAKE_VALIDATED',
-                staffId: (int) $actor->staff_id,
-                entityName: 'samples',
-                entityId: (int) $sample->sample_id,
-                oldValues: null,
-                newValues: [
-                    'validated' => true,
-                ]
-            );
 
             AuditLogger::write(
                 action: 'LAB_SAMPLE_CODE_ASSIGNED',
@@ -348,7 +336,7 @@ class SampleIdService
                 ]
             );
 
-            return $sample;
+            return $sample->fresh();
         }, 3);
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\SampleTestDecisionRequest;
+use App\Models\Sample;
 use App\Models\SampleTest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -11,25 +12,18 @@ use Illuminate\Support\Str;
 
 class SampleTestDecisionController extends Controller
 {
-    /**
-     * Existing endpoint (legacy): OM decision approve/reject
-     * - approve: measured -> verified
-     * - reject:  measured -> failed
-     */
     public function omDecision(SampleTestDecisionRequest $request, SampleTest $sampleTest): JsonResponse
     {
         $this->authorize('decideAsOM', $sampleTest);
 
         $decision = $request->validated()['decision'];
-        $note     = $request->validated()['note'] ?? null;
+        $note = $this->normalizeNote($request->validated()['note'] ?? null);
 
-        // only allowed on measured
-        if (!in_array($sampleTest->status, ['measured'], true)) {
-            return response()->json([
-                'status' => 422,
-                'message' => 'OM decision not allowed for current status.',
-                'data' => ['current_status' => $sampleTest->status],
-            ], 422);
+        if ((string) $sampleTest->status !== 'measured') {
+            return $this->unprocessable(
+                'OM decision not allowed for current status.',
+                (string) $sampleTest->status
+            );
         }
 
         $oldStatus = (string) $sampleTest->status;
@@ -43,7 +37,6 @@ class SampleTestDecisionController extends Controller
 
             $action = 'SAMPLE_TEST_OM_VERIFIED';
         } else {
-            // reject
             $sampleTest->forceFill([
                 'status' => 'failed',
             ])->save();
@@ -56,7 +49,10 @@ class SampleTestDecisionController extends Controller
             $action,
             $note,
             ['status' => $oldStatus],
-            ['status' => (string) $sampleTest->status, 'decision' => $decision]
+            [
+                'status' => (string) $sampleTest->status,
+                'decision' => $decision,
+            ]
         );
 
         return response()->json([
@@ -72,25 +68,18 @@ class SampleTestDecisionController extends Controller
         ], 200);
     }
 
-    /**
-     * Existing endpoint (legacy): LH decision approve/reject
-     * - approve: verified -> validated
-     * - reject:  verified -> failed
-     */
     public function lhDecision(SampleTestDecisionRequest $request, SampleTest $sampleTest): JsonResponse
     {
         $this->authorize('decideAsLH', $sampleTest);
 
         $decision = $request->validated()['decision'];
-        $note     = $request->validated()['note'] ?? null;
+        $note = $this->normalizeNote($request->validated()['note'] ?? null);
 
-        // only allowed on verified
-        if (!in_array($sampleTest->status, ['verified'], true)) {
-            return response()->json([
-                'status' => 422,
-                'message' => 'LH decision not allowed for current status.',
-                'data' => ['current_status' => $sampleTest->status],
-            ], 422);
+        if ((string) $sampleTest->status !== 'verified') {
+            return $this->unprocessable(
+                'LH decision not allowed for current status.',
+                (string) $sampleTest->status
+            );
         }
 
         $oldStatus = (string) $sampleTest->status;
@@ -116,7 +105,10 @@ class SampleTestDecisionController extends Controller
             $action,
             $note,
             ['status' => $oldStatus],
-            ['status' => (string) $sampleTest->status, 'decision' => $decision]
+            [
+                'status' => (string) $sampleTest->status,
+                'decision' => $decision,
+            ]
         );
 
         return response()->json([
@@ -132,25 +124,20 @@ class SampleTestDecisionController extends Controller
         ], 200);
     }
 
-    /**
-     * New endpoint (To Do): OM verify
-     * POST /api/v1/sample-tests/{id}/verify
-     */
     public function verifyAsOM(Request $request, int $id): JsonResponse
     {
         $test = SampleTest::query()->findOrFail($id);
 
         $this->authorize('verifyAsOM', $test);
 
-        $note = $request->input('note');
+        $note = $this->normalizeNote($request->input('note'));
         $oldStatus = (string) $test->getAttribute('status');
 
         if ($oldStatus !== 'measured') {
-            return response()->json([
-                'status' => 422,
-                'message' => 'Invalid transition. Only measured tests can be verified.',
-                'data' => ['current_status' => $oldStatus],
-            ], 422);
+            return $this->unprocessable(
+                'Invalid transition. Only measured tests can be verified.',
+                $oldStatus
+            );
         }
 
         $test->forceFill([
@@ -162,7 +149,7 @@ class SampleTestDecisionController extends Controller
         $this->auditDecision(
             $test,
             'SAMPLE_TEST_OM_VERIFIED',
-            is_string($note) ? $note : null,
+            $note,
             ['status' => $oldStatus],
             ['status' => 'verified']
         );
@@ -170,29 +157,24 @@ class SampleTestDecisionController extends Controller
         return response()->json([
             'status' => 200,
             'message' => 'Sample test verified by OM.',
-            'data' => $test->fresh(),
+            'data' => $this->buildTestResponseData($test),
         ], 200);
     }
 
-    /**
-     * New endpoint (To Do): LH validate
-     * POST /api/v1/sample-tests/{id}/validate
-     */
     public function validateAsLH(Request $request, int $id): JsonResponse
     {
         $test = SampleTest::query()->findOrFail($id);
 
         $this->authorize('validateAsLH', $test);
 
-        $note = $request->input('note');
+        $note = $this->normalizeNote($request->input('note'));
         $oldStatus = (string) $test->getAttribute('status');
 
         if ($oldStatus !== 'verified') {
-            return response()->json([
-                'status' => 422,
-                'message' => 'Invalid transition. Only verified tests can be validated.',
-                'data' => ['current_status' => $oldStatus],
-            ], 422);
+            return $this->unprocessable(
+                'Invalid transition. Only verified tests can be validated.',
+                $oldStatus
+            );
         }
 
         $test->forceFill([
@@ -204,7 +186,7 @@ class SampleTestDecisionController extends Controller
         $this->auditDecision(
             $test,
             'SAMPLE_TEST_LH_VALIDATED',
-            is_string($note) ? $note : null,
+            $note,
             ['status' => $oldStatus],
             ['status' => 'validated']
         );
@@ -212,15 +194,39 @@ class SampleTestDecisionController extends Controller
         return response()->json([
             'status' => 200,
             'message' => 'Sample test validated by LH.',
-            'data' => $test->fresh(),
+            'data' => $this->buildTestResponseData($test),
         ], 200);
     }
 
-    /**
-     * Internal audit helper (safe):
-     * - action truncated to 40 chars (audit_logs.action is varchar(40))
-     * - staff_id resolved robustly
-     */
+    private function buildTestResponseData(SampleTest $test): array
+    {
+        $fresh = $test->fresh() ?? $test;
+        $sample = Sample::query()
+            ->select(['sample_id', 'request_batch_id', 'request_batch_item_no', 'request_batch_total'])
+            ->find((int) $test->getAttribute('sample_id'));
+
+        return [
+            ...$fresh->toArray(),
+            'request_batch_id' => $sample?->request_batch_id,
+            'request_batch_item_no' => $sample?->request_batch_item_no,
+            'request_batch_total' => $sample?->request_batch_total,
+        ];
+    }
+
+    private function normalizeNote(mixed $note): ?string
+    {
+        return is_string($note) ? $note : null;
+    }
+
+    private function unprocessable(string $message, string $currentStatus): JsonResponse
+    {
+        return response()->json([
+            'status' => 422,
+            'message' => $message,
+            'data' => ['current_status' => $currentStatus],
+        ], 422);
+    }
+
     private function auditDecision(
         SampleTest $test,
         string $action,
@@ -232,11 +238,8 @@ class SampleTestDecisionController extends Controller
             $action = Str::limit($action, 40, '');
 
             $user = Auth::user();
-            $staffId =
-                $user?->staff_id
-                ?? ($user?->staff?->staff_id ?? null);
+            $staffId = $user?->staff_id ?? ($user?->staff?->staff_id ?? null);
 
-            // staff_id wajib untuk audit_logs (kalau null, skip biar endpoint tetap jalan)
             if (!$staffId || !is_numeric($staffId)) {
                 return;
             }

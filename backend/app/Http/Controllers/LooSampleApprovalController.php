@@ -6,6 +6,7 @@ use App\Models\Sample;
 use App\Models\Staff;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -14,7 +15,6 @@ class LooSampleApprovalController extends Controller
 {
     private function actorRoleCode(Staff $staff): ?string
     {
-        // match LetterOfOrderController mapping
         return match ((int) $staff->role_id) {
             5 => 'OM',
             6 => 'LH',
@@ -22,15 +22,135 @@ class LooSampleApprovalController extends Controller
         };
     }
 
-    /**
-     * GET /api/v1/loo/approvals?sample_ids[]=1&sample_ids[]=2
-     * Returns: { data: { [sample_id]: { OM: bool, LH: bool, ready: bool } } }
-     */
+    private function authenticatedStaff(): ?Staff
+    {
+        $staff = Auth::user();
+
+        return $staff instanceof Staff ? $staff : null;
+    }
+
+    private function approvalsTableMissingResponse(): JsonResponse
+    {
+        return response()->json([
+            'message' => 'Approvals table not found. Run migrations.',
+            'code' => 'APPROVALS_TABLE_MISSING',
+        ], 500);
+    }
+
+    private function notEligibleResponse(): JsonResponse
+    {
+        return response()->json([
+            'message' => 'Sample is not eligible for LOO approval yet.',
+            'code' => 'SAMPLE_NOT_ELIGIBLE',
+        ], 422);
+    }
+
+    private function buildApprovalStateMap(array $sampleIds): array
+    {
+        $rows = DB::table('loo_sample_approvals')
+            ->whereIn('sample_id', $sampleIds)
+            ->whereIn('role_code', ['OM', 'LH'])
+            ->get(['sample_id', 'role_code', 'approved_at']);
+
+        $map = [];
+        foreach ($sampleIds as $sampleId) {
+            $map[$sampleId] = [
+                'OM' => false,
+                'LH' => false,
+                'ready' => false,
+            ];
+        }
+
+        foreach ($rows as $row) {
+            $sampleId = (int) $row->sample_id;
+            $roleCode = (string) $row->role_code;
+
+            if (!isset($map[$sampleId])) {
+                $map[$sampleId] = [
+                    'OM' => false,
+                    'LH' => false,
+                    'ready' => false,
+                ];
+            }
+
+            if ($roleCode === 'OM' || $roleCode === 'LH') {
+                $map[$sampleId][$roleCode] = !empty($row->approved_at);
+            }
+        }
+
+        foreach ($map as $sampleId => $state) {
+            $map[$sampleId]['ready'] = (bool) (($state['OM'] ?? false) && ($state['LH'] ?? false));
+        }
+
+        return $map;
+    }
+
+    private function resolveApprovalTargets(Sample $sample, bool $applyToBatch): Collection
+    {
+        $query = Sample::query();
+
+        if (
+            $applyToBatch &&
+            Schema::hasColumn('samples', 'request_batch_id') &&
+            !empty($sample->request_batch_id)
+        ) {
+            $query
+                ->where('client_id', $sample->client_id)
+                ->where('request_batch_id', $sample->request_batch_id);
+
+            if (Schema::hasColumn('samples', 'batch_excluded_at')) {
+                $query->whereNull('batch_excluded_at');
+            }
+
+            return $query
+                ->orderBy('request_batch_item_no')
+                ->orderBy('sample_id')
+                ->lockForUpdate()
+                ->get();
+        }
+
+        return $query
+            ->whereKey($sample->getKey())
+            ->lockForUpdate()
+            ->get();
+    }
+
+    private function upsertApprovalForTarget(Sample $target, Staff $staff, string $actorRole, bool $approved, $now): void
+    {
+        $existing = DB::table('loo_sample_approvals')
+            ->where('sample_id', (int) $target->sample_id)
+            ->where('role_code', $actorRole)
+            ->first(['approval_id']);
+
+        $payload = [
+            'approved_by_staff_id' => $approved ? (int) $staff->staff_id : null,
+            'approved_at' => $approved ? $now : null,
+            'updated_at' => $now,
+        ];
+
+        if ($existing) {
+            DB::table('loo_sample_approvals')
+                ->where('sample_id', (int) $target->sample_id)
+                ->where('role_code', $actorRole)
+                ->update($payload);
+
+            return;
+        }
+
+        DB::table('loo_sample_approvals')->insert([
+            'sample_id' => (int) $target->sample_id,
+            'role_code' => $actorRole,
+            'approved_by_staff_id' => $approved ? (int) $staff->staff_id : null,
+            'approved_at' => $approved ? $now : null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+    }
+
     public function index(Request $request): JsonResponse
     {
-        /** @var Staff $staff */
-        $staff = Auth::user();
-        if (!$staff instanceof Staff) {
+        $staff = $this->authenticatedStaff();
+        if (!$staff) {
             return response()->json(['message' => 'Authenticated staff not found.'], 500);
         }
 
@@ -44,54 +164,21 @@ class LooSampleApprovalController extends Controller
             'sample_ids.*' => ['integer', 'min:1', 'distinct'],
         ]);
 
+        if (!Schema::hasTable('loo_sample_approvals')) {
+            return $this->approvalsTableMissingResponse();
+        }
+
         $sampleIds = array_values(array_unique(array_map('intval', (array) $request->input('sample_ids'))));
 
-        if (!Schema::hasTable('loo_sample_approvals')) {
-            return response()->json([
-                'message' => 'Approvals table not found. Run migrations.',
-                'code' => 'APPROVALS_TABLE_MISSING',
-            ], 500);
-        }
-
-        $rows = DB::table('loo_sample_approvals')
-            ->whereIn('sample_id', $sampleIds)
-            ->whereIn('role_code', ['OM', 'LH'])
-            ->get(['sample_id', 'role_code', 'approved_at']);
-
-        $map = [];
-        foreach ($sampleIds as $sid) {
-            $map[$sid] = ['OM' => false, 'LH' => false, 'ready' => false];
-        }
-
-        foreach ($rows as $r) {
-            $sid = (int) $r->sample_id;
-            $rc  = (string) $r->role_code;
-            $ok  = !empty($r->approved_at);
-
-            if (!isset($map[$sid])) $map[$sid] = ['OM' => false, 'LH' => false, 'ready' => false];
-            if ($rc === 'OM' || $rc === 'LH') {
-                $map[$sid][$rc] = (bool) $ok;
-            }
-        }
-
-        foreach ($map as $sid => $st) {
-            $map[$sid]['ready'] = (bool) (($st['OM'] ?? false) && ($st['LH'] ?? false));
-        }
-
-        return response()->json(['data' => $map]);
+        return response()->json([
+            'data' => $this->buildApprovalStateMap($sampleIds),
+        ]);
     }
 
-    /**
-     * PATCH /api/v1/loo/approvals/{sample}
-     * body: { approved: boolean }
-     *
-     * Actor can ONLY set their own role approval (OM sets OM, LH sets LH).
-     */
     public function update(Request $request, Sample $sample): JsonResponse
     {
-        /** @var Staff $staff */
-        $staff = Auth::user();
-        if (!$staff instanceof Staff) {
+        $staff = $this->authenticatedStaff();
+        if (!$staff) {
             return response()->json(['message' => 'Authenticated staff not found.'], 500);
         }
 
@@ -102,72 +189,45 @@ class LooSampleApprovalController extends Controller
 
         $request->validate([
             'approved' => ['required', 'boolean'],
+            'apply_to_batch' => ['nullable', 'boolean'],
         ]);
 
         if (!Schema::hasTable('loo_sample_approvals')) {
-            return response()->json([
-                'message' => 'Approvals table not found. Run migrations.',
-                'code' => 'APPROVALS_TABLE_MISSING',
-            ], 500);
+            return $this->approvalsTableMissingResponse();
         }
 
         $approved = (bool) $request->boolean('approved');
+        $applyToBatch = (bool) $request->boolean('apply_to_batch');
 
-        return DB::transaction(function () use ($sample, $staff, $actorRole, $approved) {
-            // Ensure sample is a valid LOO candidate (verified + has lab_sample_code)
-            if (empty($sample->verified_at) || empty($sample->lab_sample_code)) {
-                return response()->json([
-                    'message' => 'Sample is not eligible for LOO approval yet.',
-                    'code' => 'SAMPLE_NOT_ELIGIBLE',
-                ], 422);
+        return DB::transaction(function () use ($sample, $staff, $actorRole, $approved, $applyToBatch) {
+            $targets = $this->resolveApprovalTargets($sample, $applyToBatch);
+
+            if ($targets->isEmpty()) {
+                return $this->notEligibleResponse();
             }
 
-            // Upsert approval row for (sample_id, role_code)
+            foreach ($targets as $target) {
+                if (empty($target->verified_at) || empty($target->lab_sample_code)) {
+                    return $this->notEligibleResponse();
+                }
+            }
+
             $now = now();
+            $affectedIds = [];
 
-            $existing = DB::table('loo_sample_approvals')
-                ->where('sample_id', (int) $sample->sample_id)
-                ->where('role_code', $actorRole)
-                ->first(['approval_id']);
-
-            if ($existing) {
-                DB::table('loo_sample_approvals')
-                    ->where('sample_id', (int) $sample->sample_id)
-                    ->where('role_code', $actorRole)
-                    ->update([
-                        'approved_by_staff_id' => $approved ? (int) $staff->staff_id : null,
-                        'approved_at' => $approved ? $now : null,
-                        'updated_at' => $now,
-                    ]);
-            } else {
-                DB::table('loo_sample_approvals')->insert([
-                    'sample_id' => (int) $sample->sample_id,
-                    'role_code' => $actorRole,
-                    'approved_by_staff_id' => $approved ? (int) $staff->staff_id : null,
-                    'approved_at' => $approved ? $now : null,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ]);
+            foreach ($targets as $target) {
+                $this->upsertApprovalForTarget($target, $staff, $actorRole, $approved, $now);
+                $affectedIds[] = (int) $target->sample_id;
             }
 
-            // Return fresh state for this sample
-            $rows = DB::table('loo_sample_approvals')
-                ->where('sample_id', (int) $sample->sample_id)
-                ->whereIn('role_code', ['OM', 'LH'])
-                ->get(['role_code', 'approved_at']);
-
-            $state = ['OM' => false, 'LH' => false, 'ready' => false];
-            foreach ($rows as $r) {
-                $rc = (string) $r->role_code;
-                $state[$rc] = !empty($r->approved_at);
-            }
-            $state['ready'] = (bool) (($state['OM'] ?? false) && ($state['LH'] ?? false));
+            $primary = $targets->first();
 
             return response()->json([
                 'message' => 'Approval updated.',
                 'data' => [
-                    'sample_id' => (int) $sample->sample_id,
-                    'state' => $state,
+                    'sample_id' => (int) $primary->sample_id,
+                    'request_batch_id' => $primary->request_batch_id ?? null,
+                    'affected_sample_ids' => $affectedIds,
                 ],
             ]);
         }, 3);

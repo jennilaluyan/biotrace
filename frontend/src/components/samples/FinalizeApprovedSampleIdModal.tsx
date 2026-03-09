@@ -19,37 +19,43 @@ type NormalizeResult =
     | { ok: false; normalized: string; prefix: string; number: 0; error: string };
 
 function normalizeSampleId(raw: string): NormalizeResult {
-    const s0 = String(raw ?? "").trim().toUpperCase();
-    if (!s0) {
+    const value = String(raw ?? "").trim().toUpperCase();
+
+    if (!value) {
         return { ok: false, normalized: "", prefix: "", number: 0, error: "Sample ID is required." };
     }
 
-    const m = s0.match(/^([A-Z]{1,5})\s*[- ]?\s*(\d{1,6})$/);
-    if (!m) {
+    const match = value.match(/^([A-Z]{1,5})\s*[- ]?\s*(\d{1,6})$/);
+    if (!match) {
         return {
             ok: false,
-            normalized: s0,
+            normalized: value,
             prefix: "",
             number: 0,
             error: "Format must be: PREFIX 001 (uppercase letters, max 5-letter prefix, space, number).",
         };
     }
 
-    const prefix = m[1];
-    const num = Number(m[2]);
+    const prefix = match[1];
+    const number = Number(match[2]);
 
-    if (!Number.isFinite(num) || num <= 0) {
-        return { ok: false, normalized: s0, prefix, number: 0, error: "Number must be greater than 0." };
+    if (!Number.isFinite(number) || number <= 0) {
+        return { ok: false, normalized: value, prefix, number: 0, error: "Number must be greater than 0." };
     }
 
-    const normalized = `${prefix} ${pad3(num)}`;
-    return { ok: true, normalized, prefix, number: num, error: null };
+    return {
+        ok: true,
+        normalized: `${prefix} ${pad3(number)}`,
+        prefix,
+        number,
+        error: null,
+    };
 }
 
 function prettySampleId(raw?: string | null) {
     if (!raw) return "—";
-    const v = normalizeSampleId(String(raw));
-    return v.ok ? v.normalized : String(raw);
+    const normalized = normalizeSampleId(String(raw));
+    return normalized.ok ? normalized.normalized : String(raw);
 }
 
 type Props = {
@@ -61,6 +67,7 @@ type Props = {
 
 function getFocusable(container: HTMLElement | null) {
     if (!container) return [];
+
     return Array.from(
         container.querySelectorAll<HTMLElement>(
             'a[href], button, textarea, input, select, [tabindex]:not([tabindex="-1"])'
@@ -71,17 +78,53 @@ function getFocusable(container: HTMLElement | null) {
             el.getAttribute("aria-disabled") === "true" ||
             el.getAttribute("disabled") !== null;
         const isHidden = el.getAttribute("aria-hidden") === "true";
+
         return !isDisabled && !isHidden && el.tabIndex >= 0;
     });
 }
 
-/**
- * Finalize modal khusus untuk kondisi:
- * request_status === sample_id_approved_for_assignment
- *
- * Admin TIDAK bisa propose lagi.
- * Modal hanya recheck bahwa final Sample ID = proposed yg sudah di-approve OM/LH.
- */
+function pickApprovedProposedFromSample(sample: Sample | null): string | null {
+    const changeObj =
+        (sample as any)?.sample_id_change ??
+        (sample as any)?.sample_id_change_request ??
+        (sample as any)?.sampleIdChange ??
+        null;
+
+    const changeStatus = String(
+        changeObj?.status ?? (sample as any)?.sample_id_change_status ?? (sample as any)?.sample_id_change_state ?? ""
+    )
+        .trim()
+        .toLowerCase();
+
+    if (changeStatus !== "approved") return null;
+
+    const value =
+        changeObj?.proposed_lab_sample_code ??
+        changeObj?.proposed_sample_id ??
+        (sample as any)?.proposed_lab_sample_code ??
+        (sample as any)?.proposed_sample_id ??
+        null;
+
+    return value ? String(value).trim() : null;
+}
+
+function pickSuggestedFromSample(sample: Sample | null): string | null {
+    const changeObj =
+        (sample as any)?.sample_id_change ??
+        (sample as any)?.sample_id_change_request ??
+        (sample as any)?.sampleIdChange ??
+        null;
+
+    const value =
+        (sample as any)?.suggested_lab_sample_code ??
+        (sample as any)?.suggested_sample_id ??
+        changeObj?.suggested_lab_sample_code ??
+        changeObj?.suggested_sample_id ??
+        null;
+
+    return value ? String(value).trim() : null;
+}
+
 export default function FinalizeApprovedSampleIdModal({ open, sample, onClose, onDone }: Props) {
     const sampleId = Number((sample as any)?.sample_id ?? (sample as any)?.id ?? 0);
 
@@ -99,11 +142,16 @@ export default function FinalizeApprovedSampleIdModal({ open, sample, onClose, o
 
     const workflowGroup = (sample as any)?.workflow_group ?? (sample as any)?.workflowGroup ?? "—";
 
-    const [busy, setBusy] = useState(false);
-    const [err, setErr] = useState<string | null>(null);
+    const activeBatchTotal = Number(
+        (sample as any)?.batch_summary?.batch_active_total ?? (sample as any)?.request_batch_total ?? 1
+    );
+    const canApplyToBatch = !!(sample as any)?.request_batch_id && activeBatchTotal > 1;
 
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const [suggested, setSuggested] = useState<string | null>(null);
     const [approvedProposed, setApprovedProposed] = useState<string | null>(null);
+    const [applyToBatch, setApplyToBatch] = useState(canApplyToBatch);
 
     const dialogRef = useRef<HTMLDivElement | null>(null);
     const cancelRef = useRef<HTMLButtonElement | null>(null);
@@ -111,63 +159,23 @@ export default function FinalizeApprovedSampleIdModal({ open, sample, onClose, o
 
     const titleId = "finalize-approved-sampleid-title";
 
-    // best-effort pick dari sample response (kalau backend sudah inject)
-    function pickApprovedProposedFromSample(): string | null {
-        const changeObj =
-            (sample as any)?.sample_id_change ??
-            (sample as any)?.sample_id_change_request ??
-            (sample as any)?.sampleIdChange ??
-            null;
+    useEffect(() => {
+        if (!open) return;
+        setApplyToBatch(canApplyToBatch);
+    }, [open, canApplyToBatch]);
 
-        const changeStatus = String(
-            changeObj?.status ?? (sample as any)?.sample_id_change_status ?? (sample as any)?.sample_id_change_state ?? ""
-        )
-            .trim()
-            .toLowerCase();
-
-        if (changeStatus !== "approved") return null;
-
-        const v =
-            changeObj?.proposed_lab_sample_code ??
-            changeObj?.proposed_sample_id ??
-            (sample as any)?.proposed_lab_sample_code ??
-            (sample as any)?.proposed_sample_id ??
-            null;
-
-        return v ? String(v).trim() : null;
-    }
-
-    function pickSuggestedFromSample(): string | null {
-        const changeObj =
-            (sample as any)?.sample_id_change ??
-            (sample as any)?.sample_id_change_request ??
-            (sample as any)?.sampleIdChange ??
-            null;
-
-        const v =
-            (sample as any)?.suggested_lab_sample_code ??
-            (sample as any)?.suggested_sample_id ??
-            changeObj?.suggested_lab_sample_code ??
-            changeObj?.suggested_sample_id ??
-            null;
-
-        return v ? String(v).trim() : null;
-    }
-
-    // focus management + restore focus
     useEffect(() => {
         if (!open) return;
 
         lastActiveRef.current = (document.activeElement as HTMLElement) ?? null;
-        const t = window.setTimeout(() => cancelRef.current?.focus(), 0);
+        const timer = window.setTimeout(() => cancelRef.current?.focus(), 0);
 
         return () => {
-            window.clearTimeout(t);
+            window.clearTimeout(timer);
             lastActiveRef.current?.focus?.();
         };
     }, [open]);
 
-    // keyboard: ESC + focus trap
     useEffect(() => {
         if (!open) return;
 
@@ -176,6 +184,7 @@ export default function FinalizeApprovedSampleIdModal({ open, sample, onClose, o
                 if (!busy) onClose();
                 return;
             }
+
             if (e.key !== "Tab") return;
 
             const focusables = getFocusable(dialogRef.current);
@@ -207,70 +216,84 @@ export default function FinalizeApprovedSampleIdModal({ open, sample, onClose, o
         return () => window.removeEventListener("keydown", onKeyDown);
     }, [open, busy, onClose]);
 
-    // lock body scroll
     useEffect(() => {
         if (!open) return;
-        const prevOverflow = document.body.style.overflow;
-        const prevPaddingRight = document.body.style.paddingRight;
+
+        const previousOverflow = document.body.style.overflow;
+        const previousPaddingRight = document.body.style.paddingRight;
         const scrollBarWidth = window.innerWidth - document.documentElement.clientWidth;
+
         document.body.style.overflow = "hidden";
-        if (scrollBarWidth > 0) document.body.style.paddingRight = `${scrollBarWidth}px`;
+        if (scrollBarWidth > 0) {
+            document.body.style.paddingRight = `${scrollBarWidth}px`;
+        }
+
         return () => {
-            document.body.style.overflow = prevOverflow;
-            document.body.style.paddingRight = prevPaddingRight;
+            document.body.style.overflow = previousOverflow;
+            document.body.style.paddingRight = previousPaddingRight;
         };
     }, [open]);
 
     useEffect(() => {
         if (!open) return;
 
-        setErr(null);
+        const suggestedFromSample = pickSuggestedFromSample(sample);
+        const approvedFromSample = pickApprovedProposedFromSample(sample);
 
-        // seed suggested + approved dari sample (kalau ada)
-        setSuggested(pickSuggestedFromSample());
-        setApprovedProposed(pickApprovedProposedFromSample());
+        setError(null);
+        setSuggested(suggestedFromSample);
+        setApprovedProposed(approvedFromSample);
 
-        // kalau statusnya bukan approved state, jangan lanjut fetch (modal ini memang khusus approved)
-        if (!isApprovedState) return;
-
-        // jika sudah ada approved proposed dari sample, tidak perlu fetch lagi
-        const already = pickApprovedProposedFromSample();
-        if (already) return;
-
+        if (!isApprovedState || approvedFromSample) return;
         if (!Number.isFinite(sampleId) || sampleId <= 0) return;
+
+        let cancelled = false;
 
         (async () => {
             try {
                 setBusy(true);
 
-                // ✅ ambil APPROVED request terbaru untuk sample ini
                 const row = await getLatestSampleIdChangeBySampleId(sampleId, "APPROVED");
+                if (cancelled) return;
 
-                const proposed = row?.proposed_lab_sample_code ?? row?.proposed_sample_id ?? (row as any)?.proposed ?? null;
-                const sug = row?.suggested_lab_sample_code ?? row?.suggested_sample_id ?? (row as any)?.suggested ?? null;
+                const proposed =
+                    row?.proposed_lab_sample_code ?? row?.proposed_sample_id ?? (row as any)?.proposed ?? null;
+                const suggestedValue =
+                    row?.suggested_lab_sample_code ?? row?.suggested_sample_id ?? (row as any)?.suggested ?? null;
 
-                if (sug && !suggested) setSuggested(String(sug));
-                if (proposed) setApprovedProposed(String(proposed));
-            } catch (e: any) {
-                // jangan hard-fail; tampilkan error banner
-                setErr(getErrorMessage(e, "Failed to load approved Sample ID."));
+                if (suggestedValue && !suggestedFromSample) {
+                    setSuggested(String(suggestedValue));
+                }
+
+                if (proposed) {
+                    setApprovedProposed(String(proposed));
+                }
+            } catch (err: any) {
+                if (!cancelled) {
+                    setError(getErrorMessage(err, "Failed to load approved Sample ID."));
+                }
             } finally {
-                setBusy(false);
+                if (!cancelled) {
+                    setBusy(false);
+                }
             }
         })();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, sampleId, isApprovedState]);
+
+        return () => {
+            cancelled = true;
+        };
+    }, [open, sample, sampleId, isApprovedState]);
 
     const approvedNormalized = useMemo(() => {
         if (!approvedProposed) return null;
-        const v = normalizeSampleId(approvedProposed);
-        return v.ok ? v.normalized : String(approvedProposed).trim().toUpperCase();
+        const normalized = normalizeSampleId(approvedProposed);
+        return normalized.ok ? normalized.normalized : String(approvedProposed).trim().toUpperCase();
     }, [approvedProposed]);
 
     const suggestedNormalized = useMemo(() => {
         if (!suggested) return null;
-        const v = normalizeSampleId(suggested);
-        return v.ok ? v.normalized : String(suggested).trim().toUpperCase();
+        const normalized = normalizeSampleId(suggested);
+        return normalized.ok ? normalized.normalized : String(suggested).trim().toUpperCase();
     }, [suggested]);
 
     const canSubmit =
@@ -280,18 +303,22 @@ export default function FinalizeApprovedSampleIdModal({ open, sample, onClose, o
         if (!canSubmit || !approvedNormalized) return;
 
         setBusy(true);
-        setErr(null);
+        setError(null);
 
         try {
-            // ✅ explicit: finalize memakai approved proposed code
-            await assignSampleId(sampleId, approvedNormalized);
+            await assignSampleId(sampleId, approvedNormalized, applyToBatch);
 
-            onDone({ type: "success", message: `Sample ID assigned: ${approvedNormalized}.` });
+            onDone({
+                type: "success",
+                message: applyToBatch
+                    ? "Institutional batch Sample ID assignment completed."
+                    : `Sample ID assigned: ${approvedNormalized}.`,
+            });
             onClose();
-        } catch (e: any) {
-            const msg = getErrorMessage(e, "Failed to assign approved Sample ID.");
-            setErr(msg);
-            onDone({ type: "error", message: msg });
+        } catch (err: any) {
+            const message = getErrorMessage(err, "Failed to assign approved Sample ID.");
+            setError(message);
+            onDone({ type: "error", message });
         } finally {
             setBusy(false);
         }
@@ -312,15 +339,15 @@ export default function FinalizeApprovedSampleIdModal({ open, sample, onClose, o
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={titleId}
-                className="relative w-full max-w-xl rounded-2xl bg-white shadow-xl border border-gray-100 overflow-hidden"
+                className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-xl"
             >
-                <div className="px-5 py-4 border-b border-gray-100">
+                <div className="border-b border-gray-100 px-5 py-4">
                     <div className="flex items-start justify-between gap-3">
                         <div>
                             <div id={titleId} className="text-lg font-semibold text-gray-900">
                                 Finalize approved Sample ID
                             </div>
-                            <div className="text-xs text-gray-500 mt-1">
+                            <div className="mt-1 text-xs text-gray-500">
                                 Request #{(sample as any)?.sample_id ?? "—"} • {clientName} • {workflowGroup}
                             </div>
                         </div>
@@ -329,7 +356,7 @@ export default function FinalizeApprovedSampleIdModal({ open, sample, onClose, o
                             type="button"
                             onClick={onClose}
                             disabled={busy}
-                            className={cx("lims-icon-button", busy && "opacity-60 cursor-not-allowed")}
+                            className={cx("lims-icon-button", busy && "cursor-not-allowed opacity-60")}
                             aria-label="Close"
                             title="Close"
                         >
@@ -338,22 +365,47 @@ export default function FinalizeApprovedSampleIdModal({ open, sample, onClose, o
                     </div>
                 </div>
 
-                <div className="px-5 py-4 space-y-4">
+                <div className="space-y-4 px-5 py-4">
                     {!isApprovedState ? (
                         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                             This screen is only for requests in the <span className="font-semibold">approved</span> state.
                         </div>
                     ) : null}
 
-                    {err ? (
-                        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">
-                            {err}
+                    {error ? (
+                        <div
+                            className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"
+                            role="alert"
+                        >
+                            {error}
                         </div>
                     ) : null}
 
                     <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                        OM/LH has approved a Sample ID change. Admin can only <span className="font-semibold">finalize</span> the approved code.
+                        OM/LH has approved a Sample ID change. Admin can only{" "}
+                        <span className="font-semibold">finalize</span> the approved code.
                     </div>
+
+                    {canApplyToBatch ? (
+                        <label className="mt-4 flex items-start gap-3 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3">
+                            <input
+                                type="checkbox"
+                                className="mt-1"
+                                checked={applyToBatch}
+                                onChange={(e) => setApplyToBatch(e.target.checked)}
+                                disabled={busy}
+                            />
+                            <div>
+                                <div className="text-sm font-semibold text-sky-900">
+                                    Apply final assignment to institutional batch
+                                </div>
+                                <div className="mt-1 text-xs text-sky-700">
+                                    Sequential sample IDs will be assigned to all active samples in this batch (
+                                    {activeBatchTotal}).
+                                </div>
+                            </div>
+                        </label>
+                    ) : null}
 
                     <div className="rounded-xl border border-gray-100 px-4 py-3">
                         <div className="text-xs text-gray-500">Approved Sample ID (will be assigned)</div>
@@ -365,14 +417,14 @@ export default function FinalizeApprovedSampleIdModal({ open, sample, onClose, o
 
                             <button
                                 type="button"
-                                className={cx("lims-icon-button", !approvedNormalized && "opacity-40 cursor-not-allowed")}
+                                className={cx("lims-icon-button", !approvedNormalized && "cursor-not-allowed opacity-40")}
                                 disabled={!approvedNormalized || busy}
                                 onClick={async () => {
                                     if (!approvedNormalized) return;
                                     try {
                                         await navigator.clipboard.writeText(approvedNormalized);
                                     } catch {
-                                        // ignore
+                                        return;
                                     }
                                 }}
                                 aria-label="Copy approved"
@@ -383,7 +435,7 @@ export default function FinalizeApprovedSampleIdModal({ open, sample, onClose, o
                         </div>
 
                         {busy && !approvedNormalized ? (
-                            <div className="mt-3 text-xs text-gray-500 inline-flex items-center gap-2">
+                            <div className="mt-3 inline-flex items-center gap-2 text-xs text-gray-500">
                                 <Loader2 size={14} className="animate-spin" />
                                 Loading approved code…
                             </div>
@@ -391,8 +443,7 @@ export default function FinalizeApprovedSampleIdModal({ open, sample, onClose, o
 
                         {suggestedNormalized ? (
                             <div className="mt-3 text-xs text-gray-600">
-                                Suggested (system):{" "}
-                                <span className="font-mono">{prettySampleId(suggestedNormalized)}</span>
+                                Suggested (system): <span className="font-mono">{prettySampleId(suggestedNormalized)}</span>
                                 {approvedNormalized && suggestedNormalized !== approvedNormalized ? (
                                     <span className="text-gray-500"> • overridden via approval</span>
                                 ) : null}
@@ -408,13 +459,13 @@ export default function FinalizeApprovedSampleIdModal({ open, sample, onClose, o
                     ) : null}
                 </div>
 
-                <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2 bg-white">
+                <div className="flex items-center justify-end gap-2 border-t border-gray-100 bg-white px-5 py-4">
                     <button
                         ref={cancelRef}
                         type="button"
                         onClick={onClose}
                         disabled={busy}
-                        className={cx("lims-btn", busy && "opacity-60 cursor-not-allowed")}
+                        className={cx("lims-btn", busy && "cursor-not-allowed opacity-60")}
                     >
                         Cancel
                     </button>
@@ -425,7 +476,7 @@ export default function FinalizeApprovedSampleIdModal({ open, sample, onClose, o
                         onClick={finalize}
                         className={cx(
                             "lims-btn-primary inline-flex items-center gap-2",
-                            !canSubmit && "opacity-60 cursor-not-allowed"
+                            !canSubmit && "cursor-not-allowed opacity-60"
                         )}
                     >
                         <Check size={16} />

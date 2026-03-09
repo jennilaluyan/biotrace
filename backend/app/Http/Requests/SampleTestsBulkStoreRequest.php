@@ -14,7 +14,10 @@ class SampleTestsBulkStoreRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'tests' => ['required', 'array', 'min:1', 'max:200'], // batas biar aman
+            'sample_ids' => ['nullable', 'array', 'min:1', 'max:200'],
+            'sample_ids.*' => ['integer', 'min:1', 'distinct'],
+
+            'tests' => ['required', 'array', 'min:1', 'max:200'],
             'tests.*.parameter_id' => ['required', 'integer', 'min:1'],
             'tests.*.method_id' => ['nullable', 'integer', 'min:1'],
             'tests.*.assigned_to' => ['nullable', 'integer', 'min:1'],

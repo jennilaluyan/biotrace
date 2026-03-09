@@ -14,14 +14,11 @@ export type LooSignature = {
     lo_signature_id?: number;
     lo_id: number;
     role_code: LooSignatureRole;
-
     signed_by_staff?: number | null;
     signed_by_client?: number | null;
     signed_at?: string | null;
-
     signature_hash?: string | null;
     note?: string | null;
-
     created_at?: string | null;
     updated_at?: string | null;
 };
@@ -41,9 +38,8 @@ export type LooItem = {
 };
 
 export type LetterOfOrder = {
-    // keep both for compatibility (backend uses lo_id)
-    loo_id: number; // canonical id in FE
-    lo_id?: number; // mirror backend key (optional)
+    loo_id: number;
+    lo_id?: number;
 
     sample_id: number;
 
@@ -51,6 +47,9 @@ export type LetterOfOrder = {
     number?: string | null;
 
     loo_status?: LooStatus | null;
+    loa_status?: LooStatus | null;
+
+    payload?: any;
 
     created_at?: string;
     updated_at?: string | null;
@@ -60,54 +59,54 @@ export type LetterOfOrder = {
     client_signed_at?: string | null;
     locked_at?: string | null;
 
-    // DB-backed file metadata
     pdf_file_id?: number | null;
     download_url?: string | null;
     record_no?: string | null;
     form_code?: string | null;
-
-    // legacy file fields
     pdf_url?: string | null;
 
     signatures?: LooSignature[] | null;
     items?: LooItem[] | null;
+
+    included_sample_ids?: number[] | null;
+    request_batch_id?: string | null;
+    batch_total?: number | null;
 };
 
-/**
- * ✅ Approval state (frontend canonical keys).
- * Backend may return both:
- * - { OM: true, LH: false, ready: false }
- * - { om: true, lh: false, ready: false }
- */
 export type LooApprovalState = {
     OM: boolean;
     LH: boolean;
     ready: boolean;
 };
 
-export type SelectedParamsMap = Record<number, number[]>; // sample_id -> parameter_ids[]
+export type SelectedParamsMap = Record<number, number[]>;
 
 function unwrapData<T>(res: any): T {
-    // supports both axios-like { data: ... } and direct payload
     if (res && typeof res === "object" && "data" in res) return res.data as T;
     return res as T;
 }
 
-function toIntOrNull(v: any): number | null {
-    const n = Number(v ?? 0);
+function toIntOrNull(value: any): number | null {
+    const n = Number(value);
     if (!Number.isFinite(n) || n <= 0) return null;
     return n;
 }
 
-function toStrOrNull(v: any): string | null {
-    const s = String(v ?? "").trim();
+function toStrOrNull(value: any): string | null {
+    const s = String(value ?? "").trim();
     return s ? s : null;
 }
 
-/**
- * Normalize backend approval state shape into frontend canonical shape.
- * Handles both upper/lowercase keys safely.
- */
+function toNumberArrayOrNull(value: any): number[] | null {
+    if (!Array.isArray(value)) return null;
+
+    const items = value
+        .map((item) => Number(item))
+        .filter((item) => Number.isFinite(item) && item > 0);
+
+    return items.length > 0 ? items : null;
+}
+
 function normalizeApprovalState(input: any): LooApprovalState {
     const OM = !!(input?.OM ?? input?.om);
     const LH = !!(input?.LH ?? input?.lh);
@@ -115,14 +114,11 @@ function normalizeApprovalState(input: any): LooApprovalState {
     return { OM, LH, ready };
 }
 
-/**
- * Coerce various backend keys into LetterOfOrder.
- */
 function coerceLoo(maybe: any): LetterOfOrder | null {
     if (!maybe || typeof maybe !== "object") return null;
 
     const directId = Number(maybe?.loo_id ?? maybe?.lo_id ?? maybe?.id ?? maybe?.loa_id ?? 0);
-    if (!Number.isNaN(directId) && directId > 0) {
+    if (Number.isFinite(directId) && directId > 0) {
         const payload = maybe?.payload && typeof maybe.payload === "object" ? maybe.payload : null;
 
         const pdfFileId =
@@ -141,7 +137,20 @@ function coerceLoo(maybe: any): LetterOfOrder | null {
             toStrOrNull(maybe?.download_url ?? maybe?.downloadUrl) ??
             toStrOrNull(payload?.download_url ?? payload?.downloadUrl);
 
-        const loo: LetterOfOrder = {
+        const includedSampleIds =
+            toNumberArrayOrNull(maybe?.included_sample_ids) ??
+            toNumberArrayOrNull(payload?.included_sample_ids);
+
+        const requestBatchId =
+            toStrOrNull(maybe?.request_batch_id) ??
+            toStrOrNull(payload?.request_batch_id);
+
+        const batchTotal =
+            toIntOrNull(maybe?.batch_total) ??
+            toIntOrNull(payload?.batch_total) ??
+            (includedSampleIds ? includedSampleIds.length : null);
+
+        return {
             loo_id: directId,
             lo_id: directId,
 
@@ -151,6 +160,9 @@ function coerceLoo(maybe: any): LetterOfOrder | null {
             number: maybe?.number ?? maybe?.loo_number ?? maybe?.loa_number ?? null,
 
             loo_status: (maybe?.loo_status ?? maybe?.status ?? maybe?.loa_status ?? null) as LooStatus | null,
+            loa_status: (maybe?.loa_status ?? maybe?.status ?? maybe?.loo_status ?? null) as LooStatus | null,
+
+            payload: payload ?? maybe?.payload ?? null,
 
             created_at: maybe?.created_at ?? maybe?.createdAt,
             updated_at: maybe?.updated_at ?? maybe?.updatedAt ?? null,
@@ -170,44 +182,56 @@ function coerceLoo(maybe: any): LetterOfOrder | null {
                 maybe?.file_url ??
                 maybe?.fileUrl ??
                 maybe?.pdfUrl ??
-                (downloadUrl ?? null),
+                downloadUrl ??
+                null,
 
             signatures: Array.isArray(maybe?.signatures) ? maybe.signatures : null,
             items: Array.isArray(maybe?.items) ? maybe.items : null,
-        };
 
-        return loo;
+            included_sample_ids: includedSampleIds,
+            request_batch_id: requestBatchId,
+            batch_total: batchTotal,
+        };
     }
 
-    const keys = ["loo", "letter_of_order", "letterOfOrder", "loo_document", "looDoc", "loa", "data"];
-    for (const k of keys) {
-        const v = maybe?.[k];
-        const coerced = coerceLoo(v);
+    const nestedKeys = [
+        "loo",
+        "letter_of_order",
+        "letterOfOrder",
+        "loo_document",
+        "looDoc",
+        "loa",
+        "data",
+    ];
+
+    for (const key of nestedKeys) {
+        const coerced = coerceLoo(maybe?.[key]);
         if (coerced) return coerced;
     }
+
     return null;
 }
 
 export const looService = {
-    /**
-     * Single-sample generate (legacy)
-     * POST /v1/samples/:sampleId/loo
-     */
     async generate(sampleId: number): Promise<LetterOfOrder> {
         const res = await apiPost<any>(`/v1/samples/${sampleId}/loo`);
         const data = unwrapData<any>(res);
         return (coerceLoo(data) ?? data) as LetterOfOrder;
     },
 
-    /**
-     * Bulk generate for selected samples
-     * POST /v1/samples/:anyId/loo with { sample_ids, parameters_map? }
-     */
-    async generateForSamples(sampleIds: number[], paramsMap?: SelectedParamsMap): Promise<LetterOfOrder> {
-        if (!Array.isArray(sampleIds) || sampleIds.length <= 0) throw new Error("sampleIds is required");
+    async generateForSamples(
+        sampleIds: number[],
+        paramsMap?: SelectedParamsMap
+    ): Promise<LetterOfOrder> {
+        if (!Array.isArray(sampleIds) || sampleIds.length === 0) {
+            throw new Error("sampleIds is required");
+        }
 
         const payload: any = { sample_ids: sampleIds };
-        if (paramsMap && typeof paramsMap === "object") payload.parameters_map = paramsMap;
+
+        if (paramsMap && typeof paramsMap === "object") {
+            payload.parameters_map = paramsMap;
+        }
 
         const anyId = Number(sampleIds[0]);
         const res = await apiPost<any>(`/v1/samples/${anyId}/loo`, payload);
@@ -215,10 +239,6 @@ export const looService = {
         return (coerceLoo(data) ?? data) as LetterOfOrder;
     },
 
-    /**
-     * Role-specific internal sign
-     * POST /v1/loo/:looId/sign { role_code: "OM" | "LH" }
-     */
     async signInternal(looId: number, roleCode: "OM" | "LH"): Promise<LetterOfOrder> {
         const res = await apiPost<any>(`/v1/loo/${looId}/sign`, { role_code: roleCode });
         const data = unwrapData<any>(res);
@@ -237,45 +257,41 @@ export const looService = {
         return (coerceLoo(data) ?? data) as LetterOfOrder;
     },
 
-    /**
-     * GET /v1/loo/approvals?sample_ids[]=1&sample_ids[]=2
-     * Returns normalized map: { [sample_id]: { OM, LH, ready } }
-     */
     async getApprovals(sampleIds: number[]): Promise<Record<number, LooApprovalState>> {
         if (!Array.isArray(sampleIds) || sampleIds.length === 0) return {};
 
-        const res = await apiGet<any>("/v1/loo/approvals", { params: { sample_ids: sampleIds } });
-        const obj = (res?.data ?? res) as any;
+        const res = await apiGet<any>("/v1/loo/approvals", {
+            params: { sample_ids: sampleIds },
+        });
 
-        // backend may wrap results in data
+        const obj = (res?.data ?? res) as any;
         const raw = (obj?.data ?? obj) as any;
         const out: Record<number, LooApprovalState> = {};
 
-        // raw expected: { "17": { om:true, lh:true, ready:true }, ... }
-        for (const [k, v] of Object.entries(raw ?? {})) {
-            const sid = Number(k);
-            if (!Number.isFinite(sid) || sid <= 0) continue;
-            out[sid] = normalizeApprovalState(v);
+        for (const [key, value] of Object.entries(raw ?? {})) {
+            const sampleId = Number(key);
+            if (!Number.isFinite(sampleId) || sampleId <= 0) continue;
+            out[sampleId] = normalizeApprovalState(value);
         }
 
         return out;
     },
 
-    /**
-     * PATCH /v1/loo/approvals/:sampleId { approved: boolean }
-     * Response example:
-     * { message, data: { sample_id, state: { om:true, lh:false, ready:false } } }
-     */
-    async setApproval(sampleId: number, approved: boolean): Promise<{ sample_id: number; state: LooApprovalState }> {
-        if (!sampleId || sampleId <= 0) throw new Error("sampleId is required");
+    async setApproval(
+        sampleId: number,
+        approved: boolean
+    ): Promise<{ sample_id: number; state: LooApprovalState }> {
+        if (!sampleId || sampleId <= 0) {
+            throw new Error("sampleId is required");
+        }
 
         const res = await apiPatch<any>(`/v1/loo/approvals/${sampleId}`, { approved });
         const obj = (res?.data ?? res) as any;
-        const d = obj?.data ?? obj;
+        const data = obj?.data ?? obj;
 
         return {
-            sample_id: Number(d?.sample_id ?? sampleId),
-            state: normalizeApprovalState(d?.state ?? d),
+            sample_id: Number(data?.sample_id ?? sampleId),
+            state: normalizeApprovalState(data?.state ?? data),
         };
     },
 };

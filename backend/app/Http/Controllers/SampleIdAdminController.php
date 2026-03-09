@@ -103,6 +103,33 @@ class SampleIdAdminController extends Controller
         return response()->json(['data' => $payload], 200);
     }
 
+    private function resolveSampleIdBatchTargets(Sample $sample, bool $applyToBatch)
+    {
+        $query = Sample::query();
+
+        if (
+            $applyToBatch &&
+            !empty($sample->request_batch_id) &&
+            \Illuminate\Support\Facades\Schema::hasColumn('samples', 'request_batch_id')
+        ) {
+            $query
+                ->where('client_id', $sample->client_id)
+                ->where('request_batch_id', $sample->request_batch_id);
+
+            if (\Illuminate\Support\Facades\Schema::hasColumn('samples', 'batch_excluded_at')) {
+                $query->whereNull('batch_excluded_at');
+            }
+
+            return $query
+                ->orderBy('request_batch_item_no')
+                ->orderBy('sample_id')
+                ->lockForUpdate()
+                ->get();
+        }
+
+        return $query->whereKey($sample->getKey())->lockForUpdate()->get();
+    }
+
     public function assign(SampleIdAssignRequest $request, Sample $sample): JsonResponse
     {
         $this->assertAdminOr403();
@@ -113,58 +140,42 @@ class SampleIdAdminController extends Controller
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
-        $input = $request->validated()['sample_id'] ?? null;
-
-        // ✅ capture old BEFORE service mutates
-        $oldLab = $sample->lab_sample_code ?? null;
+        $validated = $request->validated();
+        $input = $validated['sample_id'] ?? null;
+        $applyToBatch = (bool) ($validated['apply_to_batch'] ?? false);
 
         try {
-            $updated = $this->svc->assignFinal($actor, $sample, $input);
+            $targets = DB::transaction(function () use ($sample, $applyToBatch) {
+                return $this->resolveSampleIdBatchTargets($sample, $applyToBatch);
+            });
+
+            $updatedRows = [];
+            foreach ($targets as $index => $target) {
+                $override = $index === 0 ? $input : null;
+                $updatedRows[] = $this->svc->assignFinal($actor, $target, $override);
+            }
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        // ✅ determine whether this assignment is based on an approved proposal
-        $changeRequestId = null;
-        $source = 'direct_assign';
-
-        $norm = function ($v) {
-            $s = strtoupper(trim((string) $v));
-            $s = preg_replace('/[^A-Z0-9]/', '', $s); // remove spaces/dashes
-            return $s ?: '';
-        };
-
-        $approved = SampleIdChangeRequest::query()
-            ->where('sample_id', (int) $updated->sample_id)
-            ->where('status', 'APPROVED')
-            ->orderByDesc('change_request_id')
-            ->first();
-
-        if ($approved && $norm($approved->proposed_sample_id) !== '' && $norm($updated->lab_sample_code) !== '') {
-            if ($norm($approved->proposed_sample_id) === $norm($updated->lab_sample_code)) {
-                $changeRequestId = (int) $approved->change_request_id;
-                $source = 'approved_proposal';
-            }
-        }
-
-        // ✅ audit: SAMPLE_ID_ASSIGNED (actor = real admin staff)
-        AuditLogger::logSampleIdAssigned(
-            staffId: (int) $actor->staff_id,
-            sampleId: (int) $updated->sample_id,
-            oldLabSampleCode: is_string($oldLab) ? $oldLab : null,
-            newLabSampleCode: is_string($updated->lab_sample_code) ? $updated->lab_sample_code : null,
-            changeRequestId: $changeRequestId,
-            source: $source,
-            inputSampleId: is_string($input) ? $input : null
-        );
+        $primary = collect($updatedRows)->sortBy(fn($row) => (int) ($row->request_batch_item_no ?? 1))->first();
 
         return response()->json([
             'data' => [
-                'sample_id' => (int) $updated->sample_id,
-                'lab_sample_code' => $updated->lab_sample_code,
-                'request_status' => $updated->request_status,
-                'sample_id_assigned_at' => $updated->sample_id_assigned_at,
-                'sample_id_assigned_by_staff_id' => $updated->sample_id_assigned_by_staff_id,
+                'sample_id' => (int) $primary->sample_id,
+                'lab_sample_code' => $primary->lab_sample_code,
+                'request_status' => $primary->request_status,
+                'sample_id_assigned_at' => $primary->sample_id_assigned_at,
+                'sample_id_assigned_by_staff_id' => $primary->sample_id_assigned_by_staff_id,
+            ],
+            'meta' => [
+                'request_batch_id' => $primary->request_batch_id ?? null,
+                'affected_sample_ids' => collect($updatedRows)->pluck('sample_id')->map(fn($id) => (int) $id)->values()->all(),
+                'assigned_codes' => collect($updatedRows)->map(fn($row) => [
+                    'sample_id' => (int) $row->sample_id,
+                    'item_no' => (int) ($row->request_batch_item_no ?? 1),
+                    'lab_sample_code' => (string) ($row->lab_sample_code ?? ''),
+                ])->values()->all(),
             ],
         ], 200);
     }

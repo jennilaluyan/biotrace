@@ -107,8 +107,19 @@ export async function getSuggestedSampleId(sampleId: number): Promise<string | n
     return v ? String(v) : null;
 }
 
-export async function assignSampleId(sampleId: number, sampleIdOverride?: string) {
-    const body = sampleIdOverride ? { sample_id: sampleIdOverride } : {};
+export async function assignSampleId(
+    sampleId: number,
+    sampleIdOverride?: string,
+    applyToBatch?: boolean
+) {
+    const body: any = {
+        apply_to_batch: !!applyToBatch,
+    };
+
+    if (sampleIdOverride?.trim()) {
+        body.sample_id = sampleIdOverride.trim();
+    }
+
     const res = await apiPost<any>(`${SAMPLE_ID_ADMIN_BASE}/${sampleId}/sample-id/assign`, body);
     return unwrapApi(res);
 }

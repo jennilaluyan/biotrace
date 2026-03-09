@@ -15,6 +15,7 @@ class SampleIdAssignRequest extends FormRequest
     {
         return [
             'sample_id' => ['nullable', 'string', 'max:20', 'regex:/^[A-Za-z]{1,5}\s+\d{1,6}$/'],
+            'apply_to_batch' => ['nullable', 'boolean'],
         ];
     }
 }

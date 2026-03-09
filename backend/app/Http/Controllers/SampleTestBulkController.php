@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\SampleTestsBulkStoreRequest;
+use App\Models\LetterOfOrder;
 use App\Models\Method;
 use App\Models\Parameter;
 use App\Models\Sample;
@@ -12,34 +13,42 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use App\Models\LetterOfOrder;
 
 class SampleTestBulkController extends Controller
 {
     public function store(SampleTestsBulkStoreRequest $request, Sample $sample): JsonResponse
     {
-        // 1) RBAC / Policy check
         $this->authorize('bulkCreate', [SampleTest::class, $sample]);
 
-        $items = $request->validated()['tests'];
+        $validated = $request->validated();
+        $items = $validated['tests'];
+        $sampleIds = $this->resolveTargetSampleIds($validated, $sample);
 
-        // 1.5) ✅ Business gate: assignment hanya boleh jika LoA locked
-        $block = $this->checkLoaLockedGate($sample);
-        if ($block !== null) {
-            return $block;
-        }
+        $parameterIds = collect($items)
+            ->pluck('parameter_id')
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values();
 
-        // 2) Normalisasi + unikkan parameter_id dalam request (biar gak dobel di 1 request)
-        $parameterIds = collect($items)->pluck('parameter_id')->filter()->unique()->values();
-        $methodIds    = collect($items)->pluck('method_id')->filter()->unique()->values();
-        $assigneeIds  = collect($items)->pluck('assigned_to')->filter()->unique()->values();
+        $methodIds = collect($items)
+            ->pluck('method_id')
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values();
 
-        // 3) Validasi existence via WHERE IN sekali (memory-safe)
-        $existingParameters = Parameter::query()
-            ->whereIn('parameter_id', $parameterIds)
-            ->pluck('parameter_id');
+        $assigneeIds = collect($items)
+            ->pluck('assigned_to')
+            ->filter()
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values();
 
-        $missingParameters = $parameterIds->diff($existingParameters)->values();
+        $missingParameters = $parameterIds->diff(
+            Parameter::query()->whereIn('parameter_id', $parameterIds)->pluck('parameter_id')
+        )->values();
+
         if ($missingParameters->isNotEmpty()) {
             return response()->json([
                 'status' => 422,
@@ -51,11 +60,10 @@ class SampleTestBulkController extends Controller
         }
 
         if ($methodIds->isNotEmpty()) {
-            $existingMethods = Method::query()
-                ->whereIn('method_id', $methodIds)
-                ->pluck('method_id');
+            $missingMethods = $methodIds->diff(
+                Method::query()->whereIn('method_id', $methodIds)->pluck('method_id')
+            )->values();
 
-            $missingMethods = $methodIds->diff($existingMethods)->values();
             if ($missingMethods->isNotEmpty()) {
                 return response()->json([
                     'status' => 422,
@@ -68,11 +76,10 @@ class SampleTestBulkController extends Controller
         }
 
         if ($assigneeIds->isNotEmpty()) {
-            $existingAssignees = Staff::query()
-                ->whereIn('staff_id', $assigneeIds)
-                ->pluck('staff_id');
+            $missingAssignees = $assigneeIds->diff(
+                Staff::query()->whereIn('staff_id', $assigneeIds)->pluck('staff_id')
+            )->values();
 
-            $missingAssignees = $assigneeIds->diff($existingAssignees)->values();
             if ($missingAssignees->isNotEmpty()) {
                 return response()->json([
                     'status' => 422,
@@ -84,105 +91,164 @@ class SampleTestBulkController extends Controller
             }
         }
 
-        // 4) Ambil yang sudah ada untuk sample ini (kunci idempotent)
-        $already = SampleTest::query()
-            ->where('sample_id', $sample->getAttribute('sample_id'))
-            ->whereIn('parameter_id', $parameterIds)
-            ->pluck('parameter_id')
-            ->flip();
+        $result = DB::transaction(function () use ($sampleIds, $parameterIds, $items) {
+            $targets = Sample::query()
+                ->whereIn('sample_id', $sampleIds)
+                ->lockForUpdate()
+                ->get();
 
-        $now = now();
-
-        $toInsert = [];
-        $skippedParameterIds = [];
-
-        foreach ($items as $it) {
-            $pid = (int) $it['parameter_id'];
-
-            if (isset($already[$pid])) {
-                $skippedParameterIds[] = $pid;
-                continue;
+            if ($targets->count() !== count($sampleIds)) {
+                return response()->json([
+                    'status' => 422,
+                    'message' => 'Some sample_ids are invalid.',
+                ], 422);
             }
 
-            $toInsert[] = [
-                'sample_id'     => $sample->getAttribute('sample_id'),
-                'batch_id'      => $sample->getAttribute('sample_id'),
-                'parameter_id'  => $pid,
-                'method_id'     => $it['method_id'] ?? null,
-                'assigned_to'   => $it['assigned_to'] ?? null,
-                'status'        => 'draft',
-                'qc_done'       => false,
-                'om_verified'   => false,
-                'lh_validated'  => false,
-                'created_at'    => $now,
-                'updated_at'    => $now,
-            ];
+            $clientIds = $targets
+                ->pluck('client_id')
+                ->map(fn($value) => (int) $value)
+                ->unique()
+                ->values()
+                ->all();
 
-            // mark as already to prevent duplicates within same request
-            $already[$pid] = true;
-        }
+            if (count($clientIds) > 1) {
+                return response()->json([
+                    'status' => 422,
+                    'message' => 'All selected samples must belong to the same client.',
+                ], 422);
+            }
 
-        // 5) Insert batch kecil (chunk) biar gak berat
-        DB::transaction(function () use (&$toInsert) {
+            $batchIds = $targets
+                ->pluck('request_batch_id')
+                ->map(fn($value) => trim((string) $value))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            if (count($batchIds) > 1) {
+                return response()->json([
+                    'status' => 422,
+                    'message' => 'All selected samples must belong to the same institutional batch.',
+                ], 422);
+            }
+
+            foreach ($targets as $targetSample) {
+                $block = $this->checkLoaLockedGate($targetSample);
+                if ($block !== null) {
+                    return $block;
+                }
+            }
+
+            $now = now();
+            $toInsert = [];
+            $skipped = [];
+
+            foreach ($targets as $targetSample) {
+                $already = SampleTest::query()
+                    ->where('sample_id', (int) $targetSample->sample_id)
+                    ->whereIn('parameter_id', $parameterIds)
+                    ->pluck('parameter_id')
+                    ->flip();
+
+                foreach ($items as $item) {
+                    $parameterId = (int) $item['parameter_id'];
+
+                    if (isset($already[$parameterId])) {
+                        $skipped[] = [
+                            'sample_id' => (int) $targetSample->sample_id,
+                            'parameter_id' => $parameterId,
+                        ];
+                        continue;
+                    }
+
+                    $toInsert[] = [
+                        'sample_id' => (int) $targetSample->sample_id,
+                        'parameter_id' => $parameterId,
+                        'method_id' => $item['method_id'] ?? null,
+                        'assigned_to' => $item['assigned_to'] ?? null,
+                        'status' => 'draft',
+                        'qc_done' => false,
+                        'om_verified' => false,
+                        'lh_validated' => false,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ];
+
+                    $already[$parameterId] = true;
+                }
+            }
+
             foreach (array_chunk($toInsert, 100) as $chunk) {
                 SampleTest::query()->insert($chunk);
             }
+
+            return [
+                'targets' => $targets,
+                'to_insert' => $toInsert,
+                'skipped' => $skipped,
+            ];
         });
 
-        // 6) Audit log (aman: hanya insert kalau table & kolom tersedia)
-        $this->tryAuditBulkCreated($sample->getAttribute('sample_id'), $toInsert, $skippedParameterIds);
-
-        // 7) ✅ Reagent calc baseline (post bulk create)
-        try {
-            $user = Auth::user();
-            $actorStaffId = 0;
-
-            if ($user && isset($user->staff_id) && is_numeric($user->staff_id)) {
-                $actorStaffId = (int) $user->staff_id;
-            } elseif ($user && method_exists($user, 'staff') && $user->staff && isset($user->staff->staff_id)) {
-                $actorStaffId = (int) $user->staff->staff_id;
-            } elseif ($user) {
-                // fallback: staff.user_id -> staff_id
-                $actorStaffId = (int) Staff::query()->where('user_id', $user->id)->value('staff_id');
-            }
-
-            if ($actorStaffId <= 0) {
-                throw new \RuntimeException('Missing actor staff_id for reagent baseline calc (computed_by NOT NULL).');
-            }
-
-            app(\App\Services\ReagentCalcService::class)
-                ->upsertBaselineForSample((int) $sample->getAttribute('sample_id'), $actorStaffId);
-        } catch (\Throwable $e) {
-            logger()->warning('Reagent baseline calc failed after bulk sample_tests', [
-                'sample_id' => $sample->getAttribute('sample_id'),
-                'error' => $e->getMessage(),
-                'exception' => get_class($e),
-            ]);
+        if ($result instanceof JsonResponse) {
+            return $result;
         }
+
+        $targets = $result['targets'];
+        $toInsert = $result['to_insert'];
+        $skipped = $result['skipped'];
+
+        $this->tryAuditBulkCreatedForTargets($targets, $toInsert, $skipped);
+        $this->tryUpsertReagentBaselineForTargets($targets);
 
         return response()->json([
             'status' => 200,
             'message' => 'Sample tests bulk created.',
             'data' => [
-                'sample_id' => $sample->getAttribute('sample_id'),
+                'affected_sample_ids' => $targets
+                    ->pluck('sample_id')
+                    ->map(fn($id) => (int) $id)
+                    ->values()
+                    ->all(),
                 'created_count' => count($toInsert),
-                'skipped_count' => count($skippedParameterIds),
-                'skipped_parameter_ids' => $skippedParameterIds,
+                'skipped' => $skipped,
             ],
         ], 200);
+    }
+
+    private function resolveTargetSampleIds(array $validated, Sample $sample): array
+    {
+        $sampleIds = array_values(array_unique(array_map(
+            'intval',
+            (array) ($validated['sample_ids'] ?? [])
+        )));
+
+        if (count($sampleIds) <= 0) {
+            $sampleIds = [(int) $sample->getAttribute('sample_id')];
+        }
+
+        return $sampleIds;
     }
 
     private function checkLoaLockedGate(Sample $sample): ?JsonResponse
     {
         try {
-            // kalau tabel LoA belum ada (misal di env tertentu), jangan blok
             if (!Schema::hasTable('letters_of_order')) {
                 return null;
             }
 
-            // harus ada LoA untuk sample ini
-            $loa = \App\Models\LetterOfOrder::query()
-                ->where('sample_id', $sample->getAttribute('sample_id'))
+            $batchId = trim((string) $sample->getAttribute('request_batch_id'));
+            $sampleId = (int) $sample->getAttribute('sample_id');
+
+            $loaQuery = LetterOfOrder::query();
+
+            if ($batchId !== '' && Schema::hasColumn('letters_of_order', 'request_batch_id')) {
+                $loaQuery->where('request_batch_id', $batchId);
+            } else {
+                $loaQuery->where('sample_id', $sampleId);
+            }
+
+            $loa = $loaQuery
                 ->orderByDesc('lo_id')
                 ->first();
 
@@ -196,7 +262,6 @@ class SampleTestBulkController extends Controller
                 ], 422);
             }
 
-            // harus locked
             if (($loa->loa_status ?? null) !== 'locked') {
                 return response()->json([
                     'status' => 422,
@@ -209,9 +274,9 @@ class SampleTestBulkController extends Controller
 
             return null;
         } catch (\Throwable $e) {
-            // fail-open: jangan bikin bulk create error karena gate check
             logger()->warning('LoA lock gate check failed (fail-open)', [
-                'sample_id' => $sample->getAttribute('sample_id'),
+                'sample_id' => (int) $sample->getAttribute('sample_id'),
+                'request_batch_id' => $sample->getAttribute('request_batch_id'),
                 'error' => $e->getMessage(),
             ]);
 
@@ -219,42 +284,109 @@ class SampleTestBulkController extends Controller
         }
     }
 
-    private function tryAuditBulkCreated(int $sampleId, array $createdRows, array $skippedPids): void
+    private function tryAuditBulkCreatedForTargets($targets, array $createdRows, array $skipped): void
     {
         try {
-            if (!Schema::hasTable('audit_logs')) return;
+            if (!Schema::hasTable('audit_logs')) {
+                return;
+            }
 
             $user = Auth::user();
-
-            // staff_id wajib (FK ke staffs). Kalau tidak ada user, jangan audit.
             $staffId = $user?->staff_id;
-            if (!$staffId) return;
 
-            DB::table('audit_logs')->insert([
-                'staff_id'    => $staffId,
-                'entity_name' => 'sample',
-                'entity_id'   => $sampleId,
-                'action'      => 'SAMPLE_TESTS_BULK_CREATED',
-                'timestamp'   => now(),                 // sesuai migration: timestampTz
-                'ip_address'  => request()->ip(),       // nullable, aman
+            if (!$staffId) {
+                return;
+            }
 
-                // schema kamu pakai old_values/new_values (json)
-                'old_values'  => null,
-                'new_values'  => json_encode([
-                    'created' => array_map(fn($r) => [
-                        'parameter_id' => $r['parameter_id'],
-                        'method_id'    => $r['method_id'] ?? null,
-                        'assigned_to'  => $r['assigned_to'] ?? null,
-                    ], $createdRows),
-                    'skipped_parameter_ids' => $skippedPids,
-                ]),
-            ]);
+            $createdBySample = [];
+            foreach ($createdRows as $row) {
+                $sampleId = (int) $row['sample_id'];
+                $createdBySample[$sampleId][] = [
+                    'parameter_id' => $row['parameter_id'],
+                    'method_id' => $row['method_id'] ?? null,
+                    'assigned_to' => $row['assigned_to'] ?? null,
+                ];
+            }
+
+            $skippedBySample = [];
+            foreach ($skipped as $row) {
+                $sampleId = (int) $row['sample_id'];
+                $skippedBySample[$sampleId][] = (int) $row['parameter_id'];
+            }
+
+            $now = now();
+            $ipAddress = request()->ip();
+            $auditRows = [];
+
+            foreach ($targets as $targetSample) {
+                $sampleId = (int) $targetSample->sample_id;
+
+                $auditRows[] = [
+                    'staff_id' => $staffId,
+                    'entity_name' => 'sample',
+                    'entity_id' => $sampleId,
+                    'action' => 'SAMPLE_TESTS_BULK_CREATED',
+                    'timestamp' => $now,
+                    'ip_address' => $ipAddress,
+                    'old_values' => null,
+                    'new_values' => json_encode([
+                        'created' => $createdBySample[$sampleId] ?? [],
+                        'skipped_parameter_ids' => array_values(array_unique($skippedBySample[$sampleId] ?? [])),
+                    ]),
+                ];
+            }
+
+            if (!empty($auditRows)) {
+                DB::table('audit_logs')->insert($auditRows);
+            }
         } catch (\Throwable $e) {
-            // audit gagal jangan bikin endpoint bulk create gagal
             logger()->warning('Audit log insert failed (bulk sample tests)', [
                 'error' => $e->getMessage(),
-                'sample_id' => $sampleId,
             ]);
         }
+    }
+
+    private function tryUpsertReagentBaselineForTargets($targets): void
+    {
+        try {
+            $actorStaffId = $this->resolveActorStaffId();
+
+            if ($actorStaffId <= 0) {
+                throw new \RuntimeException('Missing actor staff_id for reagent baseline calc (computed_by NOT NULL).');
+            }
+
+            $service = app(\App\Services\ReagentCalcService::class);
+
+            foreach ($targets as $targetSample) {
+                $service->upsertBaselineForSample((int) $targetSample->sample_id, $actorStaffId);
+            }
+        } catch (\Throwable $e) {
+            logger()->warning('Reagent baseline calc failed after bulk sample_tests', [
+                'sample_ids' => collect($targets)->pluck('sample_id')->map(fn($id) => (int) $id)->values()->all(),
+                'error' => $e->getMessage(),
+                'exception' => get_class($e),
+            ]);
+        }
+    }
+
+    private function resolveActorStaffId(): int
+    {
+        $user = Auth::user();
+
+        if ($user && isset($user->staff_id) && is_numeric($user->staff_id)) {
+            return (int) $user->staff_id;
+        }
+
+        if ($user && method_exists($user, 'staff') && $user->staff && isset($user->staff->staff_id)) {
+            return (int) $user->staff->staff_id;
+        }
+
+        if ($user && isset($user->id)) {
+            return (int) Staff::query()
+                ->where('user_id', $user->id)
+                ->value('staff_id');
+        }
+
+        return 0;
     }
 }
