@@ -33,26 +33,29 @@ export async function updateRequestStatus(
     sampleId: number,
     actionOrStatus: string,
     note?: string | null,
-    testMethod?: number | string | null
+    testMethod?: number | string | null,
+    applyToBatch?: boolean
 ): Promise<UpdateRequestStatusResponse> {
-    const payload: any = { ...normalizeActionOrStatus(actionOrStatus) };
+    const payload: any = {
+        ...normalizeActionOrStatus(actionOrStatus),
+        apply_to_batch: !!applyToBatch,
+    };
 
     if (typeof note === "string" && note.trim().length) {
         payload.note = note.trim();
     }
 
-    // ✅ accept supports either ID or free text name
     if (typeof testMethod === "number") {
         const mid = Number(testMethod);
         if (Number.isFinite(mid) && mid > 0) {
             payload.test_method_id = mid;
-            payload.method_id = mid; // legacy alias
+            payload.method_id = mid;
         }
     } else if (typeof testMethod === "string") {
         const name = testMethod.trim();
         if (name.length) {
             payload.test_method_name = name;
-            payload.method_name = name; // legacy alias
+            payload.method_name = name;
         }
     }
 

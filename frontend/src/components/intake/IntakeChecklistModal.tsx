@@ -12,6 +12,9 @@ type Props = {
     onClose: () => void;
     sampleId: number;
     requestLabel?: string;
+    batchId?: string | null;
+    batchTotal?: number;
+    batchActiveTotal?: number;
     onSubmitted?: () => void;
 };
 
@@ -29,7 +32,6 @@ type ChecklistRow = {
 type ChecklistSection = { sectionKey: string; rows: ChecklistRow[] };
 
 const CHECKLIST: ChecklistRow[] = [
-    // Physical condition / container
     {
         key: "container_intact",
         sectionKey: "physicalCondition",
@@ -54,8 +56,6 @@ const CHECKLIST: ChecklistRow[] = [
         defaultLabel: "No leakage/spillage",
         defaultHint: "No leakage, spillage, or contamination observed.",
     },
-
-    // Identity / labeling
     {
         key: "label_attached",
         sectionKey: "identity",
@@ -96,8 +96,6 @@ const CHECKLIST: ChecklistRow[] = [
         defaultLabel: "Sample type matches request",
         defaultHint: "Sample type/container matches what was requested.",
     },
-
-    // Volume / media
     {
         key: "volume_sufficient",
         sectionKey: "volume",
@@ -114,8 +112,6 @@ const CHECKLIST: ChecklistRow[] = [
         defaultLabel: "VTM/transport media present (if required)",
         defaultHint: "Transport media (e.g., VTM) is present when required by SOP.",
     },
-
-    // Packing / transport
     {
         key: "packaging_intact",
         sectionKey: "packing",
@@ -140,8 +136,6 @@ const CHECKLIST: ChecklistRow[] = [
         defaultLabel: "Temperature/transport condition OK",
         defaultHint: "Cooling/temperature control (ice pack/dry ice) meets storage requirements.",
     },
-
-    // Supporting documents
     {
         key: "request_form_attached",
         sectionKey: "supportingDocs",
@@ -171,19 +165,23 @@ const CHECKLIST: ChecklistRow[] = [
 function buildInitialState() {
     const decision: Record<string, Decision> = {};
     const reason: Record<string, string> = {};
+
     for (const row of CHECKLIST) {
         decision[row.key] = null;
         reason[row.key] = "";
     }
+
     return { decision, reason };
 }
 
 function buildSections(): ChecklistSection[] {
     const map = new Map<string, ChecklistRow[]>();
+
     for (const row of CHECKLIST) {
         if (!map.has(row.sectionKey)) map.set(row.sectionKey, []);
         map.get(row.sectionKey)!.push(row);
     }
+
     return Array.from(map.entries()).map(([sectionKey, rows]) => ({ sectionKey, rows }));
 }
 
@@ -204,7 +202,11 @@ function computeProgress(decision: Record<string, Decision>) {
     return { total, decided, passed, failed };
 }
 
-function buildPayload(decision: Record<string, Decision>, reason: Record<string, string>, generalNote: string): IntakeChecklistPayload {
+function buildPayload(
+    decision: Record<string, Decision>,
+    reason: Record<string, string>,
+    generalNote: string
+): IntakeChecklistPayload {
     const checks: Record<string, boolean> = {};
     const notesMap: Record<string, string | null> = {};
 
@@ -227,7 +229,16 @@ function buildPayload(decision: Record<string, Decision>, reason: Record<string,
     };
 }
 
-export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, onSubmitted }: Props) => {
+export const IntakeChecklistModal = ({
+    open,
+    onClose,
+    sampleId,
+    requestLabel,
+    batchId,
+    batchTotal,
+    batchActiveTotal,
+    onSubmitted,
+}: Props) => {
     const { t } = useTranslation();
     const sections = useMemo(() => buildSections(), []);
     const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -239,11 +250,17 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
 
     const [submitting, setSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
+    const [applyToBatch, setApplyToBatch] = useState(
+        !!batchId && Number(batchActiveTotal ?? batchTotal ?? 0) > 1
+    );
 
     const progress = useMemo(() => computeProgress(decision), [decision]);
     const anyFail = useMemo(() => CHECKLIST.some((c) => decision[c.key] === "fail"), [decision]);
+    const activeBatchCount = Number(batchActiveTotal ?? batchTotal ?? 0);
+    const canApplyToBatch = !!batchId && activeBatchCount > 1;
 
-    const progressRatio = progress.total > 0 ? Math.min(1, Math.max(0, progress.decided / progress.total)) : 0;
+    const progressRatio =
+        progress.total > 0 ? Math.min(1, Math.max(0, progress.decided / progress.total)) : 0;
 
     const requestClose = () => {
         if (submitting) return;
@@ -260,7 +277,8 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
         setFormError(null);
         setSubmitError(null);
         setSubmitting(false);
-    }, [open]);
+        setApplyToBatch(!!batchId && Number(batchActiveTotal ?? batchTotal ?? 0) > 1);
+    }, [open, batchId, batchActiveTotal, batchTotal]);
 
     useEffect(() => {
         if (!open) return;
@@ -271,7 +289,6 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
 
         window.addEventListener("keydown", onEsc);
         return () => window.removeEventListener("keydown", onEsc);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, submitting]);
 
     const validate = () => {
@@ -279,10 +296,12 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
 
         for (const row of CHECKLIST) {
             const d = decision[row.key] ?? null;
+
             if (!d) {
                 errs[row.key] = t("intakeChecklist.validation.pickDecision");
                 continue;
             }
+
             if (d === "fail") {
                 const r = (reason[row.key] ?? "").trim();
                 if (!r) errs[row.key] = t("intakeChecklist.validation.failReasonRequired");
@@ -308,9 +327,11 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
     const setDecisionForKey = (key: string, d: Decision) => {
         setState((prev) => {
             const next = { ...prev, decision: { ...prev.decision, [key]: d } };
+
             if (d === "pass") {
                 next.reason = { ...prev.reason, [key]: "" };
             }
+
             return next;
         });
 
@@ -345,7 +366,11 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
         try {
             setSubmitting(true);
 
-            const payload = buildPayload(decision, reason, generalNote);
+            const payload = {
+                ...buildPayload(decision, reason, generalNote),
+                apply_to_batch: applyToBatch,
+            } as IntakeChecklistPayload & { apply_to_batch?: boolean };
+
             await submitIntakeChecklist(sampleId, payload);
 
             requestClose();
@@ -357,6 +382,7 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
                 err?.data?.error ??
                 err?.message ??
                 t("intakeChecklist.errors.submitFailed");
+
             setSubmitError(String(msg));
         } finally {
             setSubmitting(false);
@@ -370,71 +396,102 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
             <div className="absolute inset-0 bg-black/40" onClick={requestClose} aria-hidden="true" />
 
             <div
-                className="relative w-[92vw] max-w-3xl rounded-2xl bg-white shadow-xl border border-gray-100 overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col"
+                className="relative flex max-h-[calc(100vh-2rem)] w-[92vw] max-w-3xl flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-xl"
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* Header */}
-                <div className="shrink-0 flex items-start justify-between px-6 py-5 border-b border-gray-100 bg-gray-50">
-                    <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white">
-                                <ClipboardCheck size={18} />
-                            </span>
+                <div className="shrink-0 border-b border-gray-100 bg-gray-50 px-6 py-5">
+                    <div className="flex items-start justify-between">
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                                <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white">
+                                    <ClipboardCheck size={18} />
+                                </span>
 
-                            <div className="min-w-0">
-                                <h2 className="text-sm font-bold text-gray-900">{t("intakeChecklist.title")}</h2>
+                                <div className="min-w-0">
+                                    <h2 className="text-sm font-bold text-gray-900">{t("intakeChecklist.title")}</h2>
 
-                                <p className="text-xs text-gray-600 mt-0.5">
-                                    {requestLabel ? <span className="font-semibold">{requestLabel}</span> : null}
-                                    {requestLabel ? <span className="text-gray-400"> • </span> : null}
-                                    {t("intakeChecklist.subtitle")}
-                                </p>
+                                    <p className="mt-0.5 text-xs text-gray-600">
+                                        {requestLabel ? <span className="font-semibold">{requestLabel}</span> : null}
+                                        {requestLabel ? <span className="text-gray-400"> • </span> : null}
+                                        {t("intakeChecklist.subtitle")}
+                                    </p>
 
-                                <div className="mt-2">
-                                    <div className="flex items-center justify-between text-[11px] text-gray-500">
-                                        <span>
-                                            {t("intakeChecklist.progress", {
-                                                decided: progress.decided,
-                                                total: progress.total,
-                                                passed: progress.passed,
-                                                failed: progress.failed,
-                                            })}
-                                        </span>
-                                        <span className="tabular-nums">{Math.round(progressRatio * 100)}%</span>
-                                    </div>
+                                    <div className="mt-2">
+                                        <div className="flex items-center justify-between text-[11px] text-gray-500">
+                                            <span>
+                                                {t("intakeChecklist.progress", {
+                                                    decided: progress.decided,
+                                                    total: progress.total,
+                                                    passed: progress.passed,
+                                                    failed: progress.failed,
+                                                })}
+                                            </span>
+                                            <span className="tabular-nums">{Math.round(progressRatio * 100)}%</span>
+                                        </div>
 
-                                    <div className="mt-1 h-2 rounded-full bg-gray-200 overflow-hidden">
-                                        <div className="h-full bg-primary" style={{ width: `${progressRatio * 100}%` }} />
+                                        <div className="mt-1 h-2 overflow-hidden rounded-full bg-gray-200">
+                                            <div
+                                                className="h-full bg-primary"
+                                                style={{ width: `${progressRatio * 100}%` }}
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <button
-                        type="button"
-                        className={cx("lims-icon-button", submitting && "opacity-60 cursor-not-allowed")}
-                        onClick={requestClose}
-                        aria-label={t("close")}
-                        disabled={submitting}
-                        title={t("close")}
-                    >
-                        <X size={16} />
-                    </button>
+                        <button
+                            type="button"
+                            className={cx("lims-icon-button", submitting && "cursor-not-allowed opacity-60")}
+                            onClick={requestClose}
+                            aria-label={t("close")}
+                            disabled={submitting}
+                            title={t("close")}
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
                 </div>
 
-                {/* Body */}
-                <div ref={scrollRef} className="px-6 py-5 overflow-auto">
+                <div ref={scrollRef} className="overflow-auto px-6 py-5">
                     {formError ? (
-                        <div className="text-sm text-amber-900 bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl mb-4 inline-flex items-start gap-2">
+                        <div className="mb-4 inline-flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                             <AlertTriangle size={16} className="mt-0.5" />
                             <div>{formError}</div>
                         </div>
                     ) : null}
 
                     {submitError ? (
-                        <div className="text-sm text-red-800 bg-red-50 border border-red-200 px-3 py-2 rounded-xl mb-4">
+                        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                             {submitError}
+                        </div>
+                    ) : null}
+
+                    {canApplyToBatch ? (
+                        <div className="mb-4 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3">
+                            <label className="flex items-start gap-3">
+                                <input
+                                    type="checkbox"
+                                    className="mt-1"
+                                    checked={applyToBatch}
+                                    onChange={(e) => setApplyToBatch(e.target.checked)}
+                                    disabled={submitting}
+                                />
+                                <div>
+                                    <div className="text-sm font-semibold text-sky-900">
+                                        {t("intakeChecklist.applyToBatchTitle", {
+                                            defaultValue: "Apply checklist to active batch",
+                                        })}
+                                    </div>
+                                    <div className="mt-1 text-xs text-sky-700">
+                                        {t("intakeChecklist.applyToBatchSubtitle", {
+                                            defaultValue:
+                                                "Use the same checklist result for all active samples in this institutional batch.",
+                                        })}{" "}
+                                        ({batchActiveTotal ?? batchTotal ?? 1})
+                                    </div>
+                                </div>
+                            </label>
                         </div>
                     ) : null}
 
@@ -445,7 +502,7 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
                                     <div className="text-xs font-semibold text-gray-700">
                                         {t(`intakeChecklist.sections.${sec.sectionKey}`)}
                                     </div>
-                                    <div className="h-px bg-gray-100 mt-2" />
+                                    <div className="mt-2 h-px bg-gray-100" />
                                 </div>
 
                                 <div className="mt-3 space-y-3">
@@ -455,7 +512,9 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
                                         const err = fieldErrors[row.key];
 
                                         const label = t(row.labelKey, { defaultValue: row.defaultLabel });
-                                        const hint = row.hintKey ? t(row.hintKey, { defaultValue: row.defaultHint ?? "" }) : "";
+                                        const hint = row.hintKey
+                                            ? t(row.hintKey, { defaultValue: row.defaultHint ?? "" })
+                                            : "";
 
                                         return (
                                             <div
@@ -468,17 +527,25 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
                                             >
                                                 <div className="flex items-start justify-between gap-3">
                                                     <div className="min-w-0">
-                                                        <div className="text-sm font-semibold text-gray-900">{label}</div>
-                                                        {hint ? <div className="text-xs text-gray-500 mt-0.5">{hint}</div> : null}
-                                                        {err ? <div className="text-xs text-red-700 mt-2">{err}</div> : null}
+                                                        <div className="text-sm font-semibold text-gray-900">
+                                                            {label}
+                                                        </div>
+                                                        {hint ? (
+                                                            <div className="mt-0.5 text-xs text-gray-500">{hint}</div>
+                                                        ) : null}
+                                                        {err ? (
+                                                            <div className="mt-2 text-xs text-red-700">{err}</div>
+                                                        ) : null}
                                                     </div>
 
-                                                    <div className="shrink-0 inline-flex items-center rounded-xl border border-gray-200 bg-white overflow-hidden">
+                                                    <div className="inline-flex shrink-0 items-center overflow-hidden rounded-xl border border-gray-200 bg-white">
                                                         <button
                                                             type="button"
                                                             className={cx(
-                                                                "px-3 py-2 text-xs font-semibold inline-flex items-center gap-2",
-                                                                d === "pass" ? "bg-emerald-50 text-emerald-700" : "text-gray-600 hover:text-gray-800"
+                                                                "inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold",
+                                                                d === "pass"
+                                                                    ? "bg-emerald-50 text-emerald-700"
+                                                                    : "text-gray-600 hover:text-gray-800"
                                                             )}
                                                             onClick={() => setDecisionForKey(row.key, "pass")}
                                                             disabled={submitting}
@@ -488,13 +555,15 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
                                                             {t("intakeChecklist.actions.pass")}
                                                         </button>
 
-                                                        <div className="w-px h-6 bg-gray-200" />
+                                                        <div className="h-6 w-px bg-gray-200" />
 
                                                         <button
                                                             type="button"
                                                             className={cx(
-                                                                "px-3 py-2 text-xs font-semibold inline-flex items-center gap-2",
-                                                                d === "fail" ? "bg-red-50 text-red-700" : "text-gray-600 hover:text-gray-800"
+                                                                "inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold",
+                                                                d === "fail"
+                                                                    ? "bg-red-50 text-red-700"
+                                                                    : "text-gray-600 hover:text-gray-800"
                                                             )}
                                                             onClick={() => setDecisionForKey(row.key, "fail")}
                                                             disabled={submitting}
@@ -508,14 +577,14 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
 
                                                 {isFail ? (
                                                     <div className="mt-3">
-                                                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                                                        <label className="mb-1 block text-xs font-medium text-gray-700">
                                                             {t("intakeChecklist.reason.label")}
                                                         </label>
                                                         <input
                                                             value={reason[row.key] ?? ""}
                                                             onChange={(e) => setReasonForKey(row.key, e.target.value)}
                                                             placeholder={t("intakeChecklist.reason.placeholder")}
-                                                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-soft"
                                                             disabled={submitting}
                                                         />
                                                     </div>
@@ -529,45 +598,59 @@ export const IntakeChecklistModal = ({ open, onClose, sampleId, requestLabel, on
                     </div>
 
                     <div className="mt-6">
-                        <label className="block text-xs font-medium text-gray-700 mb-1">{t("intakeChecklist.generalNote.label")}</label>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">
+                            {t("intakeChecklist.generalNote.label")}
+                        </label>
                         <textarea
                             value={generalNote}
                             onChange={(e) => setGeneralNote(e.target.value)}
                             rows={3}
-                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-soft"
                             placeholder={t("intakeChecklist.generalNote.placeholder")}
                             disabled={submitting}
                         />
                     </div>
 
                     {anyFail ? (
-                        <div className="mt-4 text-xs text-amber-900 bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl inline-flex items-start gap-2">
+                        <div className="mt-4 inline-flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                             <AlertTriangle size={16} className="mt-0.5" />
                             <div>
                                 {t("intakeChecklist.warning.anyFail", {
-                                    status: t("requestStatus.inspectionFailed", { defaultValue: "Inspection failed" }),
+                                    status: t("requestStatus.inspectionFailed", {
+                                        defaultValue: "Inspection failed",
+                                    }),
                                 })}
                             </div>
                         </div>
                     ) : null}
                 </div>
 
-                {/* Footer */}
-                <div className="shrink-0 px-6 py-5 border-t border-gray-100 flex items-center justify-end gap-3 bg-white">
-                    <button type="button" className="btn-outline" onClick={requestClose} disabled={submitting}>
-                        {t("cancel")}
-                    </button>
+                <div className="shrink-0 border-t border-gray-100 bg-white px-6 py-5">
+                    <div className="flex items-center justify-end gap-3">
+                        <button type="button" className="btn-outline" onClick={requestClose} disabled={submitting}>
+                            {t("cancel")}
+                        </button>
 
-                    <button
-                        type="button"
-                        className={cx("lims-btn-primary inline-flex items-center gap-2", submitting && "opacity-60 cursor-not-allowed")}
-                        onClick={submit}
-                        disabled={submitting}
-                        title={progress.decided < progress.total ? t("intakeChecklist.validation.incompleteTooltip") : t("intakeChecklist.actions.submit")}
-                    >
-                        {submitting ? <Loader2 size={16} className="animate-spin" /> : null}
-                        {submitting ? t("intakeChecklist.actions.submitting") : t("intakeChecklist.actions.submit")}
-                    </button>
+                        <button
+                            type="button"
+                            className={cx(
+                                "lims-btn-primary inline-flex items-center gap-2",
+                                submitting && "cursor-not-allowed opacity-60"
+                            )}
+                            onClick={submit}
+                            disabled={submitting}
+                            title={
+                                progress.decided < progress.total
+                                    ? t("intakeChecklist.validation.incompleteTooltip")
+                                    : t("intakeChecklist.actions.submit")
+                            }
+                        >
+                            {submitting ? <Loader2 size={16} className="animate-spin" /> : null}
+                            {submitting
+                                ? t("intakeChecklist.actions.submitting")
+                                : t("intakeChecklist.actions.submit")}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

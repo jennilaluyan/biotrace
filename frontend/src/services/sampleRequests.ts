@@ -10,19 +10,6 @@ export type ClientSampleListParams = {
     q?: string; // search
 };
 
-export type ClientSampleDraftPayload = {
-    sample_type: string;
-
-    // portal schedule
-    scheduled_delivery_at?: string | null;
-
-    examination_purpose?: string | null;
-    additional_notes?: string | null;
-
-    // requested parameters
-    parameter_ids?: number[] | null;
-};
-
 function unwrapData<T>(res: any): T {
     if (res && typeof res === "object" && "data" in res) return res.data as T;
     return res as T;
@@ -65,52 +52,53 @@ function setQs(qs: URLSearchParams, key: string, val: unknown) {
     qs.set(key, s);
 }
 
+export type ClientSampleDraftPayload = {
+    sample_type: string;
+    scheduled_delivery_at?: string | null;
+    examination_purpose?: string | null;
+    additional_notes?: string | null;
+    parameter_ids: number[];
+    quantity?: number | null;
+};
+
+export type ClientSampleBatchMeta = {
+    request_batch_id?: string | null;
+    request_batch_total?: number | null;
+    request_batch_item_no?: number | null;
+    is_batch_primary?: boolean;
+    batch_excluded_at?: string | null;
+    batch_exclusion_reason?: string | null;
+};
+
+export type ClientSampleResponse = Sample & ClientSampleBatchMeta;
+
 export const clientSampleRequestService = {
-    // GET /v1/client/samples
-    async list(params: ClientSampleListParams = {}): Promise<PaginatedResponse<Sample>> {
-        const qs = new URLSearchParams();
-
-        if (typeof params.page === "number") qs.set("page", String(params.page));
-        if (typeof params.per_page === "number") qs.set("per_page", String(params.per_page));
-
-        setQs(qs, "from", params.from);
-        setQs(qs, "to", params.to);
-        setQs(qs, "status", params.status);
-        setQs(qs, "q", params.q);
-
-        const url = `/v1/client/samples${qs.toString() ? `?${qs.toString()}` : ""}`;
-        const res = await apiGet<any>(url);
-        return unwrapPaginatedFlexible<Sample>(res);
-    },
-
-    // GET /v1/client/samples/:id
-    async getById(id: number): Promise<Sample> {
-        const res = await apiGet<any>(`/v1/client/samples/${id}`);
-        return unwrapData<Sample>(res);
-    },
-
-    // POST /v1/client/samples
-    async createDraft(payload: ClientSampleDraftPayload): Promise<Sample> {
+    async createDraft(payload: ClientSampleDraftPayload): Promise<ClientSampleResponse> {
         const res = await apiPost<any>("/v1/client/samples", payload);
-        return unwrapData<Sample>(res);
+        return unwrapData<ClientSampleResponse>(res);
     },
 
-    // PATCH /v1/client/samples/:id (via _method=PATCH)
-    async updateDraft(id: number, payload: Partial<ClientSampleDraftPayload>): Promise<Sample> {
+    async updateDraft(
+        id: number,
+        payload: Partial<ClientSampleDraftPayload>
+    ): Promise<ClientSampleResponse> {
         const res = await apiPost<any>(`/v1/client/samples/${id}?_method=PATCH`, payload);
-        return unwrapData<Sample>(res);
+        return unwrapData<ClientSampleResponse>(res);
     },
 
-    // POST /v1/client/samples/:id/submit
-    async submit(id: number, payload: ClientSampleDraftPayload): Promise<Sample> {
+    async submit(id: number, payload: ClientSampleDraftPayload): Promise<ClientSampleResponse> {
         const res = await apiPost<any>(`/v1/client/samples/${id}/submit`, payload);
-        return unwrapData<Sample>(res);
+        return unwrapData<ClientSampleResponse>(res);
     },
 
-    async createAndSubmit(payload: ClientSampleDraftPayload): Promise<Sample> {
+    async createAndSubmit(payload: ClientSampleDraftPayload): Promise<ClientSampleResponse> {
         const draft = await this.createDraft(payload);
         const sid = getSampleId(draft);
-        if (!sid) throw new Error("Created request has no valid sample_id.");
+
+        if (!sid) {
+            throw new Error("Created request has no valid sample_id.");
+        }
+
         return this.submit(sid, payload);
     },
 };

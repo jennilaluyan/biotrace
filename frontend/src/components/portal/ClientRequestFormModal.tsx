@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { clientSampleRequestService, type ClientSampleDraftPayload } from "../../services/sampleRequests";
 import type { Sample } from "../../services/samples";
 import { listParameters, type ParameterRow } from "../../services/parameters";
+import { useClientAuth } from "../../hooks/useClientAuth";
 
 function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
@@ -28,6 +29,10 @@ type ApiError = {
     };
 };
 
+type DraftPayloadWithQuantity = ClientSampleDraftPayload & {
+    quantity?: number;
+};
+
 function getErrorMessage(err: unknown, fallback: string) {
     const e = err as ApiError;
     const data = e?.response?.data ?? e?.data;
@@ -43,10 +48,9 @@ function getErrorMessage(err: unknown, fallback: string) {
     return data?.message ?? data?.error ?? fallback;
 }
 
-// datetime-local -> API string (keep local as-is; backend normalizes date parsing)
 function datetimeLocalToApi(v: string): string | null {
     if (!v) return null;
-    return v; // keep "YYYY-MM-DDTHH:mm" (avoid timezone shift)
+    return v;
 }
 
 function extractPaginatedRows<T>(res: any): T[] {
@@ -71,15 +75,22 @@ function getSampleId(sample: any): number | null {
     return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function normalizeQuantity(value: string) {
+    return Math.max(1, Math.min(200, Number(value) || 1));
+}
+
 export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
     const { t } = useTranslation();
+    const clientAuth = useClientAuth();
+    const client = (clientAuth as any)?.client ?? (clientAuth as any)?.user ?? null;
+    const isInstitutionClient = client?.type === "institution";
 
     const [sampleType, setSampleType] = useState("");
     const [scheduledDeliveryAt, setScheduledDeliveryAt] = useState("");
     const [examinationPurpose, setExaminationPurpose] = useState("");
     const [additionalNotes, setAdditionalNotes] = useState("");
+    const [quantity, setQuantity] = useState("1");
 
-    // parameters (single select searchable dropdown)
     const [paramQuery, setParamQuery] = useState("");
     const [paramLoading, setParamLoading] = useState(false);
     const [paramItems, setParamItems] = useState<ParameterRow[]>([]);
@@ -92,15 +103,6 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
 
     const boxRef = useRef<HTMLDivElement | null>(null);
 
-    /**
-     * ✅ Fix #2:
-     * - Modal submit now creates + immediately submits (final status = submitted),
-     *   instead of stopping at draft.
-     *
-     * ✅ Fix #3:
-     * - Required fields aligned to portal guidance: sample type + schedule + parameter.
-     *   (Examination purpose stays optional.)
-     */
     const canSubmit = useMemo(() => {
         return (
             !!sampleType.trim() &&
@@ -132,7 +134,6 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
         }
     };
 
-    // init / reset modal
     useEffect(() => {
         if (!open) return;
 
@@ -144,6 +145,7 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
         setScheduledDeliveryAt(v);
         setExaminationPurpose("");
         setAdditionalNotes("");
+        setQuantity("1");
 
         setParamQuery("");
         setParamItems([]);
@@ -155,10 +157,8 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
         setSubmitting(false);
 
         void loadParams("");
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open]);
 
-    // ESC close
     useEffect(() => {
         if (!open) return;
         const onEsc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -166,7 +166,6 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
         return () => window.removeEventListener("keydown", onEsc);
     }, [open, onClose]);
 
-    // lock body scroll
     useEffect(() => {
         if (!open) return;
         const prevOverflow = document.body.style.overflow;
@@ -182,7 +181,6 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
         };
     }, [open]);
 
-    // close dropdown on outside click
     useEffect(() => {
         if (!open) return;
         const onDown = (e: MouseEvent) => {
@@ -194,17 +192,14 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
         return () => window.removeEventListener("mousedown", onDown);
     }, [open]);
 
-    // debounce search (only when dropdown open)
     useEffect(() => {
-        if (!open) return;
-        if (!paramOpen) return;
+        if (!open || !paramOpen) return;
 
         const timer = window.setTimeout(() => {
             void loadParams(paramQuery);
         }, 250);
 
         return () => window.clearTimeout(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [paramQuery, paramOpen, open]);
 
     const chooseParam = (p: ParameterRow) => {
@@ -227,28 +222,35 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
             setSubmitting(true);
             setError(null);
 
-            const payload: ClientSampleDraftPayload = {
+            const normalizedQuantity = isInstitutionClient ? normalizeQuantity(quantity) : 1;
+
+            const payload: DraftPayloadWithQuantity = {
                 sample_type: sampleType.trim(),
                 scheduled_delivery_at: datetimeLocalToApi(scheduledDeliveryAt),
                 examination_purpose: examinationPurpose.trim() || null,
                 additional_notes: additionalNotes.trim() || null,
                 parameter_ids: [Number(selectedParam!.parameter_id)],
+                quantity: normalizedQuantity,
             };
 
-            // 1) Create draft row
             const draft = await clientSampleRequestService.createDraft(payload);
             const sid = getSampleId(draft);
+
             if (!sid) {
                 throw new Error("Created request has no valid sample_id.");
             }
 
-            // 2) Immediately submit => final status: submitted
             const submitted = await clientSampleRequestService.submit(sid, payload);
 
             onClose();
             onCreated(submitted);
         } catch (err: unknown) {
-            setError(getErrorMessage(err, t("portalRequestForm.errors.createFailed", "Failed to create request.")));
+            setError(
+                getErrorMessage(
+                    err,
+                    t("portalRequestForm.errors.createFailed", "Failed to create request.")
+                )
+            );
         } finally {
             setSubmitting(false);
         }
@@ -317,7 +319,6 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                             </div>
                         </div>
 
-                        {/* PARAMETERS (single searchable dropdown) */}
                         <div className="md:col-span-2" ref={boxRef}>
                             <label className="block text-xs font-semibold text-gray-700 mb-1">
                                 {t("portalRequestForm.fields.parameter")} <span className="text-red-600">*</span>
@@ -363,13 +364,17 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                                 {paramOpen ? (
                                     <div className="absolute z-20 mt-2 w-full rounded-2xl border border-gray-200 bg-white shadow-lg overflow-hidden">
                                         {paramLoading ? (
-                                            <div className="p-3 text-sm text-gray-600">{t("portalRequestForm.states.loadingParams")}</div>
+                                            <div className="p-3 text-sm text-gray-600">
+                                                {t("portalRequestForm.states.loadingParams")}
+                                            </div>
                                         ) : paramError ? (
                                             <div className="p-3 text-sm text-red-800 bg-red-50 border-t border-red-100">
                                                 {paramError}
                                             </div>
                                         ) : paramItems.length === 0 ? (
-                                            <div className="p-3 text-sm text-gray-600">{t("portalRequestForm.states.noParams")}</div>
+                                            <div className="p-3 text-sm text-gray-600">
+                                                {t("portalRequestForm.states.noParams")}
+                                            </div>
                                         ) : (
                                             <ul className="max-h-56 overflow-auto divide-y divide-gray-100">
                                                 {paramItems.map((p) => {
@@ -385,7 +390,9 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                                                         >
                                                             <div className="flex items-start justify-between gap-3">
                                                                 <div className="min-w-0">
-                                                                    <div className="text-sm font-medium text-gray-900">{label}</div>
+                                                                    <div className="text-sm font-medium text-gray-900">
+                                                                        {label}
+                                                                    </div>
                                                                     <div className="text-xs text-gray-500 mt-0.5">
                                                                         {p.unit ? `Unit: ${p.unit}` : "Unit: —"}
                                                                     </div>
@@ -415,9 +422,25 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                             </div>
                         </div>
 
+                        {isInstitutionClient ? (
+                            <div className="md:col-span-2 space-y-2">
+                                <label className="block text-sm font-medium text-slate-700">
+                                    {t("portalRequestForm.fields.quantity", "Jumlah sampel")}
+                                </label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={200}
+                                    value={quantity}
+                                    onChange={(e) => setQuantity(e.target.value)}
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                                />
+                            </div>
+                        ) : null}
+
                         <div className="md:col-span-2">
                             <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                {t("portalRequestForm.fields.examinationPurpose")} {/* optional */}
+                                {t("portalRequestForm.fields.examinationPurpose")}
                             </label>
                             <textarea
                                 value={examinationPurpose}

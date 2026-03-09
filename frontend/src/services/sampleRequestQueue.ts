@@ -27,16 +27,22 @@ export type RequestStatus =
 export type SampleRequestQueueRow = {
     sample_id?: number;
     id?: number;
+
+    request_batch_id?: string | null;
+    batch_total?: number;
+    batch_active_total?: number;
+    batch_excluded_total?: number;
+    sample_ids?: number[];
+
     request_status?: RequestStatus;
     sample_type?: string | null;
     lab_sample_code?: string | null;
-
     client_id?: number | null;
     client_name?: string | null;
     client_email?: string | null;
-
     created_at?: string | null;
     updated_at?: string | null;
+
     [key: string]: any;
 };
 
@@ -52,10 +58,12 @@ export type SampleRequestQueueQuery = {
     page?: number;
     per_page?: number;
     q?: string;
-    request_status?: string; // match backend
-    submitted_from?: string; // YYYY-MM-DD
-    submitted_to?: string; // YYYY-MM-DD
-    date?: string; // today|7d|30d (backend supports)
+    request_status?: string;
+    submitted_from?: string;
+    submitted_to?: string;
+    date?: string;
+    mode?: string;
+    apply_to_batch?: boolean;
 };
 
 function ensurePaginator<T>(payload: any): Paginator<T> {

@@ -1,6 +1,5 @@
 import { apiGet, apiPost, apiPatch } from "./api";
 
-// --- backend detail statuses (current_status)
 export type SampleStatus =
     | "received"
     | "in_progress"
@@ -9,12 +8,8 @@ export type SampleStatus =
     | "validated"
     | "reported";
 
-// --- backend computed high-level: status_enum
 export type SampleStatusEnum = "registered" | "testing" | "reported";
 
-/**
- * Request/Intake workflow status
- */
 export type SampleRequestStatus =
     | "draft"
     | "submitted"
@@ -40,7 +35,6 @@ export type SampleRequestStatus =
     | "sc_received_from_analyst"
     | (string & {});
 
-// Physical workflow actions (Admin <-> Sample Collector)
 export type PhysicalWorkflowAction =
     | "admin_received_from_client"
     | "admin_brought_to_collector"
@@ -116,13 +110,29 @@ export interface Sample {
     current_status: SampleStatus;
     additional_notes: string | null;
 
+    request_batch_id?: string | null;
+    request_batch_total?: number | null;
+    request_batch_item_no?: number | null;
+    is_batch_primary?: boolean;
+    batch_excluded_at?: string | null;
+    batch_exclusion_reason?: string | null;
+
+    batch_summary?: {
+        request_batch_id?: string | null;
+        batch_total?: number;
+        batch_active_total?: number;
+        batch_excluded_total?: number;
+        sample_ids?: number[];
+    } | null;
+
+    batch_items?: Sample[] | null;
+
     created_by: number;
     assigned_to: number | null;
 
     status_enum?: SampleStatusEnum;
     request_status?: SampleRequestStatus | null;
 
-    // Test method set by Admin on Accept
     test_method_id?: number | null;
     test_method_name?: string | null;
     test_method_set_by_staff_id?: number | null;
@@ -164,21 +174,17 @@ export interface Sample {
 
     requested_parameters?: RequestedParameter[] | null;
 
-    // COA / delivery
     coa_checked_at?: string | null;
     coa_released_to_client_at?: string | null;
     coa_release_note?: string | null;
 
-    // Return/Reject note
     request_return_note?: string | null;
     intake_checklist?: IntakeChecklistRecord | null;
     intakeChecklist?: IntakeChecklistRecord | null;
 
-    // Pre-Step 12 gate fields (unlock QC after last kanban column)
     quality_cover_unlocked_at?: string | null;
     quality_cover_unlocked_by_staff_id?: number | null;
 
-    // persisted current kanban column
     testing_column_id?: number | null;
 
     client?: SampleClient;
@@ -202,6 +208,7 @@ function unwrapPaginated<T>(res: any): PaginatedResponse<T> {
     if (res && typeof res === "object" && "data" in res && "meta" in res) {
         return res as PaginatedResponse<T>;
     }
+
     return res as PaginatedResponse<T>;
 }
 
@@ -209,8 +216,10 @@ export type SampleListParams = {
     page?: number;
     client_id?: number;
     status_enum?: SampleStatusEnum;
-    from?: string; // YYYY-MM-DD
-    to?: string; // YYYY-MM-DD
+    from?: string;
+    to?: string;
+    request_batch_id?: string;
+    include_excluded?: boolean;
 };
 
 export type CreateSamplePayload = {
@@ -219,7 +228,6 @@ export type CreateSamplePayload = {
     sample_type: string;
     examination_purpose?: string | null;
     additional_notes?: string | null;
-
     parameter_ids: number[];
 };
 
@@ -227,8 +235,6 @@ export type UpdateSampleStatusPayload = {
     target_status: SampleStatus;
     note?: string | null;
 };
-
-// ---------- Client View Status (Portal-friendly) ----------
 
 export type ClientRequestStatusView =
     | "submitted"
@@ -243,7 +249,10 @@ export type ClientRequestStatusView =
     | "unknown";
 
 function normalizeStatusKey(raw?: string | null) {
-    return String(raw ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+    return String(raw ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, "_");
 }
 
 function hasTruthy(v: unknown) {
@@ -251,7 +260,6 @@ function hasTruthy(v: unknown) {
 }
 
 export function getClientRequestStatusView(sample: Partial<Sample> & Record<string, any>): ClientRequestStatusView {
-    // COA released => client can download
     if (hasTruthy(sample?.coa_released_to_client_at)) return "reported";
 
     const statusEnum = String(sample?.status_enum ?? "").trim().toLowerCase();
@@ -274,13 +282,11 @@ export function getClientRequestStatusView(sample: Partial<Sample> & Record<stri
     if (rs === "returned") return "returned";
     if (rs === "needs_revision") return "needs_revision";
 
-    // draft should not be shown to client; treat as submitted
     if (rs === "draft") return "submitted";
     if (rs === "submitted") return "submitted";
 
     if (rs === "ready_for_delivery") return "ready_for_delivery";
 
-    // received by admin (physically received / handoff received)
     if (
         rs === "physically_received" ||
         rs === "received_by_analyst" ||
@@ -291,7 +297,6 @@ export function getClientRequestStatusView(sample: Partial<Sample> & Record<stri
         return "received_by_admin";
     }
 
-    // intake inspection until LOO exists
     if (
         rs === "in_transit_to_collector" ||
         rs === "under_inspection" ||
@@ -311,16 +316,15 @@ export function getClientRequestStatusView(sample: Partial<Sample> & Record<stri
     return "unknown";
 }
 
-// ---------- Service ----------
-
 export const sampleService = {
     async getAll(params?: SampleListParams): Promise<PaginatedResponse<Sample>> {
         const res = await apiGet<any>("/v1/samples", { params });
         return unwrapPaginated<Sample>(res);
     },
 
-    async getById(id: number): Promise<Sample> {
-        const res = await apiGet<any>(`/v1/samples/${id}`);
+    async getById(id: number, includeBatch = true): Promise<Sample> {
+        const qs = includeBatch ? "?include_batch=1" : "";
+        const res = await apiGet<any>(`/v1/samples/${id}${qs}`);
         return (res?.data ?? res) as Sample;
     },
 
@@ -337,11 +341,13 @@ export const sampleService = {
     async updatePhysicalWorkflow(
         sampleId: number,
         action: PhysicalWorkflowAction,
-        note?: string | null
+        note?: string | null,
+        applyToBatch?: boolean
     ): Promise<Sample> {
         const res = await apiPost<any>(`/v1/samples/${sampleId}/physical-workflow?_method=PATCH`, {
             action,
             note: note ?? null,
+            apply_to_batch: !!applyToBatch,
         });
         return (res?.data ?? res) as Sample;
     },

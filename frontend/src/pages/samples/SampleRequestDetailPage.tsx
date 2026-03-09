@@ -343,6 +343,8 @@ export default function SampleRequestDetailPage() {
     const [wfBusy, setWfBusy] = useState(false);
     const [wfError, setWfError] = useState<string | null>(null);
     const [verifyBusy, setVerifyBusy] = useState(false);
+    const [verifyOpen, setVerifyOpen] = useState(false);
+    const [verifyApplyToBatch, setVerifyApplyToBatch] = useState(false);
 
     const [sidFetchedRaw, setSidFetchedRaw] = useState<any | null>(null);
     const [sidActiveRow, setSidActiveRow] = useState<SampleIdChangeRow | null>(null);
@@ -355,6 +357,16 @@ export default function SampleRequestDetailPage() {
     const labSampleCode = (sample as any)?.lab_sample_code ?? null;
     const verifiedAt = (sample as any)?.verified_at ?? null;
     const displayRequestId = Number((sample as any)?.sample_id ?? requestId);
+
+    const batchSummary = (sample as any)?.batch_summary ?? null;
+    const batchId = (sample as any)?.request_batch_id ?? null;
+    const batchTotal = Number(batchSummary?.batch_total ?? (sample as any)?.request_batch_total ?? 1);
+    const batchActiveTotal = Number(batchSummary?.batch_active_total ?? (sample as any)?.request_batch_total ?? 1);
+    const hasActiveBatch = !!batchId && batchActiveTotal > 1;
+    const batchItemsPreview = useMemo(() => {
+        const items = (sample as any)?.batch_items;
+        return Array.isArray(items) && items.length > 0 ? items : sample ? [sample] : [];
+    }, [sample]);
 
     const sidRaw =
         sidFetchedRaw ??
@@ -387,7 +399,7 @@ export default function SampleRequestDetailPage() {
                 if (!silent) setLoading(true);
                 setError(null);
 
-                const data = await sampleService.getById(requestId);
+                const data = await sampleService.getById(requestId, true);
                 setSample(data);
 
                 try {
@@ -400,7 +412,9 @@ export default function SampleRequestDetailPage() {
                 setError(
                     safeApiMessage(
                         err,
-                        t("samples.pages.requestDetail.errors.loadFailed", { defaultValue: "Failed to load request detail." })
+                        t("samples.pages.requestDetail.errors.loadFailed", {
+                            defaultValue: "Failed to load request detail.",
+                        })
                     )
                 );
             } finally {
@@ -445,7 +459,12 @@ export default function SampleRequestDetailPage() {
             setTab("workflow");
         } catch (err: any) {
             setWfError(
-                safeApiMessage(err, t("samples.pages.requestDetail.errors.updateStatusFailed", { defaultValue: "Failed to update status." }))
+                safeApiMessage(
+                    err,
+                    t("samples.pages.requestDetail.errors.updateStatusFailed", {
+                        defaultValue: "Failed to update status.",
+                    })
+                )
             );
         } finally {
             setWfBusy(false);
@@ -459,17 +478,34 @@ export default function SampleRequestDetailPage() {
             setWfBusy(true);
             setWfError(null);
 
-            await apiPatch<any>(`/v1/samples/${requestId}/physical-workflow`, { action, note: null });
+            const shouldApplyWorkflowToBatch = !!batchId && batchActiveTotal > 1;
+
+            await apiPatch<any>(`/v1/samples/${requestId}/physical-workflow`, {
+                action,
+                note: null,
+                apply_to_batch: shouldApplyWorkflowToBatch,
+            });
 
             await load({ silent: true });
             setTab("workflow");
         } catch (err: any) {
             setWfError(
-                safeApiMessage(err, t("samples.pages.requestDetail.errors.updateWorkflowFailed", { defaultValue: "Failed to update workflow." }))
+                safeApiMessage(
+                    err,
+                    t("samples.pages.requestDetail.errors.updateWorkflowFailed", {
+                        defaultValue: "Failed to update workflow.",
+                    })
+                )
             );
         } finally {
             setWfBusy(false);
         }
+    };
+
+    const openVerifyModal = () => {
+        setWfError(null);
+        setVerifyApplyToBatch(!!batchId && batchActiveTotal > 1);
+        setVerifyOpen(true);
     };
 
     const doVerify = async () => {
@@ -480,11 +516,22 @@ export default function SampleRequestDetailPage() {
             setVerifyBusy(true);
             setWfError(null);
 
-            await apiPost(`/v1/samples/${requestId}/verify`, {});
+            await apiPost(`/v1/samples/${requestId}/verify`, {
+                apply_to_batch: verifyApplyToBatch,
+            });
+
+            setVerifyOpen(false);
             await load({ silent: true });
             setTab("workflow");
         } catch (err: any) {
-            setWfError(safeApiMessage(err, t("samples.pages.requestDetail.errors.verifyFailed", { defaultValue: "Failed to verify." })));
+            setWfError(
+                safeApiMessage(
+                    err,
+                    t("samples.pages.requestDetail.errors.verifyFailed", {
+                        defaultValue: "Failed to verify.",
+                    })
+                )
+            );
         } finally {
             setVerifyBusy(false);
         }
@@ -509,7 +556,9 @@ export default function SampleRequestDetailPage() {
 
         if (!row) {
             setWfError(
-                t("samples.pages.requestDetail.errors.sampleIdChangeMissing", { defaultValue: "Sample ID change detail is missing." })
+                t("samples.pages.requestDetail.errors.sampleIdChangeMissing", {
+                    defaultValue: "Sample ID change detail is missing.",
+                })
             );
             return;
         }
@@ -544,7 +593,11 @@ export default function SampleRequestDetailPage() {
                 {loading ? (
                     <div className="flex items-center gap-2 text-sm text-gray-600">
                         <RefreshCw size={16} className="animate-spin text-primary" />
-                        <span>{t("samples.pages.requestDetail.loading", { defaultValue: "Loading request detail..." })}</span>
+                        <span>
+                            {t("samples.pages.requestDetail.loading", {
+                                defaultValue: "Loading request detail...",
+                            })}
+                        </span>
                     </div>
                 ) : null}
 
@@ -583,9 +636,13 @@ export default function SampleRequestDetailPage() {
                                             <>
                                                 <span className="text-gray-400">·</span>
                                                 <span className="text-xs text-gray-500">
-                                                    {t("samples.pages.requestDetail.verified", { defaultValue: "Verified" })}
+                                                    {t("samples.pages.requestDetail.verified", {
+                                                        defaultValue: "Verified",
+                                                    })}
                                                 </span>
-                                                <span className="text-xs font-semibold text-emerald-700">{formatDateTimeLocal(verifiedAt)}</span>
+                                                <span className="text-xs font-semibold text-emerald-700">
+                                                    {formatDateTimeLocal(verifiedAt)}
+                                                </span>
                                             </>
                                         ) : null}
 
@@ -593,7 +650,9 @@ export default function SampleRequestDetailPage() {
                                             <>
                                                 <span className="text-gray-400">·</span>
                                                 <span className="text-xs text-gray-500">
-                                                    {t("samples.pages.requestDetail.labCode", { defaultValue: "Lab Code" })}
+                                                    {t("samples.pages.requestDetail.labCode", {
+                                                        defaultValue: "Lab Code",
+                                                    })}
                                                 </span>
                                                 <span className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1">
                                                     {labSampleCode}
@@ -644,11 +703,14 @@ export default function SampleRequestDetailPage() {
                                             onMarkPhysicallyReceived={doMarkPhysicallyReceived}
                                             onDoPhysicalWorkflow={doPhysicalWorkflow}
                                             onOpenIntakeChecklist={() => setIntakeOpen(true)}
-                                            onVerify={doVerify}
+                                            onVerify={openVerifyModal}
                                             onVerifySampleIdChange={handleVerifySampleIdChange}
                                             onOpenAssignSampleId={() => {
                                                 const key = normalizeStatusToken((sample as any)?.request_status ?? "");
-                                                const approvedKeys = ["sample_id_approved_for_assignment", "approved_for_assignment"];
+                                                const approvedKeys = [
+                                                    "sample_id_approved_for_assignment",
+                                                    "approved_for_assignment",
+                                                ];
 
                                                 if (approvedKeys.includes(key)) {
                                                     setAssignOpen(false);
@@ -663,16 +725,22 @@ export default function SampleRequestDetailPage() {
 
                                         {sidPickOpen ? (
                                             <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-                                                <div className="absolute inset-0 bg-black/40" onClick={() => (sidBusy ? null : setSidPickOpen(false))} />
+                                                <div
+                                                    className="absolute inset-0 bg-black/40"
+                                                    onClick={() => (sidBusy ? null : setSidPickOpen(false))}
+                                                />
 
                                                 <div className="relative w-full max-w-sm rounded-2xl bg-white shadow-xl border">
                                                     <div className="px-5 py-4 border-b">
                                                         <div className="text-sm font-bold text-gray-900">
-                                                            {t("samples.pages.requestDetail.sidVerify.title", { defaultValue: "Verify Sample ID change" })}
+                                                            {t("samples.pages.requestDetail.sidVerify.title", {
+                                                                defaultValue: "Verify Sample ID change",
+                                                            })}
                                                         </div>
                                                         <div className="text-xs text-gray-500 mt-1">
                                                             {t("samples.pages.requestDetail.sidVerify.subtitle", {
-                                                                defaultValue: "Review suggested vs proposed and choose an action.",
+                                                                defaultValue:
+                                                                    "Review suggested vs proposed and choose an action.",
                                                             })}
                                                         </div>
                                                     </div>
@@ -681,13 +749,17 @@ export default function SampleRequestDetailPage() {
                                                         <div className="text-xs text-gray-600">
                                                             {t("suggested", { defaultValue: "Suggested" })}:{" "}
                                                             <span className="font-mono text-gray-900">
-                                                                {sidActiveRow?.suggested_lab_sample_code || sidActiveRow?.suggested_sample_id || "—"}
+                                                                {sidActiveRow?.suggested_lab_sample_code ||
+                                                                    sidActiveRow?.suggested_sample_id ||
+                                                                    "—"}
                                                             </span>
                                                         </div>
                                                         <div className="text-xs text-gray-600">
                                                             {t("proposed", { defaultValue: "Proposed" })}:{" "}
                                                             <span className="font-mono text-gray-900">
-                                                                {sidActiveRow?.proposed_lab_sample_code || sidActiveRow?.proposed_sample_id || "—"}
+                                                                {sidActiveRow?.proposed_lab_sample_code ||
+                                                                    sidActiveRow?.proposed_sample_id ||
+                                                                    "—"}
                                                             </span>
                                                         </div>
                                                     </div>
@@ -697,7 +769,10 @@ export default function SampleRequestDetailPage() {
                                                             type="button"
                                                             onClick={() => setSidPickOpen(false)}
                                                             disabled={sidBusy}
-                                                            className={cx("btn-outline", sidBusy && "opacity-60 cursor-not-allowed")}
+                                                            className={cx(
+                                                                "btn-outline",
+                                                                sidBusy && "opacity-60 cursor-not-allowed"
+                                                            )}
                                                         >
                                                             {t("cancel", { defaultValue: "Cancel" })}
                                                         </button>
@@ -710,7 +785,11 @@ export default function SampleRequestDetailPage() {
                                                                 setSidModalOpen(true);
                                                             }}
                                                             disabled={sidBusy || !sidActiveRow}
-                                                            className={cx("btn-outline", (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed")}
+                                                            className={cx(
+                                                                "btn-outline",
+                                                                (sidBusy || !sidActiveRow) &&
+                                                                "opacity-60 cursor-not-allowed"
+                                                            )}
                                                         >
                                                             {t("reject", { defaultValue: "Reject" })}
                                                         </button>
@@ -723,7 +802,11 @@ export default function SampleRequestDetailPage() {
                                                                 setSidModalOpen(true);
                                                             }}
                                                             disabled={sidBusy || !sidActiveRow}
-                                                            className={cx("lims-btn-primary", (sidBusy || !sidActiveRow) && "opacity-60 cursor-not-allowed")}
+                                                            className={cx(
+                                                                "lims-btn-primary",
+                                                                (sidBusy || !sidActiveRow) &&
+                                                                "opacity-60 cursor-not-allowed"
+                                                            )}
                                                         >
                                                             {t("approve", { defaultValue: "Approve" })}
                                                         </button>
@@ -742,7 +825,10 @@ export default function SampleRequestDetailPage() {
                                                 if (!sidActiveRow) return;
 
                                                 const changeId = Number(
-                                                    sidActiveRow.change_request_id ?? sidActiveRow.id ?? sidActiveRow.sample_id_change_id ?? 0
+                                                    sidActiveRow.change_request_id ??
+                                                    sidActiveRow.id ??
+                                                    sidActiveRow.sample_id_change_id ??
+                                                    0
                                                 );
                                                 if (!Number.isFinite(changeId) || changeId <= 0) return;
 
@@ -770,7 +856,9 @@ export default function SampleRequestDetailPage() {
                                                     setWfError(
                                                         safeApiMessage(
                                                             e,
-                                                            t("samples.pages.requestDetail.errors.sidDecisionFailed", { defaultValue: "Failed to process decision." })
+                                                            t("samples.pages.requestDetail.errors.sidDecisionFailed", {
+                                                                defaultValue: "Failed to process decision.",
+                                                            })
                                                         )
                                                     );
                                                 } finally {
@@ -814,6 +902,10 @@ export default function SampleRequestDetailPage() {
                             sampleId={requestId}
                             action="accept"
                             currentStatus={(sample as any)?.request_status ?? null}
+                            batchId={batchId}
+                            batchTotal={batchTotal}
+                            batchActiveTotal={batchActiveTotal}
+                            defaultApplyToBatch={hasActiveBatch}
                             onClose={() => setAcceptModalOpen(false)}
                             onUpdated={async () => {
                                 await load({ silent: true });
@@ -826,6 +918,10 @@ export default function SampleRequestDetailPage() {
                             sampleId={requestId}
                             action="return"
                             currentStatus={(sample as any)?.request_status ?? null}
+                            batchId={batchId}
+                            batchTotal={batchTotal}
+                            batchActiveTotal={batchActiveTotal}
+                            defaultApplyToBatch={hasActiveBatch}
                             onClose={() => setReturnModalOpen(false)}
                             onUpdated={async () => {
                                 await load({ silent: true });
@@ -838,6 +934,10 @@ export default function SampleRequestDetailPage() {
                             sampleId={requestId}
                             action="reject"
                             currentStatus={(sample as any)?.request_status ?? null}
+                            batchId={batchId}
+                            batchTotal={batchTotal}
+                            batchActiveTotal={batchActiveTotal}
+                            defaultApplyToBatch={hasActiveBatch}
                             onClose={() => setRejectModalOpen(false)}
                             onUpdated={async () => {
                                 await load({ silent: true });
@@ -859,6 +959,133 @@ export default function SampleRequestDetailPage() {
                                     setTab("workflow");
                                 }}
                             />
+                        ) : null}
+
+                        {verifyOpen && sample ? (
+                            <div
+                                className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                                role="dialog"
+                                aria-modal="true"
+                            >
+                                <div
+                                    className="absolute inset-0 bg-black/40"
+                                    onClick={() => !verifyBusy && setVerifyOpen(false)}
+                                />
+
+                                <div
+                                    className="relative w-full max-w-3xl rounded-2xl border border-gray-100 bg-white shadow-xl overflow-hidden"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <div className="border-b border-gray-100 px-6 py-4 bg-gray-50">
+                                        <div className="text-base font-semibold text-gray-900">
+                                            {t("samples.pages.requestDetail.verifyModal.title", {
+                                                defaultValue: "Verify intake result",
+                                            })}
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-1">
+                                            {t("samples.pages.requestDetail.verifyModal.subtitle", {
+                                                defaultValue:
+                                                    "Review collector intake results before continuing to sample ID assignment.",
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    <div className="px-6 py-5 max-h-[65vh] overflow-auto space-y-3">
+                                        {wfError ? (
+                                            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                                                {wfError}
+                                            </div>
+                                        ) : null}
+
+                                        {batchItemsPreview.map((row: any, index: number) => {
+                                            const checklist = row?.intake_checklist ?? row?.intakeChecklist ?? null;
+                                            const passed = !!checklist?.is_passed;
+
+                                            return (
+                                                <div
+                                                    key={row?.sample_id ?? index}
+                                                    className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3"
+                                                >
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <div className="text-sm font-semibold text-gray-900">
+                                                            #{row?.request_batch_item_no ?? index + 1} -{" "}
+                                                            {row?.sample_type ?? "-"}
+                                                        </div>
+                                                        <span
+                                                            className={cx(
+                                                                "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold",
+                                                                passed
+                                                                    ? "bg-emerald-50 text-emerald-700"
+                                                                    : "bg-rose-50 text-rose-700"
+                                                            )}
+                                                        >
+                                                            {passed
+                                                                ? t("samples.pages.requestDetail.verifyModal.passed", {
+                                                                    defaultValue: "Passed",
+                                                                })
+                                                                : t("samples.pages.requestDetail.verifyModal.failed", {
+                                                                    defaultValue: "Failed",
+                                                                })}
+                                                        </span>
+                                                    </div>
+
+                                                    {checklist?.notes ? (
+                                                        <div className="mt-2 text-xs text-gray-600">
+                                                            {String(checklist.notes)}
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            );
+                                        })}
+
+                                        {hasActiveBatch ? (
+                                            <label className="flex items-start gap-3 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3">
+                                                <input
+                                                    type="checkbox"
+                                                    className="mt-1"
+                                                    checked={verifyApplyToBatch}
+                                                    onChange={(e) => setVerifyApplyToBatch(e.target.checked)}
+                                                    disabled={verifyBusy}
+                                                />
+                                                <div>
+                                                    <div className="text-sm font-semibold text-sky-900">
+                                                        {t("samples.pages.requestDetail.verifyModal.applyToBatchTitle", {
+                                                            defaultValue: "Verify all active samples in this batch",
+                                                        })}
+                                                    </div>
+                                                    <div className="text-xs text-sky-700 mt-1">
+                                                        {batchActiveTotal}{" "}
+                                                        {t("samples.pages.requestDetail.verifyModal.samples", {
+                                                            defaultValue: "active samples",
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            </label>
+                                        ) : null}
+                                    </div>
+
+                                    <div className="flex items-center justify-end gap-3 border-t border-gray-100 px-6 py-4 bg-white">
+                                        <button
+                                            type="button"
+                                            className="lims-btn lims-btn-secondary"
+                                            onClick={() => setVerifyOpen(false)}
+                                            disabled={verifyBusy}
+                                        >
+                                            {t("cancel")}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="lims-btn lims-btn-primary"
+                                            onClick={doVerify}
+                                            disabled={verifyBusy}
+                                        >
+                                            {verifyBusy
+                                                ? t("processing")
+                                                : t("samples.requestWorkflow.verify")}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         ) : null}
                     </div>
                 ) : null}

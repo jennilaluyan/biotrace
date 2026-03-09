@@ -411,10 +411,7 @@ function getIntakeChecklistRecord(s: any) {
 
 function buildFailedIntakeNote(sample: any): string | null {
     const intake = getIntakeChecklistRecord(sample);
-    const detailed =
-        intake?.checklist?.items ??
-        intake?.items ??
-        [];
+    const detailed = intake?.checklist?.items ?? intake?.items ?? [];
 
     const failedLines = Array.isArray(detailed)
         ? detailed
@@ -423,12 +420,7 @@ function buildFailedIntakeNote(sample: any): string | null {
             .filter(Boolean)
         : [];
 
-    const generalNote = String(
-        intake?.notes ??
-        intake?.checklist?.general_note ??
-        intake?.general_note ??
-        ""
-    ).trim();
+    const generalNote = String(intake?.notes ?? intake?.checklist?.general_note ?? intake?.general_note ?? "").trim();
 
     const out = [...failedLines];
     if (generalNote) out.push(generalNote);
@@ -469,10 +461,7 @@ function didCollectorIntakeFail(sample: any, logs: any[] | null): boolean {
     }
 
     const rs = String(sample?.request_status ?? "").trim().toLowerCase();
-    return (
-        !!sample?.collector_intake_completed_at &&
-        ["inspection_failed", "returned_to_admin", "returned", "rejected"].includes(rs)
-    );
+    return !!sample?.collector_intake_completed_at && ["inspection_failed", "returned_to_admin", "returned", "rejected"].includes(rs);
 }
 
 export function SampleRequestWorkflowTab(props: {
@@ -503,6 +492,11 @@ export function SampleRequestWorkflowTab(props: {
     const isOmLh = roleId === ROLE_ID.OPERATIONAL_MANAGER || roleId === ROLE_ID.LAB_HEAD;
 
     const omLhLabel = t("samples.requestWorkflow.omLhLabel");
+
+    const batchSummary = s?.batch_summary ?? null;
+    const batchActiveTotal = Number(batchSummary?.batch_active_total ?? s?.request_batch_total ?? 1);
+    const batchExcludedTotal = Number(batchSummary?.batch_excluded_total ?? 0);
+    const isBatchRequest = !!(s?.request_batch_id && batchActiveTotal > 1);
 
     function roleLabelForDisplay(raw?: string | null): string | null {
         const k = normalizeRoleKey(raw);
@@ -542,9 +536,7 @@ export function SampleRequestWorkflowTab(props: {
     const requestStatusKey = String(s?.request_status ?? "").trim().toLowerCase();
     const labSampleCode = String(s?.lab_sample_code ?? "").trim();
     const returnNote = String(s?.request_return_note ?? "").trim() || null;
-    const isRequestWaitingClientRevision = ["returned", "needs_revision", "rejected"].includes(
-        requestStatusKey
-    );
+    const isRequestWaitingClientRevision = ["returned", "needs_revision", "rejected"].includes(requestStatusKey);
 
     const sampleIdChangeObj = s?.sample_id_change ?? s?.sample_id_change_request ?? s?.sampleIdChange ?? null;
 
@@ -568,17 +560,13 @@ export function SampleRequestWorkflowTab(props: {
         isAdmin &&
         !labSampleCode &&
         (requestStatusKey === "submitted" ||
-            (requestStatusKey === "returned_to_admin" &&
-                !!s?.admin_received_from_collector_at &&
-                !s?.client_picked_up_at));
+            (requestStatusKey === "returned_to_admin" && !!s?.admin_received_from_collector_at && !s?.client_picked_up_at));
 
     const canAdminRejectRequest =
         isAdmin &&
         !labSampleCode &&
         (requestStatusKey === "submitted" ||
-            (requestStatusKey === "returned_to_admin" &&
-                !!s?.admin_received_from_collector_at &&
-                !s?.client_picked_up_at));
+            (requestStatusKey === "returned_to_admin" && !!s?.admin_received_from_collector_at && !s?.client_picked_up_at));
 
     const canMarkPhysicallyReceived =
         isAdmin &&
@@ -618,7 +606,7 @@ export function SampleRequestWorkflowTab(props: {
         !labSampleCode &&
         !!s?.admin_received_from_collector_at &&
         isRequestWaitingClientRevision &&
-        !s?.client_picked_up_at
+        !s?.client_picked_up_at;
 
     const verifiedAt = s?.verified_at ?? null;
     const isSampleIdPendingVerification = requestStatusKey === "sample_id_pending_verification";
@@ -1014,9 +1002,7 @@ export function SampleRequestWorkflowTab(props: {
             null;
 
         const sidRequesterRole =
-            pickRoleName(sidRequestedBy) ??
-            pickStr(sampleIdChangeObj, ["requested_by_role_name", "requestedByRoleName"]) ??
-            null;
+            pickRoleName(sidRequestedBy) ?? pickStr(sampleIdChangeObj, ["requested_by_role_name", "requestedByRoleName"]) ?? null;
 
         const sidReviewerName =
             pickName(sidReviewedBy) ??
@@ -1024,9 +1010,7 @@ export function SampleRequestWorkflowTab(props: {
             null;
 
         const sidReviewerRole =
-            pickRoleName(sidReviewedBy) ??
-            pickStr(sampleIdChangeObj, ["reviewed_by_role_name", "reviewedByRoleName"]) ??
-            null;
+            pickRoleName(sidReviewedBy) ?? pickStr(sampleIdChangeObj, ["reviewed_by_role_name", "reviewedByRoleName"]) ?? null;
 
         const sidDecidedAt = pickAt(sampleIdChangeObj, ["decided_at", "approved_at", "rejected_at", "updated_at"]);
 
@@ -1216,11 +1200,7 @@ export function SampleRequestWorkflowTab(props: {
         canVerify ||
         (isAdmin && canAssignSampleId);
 
-    const shouldHideActionSection =
-        isAdmin &&
-        !labSampleCode &&
-        isRequestWaitingClientRevision &&
-        !anyAction;
+    const shouldHideActionSection = isAdmin && !labSampleCode && isRequestWaitingClientRevision && !anyAction;
 
     return (
         <div className="space-y-6">
@@ -1241,9 +1221,7 @@ export function SampleRequestWorkflowTab(props: {
             </div>
 
             {props.wfError ? (
-                <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">
-                    {props.wfError}
-                </div>
+                <div className="text-sm text-red-700 bg-red-50 border border-red-100 px-3 py-2 rounded-xl">{props.wfError}</div>
             ) : null}
 
             {topBanner ? (
@@ -1256,6 +1234,30 @@ export function SampleRequestWorkflowTab(props: {
                     )}
                 >
                     {topBanner.message}
+                </div>
+            ) : null}
+
+            {isBatchRequest ? (
+                <div className="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3">
+                    <div className="text-sm font-semibold text-sky-900">
+                        {t("samples.requestWorkflow.batchSummary.title", {
+                            defaultValue: "Institutional batch workflow",
+                        })}
+                    </div>
+                    <div className="text-xs text-sky-700 mt-1">
+                        {batchActiveTotal}{" "}
+                        {t("samples.requestWorkflow.batchSummary.active", {
+                            defaultValue: "active samples move together in this request flow.",
+                        })}
+                    </div>
+                    {batchExcludedTotal > 0 ? (
+                        <div className="text-xs text-sky-700 mt-1">
+                            {batchExcludedTotal}{" "}
+                            {t("samples.requestWorkflow.batchSummary.excluded", {
+                                defaultValue: "sample(s) already excluded from the active batch.",
+                            })}
+                        </div>
+                    ) : null}
                 </div>
             ) : null}
 
@@ -1429,9 +1431,7 @@ export function SampleRequestWorkflowTab(props: {
                             />
                         ) : null}
 
-                        {!anyAction ? (
-                            <div className="text-sm text-gray-600">{t("samples.requestWorkflow.actions.none")}</div>
-                        ) : null}
+                        {!anyAction ? <div className="text-sm text-gray-600">{t("samples.requestWorkflow.actions.none")}</div> : null}
                     </div>
                 </div>
             ) : (

@@ -12,10 +12,13 @@ type Action = "accept" | "reject" | "return" | "received";
 
 type Props = {
     open: boolean;
-    sampleId: number | null; // used as Request ID in UI
+    sampleId: number | null;
     action: Action;
     currentStatus?: string | null;
-
+    batchId?: string | null;
+    batchTotal?: number;
+    batchActiveTotal?: number;
+    defaultApplyToBatch?: boolean;
     onClose: () => void;
     onUpdated: () => void;
 };
@@ -26,9 +29,6 @@ type ApiErrorLike = {
     message?: string;
 };
 
-/**
- * Extracts a user-friendly API error message (supports common Laravel validation shapes).
- */
 function getErrMsg(err: unknown, fallback: string) {
     const e = err as ApiErrorLike;
     const data = e?.response?.data ?? e?.data;
@@ -49,9 +49,6 @@ function getErrMsg(err: unknown, fallback: string) {
     );
 }
 
-/**
- * Normalizes arbitrary status-ish strings into "words" (lowercase, spaces).
- */
 function normalizeStatusWords(input?: string | null) {
     return String(input ?? "")
         .trim()
@@ -60,9 +57,6 @@ function normalizeStatusWords(input?: string | null) {
         .replace(/\s+/g, " ");
 }
 
-/**
- * Compacts a request-status token into a short label when possible.
- */
 function compactRequestStatusToken(token: string, locale: string) {
     const isId = String(locale || "").toLowerCase().startsWith("id");
 
@@ -71,18 +65,15 @@ function compactRequestStatusToken(token: string, locale: string) {
         ready_for_delivery: { en: "ready", id: "siap" },
         physically_received: { en: "received", id: "diterima" },
         rejected: { en: "rejected", id: "ditolak" },
-        needs_revision: { en: "revision", id: "revisi" }, // legacy alias
+        needs_revision: { en: "revision", id: "revisi" },
         returned: { en: "revision", id: "revisi" },
-
         awaiting_verification: { en: "verify", id: "verifikasi" },
         waiting_sample_id_assignment: { en: "waiting", id: "menunggu" },
         sample_id_pending_verification: { en: "verify", id: "verifikasi" },
         sample_id_approved_for_assignment: { en: "approved", id: "disetujui" },
-
         in_transit_to_collector: { en: "transit", id: "transit" },
         under_inspection: { en: "inspect", id: "inspeksi" },
         returned_to_admin: { en: "returned", id: "kembali" },
-
         intake_checklist_passed: { en: "intake", id: "intake" },
         intake_validated: { en: "validated", id: "validasi" },
     };
@@ -101,7 +92,7 @@ type ModalCopy = {
     title: string;
     subtitle: string;
     confirm: string;
-    nextLabel: string; // token, will be formatted in UI
+    nextLabel: string;
 };
 
 function getModalCopy(t: (k: string, opt?: any) => string, action: Action): ModalCopy {
@@ -134,7 +125,7 @@ function getModalCopy(t: (k: string, opt?: any) => string, action: Action): Moda
                 defaultValue: "Return this request to the client for revision. A note is required.",
             }),
             confirm: t("samples.requestStatusModal.buttons.confirmReturn", { defaultValue: "Return" }),
-            nextLabel: "returned", // ✅ canonical DB token
+            nextLabel: "returned",
         };
     }
 
@@ -152,15 +143,26 @@ export const UpdateRequestStatusModal = (props: Props) => {
     const { t, i18n } = useTranslation();
     const locale = i18n.language || "en";
 
-    const { open, sampleId, action, currentStatus, onClose, onUpdated } = props;
+    const {
+        open,
+        sampleId,
+        action,
+        currentStatus,
+        batchId,
+        batchTotal,
+        batchActiveTotal,
+        defaultApplyToBatch,
+        onClose,
+        onUpdated,
+    } = props;
+
     const requestId = sampleId;
 
     const [note, setNote] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
-
-    // ✅ Accept now uses free-text method name (no dropdown, no /methods call)
     const [testMethodName, setTestMethodName] = useState("");
+    const [applyToBatch, setApplyToBatch] = useState(!!defaultApplyToBatch);
 
     const isAccept = action === "accept";
     const isReject = action === "reject";
@@ -169,7 +171,8 @@ export const UpdateRequestStatusModal = (props: Props) => {
 
     const copy = useMemo(() => getModalCopy(t, action), [t, action]);
 
-    // Reset modal state when opened or action changes
+    const hasBatch = !!batchId && Number(batchActiveTotal ?? batchTotal ?? 0) > 1;
+
     useEffect(() => {
         if (!open) return;
 
@@ -177,9 +180,9 @@ export const UpdateRequestStatusModal = (props: Props) => {
         setError(null);
         setBusy(false);
         setTestMethodName("");
-    }, [open, action, requestId]);
+        setApplyToBatch(!!defaultApplyToBatch);
+    }, [open, action, requestId, defaultApplyToBatch]);
 
-    // ESC to close
     useEffect(() => {
         if (!open) return;
 
@@ -256,10 +259,15 @@ export const UpdateRequestStatusModal = (props: Props) => {
 
             const trimmedNote = note.trim();
             const noteToSend = isReject || isReturn ? trimmedNote : trimmedNote.length ? trimmedNote : null;
-
             const methodToSend = isAccept ? testMethodName.trim() : null;
 
-            await updateRequestStatus(requestId, action, noteToSend, methodToSend);
+            await updateRequestStatus(
+                requestId,
+                action,
+                noteToSend,
+                methodToSend,
+                applyToBatch
+            );
 
             onClose();
             onUpdated();
@@ -334,7 +342,33 @@ export const UpdateRequestStatusModal = (props: Props) => {
                         </div>
                     </div>
 
-                    {/* ✅ Accept: required Test Method (free text, NO dropdown) */}
+                    {hasBatch ? (
+                        <div className="mt-4 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3">
+                            <label className="flex items-start gap-3">
+                                <input
+                                    type="checkbox"
+                                    className="mt-1"
+                                    checked={applyToBatch}
+                                    onChange={(e) => setApplyToBatch(e.target.checked)}
+                                    disabled={busy}
+                                />
+                                <div>
+                                    <div className="text-sm font-semibold text-sky-900">
+                                        {t("samples.requestStatusModal.applyToBatch.title", {
+                                            defaultValue: "Apply to institutional batch",
+                                        })}
+                                    </div>
+                                    <div className="text-xs text-sky-700 mt-1">
+                                        {t("samples.requestStatusModal.applyToBatch.subtitle", {
+                                            defaultValue: "Apply this action to all active samples in the same request batch.",
+                                        })}{" "}
+                                        ({batchActiveTotal ?? batchTotal ?? 1})
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                    ) : null}
+
                     {isAccept ? (
                         <div className="mt-4">
                             <label className="block text-sm font-semibold text-gray-900">
@@ -358,7 +392,6 @@ export const UpdateRequestStatusModal = (props: Props) => {
                         </div>
                     ) : null}
 
-                    {/* Reject/Return/Received: note */}
                     {isReject || isReturn || isReceived ? (
                         <div className="mt-4">
                             <div className="flex items-baseline justify-between gap-3">

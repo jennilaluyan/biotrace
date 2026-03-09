@@ -34,11 +34,18 @@ export function SampleRequestInfoTab(props: { sample: Sample }) {
     }, [s?.scheduled_delivery_at]);
 
     const clientName = displayText(
-        s?.client?.name ?? s?.client_name,
+        s?.client?.type === "institution"
+            ? s?.client?.institution_name ?? s?.client?.name ?? s?.client_name
+            : s?.client?.name ?? s?.client_name,
         t("samples.requestInfo.clientFallback", { defaultValue: "—" })
     );
 
     const clientEmail = String(s?.client?.email ?? s?.client_email ?? "").trim();
+
+    const batchSummary = s?.batch_summary ?? null;
+    const batchActiveTotal = Number(batchSummary?.batch_active_total ?? s?.request_batch_total ?? 1);
+    const batchExcludedTotal = Number(batchSummary?.batch_excluded_total ?? 0);
+    const isBatchRequest = !!(s?.request_batch_id && batchActiveTotal > 1);
 
     return (
         <div className="space-y-4">
@@ -47,7 +54,9 @@ export function SampleRequestInfoTab(props: { sample: Sample }) {
                     {t("samples.requestInfo.title", { defaultValue: "Request information" })}
                 </div>
                 <div className="text-xs text-gray-500 mt-0.5">
-                    {t("samples.requestInfo.subtitle", { defaultValue: "Client-submitted details for this request." })}
+                    {t("samples.requestInfo.subtitle", {
+                        defaultValue: "Client-submitted details for this request.",
+                    })}
                 </div>
 
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -59,6 +68,30 @@ export function SampleRequestInfoTab(props: { sample: Sample }) {
                             {displayText(s?.sample_type)}
                         </div>
                     </div>
+
+                    {isBatchRequest ? (
+                        <div className="rounded-xl border border-sky-100 bg-sky-50 px-3 py-2">
+                            <div className="text-xs text-sky-700">
+                                {t("samples.requestInfo.batchRequest", {
+                                    defaultValue: "Institutional batch",
+                                })}
+                            </div>
+                            <div className="font-semibold text-sky-900 mt-0.5">
+                                {batchActiveTotal}{" "}
+                                {t("samples.requestInfo.samplesCount", {
+                                    defaultValue: "active samples",
+                                })}
+                            </div>
+                            {batchExcludedTotal > 0 ? (
+                                <div className="text-xs text-sky-700 mt-1">
+                                    {batchExcludedTotal}{" "}
+                                    {t("samples.requestInfo.excludedCount", {
+                                        defaultValue: "excluded from active batch",
+                                    })}
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
 
                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
                         <div className="text-xs text-gray-500">
