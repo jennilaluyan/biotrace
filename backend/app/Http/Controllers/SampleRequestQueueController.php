@@ -153,25 +153,66 @@ class SampleRequestQueueController extends Controller
             });
         }
 
-        $rows = $query->orderByDesc('sample_id')->paginate(15);
+        $perPage = max(1, min((int) $request->get('per_page', 15), 100));
+        $page = max(1, (int) $request->get('page', 1));
 
-        $items = collect($rows->items())->map(function ($s) {
-            // $s adalah Sample model (karena paginate dari Eloquent)
-            $arr = $s->toArray();
+        $rows = $query
+            ->orderByDesc('sample_id')
+            ->get();
 
-            $arr['client_name']  = $s->client?->name ?? null;
-            $arr['client_email'] = $s->client?->email ?? null;
+        $grouped = $rows
+            ->groupBy(function (Sample $sample) {
+                $batchId = Schema::hasColumn('samples', 'request_batch_id')
+                    ? trim((string) ($sample->request_batch_id ?? ''))
+                    : '';
 
-            return $arr;
-        })->values()->all();
+                return $batchId !== ''
+                    ? 'batch:' . $batchId
+                    : 'single:' . (string) $sample->sample_id;
+            })
+            ->map(function ($group) {
+                /** @var \Illuminate\Support\Collection<int, Sample> $group */
+                $primary = $group
+                    ->sortBy(fn(Sample $row) => (int) ($row->request_batch_item_no ?? 1))
+                    ->first();
+
+                $activeItems = Schema::hasColumn('samples', 'batch_excluded_at')
+                    ? $group->filter(fn(Sample $row) => empty($row->batch_excluded_at))
+                    : $group;
+
+                return [
+                    'sample_id' => $primary?->sample_id,
+                    'request_batch_id' => $primary?->request_batch_id,
+                    'request_status' => $primary?->request_status,
+                    'sample_type' => $primary?->sample_type,
+                    'lab_sample_code' => $primary?->lab_sample_code,
+                    'client_id' => $primary?->client_id,
+                    'client_name' => $primary?->client?->name ?? null,
+                    'client_email' => $primary?->client?->email ?? null,
+                    'created_at' => $primary?->created_at,
+                    'updated_at' => $primary?->updated_at,
+                    'batch_total' => (int) ($primary?->request_batch_total ?? $group->count()),
+                    'batch_active_total' => $activeItems->count(),
+                    'batch_excluded_total' => $group->count() - $activeItems->count(),
+                    'sample_ids' => $group->pluck('sample_id')->map(fn($id) => (int) $id)->values()->all(),
+                ];
+            })
+            ->values();
+
+        $total = $grouped->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $items = $grouped
+            ->slice(($page - 1) * $perPage, $perPage)
+            ->values()
+            ->all();
 
         return response()->json([
             'data' => $items,
             'meta' => [
-                'current_page' => $rows->currentPage(),
-                'last_page' => $rows->lastPage(),
-                'per_page' => $rows->perPage(),
-                'total' => $rows->total(),
+                'current_page' => $page,
+                'last_page' => $lastPage,
+                'per_page' => $perPage,
+                'total' => $total,
             ],
         ]);
     }

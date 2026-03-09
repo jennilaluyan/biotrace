@@ -78,19 +78,50 @@ class SampleIntakeValidationController extends Controller
                 ], 200);
             }
 
-            $code = $gen->nextCode();
-            $sample->lab_sample_code = $code;
+            if ((string) $sample->request_status === \App\Enums\SampleRequestStatus::WAITING_SAMPLE_ID_ASSIGNMENT->value) {
+                return response()->json([
+                    'data' => [
+                        'sample_id' => $sample->sample_id,
+                        'request_status' => $sample->request_status,
+                        'message' => 'Intake already verified. Continue with admin sample ID assignment.',
+                    ],
+                ], 200);
+            }
 
-            // domain rule: setelah code di-assign → intake validated
-            $sample->request_status = 'intake_validated';
+            if ((string) $sample->request_status !== \App\Enums\SampleRequestStatus::AWAITING_VERIFICATION->value) {
+                return response()->json([
+                    'message' => 'Intake validation can only continue when request_status is awaiting_verification.',
+                    'details' => ['request_status' => [$sample->request_status]],
+                ], 422);
+            }
 
-            // set received_at jika masih null
+            $sample->request_status = \App\Enums\SampleRequestStatus::WAITING_SAMPLE_ID_ASSIGNMENT->value;
+
             if (empty($sample->received_at)) {
                 $sample->received_at = now();
             }
 
-            // jangan utak-atik current_status (biar gak nabrak flow/test lain)
             $sample->save();
+
+            AuditLogger::write(
+                action: 'SAMPLE_INTAKE_VALIDATED',
+                staffId: (int) $actor->staff_id,
+                entityName: 'samples',
+                entityId: (int) $sample->sample_id,
+                oldValues: null,
+                newValues: [
+                    'validated' => true,
+                    'request_status' => $sample->request_status,
+                ]
+            );
+
+            return response()->json([
+                'data' => [
+                    'sample_id' => $sample->sample_id,
+                    'request_status' => $sample->request_status,
+                    'received_at' => $sample->received_at,
+                ],
+            ], 200);
 
             AuditLogger::write(
                 action: 'SAMPLE_INTAKE_VALIDATED',

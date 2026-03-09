@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class ClientSampleRequestController extends Controller
 {
@@ -38,6 +39,64 @@ class ClientSampleRequestController extends Controller
 
         if ((int) $sample->client_id !== $clientId) {
             abort(403, 'Forbidden.');
+        }
+    }
+
+    private function normalizeRequestedQuantity(Client $client, array $data): int
+    {
+        $clientType = strtolower(trim((string) ($client->type ?? 'individual')));
+
+        if ($clientType !== 'institution') {
+            return 1;
+        }
+
+        $quantity = (int) ($data['quantity'] ?? 1);
+
+        return max(1, min($quantity, 200));
+    }
+
+    private function batchScopeForOwnedSample(Client $client, Sample $sample)
+    {
+        $clientId = (int) ($client->client_id ?? $client->getKey());
+        $batchId = Schema::hasColumn('samples', 'request_batch_id')
+            ? trim((string) ($sample->request_batch_id ?? ''))
+            : '';
+
+        $query = Sample::query()->where('client_id', $clientId);
+
+        if ($batchId !== '') {
+            return $query->where('request_batch_id', $batchId);
+        }
+
+        return $query->whereKey($sample->getKey());
+    }
+
+    private function fillClientDraftFields(Sample $sample, array $data, int $systemStaffId): void
+    {
+        $sample->sample_type = $data['sample_type'];
+
+        if (Schema::hasColumn('samples', 'scheduled_delivery_at') && array_key_exists('scheduled_delivery_at', $data)) {
+            $sample->scheduled_delivery_at = $data['scheduled_delivery_at'];
+        }
+
+        if (Schema::hasColumn('samples', 'examination_purpose') && array_key_exists('examination_purpose', $data)) {
+            $sample->examination_purpose = $data['examination_purpose'];
+        }
+
+        if (Schema::hasColumn('samples', 'additional_notes') && array_key_exists('additional_notes', $data)) {
+            $sample->additional_notes = $data['additional_notes'];
+        }
+
+        if (Schema::hasColumn('samples', 'current_status') && empty($sample->current_status)) {
+            $sample->current_status = 'received';
+        }
+
+        if (Schema::hasColumn('samples', 'created_by') && empty($sample->created_by)) {
+            $sample->created_by = $systemStaffId;
+        }
+
+        if (Schema::hasColumn('samples', 'assigned_to') && empty($sample->assigned_to)) {
+            $sample->assigned_to = $systemStaffId;
         }
     }
 
@@ -175,9 +234,11 @@ class ClientSampleRequestController extends Controller
         }
 
         $perPage = (int) $request->get('per_page', 15);
+
         if ($perPage < 1) {
             $perPage = 15;
         }
+
         if ($perPage > 200) {
             $perPage = 200;
         }
@@ -214,51 +275,68 @@ class ClientSampleRequestController extends Controller
         $client = $this->currentClientOr403();
         $clientId = (int) ($client->client_id ?? $client->getKey());
         $data = $request->validated();
-
-        $sample = new Sample();
-        $sample->client_id = $clientId;
-
-        if (Schema::hasColumn('samples', 'request_status')) {
-            $sample->request_status = 'draft';
-        }
-
-        $sample->sample_type = $data['sample_type'];
-
-        if (Schema::hasColumn('samples', 'scheduled_delivery_at') && array_key_exists('scheduled_delivery_at', $data)) {
-            $sample->scheduled_delivery_at = $data['scheduled_delivery_at'];
-        }
-
-        if (Schema::hasColumn('samples', 'examination_purpose') && array_key_exists('examination_purpose', $data)) {
-            $sample->examination_purpose = $data['examination_purpose'];
-        }
-
-        if (Schema::hasColumn('samples', 'additional_notes') && array_key_exists('additional_notes', $data)) {
-            $sample->additional_notes = $data['additional_notes'];
-        }
-
-        if (Schema::hasColumn('samples', 'current_status') && empty($sample->current_status)) {
-            $sample->current_status = 'received';
-        }
-
+        $quantity = $this->normalizeRequestedQuantity($client, $data);
         $systemStaffId = $this->ensureSystemStaffId();
 
-        if (Schema::hasColumn('samples', 'created_by') && empty($sample->created_by)) {
-            $sample->created_by = $systemStaffId;
-        }
+        $batchId = Schema::hasColumn('samples', 'request_batch_id') && $quantity > 1
+            ? (string) Str::uuid()
+            : null;
 
-        if (Schema::hasColumn('samples', 'assigned_to') && empty($sample->assigned_to)) {
-            $sample->assigned_to = $systemStaffId;
-        }
+        $createdIds = DB::transaction(function () use ($clientId, $data, $quantity, $systemStaffId, $batchId) {
+            $ids = [];
 
-        $sample->save();
+            for ($i = 1; $i <= $quantity; $i++) {
+                $sample = new Sample();
+                $sample->client_id = $clientId;
 
-        $this->syncRequestedParameters($sample, $data['parameter_ids'] ?? null);
-        $this->syncWorkflowGroupFromParameterIds($sample, $data['parameter_ids'] ?? null, false);
+                if (Schema::hasColumn('samples', 'request_status')) {
+                    $sample->request_status = 'draft';
+                }
 
-        $sample->refresh()->load(['requestedParameters', 'intakeChecklist.checker']);
+                if (Schema::hasColumn('samples', 'request_batch_id')) {
+                    $sample->request_batch_id = $batchId;
+                }
+
+                if (Schema::hasColumn('samples', 'request_batch_total')) {
+                    $sample->request_batch_total = $quantity;
+                }
+
+                if (Schema::hasColumn('samples', 'request_batch_item_no')) {
+                    $sample->request_batch_item_no = $i;
+                }
+
+                if (Schema::hasColumn('samples', 'is_batch_primary')) {
+                    $sample->is_batch_primary = $i === 1;
+                }
+
+                $this->fillClientDraftFields($sample, $data, $systemStaffId);
+                $sample->save();
+
+                $this->syncRequestedParameters($sample, $data['parameter_ids'] ?? null);
+                $this->syncWorkflowGroupFromParameterIds($sample, $data['parameter_ids'] ?? null, false);
+
+                $ids[] = (int) $sample->sample_id;
+            }
+
+            return $ids;
+        });
+
+        $samples = Sample::query()
+            ->whereIn('sample_id', $createdIds)
+            ->with(['requestedParameters', 'intakeChecklist.checker'])
+            ->get();
+
+        $primary = $samples
+            ->sortBy(fn(Sample $row) => (int) ($row->request_batch_item_no ?? 1))
+            ->first();
 
         return response()->json([
-            'data' => $sample,
+            'data' => $primary,
+            'meta' => [
+                'request_batch_id' => $primary?->request_batch_id,
+                'batch_total' => count($createdIds),
+                'affected_sample_ids' => $createdIds,
+            ],
         ], 201);
     }
 
@@ -267,42 +345,61 @@ class ClientSampleRequestController extends Controller
         $client = $this->currentClientOr403();
         $this->assertOwnedByClient($client, $sample);
 
-        if (!empty($sample->client_picked_up_at)) {
-            return response()->json([
-                'message' => 'This request is closed after client pickup and can no longer be edited.',
-            ], 409);
-        }
-
-        $status = (string) ($sample->request_status ?? 'draft');
-        $allowed = ['draft', 'returned', 'needs_revision', 'rejected'];
-
-        if (!in_array($status, $allowed, true)) {
-            return response()->json([
-                'message' => 'Only draft/returned/rejected requests can be updated.',
-            ], 403);
-        }
-
         $data = $request->validated();
+        $systemStaffId = $this->ensureSystemStaffId();
 
-        foreach ($data as $key => $value) {
-            if ($key === 'parameter_ids') {
-                continue;
+        $updatedIds = DB::transaction(function () use ($client, $sample, $data, $systemStaffId) {
+            $targets = $this->batchScopeForOwnedSample($client, $sample)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($targets as $target) {
+                if (!empty($target->client_picked_up_at)) {
+                    abort(409, 'This request is closed after client pickup and can no longer be edited.');
+                }
+
+                $status = (string) ($target->request_status ?? 'draft');
+
+                if (!in_array($status, ['draft', 'returned', 'needs_revision', 'rejected'], true)) {
+                    abort(403, 'Only draft/returned/rejected requests can be updated.');
+                }
+
+                foreach ($data as $key => $value) {
+                    if ($key === 'parameter_ids' || $key === 'quantity') {
+                        continue;
+                    }
+
+                    if (Schema::hasColumn('samples', $key)) {
+                        $target->{$key} = $value;
+                    }
+                }
+
+                $this->fillClientDraftFields($target, $data, $systemStaffId);
+                $target->save();
+
+                $this->syncRequestedParameters($target, $data['parameter_ids'] ?? null);
+                $this->syncWorkflowGroupFromParameterIds($target, $data['parameter_ids'] ?? null, false);
             }
 
-            if (Schema::hasColumn('samples', $key)) {
-                $sample->{$key} = $value;
-            }
-        }
+            return $targets->pluck('sample_id')->map(fn($id) => (int) $id)->all();
+        });
 
-        $sample->save();
+        $samples = Sample::query()
+            ->whereIn('sample_id', $updatedIds)
+            ->with(['requestedParameters', 'intakeChecklist.checker'])
+            ->get();
 
-        $this->syncRequestedParameters($sample, $data['parameter_ids'] ?? null);
-        $this->syncWorkflowGroupFromParameterIds($sample, $data['parameter_ids'] ?? null, false);
-
-        $sample->refresh()->load(['requestedParameters', 'intakeChecklist.checker']);
+        $primary = $samples
+            ->sortBy(fn(Sample $row) => (int) ($row->request_batch_item_no ?? 1))
+            ->first();
 
         return response()->json([
-            'data' => $sample,
+            'data' => $primary,
+            'meta' => [
+                'request_batch_id' => $primary?->request_batch_id,
+                'batch_total' => count($updatedIds),
+                'affected_sample_ids' => $updatedIds,
+            ],
         ], 200);
     }
 
@@ -311,91 +408,90 @@ class ClientSampleRequestController extends Controller
         $client = $this->currentClientOr403();
         $this->assertOwnedByClient($client, $sample);
 
-        if (!empty($sample->client_picked_up_at)) {
-            return response()->json([
-                'message' => 'This request is closed after client pickup and cannot be submitted again.',
-            ], 409);
-        }
-
-        $from = (string) ($sample->request_status ?? 'draft');
-        $allowedFrom = ['draft', 'returned', 'needs_revision', 'rejected'];
-
-        if (!in_array($from, $allowedFrom, true)) {
-            return response()->json([
-                'message' => 'This request cannot be submitted from current status.',
-            ], 403);
-        }
-
         $data = $request->validated();
+        $systemStaffId = $this->ensureSystemStaffId();
 
-        DB::transaction(function () use ($sample, $from, $data) {
-            $sample->sample_type = $data['sample_type'];
+        $submittedIds = DB::transaction(function () use ($client, $sample, $data, $systemStaffId) {
+            $targets = $this->batchScopeForOwnedSample($client, $sample)
+                ->lockForUpdate()
+                ->get();
 
-            if (Schema::hasColumn('samples', 'scheduled_delivery_at')) {
-                $sample->scheduled_delivery_at = $data['scheduled_delivery_at'];
+            $affectedIds = [];
+
+            foreach ($targets as $target) {
+                if (!empty($target->client_picked_up_at)) {
+                    abort(409, 'This request is closed after client pickup and cannot be submitted again.');
+                }
+
+                $from = (string) ($target->request_status ?? 'draft');
+
+                if (!in_array($from, ['draft', 'returned', 'needs_revision', 'rejected'], true)) {
+                    abort(403, 'This request cannot be submitted from current status.');
+                }
+
+                $this->fillClientDraftFields($target, $data, $systemStaffId);
+
+                if (in_array($from, ['returned', 'needs_revision', 'rejected'], true)) {
+                    $this->resetModerationFieldsForResubmit($target);
+                }
+
+                if (Schema::hasColumn('samples', 'request_status')) {
+                    $target->request_status = 'submitted';
+                }
+
+                if (Schema::hasColumn('samples', 'submitted_at')) {
+                    $target->submitted_at = now();
+                }
+
+                $target->save();
+
+                $this->syncRequestedParameters($target, $data['parameter_ids'] ?? []);
+                $this->syncWorkflowGroupFromParameterIds($target, $data['parameter_ids'] ?? [], true);
+
+                $affectedIds[] = (int) $target->sample_id;
             }
 
-            if (Schema::hasColumn('samples', 'examination_purpose')) {
-                $sample->examination_purpose = $data['examination_purpose'] ?? null;
+            if (Schema::hasTable('audit_logs') && count($affectedIds) > 0) {
+                $cols = array_flip(Schema::getColumnListing('audit_logs'));
+                $payload = [
+                    'entity_name' => 'samples',
+                    'entity_id' => $affectedIds[0],
+                    'action' => 'CLIENT_SAMPLE_REQUEST_SUBMITTED',
+                    'old_values' => json_encode(['batch_count' => count($affectedIds)]),
+                    'new_values' => json_encode([
+                        'request_status' => 'submitted',
+                        'affected_sample_ids' => $affectedIds,
+                    ]),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+
+                if (isset($cols['staff_id'])) {
+                    $payload['staff_id'] = $this->ensureSystemStaffId();
+                }
+
+                DB::table('audit_logs')->insert(array_intersect_key($payload, $cols));
             }
 
-            if (Schema::hasColumn('samples', 'additional_notes')) {
-                $sample->additional_notes = $data['additional_notes'] ?? null;
-            }
-
-            if (in_array($from, ['returned', 'needs_revision', 'rejected'], true)) {
-                $this->resetModerationFieldsForResubmit($sample);
-            }
-
-            if (Schema::hasColumn('samples', 'request_status')) {
-                $sample->request_status = 'submitted';
-            }
-
-            if (Schema::hasColumn('samples', 'submitted_at')) {
-                $sample->submitted_at = now();
-            }
-
-            $systemStaffId = $this->ensureSystemStaffId();
-
-            if (Schema::hasColumn('samples', 'created_by') && empty($sample->created_by)) {
-                $sample->created_by = $systemStaffId;
-            }
-
-            if (Schema::hasColumn('samples', 'assigned_to') && empty($sample->assigned_to)) {
-                $sample->assigned_to = $systemStaffId;
-            }
-
-            $sample->save();
-
-            $this->syncRequestedParameters($sample, $data['parameter_ids'] ?? []);
-            $this->syncWorkflowGroupFromParameterIds($sample, $data['parameter_ids'] ?? [], true);
-
-            if (!Schema::hasTable('audit_logs')) {
-                return;
-            }
-
-            $cols = array_flip(Schema::getColumnListing('audit_logs'));
-            $payload = [
-                'entity_name' => 'samples',
-                'entity_id' => $sample->sample_id,
-                'action' => 'CLIENT_SAMPLE_REQUEST_SUBMITTED',
-                'old_values' => json_encode(['request_status' => $from]),
-                'new_values' => json_encode(['request_status' => 'submitted']),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ];
-
-            if (isset($cols['staff_id'])) {
-                $payload['staff_id'] = $this->ensureSystemStaffId();
-            }
-
-            DB::table('audit_logs')->insert(array_intersect_key($payload, $cols));
+            return $affectedIds;
         });
 
-        $sample->refresh()->load(['requestedParameters', 'intakeChecklist.checker']);
+        $samples = Sample::query()
+            ->whereIn('sample_id', $submittedIds)
+            ->with(['requestedParameters', 'intakeChecklist.checker'])
+            ->get();
+
+        $primary = $samples
+            ->sortBy(fn(Sample $row) => (int) ($row->request_batch_item_no ?? 1))
+            ->first();
 
         return response()->json([
-            'data' => $sample,
+            'data' => $primary,
+            'meta' => [
+                'request_batch_id' => $primary?->request_batch_id,
+                'batch_total' => count($submittedIds),
+                'affected_sample_ids' => $submittedIds,
+            ],
         ], 200);
     }
 

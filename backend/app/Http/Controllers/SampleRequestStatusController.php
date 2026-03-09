@@ -30,27 +30,26 @@ class SampleRequestStatusController extends Controller
     {
         /** @var mixed $user */
         $user = Auth::user();
+
         if (!$user instanceof Staff) {
             return $this->jsonError(401, 'Authenticated staff not found.');
         }
 
         $action = strtolower(trim((string) $request->input('action', '')));
         $targetRaw = strtolower(trim((string) $request->input('request_status', '')));
-
         $note = $request->input('note');
         $note = is_string($note) ? trim($note) : null;
 
-        // Accept method: ID or Name
         $testMethodId = (int) ($request->input('test_method_id') ?? $request->input('method_id') ?? 0);
         $testMethodName = trim((string) ($request->input('test_method_name') ?? $request->input('method_name') ?? ''));
+        $applyToBatch = filter_var((string) $request->input('apply_to_batch', '0'), FILTER_VALIDATE_BOOLEAN);
 
-        // Normalize target
         $target = $this->resolveTargetStatus($action, $targetRaw);
+
         if ($target === '') {
             return $this->jsonError(422, 'Invalid request payload (missing action/request_status).');
         }
 
-        // Validate status token against allowed list (if available)
         $allowed = SampleRequestStatusTransitions::allStatuses();
         if (is_array($allowed) && count($allowed) > 0 && !in_array($target, $allowed, true)) {
             return $this->jsonError(422, 'Invalid target status.', [
@@ -58,15 +57,13 @@ class SampleRequestStatusController extends Controller
             ]);
         }
 
-        // Business rules:
-        // - Accept => test method required (ID or Name)
-        // - Reject/Return => note required
         if ($target === 'ready_for_delivery') {
             if ($testMethodId <= 0 && $testMethodName === '') {
                 return $this->jsonError(422, 'Test method is required to accept a request.', [
                     'test_method_name' => ['Test method is required.'],
                 ]);
             }
+
             if ($testMethodName !== '' && mb_strlen($testMethodName) > 255) {
                 return $this->jsonError(422, 'Test method name is too long.', [
                     'test_method_name' => ['Maximum length is 255.'],
@@ -74,22 +71,14 @@ class SampleRequestStatusController extends Controller
             }
         }
 
-        if ($target === 'rejected' || $target === 'returned') {
-            if (!$note || $note === '') {
-                return $this->jsonError(422, 'Note is required for reject/return.', [
-                    'note' => ['Note is required.'],
-                ]);
-            }
-        }
-
-        // Authorization via transition map
-        if (!SampleRequestStatusTransitions::canTransition($user, $sample, $target)) {
-            return $this->jsonError(403, 'You are not allowed to perform this request status transition.');
+        if (($target === 'rejected' || $target === 'returned') && (!$note || $note === '')) {
+            return $this->jsonError(422, 'Note is required for reject/return.', [
+                'note' => ['Note is required.'],
+            ]);
         }
 
         $sampleId = (int) ($sample->sample_id ?? $sample->getKey());
 
-        // ✅ IMPORTANT: capture $testMethodName in the closure to avoid "unassigned variable" warnings.
         return DB::transaction(function () use (
             $sampleId,
             $user,
@@ -97,101 +86,132 @@ class SampleRequestStatusController extends Controller
             $action,
             $note,
             $testMethodId,
-            $testMethodName
+            $testMethodName,
+            $applyToBatch
         ) {
-            /** @var Sample $locked */
-            $locked = Sample::query()
+            /** @var Sample $base */
+            $base = Sample::query()
                 ->where('sample_id', $sampleId)
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $old = (string) ($locked->request_status ?? '');
+            $targets = $this->resolveTargetsForRequestStatusUpdate($base, $applyToBatch);
 
-            if ($old === $target) {
-                return response()->json([
-                    'message' => 'Request already in the requested status.',
-                    'data' => $locked,
-                ], 200);
+            foreach ($targets as $row) {
+                if (!SampleRequestStatusTransitions::canTransition($user, $row, $target)) {
+                    return $this->jsonError(403, 'You are not allowed to perform this request status transition.');
+                }
             }
 
             $now = now();
+            $affectedIds = [];
 
-            // First moderation timestamp (best-effort)
-            if (Schema::hasColumn('samples', 'reviewed_at') && empty($locked->reviewed_at)) {
-                $locked->reviewed_at = $now;
-            }
+            foreach ($targets as $locked) {
+                $old = (string) ($locked->request_status ?? '');
 
-            // Apply status + metadata
-            $locked->request_status = $target;
-
-            if ($target === 'ready_for_delivery') {
-                if (Schema::hasColumn('samples', 'ready_at')) {
-                    $locked->ready_at = $now;
-                }
-                if (Schema::hasColumn('samples', 'request_approved_at')) {
-                    $locked->request_approved_at = $now;
+                if ($old === $target) {
+                    $affectedIds[] = (int) $locked->sample_id;
+                    continue;
                 }
 
-                if ($testMethodId > 0) {
-                    $this->applyTestMethod($locked, $testMethodId, (int) $user->staff_id);
-                } else {
-                    $this->applyTestMethodName($locked, $testMethodName, (int) $user->staff_id);
+                if (Schema::hasColumn('samples', 'reviewed_at') && empty($locked->reviewed_at)) {
+                    $locked->reviewed_at = $now;
                 }
 
-                // Clear return note if present
-                if (Schema::hasColumn('samples', 'request_return_note')) {
-                    $locked->request_return_note = null;
-                }
-                if (Schema::hasColumn('samples', 'request_returned_at')) {
-                    $locked->request_returned_at = null;
-                }
-            }
+                $locked->request_status = $target;
 
-            if ($target === 'returned') {
-                if (Schema::hasColumn('samples', 'request_return_note')) {
-                    $locked->request_return_note = $note;
-                }
-                if (Schema::hasColumn('samples', 'request_returned_at')) {
-                    $locked->request_returned_at = $now;
-                }
-            }
+                if ($target === 'ready_for_delivery') {
+                    if (Schema::hasColumn('samples', 'ready_at')) {
+                        $locked->ready_at = $now;
+                    }
 
-            if ($target === 'rejected') {
-                if (Schema::hasColumn('samples', 'request_return_note')) {
-                    $locked->request_return_note = $note;
-                }
-                if (Schema::hasColumn('samples', 'request_returned_at')) {
-                    $locked->request_returned_at = $now;
-                }
-            }
+                    if (Schema::hasColumn('samples', 'request_approved_at')) {
+                        $locked->request_approved_at = $now;
+                    }
 
-            if ($target === 'physically_received') {
-                if (Schema::hasColumn('samples', 'physically_received_at')) {
+                    if ($testMethodId > 0) {
+                        $this->applyTestMethod($locked, $testMethodId, (int) $user->staff_id);
+                    } else {
+                        $this->applyTestMethodName($locked, $testMethodName, (int) $user->staff_id);
+                    }
+
+                    if (Schema::hasColumn('samples', 'request_return_note')) {
+                        $locked->request_return_note = null;
+                    }
+
+                    if (Schema::hasColumn('samples', 'request_returned_at')) {
+                        $locked->request_returned_at = null;
+                    }
+                }
+
+                if ($target === 'returned' || $target === 'rejected') {
+                    if (Schema::hasColumn('samples', 'request_return_note')) {
+                        $locked->request_return_note = $note;
+                    }
+
+                    if (Schema::hasColumn('samples', 'request_returned_at')) {
+                        $locked->request_returned_at = $now;
+                    }
+                }
+
+                if ($target === 'physically_received' && Schema::hasColumn('samples', 'physically_received_at')) {
                     $locked->physically_received_at = $now;
                 }
+
+                $locked->save();
+
+                $this->auditRequestStatusChange(
+                    staffId: (int) $user->staff_id,
+                    sampleId: (int) $locked->sample_id,
+                    from: $old,
+                    to: $target,
+                    action: $this->auditActionFor($action, $target),
+                    note: $note,
+                    testMethodId: $testMethodId > 0 ? $testMethodId : null,
+                    testMethodName: $testMethodId > 0 ? null : ($testMethodName !== '' ? $testMethodName : null),
+                );
+
+                $affectedIds[] = (int) $locked->sample_id;
             }
 
-            $locked->save();
+            $primary = $targets
+                ->sortBy(fn(Sample $row) => (int) ($row->request_batch_item_no ?? 1))
+                ->first() ?? $base;
 
-            // Audit log best-effort
-            $this->auditRequestStatusChange(
-                staffId: (int) $user->staff_id,
-                sampleId: (int) $locked->sample_id,
-                from: $old,
-                to: $target,
-                action: $this->auditActionFor($action, $target),
-                note: $note,
-                testMethodId: $testMethodId > 0 ? $testMethodId : null,
-                testMethodName: $testMethodId > 0 ? null : ($testMethodName !== '' ? $testMethodName : null)
-            );
-
-            $locked->refresh()->loadMissing(['client', 'requestedParameters']);
+            $primary->refresh()->loadMissing(['client', 'requestedParameters']);
 
             return response()->json([
                 'message' => 'Request status updated.',
-                'data' => $locked,
+                'data' => $primary,
+                'meta' => [
+                    'request_batch_id' => $primary->request_batch_id ?? null,
+                    'affected_sample_ids' => $affectedIds,
+                ],
             ], 200);
         }, 3);
+    }
+
+    private function resolveTargetsForRequestStatusUpdate(Sample $sample, bool $applyToBatch)
+    {
+        $query = Sample::query();
+
+        if (
+            $applyToBatch &&
+            Schema::hasColumn('samples', 'request_batch_id') &&
+            !empty($sample->request_batch_id)
+        ) {
+            $query
+                ->where('client_id', $sample->client_id)
+                ->where('request_batch_id', $sample->request_batch_id);
+
+            if (Schema::hasColumn('samples', 'batch_excluded_at')) {
+                $query->whereNull('batch_excluded_at');
+            }
+
+            return $query->lockForUpdate()->get();
+        }
+
+        return $query->whereKey($sample->getKey())->lockForUpdate()->get();
     }
 
     private function resolveTargetStatus(string $action, string $requestStatus): string

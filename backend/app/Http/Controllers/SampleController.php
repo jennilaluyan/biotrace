@@ -5,12 +5,12 @@ namespace App\Http\Controllers;
 use App\Enums\SampleHighLevelStatus;
 use App\Http\Requests\SampleStatusUpdateRequest;
 use App\Http\Requests\SampleStoreRequest;
+use App\Models\Parameter;
 use App\Models\Sample;
 use App\Models\Staff;
-use App\Models\Parameter;
+use App\Services\WorkflowGroupResolver;
 use App\Support\AuditLogger;
 use App\Support\SampleStatusTransitions;
-use App\Services\WorkflowGroupResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -31,18 +31,10 @@ class SampleController extends Controller
             ->select('samples.*')
             ->with(['client', 'creator', 'assignee', 'requestedParameters']);
 
-        // Filter out requests: lab samples must have lab_sample_code
         if (Schema::hasColumn('samples', 'lab_sample_code')) {
             $query->whereNotNull('samples.lab_sample_code');
         }
 
-        /**
-         * ✅ Enrich samples list dengan info LOO + latest reagent request (per LOO)
-         * - lo_id, lo_number, lo_generated_at
-         * - reagent_request_id, reagent_request_status
-         *
-         * Semua join dibuat "best-effort" (kalau tabel tidak ada, skip).
-         */
         $hasLooItems =
             Schema::hasTable('letter_of_order_items') &&
             Schema::hasColumn('letter_of_order_items', 'sample_id') &&
@@ -59,7 +51,6 @@ class SampleController extends Controller
             Schema::hasColumn('reagent_requests', 'status');
 
         if ($hasLooItems) {
-            // sample_id -> latest lo_id
             $loMap = DB::table('letter_of_order_items')
                 ->selectRaw('sample_id, MAX(lo_id) as lo_id')
                 ->groupBy('sample_id');
@@ -68,12 +59,10 @@ class SampleController extends Controller
                 $join->on('lo_map.sample_id', '=', 'samples.sample_id');
             });
 
-            // join letters_of_order untuk ambil number/generated_at
             if ($hasLoTable) {
                 $query->leftJoin('letters_of_order as lo', 'lo.lo_id', '=', 'lo_map.lo_id');
             }
 
-            // latest reagent_request per lo_id
             if ($hasReagentRequests) {
                 $rrMap = DB::table('reagent_requests')
                     ->selectRaw('lo_id, MAX(reagent_request_id) as reagent_request_id')
@@ -86,7 +75,6 @@ class SampleController extends Controller
                 $query->leftJoin('reagent_requests as rr', 'rr.reagent_request_id', '=', 'rr_map.reagent_request_id');
             }
 
-            // Select extra columns (safe)
             $query->addSelect([
                 DB::raw('lo_map.lo_id as lo_id'),
                 DB::raw($hasLoTable ? 'lo.number as lo_number' : 'NULL as lo_number'),
@@ -96,21 +84,15 @@ class SampleController extends Controller
             ]);
         }
 
-        /**
-         * Samples page should show:
-         * - legacy/manual lab workflow: request_status NULL + current_status not null
-         * - request workflow samples: only after included in LOO (exists in letter_of_order_items)
-         */
         $hasLooItemsExists = Schema::hasTable('letter_of_order_items') && Schema::hasColumn('letter_of_order_items', 'sample_id');
-        $hasCurrentStatus  = Schema::hasColumn('samples', 'current_status');
-        $hasRequestStatus  = Schema::hasColumn('samples', 'request_status');
+        $hasCurrentStatus = Schema::hasColumn('samples', 'current_status');
+        $hasRequestStatus = Schema::hasColumn('samples', 'request_status');
 
         $query->where(function ($w) use ($hasCurrentStatus, $hasLooItemsExists, $hasRequestStatus) {
             $any = false;
 
             if ($hasCurrentStatus) {
                 if ($hasRequestStatus) {
-                    // legacy/manual = request_status NULL
                     $w->where(function ($qq) {
                         $qq->whereNull('request_status')
                             ->whereNotNull('current_status');
@@ -118,10 +100,10 @@ class SampleController extends Controller
                 } else {
                     $w->whereNotNull('current_status');
                 }
+
                 $any = true;
             }
 
-            // request workflow sample only show after in LOO
             if ($hasLooItemsExists) {
                 if ($any) {
                     $w->orWhereExists(function ($sub) {
@@ -143,21 +125,19 @@ class SampleController extends Controller
             $query->where('client_id', $request->integer('client_id'));
         }
 
+        if ($request->filled('request_batch_id') && Schema::hasColumn('samples', 'request_batch_id')) {
+            $query->where('samples.request_batch_id', (string) $request->get('request_batch_id'));
+        }
+
         if ($request->filled('status_enum')) {
             $raw = strtolower((string) $request->get('status_enum'));
             $enum = SampleHighLevelStatus::tryFrom($raw);
+
             if ($enum) {
                 $query->whereIn('current_status', $enum->currentStatuses());
             }
         }
 
-        /**
-         * ✅ Default: hide completed samples (current_status = reported) from Sample Management
-         * Reason: reported = COA sudah keluar, harus pindah ke Archive page.
-         *
-         * Override (optional): /v1/samples?include_reported=1
-         * NOTE: kalau user pakai status_enum, jangan override filter ini (biar filter status tetap bekerja).
-         */
         $includeReported = filter_var((string) $request->query('include_reported', '0'), FILTER_VALIDATE_BOOLEAN);
 
         if ($hasCurrentStatus && !$includeReported && !$request->filled('status_enum')) {
@@ -167,9 +147,19 @@ class SampleController extends Controller
             });
         }
 
+        $includeExcluded = filter_var((string) $request->query('include_excluded', '0'), FILTER_VALIDATE_BOOLEAN);
+
+        if (
+            Schema::hasColumn('samples', 'batch_excluded_at') &&
+            !$includeExcluded
+        ) {
+            $query->whereNull('samples.batch_excluded_at');
+        }
+
         if ($request->filled('from')) {
             $query->whereDate('samples.received_at', '>=', $request->get('from'));
         }
+
         if ($request->filled('to')) {
             $query->whereDate('samples.received_at', '<=', $request->get('to'));
         }
@@ -193,17 +183,12 @@ class SampleController extends Controller
     private function syncRequestedParameters(Sample $sample, array $parameterIds): void
     {
         $parameterIds = array_values(array_unique(array_map('intval', $parameterIds)));
-
-        // pivot sync
         $sample->requestedParameters()->sync($parameterIds);
 
-        // ✅ Step 9.1 source-of-truth resolver (ranges + exclude param 18)
         $oldGroup = $sample->workflow_group;
-
         $resolved = (new WorkflowGroupResolver())->resolveFromParameterIds($parameterIds);
         $newGroup = $resolved?->value;
 
-        // Only write & audit when changed (anti-spam)
         if ($newGroup !== $oldGroup) {
             $sample->workflow_group = $newGroup;
             $sample->save();
@@ -225,11 +210,11 @@ class SampleController extends Controller
     public function store(SampleStoreRequest $request): JsonResponse
     {
         $data = $request->validated();
-
         $data['current_status'] = 'received';
 
         /** @var Staff $staff */
         $staff = Auth::user();
+
         if (!$staff instanceof Staff) {
             return response()->json([
                 'message' => 'Authenticated staff not found.',
@@ -239,9 +224,9 @@ class SampleController extends Controller
         $data['created_by'] = $staff->staff_id;
 
         if (
-            array_key_exists('assigned_to', $data)
-            && $data['assigned_to'] !== null
-            && (int) $data['assigned_to'] !== (int) $staff->staff_id
+            array_key_exists('assigned_to', $data) &&
+            $data['assigned_to'] !== null &&
+            (int) $data['assigned_to'] !== (int) $staff->staff_id
         ) {
             $this->authorize('overrideAssigneeOnCreate', Sample::class);
         }
@@ -252,7 +237,6 @@ class SampleController extends Controller
             $data['received_at'] = Carbon::parse((string) $data['received_at']);
         }
 
-        // separate: parameter_ids goes to pivot, not samples table
         $parameterIds = $data['parameter_ids'] ?? [];
         unset($data['parameter_ids']);
 
@@ -275,21 +259,52 @@ class SampleController extends Controller
         ], 201);
     }
 
-    public function show(Sample $sample): JsonResponse
+    public function show(Request $request, Sample $sample): JsonResponse
     {
-        $sample->load(['client', 'creator', 'assignee', 'requestedParameters']);
+        $sample->load(['client', 'creator', 'assignee', 'requestedParameters', 'intakeChecklist.checker']);
+
+        $includeBatch = filter_var((string) $request->query('include_batch', '1'), FILTER_VALIDATE_BOOLEAN);
+
+        $batchItems = collect();
+        $batchSummary = null;
+
+        if (
+            $includeBatch &&
+            Schema::hasColumn('samples', 'request_batch_id') &&
+            !empty($sample->request_batch_id)
+        ) {
+            $batchItems = Sample::query()
+                ->with(['client', 'requestedParameters', 'intakeChecklist.checker'])
+                ->where('client_id', $sample->client_id)
+                ->where('request_batch_id', $sample->request_batch_id)
+                ->orderBy('request_batch_item_no')
+                ->orderBy('sample_id')
+                ->get();
+
+            $activeItems = Schema::hasColumn('samples', 'batch_excluded_at')
+                ? $batchItems->filter(fn(Sample $row) => empty($row->batch_excluded_at))
+                : $batchItems;
+
+            $batchSummary = [
+                'request_batch_id' => $sample->request_batch_id,
+                'batch_total' => (int) ($sample->request_batch_total ?? $batchItems->count()),
+                'batch_active_total' => $activeItems->count(),
+                'batch_excluded_total' => $batchItems->count() - $activeItems->count(),
+                'sample_ids' => $batchItems->pluck('sample_id')->map(fn($id) => (int) $id)->values()->all(),
+            ];
+        }
+
         return response()->json([
-            'data' => $sample,
+            'data' => [
+                ...$sample->toArray(),
+                'batch_items' => $batchItems->values()->all(),
+                'batch_summary' => $batchSummary,
+            ],
         ]);
     }
 
     public function updateStatus(SampleStatusUpdateRequest $request, Sample $sample): JsonResponse
     {
-        /**
-         * ✅ Gate lab workflow:
-         * - Prefer physical workflow marker admin_received_from_client_at (more correct)
-         * - Fallback: request_status must be physically_received
-         */
         if (Schema::hasColumn('samples', 'admin_received_from_client_at')) {
             if (empty($sample->admin_received_from_client_at)) {
                 return response()->json([

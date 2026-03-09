@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\SampleRequestStatus;
 use App\Http\Requests\SampleCustodyEventRequest;
 use App\Http\Requests\SamplePhysicalWorkflowUpdateRequest;
 use App\Models\Sample;
@@ -10,28 +11,19 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use App\Enums\SampleRequestStatus;
-use App\Support\AuditLogger;
 
 class SamplePhysicalWorkflowController extends Controller
 {
-    /**
-     * PATCH /v1/samples/{id}/physical-workflow
-     * body: { action, note? }
-     */
     public function update(SamplePhysicalWorkflowUpdateRequest $request, Sample $sample): JsonResponse
     {
         $data = $request->validated();
         $action = $data['action'];
         $note = $data['note'] ?? null;
+        $applyToBatch = filter_var((string) ($data['apply_to_batch'] ?? false), FILTER_VALIDATE_BOOLEAN);
 
-        return $this->applyEvent($sample, $action, $note);
+        return $this->applyEvent($sample, $action, $note, $applyToBatch);
     }
 
-    /**
-     * POST /v1/samples/{id}/custody
-     * body: { event_key, note? }
-     */
     public function store(SampleCustodyEventRequest $request, Sample $sample): JsonResponse
     {
         $data = $request->validated();
@@ -41,38 +33,45 @@ class SamplePhysicalWorkflowController extends Controller
         return $this->applyEvent($sample, $action, $note);
     }
 
-    /**
-     * POST /v1/samples/{id}/handoff/sc-delivered
-     * body: { note? }
-     */
     public function scDelivered(Request $request, Sample $sample): JsonResponse
     {
         $data = $request->validate([
             'note' => ['nullable', 'string', 'max:2000'],
+            'apply_to_batch' => ['nullable', 'boolean'],
         ]);
 
-        return $this->applyEvent($sample, 'sc_delivered_to_analyst', $data['note'] ?? null);
+        return $this->applyEvent(
+            $sample,
+            'sc_delivered_to_analyst',
+            $data['note'] ?? null,
+            (bool) ($data['apply_to_batch'] ?? false)
+        );
     }
 
-    /**
-     * POST /v1/samples/{id}/handoff/analyst-received
-     * body: { note? }
-     */
     public function analystReceived(Request $request, Sample $sample): JsonResponse
     {
         $data = $request->validate([
             'note' => ['nullable', 'string', 'max:2000'],
+            'apply_to_batch' => ['nullable', 'boolean'],
         ]);
 
-        return $this->applyEvent($sample, 'analyst_received', $data['note'] ?? null);
+        return $this->applyEvent(
+            $sample,
+            'analyst_received',
+            $data['note'] ?? null,
+            (bool) ($data['apply_to_batch'] ?? false)
+        );
     }
 
-    private function applyEvent(Sample $sample, string $action, ?string $note): JsonResponse
-    {
+    private function applyEvent(
+        Sample $sample,
+        string $action,
+        ?string $note,
+        bool $applyToBatch = false
+    ): JsonResponse {
         /** @var mixed $actor */
         $actor = request()->user();
 
-        // Hard guard: this endpoint is for Staff only
         if (!$actor instanceof Staff) {
             return response()->json([
                 'status' => 403,
@@ -81,13 +80,8 @@ class SamplePhysicalWorkflowController extends Controller
             ], 403);
         }
 
-        // Policy check (role-based)
         $this->authorize('updatePhysicalWorkflow', [$sample, $action]);
 
-        /**
-         * Step chain (by key), then we resolve each step into an actual column name that exists.
-         * This makes the code tolerant if migration column naming differs.
-         */
         $steps = [
             'admin_received_from_client' => [
                 'col_candidates' => ['admin_received_from_client_at'],
@@ -105,8 +99,6 @@ class SamplePhysicalWorkflowController extends Controller
                 'col_candidates' => ['collector_intake_completed_at', 'collector_completed_at'],
                 'requires' => ['collector_received'],
             ],
-
-            // ✅ NEW: SC → Analyst handoff (lab-side physical handoff evidence)
             'sc_delivered_to_analyst' => [
                 'col_candidates' => ['sc_delivered_to_analyst_at'],
                 'requires' => ['collector_intake_completed'],
@@ -115,7 +107,6 @@ class SamplePhysicalWorkflowController extends Controller
                 'col_candidates' => ['analyst_received_at'],
                 'requires' => ['sc_delivered_to_analyst'],
             ],
-
             'analyst_returned_to_sc' => [
                 'col_candidates' => ['analyst_returned_to_sc_at'],
                 'requires' => ['analyst_received'],
@@ -124,7 +115,6 @@ class SamplePhysicalWorkflowController extends Controller
                 'col_candidates' => ['sc_received_from_analyst_at'],
                 'requires' => ['analyst_returned_to_sc'],
             ],
-
             'collector_returned_to_admin' => [
                 'col_candidates' => ['collector_returned_to_admin_at'],
                 'requires' => ['collector_intake_completed'],
@@ -151,19 +141,21 @@ class SamplePhysicalWorkflowController extends Controller
         }
 
         $resolveCol = function (array $candidates): ?string {
-            foreach ($candidates as $c) {
-                if (Schema::hasColumn('samples', $c)) return $c;
+            foreach ($candidates as $candidate) {
+                if (Schema::hasColumn('samples', $candidate)) {
+                    return $candidate;
+                }
             }
+
             return null;
         };
 
-        // Resolve all step columns (so requires can be checked safely)
         $resolved = [];
-        foreach ($steps as $key => $cfg) {
-            $resolved[$key] = $resolveCol($cfg['col_candidates']);
+        foreach ($steps as $key => $config) {
+            $resolved[$key] = $resolveCol($config['col_candidates']);
         }
 
-        $targetCol = $resolved[$action];
+        $targetCol = $resolved[$action] ?? null;
         if (!$targetCol) {
             return response()->json([
                 'status' => 500,
@@ -172,198 +164,230 @@ class SamplePhysicalWorkflowController extends Controller
             ], 500);
         }
 
-        // Guard: prerequisites must exist (and columns must exist)
-        foreach ($steps[$action]['requires'] as $reqKey) {
-            $reqCol = $resolved[$reqKey] ?? null;
-            if (!$reqCol) {
-                return response()->json([
-                    'status' => 500,
-                    'code' => 'LIMS.SERVER.ERROR',
-                    'message' => "Missing DB column prerequisite for '{$reqKey}'.",
-                ], 500);
+        $affectedIds = [];
+        $primary = null;
+
+        DB::transaction(function () use (
+            $sample,
+            $applyToBatch,
+            $action,
+            $note,
+            $actor,
+            $steps,
+            $resolved,
+            $targetCol,
+            &$affectedIds,
+            &$primary
+        ) {
+            $targets = $this->resolvePhysicalTargets($sample, $applyToBatch);
+
+            if ($targets->isEmpty()) {
+                abort(404, 'Sample target not found.');
             }
 
-            if ($action === 'analyst_returned_to_sc') {
-                $st = strtolower((string)($sample->crosscheck_status ?? ''));
-                if ($st !== 'failed') {
-                    return response()->json([
-                        'status' => 422,
-                        'error' => 'invalid_state',
-                        'message' => 'Cannot return sample to Sample Collector unless crosscheck_status is failed.',
-                    ], 422);
+            foreach ($targets as $row) {
+                $this->authorize('updatePhysicalWorkflow', [$row, $action]);
+
+                foreach ($steps[$action]['requires'] as $requiredKey) {
+                    $requiredCol = $resolved[$requiredKey] ?? null;
+
+                    if (!$requiredCol) {
+                        abort(500, "Missing DB column prerequisite for '{$requiredKey}'.");
+                    }
+
+                    if ($action === 'analyst_returned_to_sc') {
+                        $crosscheckStatus = strtolower((string) ($row->crosscheck_status ?? ''));
+                        if ($crosscheckStatus !== 'failed') {
+                            abort(422, "Cannot return sample {$row->sample_id} to Sample Collector unless crosscheck_status is failed.");
+                        }
+                    }
+
+                    if (empty($row->{$requiredCol})) {
+                        abort(422, "You cannot perform '{$action}' for sample {$row->sample_id} before '{$requiredCol}' is set.");
+                    }
                 }
-            }
-            if (empty($sample->{$reqCol})) {
-                return response()->json([
-                    'status' => 422,
-                    'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
-                    'message' => "You cannot perform '{$action}' before '{$reqCol}' is set.",
-                    'details' => [
-                        ['field' => 'action', 'message' => "Missing prerequisite: {$reqCol}"],
-                    ],
-                ], 422);
-            }
-        }
 
-        // ✅ Additional status-level guards (prevents “status jumping”)
-        $rs = (string)($sample->request_status ?? '');
+                $requestStatus = (string) ($row->request_status ?? '');
 
-        if ($action === 'collector_received' && $rs !== SampleRequestStatus::IN_TRANSIT_TO_COLLECTOR->value) {
-            return response()->json([
-                'status' => 422,
-                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
-                'message' => "Collector can only receive when status is in_transit_to_collector.",
-                'details' => [['field' => 'action', 'message' => 'Invalid request_status for this action.']],
-            ], 422);
-        }
+                if (
+                    $action === 'collector_received' &&
+                    $requestStatus !== SampleRequestStatus::IN_TRANSIT_TO_COLLECTOR->value
+                ) {
+                    abort(422, "Collector can only receive sample {$row->sample_id} when status is in_transit_to_collector.");
+                }
 
-        if ($action === 'collector_returned_to_admin' && $rs !== SampleRequestStatus::INSPECTION_FAILED->value) {
-            return response()->json([
-                'status' => 422,
-                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
-                'message' => "Collector can only return to admin when status is inspection_failed.",
-                'details' => [['field' => 'action', 'message' => 'Invalid request_status for this action.']],
-            ], 422);
-        }
+                if (
+                    $action === 'collector_returned_to_admin' &&
+                    $requestStatus !== SampleRequestStatus::INSPECTION_FAILED->value
+                ) {
+                    abort(422, "Collector can only return sample {$row->sample_id} to admin when status is inspection_failed.");
+                }
 
-        if ($action === 'admin_received_from_collector' && !in_array($rs, [
-            SampleRequestStatus::RETURNED_TO_ADMIN->value,
-            SampleRequestStatus::INSPECTION_FAILED->value, // tolerate edge-case, timestamp prerequisites still enforced
-        ], true)) {
-            return response()->json([
-                'status' => 422,
-                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
-                'message' => "Admin can only receive from collector after inspection return flow.",
-                'details' => [['field' => 'action', 'message' => 'Invalid request_status for this action.']],
-            ], 422);
-        }
+                if (
+                    $action === 'admin_received_from_collector' &&
+                    !in_array($requestStatus, [
+                        SampleRequestStatus::RETURNED_TO_ADMIN->value,
+                        SampleRequestStatus::INSPECTION_FAILED->value,
+                    ], true)
+                ) {
+                    abort(422, "Admin can only receive sample {$row->sample_id} from collector after inspection return flow.");
+                }
 
-        if ($action === 'client_picked_up' && !in_array($rs, [
-            'returned',
-            'rejected',
-            SampleRequestStatus::RETURNED_TO_ADMIN->value, // toleransi data lama
-        ], true)) {
-            return response()->json([
-                'status' => 422,
-                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
-                'message' => "Client pickup can only be recorded after admin has closed the failed intake flow.",
-                'details' => [['field' => 'action', 'message' => 'Invalid request_status for this action.']],
-            ], 422);
-        }
+                if (
+                    $action === 'client_picked_up' &&
+                    !in_array($requestStatus, [
+                        'returned',
+                        'rejected',
+                        SampleRequestStatus::RETURNED_TO_ADMIN->value,
+                    ], true)
+                ) {
+                    abort(422, "Client pickup can only be recorded for sample {$row->sample_id} after admin has closed the failed intake flow.");
+                }
 
-        // Guard: do not set twice
-        if (!empty($sample->{$targetCol})) {
-            return response()->json([
-                'status' => 409,
-                'code' => 'LIMS.RESOURCE.CONFLICT',
-                'message' => "This step has already been recorded.",
-                'details' => [
-                    ['field' => 'action', 'message' => "{$targetCol} already set."],
-                ],
-            ], 409);
-        }
-
-        // ✅ Capture old values BEFORE mutation (for correct audit)
-        $oldTargetValue = $sample->{$targetCol};
-        $oldRequestStatus = (string) ($sample->request_status ?? '');
-
-        DB::transaction(function () use ($sample, $targetCol, $note, $actor, $action, $oldTargetValue, $oldRequestStatus) {
-            $sample->{$targetCol} = now();
-
-            if ($action === 'admin_brought_to_collector') {
-                $sample->request_status = SampleRequestStatus::IN_TRANSIT_TO_COLLECTOR->value;
-            }
-
-            if ($action === 'collector_received') {
-                $sample->request_status = SampleRequestStatus::UNDER_INSPECTION->value;
-            }
-
-            if ($action === 'collector_returned_to_admin') {
-                $sample->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
-            }
-
-            if ($action === 'admin_received_from_collector') {
-                $sample->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
-            }
-
-            if ($action === 'client_picked_up') {
-                if (Schema::hasColumn('samples', 'archived_at') && empty($sample->archived_at)) {
-                    $sample->archived_at = now();
+                if (!empty($row->{$targetCol})) {
+                    abort(409, "This step has already been recorded for sample {$row->sample_id}.");
                 }
             }
 
-            if ($action === 'sc_delivered_to_analyst') {
-                $sample->request_status = SampleRequestStatus::IN_TRANSIT_TO_ANALYST->value;
-            }
+            $timestamp = now();
+            $hasAuditLogsTable = Schema::hasTable('audit_logs');
+            $auditColumns = $hasAuditLogsTable ? array_flip(Schema::getColumnListing('audit_logs')) : [];
+            $staffId = $actor->staff_id ?? $actor->getKey();
 
-            if ($action === 'analyst_received') {
-                $sample->request_status = SampleRequestStatus::RECEIVED_BY_ANALYST->value;
-            }
+            foreach ($targets as $row) {
+                $oldTargetValue = $row->{$targetCol};
+                $oldRequestStatus = (string) ($row->request_status ?? '');
 
-            $sample->save();
+                $row->{$targetCol} = $timestamp;
 
-            if (Schema::hasTable('audit_logs')) {
-                $cols = array_flip(Schema::getColumnListing('audit_logs'));
-                $staffId = $actor->staff_id ?? $actor->getKey();
-
-                $payload = [
-                    'staff_id' => $staffId,
-                    'performed_by' => $staffId,
-                    'user_id' => $staffId,
-                    'entity_name' => 'samples',
-                    'entity_id' => $sample->sample_id,
-                    'action' => 'SAMPLE_PHYSICAL_WORKFLOW_CHANGED',
-                    'performed_at' => now(),
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                    'note' => $note,
-                    'meta' => $note ? json_encode(['note' => $note]) : null,
-                    'old_values' => json_encode([
-                        $targetCol => $oldTargetValue,
-                        'request_status' => $oldRequestStatus,
-                    ]),
-                    'new_values' => json_encode([
-                        $targetCol => $sample->{$targetCol},
-                        'event_key' => $action,
-                        'request_status' => $sample->request_status,
-                    ]),
-                ];
-
-                $insert = array_intersect_key($payload, $cols);
-
-                if (isset($cols['staff_id']) && empty($insert['staff_id'])) {
-                    $insert['staff_id'] = $staffId;
+                if ($action === 'admin_brought_to_collector') {
+                    $row->request_status = SampleRequestStatus::IN_TRANSIT_TO_COLLECTOR->value;
                 }
 
-                DB::table('audit_logs')->insert($insert);
+                if ($action === 'collector_received') {
+                    $row->request_status = SampleRequestStatus::UNDER_INSPECTION->value;
+                }
+
+                if ($action === 'collector_returned_to_admin') {
+                    $row->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
+                }
+
+                if ($action === 'admin_received_from_collector') {
+                    $row->request_status = SampleRequestStatus::RETURNED_TO_ADMIN->value;
+                }
+
+                if ($action === 'client_picked_up') {
+                    if (Schema::hasColumn('samples', 'archived_at') && empty($row->archived_at)) {
+                        $row->archived_at = $timestamp;
+                    }
+                }
+
+                if ($action === 'sc_delivered_to_analyst') {
+                    $row->request_status = SampleRequestStatus::IN_TRANSIT_TO_ANALYST->value;
+                }
+
+                if ($action === 'analyst_received') {
+                    $row->request_status = SampleRequestStatus::RECEIVED_BY_ANALYST->value;
+                }
+
+                $row->save();
+
+                if ($hasAuditLogsTable) {
+                    $payload = [
+                        'staff_id' => $staffId,
+                        'performed_by' => $staffId,
+                        'user_id' => $staffId,
+                        'entity_name' => 'samples',
+                        'entity_id' => $row->sample_id,
+                        'action' => 'SAMPLE_PHYSICAL_WORKFLOW_CHANGED',
+                        'performed_at' => $timestamp,
+                        'created_at' => $timestamp,
+                        'updated_at' => $timestamp,
+                        'note' => $note,
+                        'meta' => $note ? json_encode(['note' => $note]) : null,
+                        'old_values' => json_encode([
+                            $targetCol => $oldTargetValue,
+                            'request_status' => $oldRequestStatus,
+                        ]),
+                        'new_values' => json_encode([
+                            $targetCol => $row->{$targetCol},
+                            'event_key' => $action,
+                            'request_status' => $row->request_status,
+                        ]),
+                    ];
+
+                    $insert = array_intersect_key($payload, $auditColumns);
+
+                    if (isset($auditColumns['staff_id']) && empty($insert['staff_id'])) {
+                        $insert['staff_id'] = $staffId;
+                    }
+
+                    DB::table('audit_logs')->insert($insert);
+                }
+
+                $affectedIds[] = (int) $row->sample_id;
+                $primary ??= $row;
             }
         });
 
-        $sample->refresh();
+        $primary = $primary?->fresh();
 
         return response()->json([
             'message' => 'Physical workflow timestamp recorded.',
             'data' => [
-                'sample_id' => $sample->sample_id,
-                'request_status' => $sample->request_status ?? null,
+                'sample_id' => $primary?->sample_id,
+                'request_status' => $primary?->request_status ?? null,
+                'request_batch_id' => $primary?->request_batch_id ?? null,
+                'affected_sample_ids' => $affectedIds,
+                'batch_total' => count($affectedIds),
 
-                'admin_received_from_client_at' => $sample->admin_received_from_client_at ?? null,
-                'admin_brought_to_collector_at' => $sample->admin_brought_to_collector_at ?? null,
-                'admin_handed_to_collector_at' => $sample->admin_handed_to_collector_at ?? null,
+                'admin_received_from_client_at' => $primary?->admin_received_from_client_at ?? null,
+                'admin_brought_to_collector_at' => $primary?->admin_brought_to_collector_at ?? null,
+                'admin_handed_to_collector_at' => $primary?->admin_handed_to_collector_at ?? null,
 
-                'collector_received_at' => $sample->collector_received_at ?? null,
-                'collector_intake_completed_at' => $sample->collector_intake_completed_at ?? null,
-                'collector_completed_at' => $sample->collector_completed_at ?? null,
+                'collector_received_at' => $primary?->collector_received_at ?? null,
+                'collector_intake_completed_at' => $primary?->collector_intake_completed_at ?? null,
+                'collector_completed_at' => $primary?->collector_completed_at ?? null,
 
-                'collector_returned_to_admin_at' => $sample->collector_returned_to_admin_at ?? null,
-                'admin_received_from_collector_at' => $sample->admin_received_from_collector_at ?? null,
+                'collector_returned_to_admin_at' => $primary?->collector_returned_to_admin_at ?? null,
+                'admin_received_from_collector_at' => $primary?->admin_received_from_collector_at ?? null,
 
-                'sc_delivered_to_analyst_at' => $sample->sc_delivered_to_analyst_at ?? null,
-                'analyst_received_at' => $sample->analyst_received_at ?? null,
+                'sc_delivered_to_analyst_at' => $primary?->sc_delivered_to_analyst_at ?? null,
+                'analyst_received_at' => $primary?->analyst_received_at ?? null,
 
-                'client_picked_up_at' => $sample->client_picked_up_at ?? null,
-                'archived_at' => Schema::hasColumn('samples', 'archived_at') ? ($sample->archived_at ?? null) : null,
+                'client_picked_up_at' => $primary?->client_picked_up_at ?? null,
+                'archived_at' => Schema::hasColumn('samples', 'archived_at') ? ($primary?->archived_at ?? null) : null,
             ],
         ], 200);
+    }
+
+    private function resolvePhysicalTargets(Sample $sample, bool $applyToBatch)
+    {
+        $query = Sample::query();
+
+        if (
+            $applyToBatch &&
+            Schema::hasColumn('samples', 'request_batch_id') &&
+            !empty($sample->request_batch_id)
+        ) {
+            $query
+                ->where('client_id', $sample->client_id)
+                ->where('request_batch_id', $sample->request_batch_id);
+
+            if (Schema::hasColumn('samples', 'batch_excluded_at')) {
+                $query->whereNull('batch_excluded_at');
+            }
+
+            return $query
+                ->orderBy('request_batch_item_no')
+                ->orderBy('sample_id')
+                ->lockForUpdate()
+                ->get();
+        }
+
+        return $query
+            ->whereKey($sample->getKey())
+            ->lockForUpdate()
+            ->get();
     }
 }

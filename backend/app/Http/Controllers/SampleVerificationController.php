@@ -75,52 +75,67 @@ class SampleVerificationController extends Controller
 
         $this->authorize('verifySampleRequest', $sample);
 
-        $rs = (string) ($sample->request_status ?? '');
-        if ($rs !== SampleRequestStatus::AWAITING_VERIFICATION->value) {
-            return response()->json([
-                'status' => 422,
-                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
-                'message' => 'Sample can only be verified when request_status is awaiting_verification.',
-                'details' => [
-                    ['field' => 'request_status', 'message' => "Current: {$rs}"],
-                ],
-            ], 422);
-        }
+        $applyToBatch = filter_var((string) $request->input('apply_to_batch', '0'), FILTER_VALIDATE_BOOLEAN);
 
-        $sample->load('intakeChecklist');
-        $checklist = $sample->intakeChecklist;
+        $targets = DB::transaction(function () use ($sample, $applyToBatch) {
+            $query = Sample::query()->with('intakeChecklist');
 
-        if (!$checklist) {
-            return response()->json([
-                'status' => 422,
-                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
-                'message' => 'Intake checklist must exist before verification.',
-                'details' => [
-                    ['field' => 'intake_checklist', 'message' => 'Missing intake checklist.'],
-                ],
-            ], 422);
-        }
+            if (
+                $applyToBatch &&
+                !empty($sample->request_batch_id) &&
+                \Illuminate\Support\Facades\Schema::hasColumn('samples', 'request_batch_id')
+            ) {
+                $query
+                    ->where('client_id', $sample->client_id)
+                    ->where('request_batch_id', $sample->request_batch_id);
 
-        if ((bool) ($checklist->is_passed ?? false) !== true) {
-            return response()->json([
-                'status' => 422,
-                'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
-                'message' => 'Only PASSED checklists can be verified.',
-                'details' => [
-                    ['field' => 'intake_checklist.is_passed', 'message' => 'Checklist is not passed.'],
-                ],
-            ], 422);
-        }
+                if (\Illuminate\Support\Facades\Schema::hasColumn('samples', 'batch_excluded_at')) {
+                    $query->whereNull('batch_excluded_at');
+                }
 
-        if (!empty($sample->verified_at)) {
-            return response()->json([
-                'status' => 409,
-                'code' => 'LIMS.RESOURCE.CONFLICT',
-                'message' => 'This sample request has already been verified.',
-                'details' => [
-                    ['field' => 'verified_at', 'message' => 'Already verified.'],
-                ],
-            ], 409);
+                return $query
+                    ->orderBy('request_batch_item_no')
+                    ->orderBy('sample_id')
+                    ->lockForUpdate()
+                    ->get();
+            }
+
+            return $query->whereKey($sample->getKey())->lockForUpdate()->get();
+        });
+
+        foreach ($targets as $target) {
+            $rs = (string) ($target->request_status ?? '');
+
+            if ($rs !== SampleRequestStatus::AWAITING_VERIFICATION->value) {
+                return response()->json([
+                    'status' => 422,
+                    'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
+                    'message' => 'Sample can only be verified when request_status is awaiting_verification.',
+                    'details' => [
+                        ['field' => 'request_status', 'message' => "Sample {$target->sample_id}: {$rs}"],
+                    ],
+                ], 422);
+            }
+
+            $checklist = $target->intakeChecklist;
+            if (!$checklist || (bool) ($checklist->is_passed ?? false) !== true) {
+                return response()->json([
+                    'status' => 422,
+                    'code' => 'LIMS.VALIDATION.FIELDS_INVALID',
+                    'message' => 'Only PASSED checklists can be verified.',
+                    'details' => [
+                        ['field' => 'intake_checklist', 'message' => "Sample {$target->sample_id} is not passed."],
+                    ],
+                ], 422);
+            }
+
+            if (!empty($target->verified_at)) {
+                return response()->json([
+                    'status' => 409,
+                    'code' => 'LIMS.RESOURCE.CONFLICT',
+                    'message' => "Sample {$target->sample_id} has already been verified.",
+                ], 409);
+            }
         }
 
         $verifiedByRole = $this->resolveVerifiedByRole($actor);
@@ -135,55 +150,43 @@ class SampleVerificationController extends Controller
         $note = $request->validated()['note'] ?? null;
         $now = Carbon::now();
         $actorStaffId = (int) (($actor->staff_id ?? null) ?: ($actor->id ?? 0));
+        $affectedIds = [];
 
-        $old = [
-            'verified_at' => $sample->verified_at,
-            'verified_by_staff_id' => $sample->verified_by_staff_id,
-            'verified_by_role' => $sample->verified_by_role,
-            'request_status' => $sample->request_status,
-            'lab_sample_code' => $sample->lab_sample_code,
-            'sample_id_prefix' => $sample->sample_id_prefix,
-        ];
-
-        DB::transaction(function () use ($sample, $actorStaffId, $now, $verifiedByRole) {
-            $sample->verified_at = $now;
-            $sample->verified_by_staff_id = $actorStaffId;
-            $sample->verified_by_role = $verifiedByRole;
-
-            $sample->request_status = SampleRequestStatus::WAITING_SAMPLE_ID_ASSIGNMENT->value;
-
-            if (empty($sample->sample_id_prefix)) {
-                $prefix = $this->resolveSampleIdPrefix($sample->workflow_group);
-                if ($prefix) {
-                    $sample->sample_id_prefix = $prefix;
+        DB::transaction(function () use ($targets, $actorStaffId, $now, $verifiedByRole, &$affectedIds) {
+            foreach ($targets as $target) {
+                if (empty($target->sample_id_prefix)) {
+                    $prefix = $this->resolveSampleIdPrefix($target->workflow_group);
+                    if ($prefix) {
+                        $target->sample_id_prefix = $prefix;
+                    }
                 }
-            }
 
-            $sample->save();
+                $target->verified_at = $now;
+                $target->verified_by_staff_id = $actorStaffId;
+                $target->verified_by_role = $verifiedByRole;
+                $target->request_status = SampleRequestStatus::WAITING_SAMPLE_ID_ASSIGNMENT->value;
+                $target->save();
+
+                $affectedIds[] = (int) $target->sample_id;
+            }
         }, 3);
 
-        $sample->refresh();
-
-        AuditLogger::logSampleRequestVerified(
-            staffId: $actorStaffId,
-            sampleId: (int) $sample->sample_id,
-            clientId: (int) ($sample->client_id ?? 0),
-            verifiedByRole: (string) ($sample->verified_by_role ?? $verifiedByRole),
-            oldValues: $old,
-            newValues: [
-                'verified_at' => $sample->verified_at,
-                'verified_by_staff_id' => $sample->verified_by_staff_id,
-                'verified_by_role' => $sample->verified_by_role,
-                'request_status' => $sample->request_status,
-                'lab_sample_code' => $sample->lab_sample_code,
-                'sample_id_prefix' => $sample->sample_id_prefix,
-            ],
-            note: is_string($note) && trim($note) !== '' ? trim($note) : null
-        );
+        $primary = collect($targets)->sortBy(fn(Sample $row) => (int) ($row->request_batch_item_no ?? 1))->first()?->fresh();
 
         return response()->json([
             'message' => 'Verified.',
-            'data' => $sample->fresh(),
+            'data' => $primary,
+            'meta' => [
+                'request_batch_id' => $primary?->request_batch_id ?? null,
+                'affected_sample_ids' => $affectedIds,
+                'batch_total' => count($affectedIds),
+                'intake_preview' => collect($targets)->map(fn(Sample $row) => [
+                    'sample_id' => (int) $row->sample_id,
+                    'item_no' => (int) ($row->request_batch_item_no ?? 1),
+                    'is_passed' => (bool) ($row->intakeChecklist?->is_passed ?? false),
+                    'notes' => $row->intakeChecklist?->notes,
+                ])->values()->all(),
+            ],
         ], 200);
     }
 }
