@@ -117,25 +117,36 @@ function unwrapClientRequests(res: any): PaginatedResponse<ClientRequestItem> {
 }
 
 function statusChipClass(
-    kind: "gray" | "primary" | "amber" | "indigo" | "emerald" | "rose" | "sky" | "violet"
+    kind:
+        | "gray"
+        | "blue"
+        | "amber"
+        | "indigo"
+        | "emerald"
+        | "red"
+        | "sky"
+        | "violet"
+        | "cyan"
 ) {
     switch (kind) {
-        case "primary":
-            return "bg-primary-soft/10 text-primary-soft";
+        case "blue":
+            return "border border-blue-200 bg-blue-50 text-blue-700";
         case "amber":
-            return "bg-amber-50 text-amber-800";
+            return "border border-amber-200 bg-amber-50 text-amber-800";
         case "indigo":
-            return "bg-indigo-50 text-indigo-700";
+            return "border border-indigo-200 bg-indigo-50 text-indigo-700";
         case "emerald":
-            return "bg-emerald-50 text-emerald-700";
-        case "rose":
-            return "bg-rose-50 text-rose-800";
+            return "border border-emerald-200 bg-emerald-50 text-emerald-700";
+        case "red":
+            return "border border-red-200 bg-red-50 text-red-700";
         case "sky":
-            return "bg-sky-50 text-sky-800";
+            return "border border-sky-200 bg-sky-50 text-sky-700";
         case "violet":
-            return "bg-violet-50 text-violet-800";
+            return "border border-violet-200 bg-violet-50 text-violet-700";
+        case "cyan":
+            return "border border-cyan-200 bg-cyan-50 text-cyan-700";
         default:
-            return "bg-gray-100 text-gray-700";
+            return "border border-gray-200 bg-gray-100 text-gray-700";
     }
 }
 
@@ -181,15 +192,15 @@ function requestStatusChip(item: ClientRequestItem, t: TFunction) {
     const bucket = getClientRequestStatusView(item);
 
     if (bucket === "submitted") {
-        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("primary") };
+        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("blue") };
     }
 
     if (bucket === "ready_for_delivery") {
-        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("indigo") };
+        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("cyan") };
     }
 
     if (bucket === "received_by_admin") {
-        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("emerald") };
+        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("indigo") };
     }
 
     if (bucket === "returned" || bucket === "needs_revision") {
@@ -209,7 +220,7 @@ function requestStatusChip(item: ClientRequestItem, t: TFunction) {
     }
 
     if (bucket === "rejected") {
-        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("rose") };
+        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("red") };
     }
 
     return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("gray") };
