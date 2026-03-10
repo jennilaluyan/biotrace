@@ -260,13 +260,14 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
 
             const normalizedQuantity = isInstitutionClient ? normalizeQuantity(quantity) : 1;
 
-            const payload: DraftPayloadWithQuantity = {
+            const payload: DraftPayloadWithQuantity & { total_sample?: number } = {
                 sample_type: sampleType.trim(),
                 scheduled_delivery_at: datetimeLocalToApi(scheduledDeliveryAt),
                 examination_purpose: examinationPurpose.trim(),
                 additional_notes: additionalNotes.trim() || null,
                 parameter_ids: [Number(selectedParam!.parameter_id)],
                 quantity: normalizedQuantity,
+                total_sample: normalizedQuantity,
             };
 
             const draft = await clientSampleRequestService.createDraft(payload);

@@ -42,7 +42,7 @@ class ClientSampleRequestController extends Controller
         }
     }
 
-    private function normalizeRequestedQuantity(Client $client, array $data): int
+    private function normalizeRequestedQuantity(Client $client, Request $request, array $data): int
     {
         $clientType = strtolower(trim((string) ($client->type ?? 'individual')));
 
@@ -50,7 +50,14 @@ class ClientSampleRequestController extends Controller
             return 1;
         }
 
-        $quantity = (int) ($data['quantity'] ?? 1);
+        $rawQuantity =
+            $data['quantity']
+            ?? $data['total_sample']
+            ?? $request->input('quantity')
+            ?? $request->input('total_sample')
+            ?? 1;
+
+        $quantity = (int) $rawQuantity;
 
         return max(1, min($quantity, 200));
     }
@@ -183,6 +190,67 @@ class ClientSampleRequestController extends Controller
         DB::table('audit_logs')->insert(array_intersect_key($payload, $cols));
     }
 
+    private function attachBatchContext(Sample $sample, bool $includeBatchItems = true): array
+    {
+        $sample->loadMissing(['requestedParameters', 'intakeChecklist.checker']);
+
+        $requestBatchId = Schema::hasColumn('samples', 'request_batch_id')
+            ? trim((string) ($sample->request_batch_id ?? ''))
+            : '';
+
+        $requestBatchTotal = Schema::hasColumn('samples', 'request_batch_total')
+            ? (int) ($sample->request_batch_total ?? 0)
+            : 0;
+
+        $batchItems = collect();
+
+        if ($requestBatchId !== '') {
+            $batchItems = Sample::query()
+                ->with(['requestedParameters', 'intakeChecklist.checker'])
+                ->where('client_id', $sample->client_id)
+                ->where('request_batch_id', $requestBatchId)
+                ->orderBy('request_batch_item_no')
+                ->orderBy('sample_id')
+                ->get();
+        } elseif ($requestBatchTotal > 1) {
+            $batchItems = collect([$sample]);
+        }
+
+        $activeItems = $batchItems->isNotEmpty()
+            ? (
+                Schema::hasColumn('samples', 'batch_excluded_at')
+                ? $batchItems->filter(fn(Sample $row) => empty($row->batch_excluded_at))
+                : $batchItems
+            )
+            : collect();
+
+        $batchTotal = $requestBatchTotal > 0
+            ? $requestBatchTotal
+            : max(1, $batchItems->count());
+
+        $batchActiveTotal = $requestBatchId !== ''
+            ? $activeItems->count()
+            : $batchTotal;
+
+        $batchExcludedTotal = $requestBatchId !== ''
+            ? max(0, $batchItems->count() - $activeItems->count())
+            : 0;
+
+        return [
+            ...$sample->toArray(),
+            'batch_items' => $includeBatchItems ? $batchItems->values()->all() : [],
+            'batch_summary' => [
+                'request_batch_id' => $requestBatchId !== '' ? $requestBatchId : null,
+                'batch_total' => $batchTotal,
+                'batch_active_total' => $batchActiveTotal,
+                'batch_excluded_total' => $batchExcludedTotal,
+                'sample_ids' => $batchItems->isNotEmpty()
+                    ? $batchItems->pluck('sample_id')->map(fn($id) => (int) $id)->values()->all()
+                    : [(int) $sample->sample_id],
+            ],
+        ];
+    }
+
     public function index(Request $request): JsonResponse
     {
         $client = $this->currentClientOr403();
@@ -263,10 +331,10 @@ class ClientSampleRequestController extends Controller
         $this->assertOwnedByClient($client, $sample);
 
         $fresh = $sample->fresh(['requestedParameters', 'intakeChecklist.checker']);
-        $arr = $this->attachCoaInfo([$fresh]);
+        $fresh = $this->attachCoaInfo([$fresh])[0];
 
         return response()->json([
-            'data' => $arr[0],
+            'data' => $this->attachBatchContext($fresh, true),
         ], 200);
     }
 
@@ -275,7 +343,7 @@ class ClientSampleRequestController extends Controller
         $client = $this->currentClientOr403();
         $clientId = (int) ($client->client_id ?? $client->getKey());
         $data = $request->validated();
-        $quantity = $this->normalizeRequestedQuantity($client, $data);
+        $quantity = $this->normalizeRequestedQuantity($client, $request, $data);
         $systemStaffId = $this->ensureSystemStaffId();
 
         $batchId = Schema::hasColumn('samples', 'request_batch_id') && $quantity > 1
@@ -330,10 +398,14 @@ class ClientSampleRequestController extends Controller
             ->sortBy(fn(Sample $row) => (int) ($row->request_batch_item_no ?? 1))
             ->first();
 
+        if ($primary) {
+            $primary = $this->attachCoaInfo([$primary])[0];
+        }
+
         return response()->json([
-            'data' => $primary,
+            'data' => $primary ? $this->attachBatchContext($primary, true) : null,
             'meta' => [
-                'request_batch_id' => $primary?->request_batch_id,
+                'request_batch_id' => $primary['request_batch_id'] ?? null,
                 'batch_total' => count($createdIds),
                 'affected_sample_ids' => $createdIds,
             ],
@@ -393,10 +465,14 @@ class ClientSampleRequestController extends Controller
             ->sortBy(fn(Sample $row) => (int) ($row->request_batch_item_no ?? 1))
             ->first();
 
+        if ($primary) {
+            $primary = $this->attachCoaInfo([$primary])[0];
+        }
+
         return response()->json([
-            'data' => $primary,
+            'data' => $primary ? $this->attachBatchContext($primary, true) : null,
             'meta' => [
-                'request_batch_id' => $primary?->request_batch_id,
+                'request_batch_id' => $primary['request_batch_id'] ?? null,
                 'batch_total' => count($updatedIds),
                 'affected_sample_ids' => $updatedIds,
             ],
@@ -485,10 +561,14 @@ class ClientSampleRequestController extends Controller
             ->sortBy(fn(Sample $row) => (int) ($row->request_batch_item_no ?? 1))
             ->first();
 
+        if ($primary) {
+            $primary = $this->attachCoaInfo([$primary])[0];
+        }
+
         return response()->json([
-            'data' => $primary,
+            'data' => $primary ? $this->attachBatchContext($primary, true) : null,
             'meta' => [
-                'request_batch_id' => $primary?->request_batch_id,
+                'request_batch_id' => $primary['request_batch_id'] ?? null,
                 'batch_total' => count($submittedIds),
                 'affected_sample_ids' => $submittedIds,
             ],

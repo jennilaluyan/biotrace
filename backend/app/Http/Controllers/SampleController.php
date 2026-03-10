@@ -268,28 +268,39 @@ class SampleController extends Controller
         $batchItems = collect();
         $batchSummary = null;
 
-        if (
-            $includeBatch &&
-            Schema::hasColumn('samples', 'request_batch_id') &&
-            !empty($sample->request_batch_id)
-        ) {
-            $batchItems = Sample::query()
-                ->with(['client', 'requestedParameters', 'intakeChecklist.checker'])
-                ->where('client_id', $sample->client_id)
-                ->where('request_batch_id', $sample->request_batch_id)
-                ->orderBy('request_batch_item_no')
-                ->orderBy('sample_id')
-                ->get();
+        $hasBatchIdColumn = Schema::hasColumn('samples', 'request_batch_id');
+        $hasBatchTotalColumn = Schema::hasColumn('samples', 'request_batch_total');
+
+        $requestBatchId = $hasBatchIdColumn
+            ? trim((string) ($sample->request_batch_id ?? ''))
+            : '';
+
+        $requestBatchTotal = $hasBatchTotalColumn
+            ? (int) ($sample->request_batch_total ?? 0)
+            : 0;
+
+        if ($includeBatch && ($requestBatchId !== '' || $requestBatchTotal > 1)) {
+            if ($requestBatchId !== '') {
+                $batchItems = Sample::query()
+                    ->with(['client', 'requestedParameters', 'intakeChecklist.checker'])
+                    ->where('client_id', $sample->client_id)
+                    ->where('request_batch_id', $requestBatchId)
+                    ->orderBy('request_batch_item_no')
+                    ->orderBy('sample_id')
+                    ->get();
+            } else {
+                $batchItems = collect([$sample]);
+            }
 
             $activeItems = Schema::hasColumn('samples', 'batch_excluded_at')
                 ? $batchItems->filter(fn(Sample $row) => empty($row->batch_excluded_at))
                 : $batchItems;
 
             $batchSummary = [
-                'request_batch_id' => $sample->request_batch_id,
-                'batch_total' => (int) ($sample->request_batch_total ?? $batchItems->count()),
-                'batch_active_total' => $activeItems->count(),
-                'batch_excluded_total' => $batchItems->count() - $activeItems->count(),
+                'request_batch_id' => $requestBatchId !== '' ? $requestBatchId : null,
+                'batch_total' => $requestBatchTotal > 0 ? $requestBatchTotal : max(1, $batchItems->count()),
+                'batch_active_total' => $requestBatchId !== '' ? $activeItems->count() : ($requestBatchTotal > 0 ? $requestBatchTotal : max(1, $activeItems->count())),
+                'batch_excluded_total' => $requestBatchId !== '' ? max(0, $batchItems->count() - $activeItems->count()) : 0,
                 'sample_ids' => $batchItems->pluck('sample_id')->map(fn($id) => (int) $id)->values()->all(),
             ];
         }

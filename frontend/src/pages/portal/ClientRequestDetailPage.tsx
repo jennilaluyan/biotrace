@@ -123,15 +123,16 @@ function parameterLabel(p: any) {
 
 function resolveTotalSampleValue(row: any): number {
     const batchItems = Array.isArray(row?.batch_items) ? row.batch_items : [];
-    const activeBatchCount = batchItems.filter((it: any) => !it?.batch_excluded_at).length;
+    const batchSummary = row?.batch_summary ?? null;
+    const summaryIds = Array.isArray(batchSummary?.sample_ids) ? batchSummary.sample_ids : [];
 
     const candidates = [
+        Number(batchSummary?.batch_total),
+        Number(row?.request_batch_total),
         Number(row?.total_sample),
         Number(row?.total_samples),
-        Number(row?.request_batch_total),
-        Number(row?.batch_summary?.batch_total),
-        Number(row?.batch_summary?.batch_active_total),
-        activeBatchCount,
+        summaryIds.length,
+        batchItems.length,
     ];
 
     const found = candidates.find((n) => Number.isFinite(n) && n > 0);
@@ -375,6 +376,7 @@ export default function ClientRequestDetailPage() {
     const buildPayload = () => {
         return {
             sample_type: sampleType.trim(),
+            quantity: totalSampleNumber,
             total_sample: totalSampleNumber,
             scheduled_delivery_at: scheduledDeliveryAt || null,
             examination_purpose: examinationPurpose.trim() || null,

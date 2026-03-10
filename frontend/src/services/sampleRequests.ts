@@ -10,11 +10,6 @@ export type ClientSampleListParams = {
     q?: string; // search
 };
 
-function unwrapData<T>(res: any): T {
-    if (res && typeof res === "object" && "data" in res) return res.data as T;
-    return res as T;
-}
-
 function unwrapPaginatedFlexible<T>(res: any): PaginatedResponse<T> {
     // preferred shape: { data, meta }
     if (res && typeof res === "object" && "data" in res && "meta" in res) {
@@ -59,7 +54,52 @@ export type ClientSampleDraftPayload = {
     additional_notes?: string | null;
     parameter_ids: number[];
     quantity?: number | null;
+    total_sample?: number | null;
 };
+
+function unwrapData<T>(res: any): T {
+    if (res && typeof res === "object" && "data" in res) return res.data as T;
+    return res as T;
+}
+
+function unwrapRequestSampleResponse<T extends Record<string, any>>(res: any): T {
+    const root = res?.data ?? res;
+    const data = unwrapData<T>(res);
+    const meta = root?.meta ?? res?.meta ?? null;
+
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+        return data;
+    }
+
+    const batchTotal = Number(
+        meta?.batch_total ??
+        data?.request_batch_total ??
+        data?.batch_summary?.batch_total ??
+        0
+    );
+
+    const requestBatchId =
+        data?.request_batch_id ??
+        data?.batch_summary?.request_batch_id ??
+        meta?.request_batch_id ??
+        null;
+
+    return {
+        ...data,
+        request_batch_id: requestBatchId,
+        request_batch_total: batchTotal > 0 ? batchTotal : (data?.request_batch_total ?? null),
+        batch_summary:
+            data?.batch_summary ??
+            (batchTotal > 0
+                ? {
+                    request_batch_id: requestBatchId,
+                    batch_total: batchTotal,
+                    batch_active_total: batchTotal,
+                    batch_excluded_total: 0,
+                }
+                : null),
+    } as T;
+}
 
 export type ClientSampleBatchMeta = {
     request_batch_id?: string | null;
@@ -75,7 +115,7 @@ export type ClientSampleResponse = Sample & ClientSampleBatchMeta;
 export const clientSampleRequestService = {
     async createDraft(payload: ClientSampleDraftPayload): Promise<ClientSampleResponse> {
         const res = await apiPost<any>("/v1/client/samples", payload);
-        return unwrapData<ClientSampleResponse>(res);
+        return unwrapRequestSampleResponse<ClientSampleResponse>(res);
     },
 
     async updateDraft(
@@ -83,12 +123,12 @@ export const clientSampleRequestService = {
         payload: Partial<ClientSampleDraftPayload>
     ): Promise<ClientSampleResponse> {
         const res = await apiPost<any>(`/v1/client/samples/${id}?_method=PATCH`, payload);
-        return unwrapData<ClientSampleResponse>(res);
+        return unwrapRequestSampleResponse<ClientSampleResponse>(res);
     },
 
     async submit(id: number, payload: ClientSampleDraftPayload): Promise<ClientSampleResponse> {
         const res = await apiPost<any>(`/v1/client/samples/${id}/submit`, payload);
-        return unwrapData<ClientSampleResponse>(res);
+        return unwrapRequestSampleResponse<ClientSampleResponse>(res);
     },
 
     async createAndSubmit(payload: ClientSampleDraftPayload): Promise<ClientSampleResponse> {
