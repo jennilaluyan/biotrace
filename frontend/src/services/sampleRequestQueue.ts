@@ -37,9 +37,13 @@ export type SampleRequestQueueRow = {
     request_status?: RequestStatus;
     sample_type?: string | null;
     lab_sample_code?: string | null;
+
     client_id?: number | null;
+    client_type?: string | null;
     client_name?: string | null;
+    client_display_name?: string | null;
     client_email?: string | null;
+
     created_at?: string | null;
     updated_at?: string | null;
 

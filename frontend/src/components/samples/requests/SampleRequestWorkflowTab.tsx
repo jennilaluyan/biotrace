@@ -34,6 +34,23 @@ type TimelineEvent = {
     note?: string | null;
 };
 
+type WorkflowStageState = "done" | "current" | "upcoming";
+
+type WorkflowStageKey =
+    | "submitted"
+    | "admin_review"
+    | "physical_intake"
+    | "verification"
+    | "sample_id_assignment"
+    | "lab_sample_created";
+
+type WorkflowStage = {
+    key: WorkflowStageKey;
+    title: string;
+    description: string;
+    state: WorkflowStageState;
+};
+
 function pickAt(s: any, keys: string[]) {
     for (const k of keys) {
         const v = s?.[k];
@@ -464,6 +481,112 @@ function didCollectorIntakeFail(sample: any, logs: any[] | null): boolean {
     return !!sample?.collector_intake_completed_at && ["inspection_failed", "returned_to_admin", "returned", "rejected"].includes(rs);
 }
 
+function buildWorkflowStages(t: any, sample: any): WorkflowStage[] {
+    const requestStatusKey = String(sample?.request_status ?? "").trim().toLowerCase();
+    const hasLabCode = !!String(sample?.lab_sample_code ?? "").trim();
+
+    const orderedKeys: WorkflowStageKey[] = [
+        "submitted",
+        "admin_review",
+        "physical_intake",
+        "verification",
+        "sample_id_assignment",
+        "lab_sample_created",
+    ];
+
+    let currentKey: WorkflowStageKey = "submitted";
+
+    if (hasLabCode) {
+        currentKey = "lab_sample_created";
+    } else if (["submitted", "returned", "needs_revision", "rejected"].includes(requestStatusKey)) {
+        currentKey = "admin_review";
+    } else if (
+        [
+            "ready_for_delivery",
+            "physically_received",
+            "in_transit_to_collector",
+            "under_inspection",
+            "inspection_failed",
+            "inspection_failed_returned_to_admin",
+            "returned_to_admin",
+        ].includes(requestStatusKey)
+    ) {
+        currentKey = "physical_intake";
+    } else if (["awaiting_verification"].includes(requestStatusKey)) {
+        currentKey = "verification";
+    } else if (
+        [
+            "waiting_sample_id_assignment",
+            "sample_id_pending_verification",
+            "sample_id_approved_for_assignment",
+            "approved_for_assignment",
+            "intake_validated",
+        ].includes(requestStatusKey)
+    ) {
+        currentKey = "sample_id_assignment";
+    }
+
+    const currentIndex = orderedKeys.indexOf(currentKey);
+
+    const definitions: Record<WorkflowStageKey, { title: string; description: string }> = {
+        submitted: {
+            title: t("samples.requestWorkflow.stages.submitted.title", {
+                defaultValue: "Client submitted request",
+            }),
+            description: t("samples.requestWorkflow.stages.submitted.description", {
+                defaultValue: "The request has entered the backoffice queue.",
+            }),
+        },
+        admin_review: {
+            title: t("samples.requestWorkflow.stages.adminReview.title", {
+                defaultValue: "Administrator review",
+            }),
+            description: t("samples.requestWorkflow.stages.adminReview.description", {
+                defaultValue: "Admin accepts, returns, or rejects the request before intake starts.",
+            }),
+        },
+        physical_intake: {
+            title: t("samples.requestWorkflow.stages.physicalIntake.title", {
+                defaultValue: "Physical delivery and intake",
+            }),
+            description: t("samples.requestWorkflow.stages.physicalIntake.description", {
+                defaultValue: "Admin and Sample Collector handle handoff, receipt, and intake checklist.",
+            }),
+        },
+        verification: {
+            title: t("samples.requestWorkflow.stages.verification.title", {
+                defaultValue: "OM/LH verification",
+            }),
+            description: t("samples.requestWorkflow.stages.verification.description", {
+                defaultValue: "Operational Manager or Laboratory Head reviews the intake result.",
+            }),
+        },
+        sample_id_assignment: {
+            title: t("samples.requestWorkflow.stages.sampleIdAssignment.title", {
+                defaultValue: "Sample ID assignment",
+            }),
+            description: t("samples.requestWorkflow.stages.sampleIdAssignment.description", {
+                defaultValue: "Administrator assigns or finalizes the lab sample ID.",
+            }),
+        },
+        lab_sample_created: {
+            title: t("samples.requestWorkflow.stages.labSampleCreated.title", {
+                defaultValue: "Lab sample created",
+            }),
+            description: t("samples.requestWorkflow.stages.labSampleCreated.description", {
+                defaultValue: "The request is now a real lab sample and continues in sample workflow.",
+            }),
+        },
+    };
+
+    return orderedKeys.map((key, index) => ({
+        key,
+        title: definitions[key].title,
+        description: definitions[key].description,
+        state: index < currentIndex ? "done" : index === currentIndex ? "current" : "upcoming",
+    }));
+}
+
 export function SampleRequestWorkflowTab(props: {
     sample: Sample;
     roleId: number;
@@ -497,6 +620,8 @@ export function SampleRequestWorkflowTab(props: {
     const batchActiveTotal = Number(batchSummary?.batch_active_total ?? s?.request_batch_total ?? 1);
     const batchExcludedTotal = Number(batchSummary?.batch_excluded_total ?? 0);
     const isBatchRequest = !!(s?.request_batch_id && batchActiveTotal > 1);
+
+    const workflowStages = useMemo(() => buildWorkflowStages(t, s), [s, t]);
 
     function roleLabelForDisplay(raw?: string | null): string | null {
         const k = normalizeRoleKey(raw);
@@ -1260,6 +1385,64 @@ export function SampleRequestWorkflowTab(props: {
                     ) : null}
                 </div>
             ) : null}
+
+            <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
+                    <div className="text-sm font-bold text-gray-900">
+                        {t("samples.requestWorkflow.stages.title", { defaultValue: "Workflow stages" })}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                        {t("samples.requestWorkflow.stages.subtitle", {
+                            defaultValue: "This shows the full request path, even when your role has no action yet.",
+                        })}
+                    </div>
+                </div>
+
+                <div className="px-5 py-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {workflowStages.map((stage, index) => (
+                        <div
+                            key={stage.key}
+                            className={cx(
+                                "rounded-2xl border px-4 py-3",
+                                stage.state === "done" && "border-emerald-200 bg-emerald-50",
+                                stage.state === "current" && "border-amber-200 bg-amber-50",
+                                stage.state === "upcoming" && "border-gray-200 bg-gray-50"
+                            )}
+                        >
+                            <div className="flex items-center justify-between gap-3">
+                                <span
+                                    className={cx(
+                                        "inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold",
+                                        stage.state === "done" && "bg-emerald-100 text-emerald-700",
+                                        stage.state === "current" && "bg-amber-100 text-amber-800",
+                                        stage.state === "upcoming" && "bg-white text-gray-600 border border-gray-200"
+                                    )}
+                                >
+                                    {index + 1}
+                                </span>
+
+                                <span
+                                    className={cx(
+                                        "text-[11px] font-semibold uppercase tracking-wide",
+                                        stage.state === "done" && "text-emerald-700",
+                                        stage.state === "current" && "text-amber-800",
+                                        stage.state === "upcoming" && "text-gray-500"
+                                    )}
+                                >
+                                    {stage.state === "done"
+                                        ? t("samples.requestWorkflow.stages.done", { defaultValue: "Done" })
+                                        : stage.state === "current"
+                                            ? t("samples.requestWorkflow.stages.current", { defaultValue: "Current" })
+                                            : t("samples.requestWorkflow.stages.upcoming", { defaultValue: "Upcoming" })}
+                                </span>
+                            </div>
+
+                            <div className="mt-3 text-sm font-semibold text-gray-900">{stage.title}</div>
+                            <div className="mt-1 text-xs text-gray-600">{stage.description}</div>
+                        </div>
+                    ))}
+                </div>
+            </div>
 
             {shouldHideActionSection ? null : !labSampleCode ? (
                 <div className="rounded-2xl border border-gray-100 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] overflow-hidden">

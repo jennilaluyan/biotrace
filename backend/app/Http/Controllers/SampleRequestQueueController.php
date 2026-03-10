@@ -136,7 +136,6 @@ class SampleRequestQueueController extends Controller
             $like = "%{$q}%";
 
             $query->where(function ($w) use ($like) {
-                // Database-agnostic search (avoid ILIKE hard dependency)
                 $driver = Schema::getConnection()->getDriverName();
                 $op = $driver === 'pgsql' ? 'ILIKE' : 'LIKE';
 
@@ -144,10 +143,13 @@ class SampleRequestQueueController extends Controller
                     ->orWhere('request_status', $op, $like)
                     ->orWhere('lab_sample_code', $op, $like);
 
-                // client name/email
                 if (method_exists(Sample::class, 'client')) {
                     $w->orWhereHas('client', function ($c) use ($op, $like) {
-                        $c->where('name', $op, $like)->orWhere('email', $op, $like);
+                        $c->where('name', $op, $like)
+                            ->orWhere('email', $op, $like)
+                            ->orWhere('type', $op, $like)
+                            ->orWhere('institution_name', $op, $like)
+                            ->orWhere('contact_person_name', $op, $like);
                     });
                 }
             });
@@ -180,6 +182,12 @@ class SampleRequestQueueController extends Controller
                     ? $group->filter(fn(Sample $row) => empty($row->batch_excluded_at))
                     : $group;
 
+                $client = $primary?->client;
+                $clientType = $client?->type ? strtolower(trim((string) $client->type)) : null;
+                $clientDisplayName = $clientType === 'institution'
+                    ? ($client?->institution_name ?: $client?->name)
+                    : ($client?->name ?: $client?->institution_name);
+
                 return [
                     'sample_id' => $primary?->sample_id,
                     'request_batch_id' => $primary?->request_batch_id,
@@ -187,8 +195,10 @@ class SampleRequestQueueController extends Controller
                     'sample_type' => $primary?->sample_type,
                     'lab_sample_code' => $primary?->lab_sample_code,
                     'client_id' => $primary?->client_id,
-                    'client_name' => $primary?->client?->name ?? null,
-                    'client_email' => $primary?->client?->email ?? null,
+                    'client_type' => $clientType,
+                    'client_name' => $client?->name ?? null,
+                    'client_display_name' => $clientDisplayName,
+                    'client_email' => $client?->email ?? null,
                     'created_at' => $primary?->created_at,
                     'updated_at' => $primary?->updated_at,
                     'batch_total' => (int) ($primary?->request_batch_total ?? $group->count()),

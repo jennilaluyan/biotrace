@@ -157,6 +157,29 @@ function statusTone(raw?: string | null) {
     return "bg-gray-100 text-gray-700";
 }
 
+function clientTypeLabel(t: TFunction, raw?: string | null) {
+    const token = normalizeToken(raw);
+
+    if (token === "institution") {
+        return t("clients.types.institution", { defaultValue: "Institution" });
+    }
+
+    if (token === "individual") {
+        return t("clients.types.individual", { defaultValue: "Individual" });
+    }
+
+    return t("common.na", { defaultValue: "—" });
+}
+
+function clientTypeTone(raw?: string | null) {
+    const token = normalizeToken(raw);
+
+    if (token === "institution") return "bg-sky-50 text-sky-700";
+    if (token === "individual") return "bg-slate-100 text-slate-700";
+
+    return "bg-gray-100 text-gray-600";
+}
+
 function getRequestId(row: SampleRequestQueueRow): number | null {
     const raw = (row.sample_id ?? row.id) as any;
     const n = Number(raw);
@@ -540,6 +563,9 @@ export default function SampleRequestsQueuePage() {
                                                 {t("samples.pages.queue.table.client", { defaultValue: "Client" })}
                                             </th>
                                             <th className="text-left font-semibold px-4 py-3">
+                                                {t("samples.pages.queue.table.clientType", { defaultValue: "Client type" })}
+                                            </th>
+                                            <th className="text-left font-semibold px-4 py-3">
                                                 {t("samples.pages.queue.table.status", { defaultValue: "Status" })}
                                             </th>
                                             <th className="text-right font-semibold px-4 py-3">
@@ -561,6 +587,8 @@ export default function SampleRequestsQueuePage() {
                                             const statusLabel = requestStatusChipLabel(t, locale, r.request_status);
                                             const batchRow = r as any;
                                             const batchCount = Number(batchRow.batch_active_total ?? batchRow.batch_total ?? 0);
+                                            const clientDisplayName = r.client_display_name ?? r.client_name ?? "-";
+                                            const clientTypeText = clientTypeLabel(t, r.client_type);
 
                                             return (
                                                 <tr key={requestId ?? `row-${idx}`} className="hover:bg-gray-50">
@@ -572,9 +600,20 @@ export default function SampleRequestsQueuePage() {
 
                                                     <td className="px-4 py-3 text-gray-700">
                                                         <div className="flex flex-col">
-                                                            <span className="font-medium">{r.client_name ?? "-"}</span>
+                                                            <span className="font-medium">{clientDisplayName}</span>
                                                             <span className="text-xs text-gray-500">{r.client_email ?? "-"}</span>
                                                         </div>
+                                                    </td>
+
+                                                    <td className="px-4 py-3 text-gray-700">
+                                                        <span
+                                                            className={cx(
+                                                                "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                                                                clientTypeTone(r.client_type)
+                                                            )}
+                                                        >
+                                                            {clientTypeText}
+                                                        </span>
                                                     </td>
 
                                                     <td className="px-4 py-3">

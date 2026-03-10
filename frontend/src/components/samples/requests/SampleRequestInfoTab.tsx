@@ -43,9 +43,22 @@ export function SampleRequestInfoTab(props: { sample: Sample }) {
     const clientEmail = String(s?.client?.email ?? s?.client_email ?? "").trim();
 
     const batchSummary = s?.batch_summary ?? null;
-    const batchActiveTotal = Number(batchSummary?.batch_active_total ?? s?.request_batch_total ?? 1);
-    const batchExcludedTotal = Number(batchSummary?.batch_excluded_total ?? 0);
-    const isBatchRequest = !!(s?.request_batch_id && batchActiveTotal > 1);
+    const batchItems = Array.isArray(s?.batch_items) ? s.batch_items : [];
+
+    const batchTotalRaw = Number(
+        batchSummary?.batch_total ??
+        s?.request_batch_total ??
+        (batchItems.length > 0 ? batchItems.length : 1)
+    );
+    const batchTotal = Number.isFinite(batchTotalRaw) && batchTotalRaw > 0 ? batchTotalRaw : 1;
+
+    const batchActiveRaw = Number(batchSummary?.batch_active_total ?? batchTotal);
+    const batchActiveTotal = Number.isFinite(batchActiveRaw) && batchActiveRaw > 0 ? batchActiveRaw : batchTotal;
+
+    const batchExcludedRaw = Number(batchSummary?.batch_excluded_total ?? Math.max(0, batchTotal - batchActiveTotal));
+    const batchExcludedTotal = Number.isFinite(batchExcludedRaw) && batchExcludedRaw > 0 ? batchExcludedRaw : 0;
+
+    const isBatchRequest = !!(s?.request_batch_id && batchTotal > 1);
 
     return (
         <div className="space-y-4">
@@ -69,29 +82,52 @@ export function SampleRequestInfoTab(props: { sample: Sample }) {
                         </div>
                     </div>
 
-                    {isBatchRequest ? (
-                        <div className="rounded-xl border border-sky-100 bg-sky-50 px-3 py-2">
-                            <div className="text-xs text-sky-700">
-                                {t("samples.requestInfo.batchRequest", {
-                                    defaultValue: "Institutional batch",
-                                })}
-                            </div>
-                            <div className="font-semibold text-sky-900 mt-0.5">
-                                {batchActiveTotal}{" "}
-                                {t("samples.requestInfo.samplesCount", {
-                                    defaultValue: "active samples",
-                                })}
-                            </div>
-                            {batchExcludedTotal > 0 ? (
+                    <div
+                        className={cx(
+                            "rounded-xl px-3 py-2",
+                            isBatchRequest ? "border border-sky-100 bg-sky-50" : "border border-gray-100 bg-gray-50"
+                        )}
+                    >
+                        <div className={cx("text-xs", isBatchRequest ? "text-sky-700" : "text-gray-500")}>
+                            {t("samples.requestInfo.totalSamples", { defaultValue: "Total samples" })}
+                        </div>
+
+                        <div className={cx("font-semibold mt-0.5", isBatchRequest ? "text-sky-900" : "text-gray-900")}>
+                            {batchTotal} {t("samples.requestInfo.samples", { defaultValue: "samples" })}
+                        </div>
+
+                        {isBatchRequest ? (
+                            <>
+                                {s?.request_batch_id ? (
+                                    <div className="text-xs text-sky-700 mt-1">
+                                        {t("samples.requestInfo.batchId", { defaultValue: "Batch" })}: {String(s.request_batch_id)}
+                                    </div>
+                                ) : null}
+
                                 <div className="text-xs text-sky-700 mt-1">
-                                    {batchExcludedTotal}{" "}
-                                    {t("samples.requestInfo.excludedCount", {
-                                        defaultValue: "excluded from active batch",
+                                    {batchActiveTotal}{" "}
+                                    {t("samples.requestInfo.activeSamples", {
+                                        defaultValue: "active samples in this batch",
                                     })}
                                 </div>
-                            ) : null}
-                        </div>
-                    ) : null}
+                            </>
+                        ) : (
+                            <div className="text-xs text-gray-500 mt-1">
+                                {t("samples.requestInfo.singleRequest", {
+                                    defaultValue: "Single-sample request",
+                                })}
+                            </div>
+                        )}
+
+                        {batchExcludedTotal > 0 ? (
+                            <div className={cx("text-xs mt-1", isBatchRequest ? "text-sky-700" : "text-gray-500")}>
+                                {batchExcludedTotal}{" "}
+                                {t("samples.requestInfo.excludedCount", {
+                                    defaultValue: "excluded from active batch",
+                                })}
+                            </div>
+                        ) : null}
+                    </div>
 
                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
                         <div className="text-xs text-gray-500">
