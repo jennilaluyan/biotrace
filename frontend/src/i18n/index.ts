@@ -1,4 +1,3 @@
-// frontend/src/i18n/index.ts
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 
@@ -17,9 +16,8 @@ function readStoredLocale(): "id" | "en" | null {
     }
 }
 
-const initialLng = readStoredLocale() ?? "id";
+const initialLng = readStoredLocale() ?? "en";
 
-// Set <html lang="..."> for accessibility/SEO
 try {
     document.documentElement.lang = initialLng;
 } catch { }
@@ -30,7 +28,7 @@ void i18n.use(initReactI18next).init({
         en: { common: commonEn },
     },
     lng: initialLng,
-    fallbackLng: "id",
+    fallbackLng: "en",
     supportedLngs: ["id", "en"],
     ns: ["common"],
     defaultNS: "common",
@@ -49,7 +47,17 @@ void i18n.use(initReactI18next).init({
     debug: Boolean(import.meta.env?.DEV),
 });
 
-export default i18n;
+i18n.on("languageChanged", (lng) => {
+    const next = lng === "id" ? "id" : "en";
 
-// Export key biar bisa dipakai Topbar (optional, tapi rapi)
+    try {
+        localStorage.setItem(STORAGE_KEY, next);
+    } catch { }
+
+    try {
+        document.documentElement.lang = next;
+    } catch { }
+});
+
+export default i18n;
 export { STORAGE_KEY };

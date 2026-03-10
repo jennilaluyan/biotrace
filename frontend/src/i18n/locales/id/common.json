@@ -40,7 +40,7 @@
     "summary": "Ringkasan",
     "actions": "Aksi",
     "accept": "Setujui",
-    "pageOfTotal": "Halaman {{page}} dari {{totalPages}} — {{total}} total",
+    "pageOfTotal": "Halaman {{page}} dari {{total}}",
     "common": {
         "actions": "Aksi",
         "totalCount": "Total: ",
@@ -146,7 +146,7 @@
             },
             "actions": {
                 "openQueue": "Buka antrian",
-                "clientApprovals": "Persetujuan klien",
+                "clientApprovals": "Persetujuan Klien",
                 "openReports": "Buka laporan"
             },
             "stats": {
@@ -173,7 +173,7 @@
             },
             "queue": {
                 "clientApprovals": {
-                    "title": "Persetujuan klien",
+                    "title": "Persetujuan Klien",
                     "subtitle": "Tinjau pendaftaran yang menunggu."
                 },
                 "newSubmissions": {
@@ -1080,7 +1080,7 @@
             }
         },
         "approvals": {
-            "title": "Persetujuan klien",
+            "title": "Persetujuan Klien",
             "subtitle": "Setujui atau tolak pendaftaran klien yang baru diajukan.",
             "loading": "Memuat pendaftaran yang menunggu…",
             "empty": "Tidak ada pendaftaran klien yang menunggu.",

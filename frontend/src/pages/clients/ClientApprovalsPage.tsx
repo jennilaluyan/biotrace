@@ -198,7 +198,7 @@ export const ClientApprovalsPage = () => {
             <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between px-0 py-2">
                 <div>
                     <h1 className="text-lg md:text-xl font-bold text-gray-900">
-                        {t("clients.approvals.title", "Client approvals")}
+                        {t("clients.approvals.title", "Client Approvals")}
                     </h1>
                     <p className="text-xs text-gray-500 mt-1">
                         {t("clients.approvals.subtitle", "Review new client registrations. Approving creates an active client account.")}

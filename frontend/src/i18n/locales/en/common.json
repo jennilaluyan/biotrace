@@ -40,7 +40,7 @@
     "summary": "Summary",
     "actions": "Actions",
     "accept": "Accept",
-    "pageOfTotal": "Page {{page}} of {{totalPages}} — {{total}} total",
+    "pageOfTotal": "Page {{page}} of {{total}}",
     "common": {
         "actions": "Actions",
         "totalCount": "Total: ",
@@ -133,15 +133,15 @@
         "dashboard": "Dashboard",
         "clients": "Clients",
         "samples": "Samples",
-        "requestQueue": "Request queue",
+        "requestQueue": "Request Queue",
         "looWorkspace": "LOO workspace",
         "reagentApprovals": "Reagent approvals",
         "reports": "Reports",
         "audit": "Audit",
         "parameters": "Parameters",
         "documentTemplates": "Document templates",
-        "clientApprovals": "Client approvals",
-        "samplesArchive": "Samples archive",
+        "clientApprovals": "Client Approvals",
+        "samplesArchive": "Samples Archive",
         "qualityCoverVerify": "Quality Cover (Verify)",
         "qualityCoverValidate": "Quality Cover (Validate)",
         "auditLogs": "Audit logs",
@@ -160,7 +160,7 @@
             },
             "actions": {
                 "openQueue": "Open queue",
-                "clientApprovals": "Client approvals",
+                "clientApprovals": "Client Approvals",
                 "openReports": "Open reports"
             },
             "stats": {
@@ -187,11 +187,11 @@
             },
             "queue": {
                 "clientApprovals": {
-                    "title": "Client approvals",
+                    "title": "Client Approvals",
                     "subtitle": "Review pending registrations."
                 },
                 "newSubmissions": {
-                    "title": "Request queue",
+                    "title": "Request Queue",
                     "subtitle": "New submissions to be reviewed."
                 },
                 "readyForDelivery": {
@@ -1099,7 +1099,7 @@
             "loading": "Loading clients…"
         },
         "approvals": {
-            "title": "Client approvals",
+            "title": "Client Approvals",
             "subtitle": "Approve or reject newly registered client applications.",
             "loading": "Loading pending applications…",
             "empty": "No pending client applications.",

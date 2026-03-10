@@ -181,6 +181,36 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const headingRegister = isPortal ? t("auth.clientSignUpTitle") : t("auth.staffSignUpTitle");
     const subtitleRegister = isPortal ? t("auth.clientSignUpSubtitle") : t("auth.staffSignUpSubtitle");
 
+    const currentLocale = (i18n.resolvedLanguage ?? i18n.language) === "id" ? "id" : "en";
+
+    const handleChangeLocale = async (next: "id" | "en") => {
+        if (currentLocale === next) return;
+        await i18n.changeLanguage(next);
+    };
+
+    const langBtn = (code: "id" | "en", label: string) => {
+        const active = currentLocale === code;
+
+        return (
+            <button
+                type="button"
+                onClick={() => handleChangeLocale(code)}
+                className={[
+                    "px-2.5 py-1 rounded-full text-xs font-semibold transition",
+                    active ? "bg-primary text-white" : "text-gray-700 hover:bg-black/5",
+                ].join(" ")}
+                aria-pressed={active}
+                aria-label={
+                    code === "id"
+                        ? t("topbar.switchToIndonesian", { defaultValue: "Switch to Indonesian" })
+                        : t("topbar.switchToEnglish", { defaultValue: "Switch to English" })
+                }
+            >
+                {label}
+            </button>
+        );
+    };
+
     useEffect(() => {
         setMode(initialMode);
     }, [initialMode]);
@@ -1107,11 +1137,27 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         </form>
     );
 
+    const languageToggle = (
+        <div className="absolute right-4 top-4 z-20">
+            <div
+                className="flex items-center gap-1 rounded-full border border-black/10 bg-white px-1 py-1 shadow-sm"
+                role="group"
+                aria-label={t("topbar.languageToggle", { defaultValue: "Language toggle" })}
+                title={t("language", { defaultValue: "Language" })}
+            >
+                {langBtn("id", "ID")}
+                {langBtn("en", "EN")}
+            </div>
+        </div>
+    );
+
     if (isMobile) {
         const isLoginPage = initialMode === "login";
 
         return (
-            <div className="min-h-screen w-full flex items-center justify-center bg-cream px-4 py-10">
+            <div className="relative min-h-screen w-full flex items-center justify-center bg-cream px-4 py-10">
+                {languageToggle}
+
                 <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl py-6">
                     {isLoginPage ? loginForm : registerForm}
 
@@ -1144,7 +1190,9 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     }
 
     return (
-        <div className="min-h-screen w-full flex items-center justify-center bg-cream px-4 py-10">
+        <div className="relative min-h-screen w-full flex items-center justify-center bg-cream px-4 py-10">
+            {languageToggle}
+
             <div className={containerClass + (mode === "register" ? " lims-right-active" : "")}>
                 <div
                     ref={signUpContainerRef}
