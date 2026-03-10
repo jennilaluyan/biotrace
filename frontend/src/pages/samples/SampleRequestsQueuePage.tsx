@@ -230,8 +230,13 @@ export default function SampleRequestsQueuePage() {
         return itemsRaw.filter((r) => normalizeToken(r.request_status) !== "draft");
     }, [itemsRaw]);
 
-    const total = pager?.total ?? 0;
-    const totalPages = pager?.last_page ?? 1;
+    const total = Number(pager?.total ?? 0);
+    const currentPageNumber = Math.max(1, Number(pager?.current_page ?? currentPage ?? 1));
+    const totalPages = Math.max(1, Number(pager?.last_page ?? 1));
+
+    const shouldShowPagination = totalPages > 1;
+    const showPrevButton = shouldShowPagination && currentPageNumber > 1;
+    const showNextButton = shouldShowPagination;
 
     const closeModal = useCallback(() => {
         setModalOpen(false);
@@ -666,32 +671,34 @@ export default function SampleRequestsQueuePage() {
 
                             <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
                                 <div className="text-xs text-gray-600">
-                                    {t("pageOfTotal", {
-                                        page: pager?.current_page ?? 1,
-                                        totalPages,
-                                        total,
-                                        defaultValue: `Page ${pager?.current_page ?? 1} of ${totalPages} — ${total} total`,
-                                    })}
+                                    {t("page", { defaultValue: "Page" })} {currentPageNumber} {t("of", { defaultValue: "of" })} {totalPages}
                                 </div>
 
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => handlePageChange(currentPage - 1)}
-                                        disabled={currentPage <= 1}
-                                        className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
-                                    >
-                                        {t("prev", { defaultValue: "Prev" })}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handlePageChange(currentPage + 1)}
-                                        disabled={currentPage >= totalPages}
-                                        className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
-                                    >
-                                        {t("next", { defaultValue: "Next" })}
-                                    </button>
-                                </div>
+                                {shouldShowPagination ? (
+                                    <div className="flex items-center gap-2">
+                                        {showPrevButton ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => handlePageChange(currentPageNumber - 1)}
+                                                disabled={currentPageNumber <= 1}
+                                                className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+                                            >
+                                                {t("prev", { defaultValue: "Prev" })}
+                                            </button>
+                                        ) : null}
+
+                                        {showNextButton ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => handlePageChange(currentPageNumber + 1)}
+                                                disabled={currentPageNumber >= totalPages}
+                                                className="px-3 py-1 rounded-full border text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+                                            >
+                                                {t("next", { defaultValue: "Next" })}
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                ) : null}
                             </div>
                         </>
                     )}

@@ -2025,7 +2025,7 @@
                 "requestId": "Request ID"
             },
             "method": {
-                "labelRequired": "Test method (required)",
+                "labelRequired": "Test method",
                 "placeholderInput": "Type test method…"
             },
             "note": {

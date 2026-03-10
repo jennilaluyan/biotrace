@@ -2003,7 +2003,7 @@
                 "requestId": "ID Permintaan"
             },
             "method": {
-                "labelRequired": "Metode uji (wajib)",
+                "labelRequired": "Metode uji",
                 "placeholderInput": "Tulis metode uji…"
             },
             "note": {
