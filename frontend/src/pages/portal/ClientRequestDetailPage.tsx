@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import {
     ArrowLeft,
     Calendar,
@@ -29,7 +30,7 @@ function cx(...arr: Array<string | false | null | undefined>) {
     return arr.filter(Boolean).join(" ");
 }
 
-function statusLabel(t: any, bucket: ClientRequestStatusView): string {
+function statusLabel(t: TFunction, bucket: ClientRequestStatusView): string {
     const keyMap: Record<ClientRequestStatusView, string> = {
         submitted: "portalRequestsPage.status.submitted",
         returned: "portalRequestsPage.status.returned",
@@ -71,7 +72,7 @@ function statusToneByView(v: ClientRequestStatusView) {
     return "bg-gray-100 text-gray-700 border-gray-200";
 }
 
-const getValidationMessage = (e: any, fallback: string) => {
+function getValidationMessage(e: any, fallback: string) {
     const details = e?.data?.details;
     if (details && typeof details === "object") {
         const firstKey = Object.keys(details)[0];
@@ -80,10 +81,11 @@ const getValidationMessage = (e: any, fallback: string) => {
         if (typeof firstVal === "string" && firstVal) return firstVal;
     }
     return e?.data?.message ?? e?.data?.error ?? fallback;
-};
+}
 
 function datetimeLocalFromIso(iso?: string | null): string {
     if (!iso) return "";
+
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "";
 
@@ -93,12 +95,15 @@ function datetimeLocalFromIso(iso?: string | null): string {
 
 function extractPaginatedRows<T>(res: any): T[] {
     const root = res?.data ?? res;
-    const d = root?.data ?? root;
-    if (Array.isArray(d)) return d as T[];
-    if (Array.isArray(d?.data)) return d.data as T[];
-    const d2 = d?.data ?? null;
-    if (Array.isArray(d2)) return d2 as T[];
-    if (Array.isArray(d2?.data)) return d2.data as T[];
+    const data = root?.data ?? root;
+
+    if (Array.isArray(data)) return data as T[];
+    if (Array.isArray(data?.data)) return data.data as T[];
+
+    const nested = data?.data ?? null;
+    if (Array.isArray(nested)) return nested as T[];
+    if (Array.isArray(nested?.data)) return nested.data as T[];
+
     return [];
 }
 
@@ -114,6 +119,27 @@ function parameterLabel(p: any) {
     const code = String(p?.code ?? "").trim();
     const name = String(p?.name ?? "").trim();
     return (code ? `${code} — ` : "") + (name || `Parameter #${id}`);
+}
+
+function resolveTotalSampleValue(row: any): number {
+    const batchItems = Array.isArray(row?.batch_items) ? row.batch_items : [];
+    const activeBatchCount = batchItems.filter((it: any) => !it?.batch_excluded_at).length;
+
+    const candidates = [
+        Number(row?.total_sample),
+        Number(row?.total_samples),
+        Number(row?.request_batch_total),
+        Number(row?.batch_summary?.batch_total),
+        Number(row?.batch_summary?.batch_active_total),
+        activeBatchCount,
+    ];
+
+    const found = candidates.find((n) => Number.isFinite(n) && n > 0);
+    return found ?? 1;
+}
+
+function sanitizePositiveIntegerInput(value: string) {
+    return value.replace(/[^\d]/g, "");
 }
 
 export default function ClientRequestDetailPage() {
@@ -140,6 +166,7 @@ export default function ClientRequestDetailPage() {
 
     const [sampleType, setSampleType] = useState("");
     const [scheduledDeliveryAt, setScheduledDeliveryAt] = useState("");
+    const [totalSample, setTotalSample] = useState("1");
     const [examinationPurpose, setExaminationPurpose] = useState("");
     const [additionalNotes, setAdditionalNotes] = useState("");
 
@@ -170,11 +197,7 @@ export default function ClientRequestDetailPage() {
     );
 
     const failedChecklistItems = useMemo(() => {
-        const rawItems =
-            intakeChecklist?.checklist?.items ??
-            intakeChecklist?.items ??
-            [];
-
+        const rawItems = intakeChecklist?.checklist?.items ?? intakeChecklist?.items ?? [];
         return Array.isArray(rawItems)
             ? rawItems.filter((it: any) => it && it.passed === false)
             : [];
@@ -186,10 +209,7 @@ export default function ClientRequestDetailPage() {
     );
 
     const isFailedIntakePickupFlow = useMemo(() => {
-        return (
-            !!(data as any)?.admin_received_from_collector_at &&
-            ["returned", "rejected"].includes(rawRequestStatus)
-        );
+        return !!(data as any)?.admin_received_from_collector_at && ["returned", "rejected"].includes(rawRequestStatus);
     }, [data, rawRequestStatus]);
 
     const canEdit = useMemo(() => {
@@ -211,6 +231,10 @@ export default function ClientRequestDetailPage() {
         const sid = Number((data as any)?.sample_id);
         return Number.isFinite(sid) && sid > 0 ? sid : numericId;
     }, [data, numericId]);
+
+    const totalSampleNumber = useMemo(() => {
+        return Math.max(1, Number(totalSample) || 1);
+    }, [totalSample]);
 
     useEffect(() => {
         const run = async () => {
@@ -254,8 +278,7 @@ export default function ClientRequestDetailPage() {
                 per_page: 20,
                 q: (q ?? "").trim() || undefined,
             });
-            const rows = extractPaginatedRows<ParameterRow>(res);
-            setParamItems(Array.isArray(rows) ? rows : []);
+            setParamItems(extractPaginatedRows<ParameterRow>(res));
         } catch {
             setParamItems([]);
         } finally {
@@ -263,14 +286,15 @@ export default function ClientRequestDetailPage() {
         }
     };
 
-    const hydrateForm = (s: Sample) => {
-        setSampleType(String((s as any).sample_type ?? ""));
-        setScheduledDeliveryAt(datetimeLocalFromIso((s as any).scheduled_delivery_at ?? null));
-        setExaminationPurpose(String((s as any).examination_purpose ?? ""));
-        setAdditionalNotes(String((s as any).additional_notes ?? ""));
+    const hydrateForm = (sample: Sample) => {
+        setSampleType(String((sample as any).sample_type ?? ""));
+        setScheduledDeliveryAt(datetimeLocalFromIso((sample as any).scheduled_delivery_at ?? null));
+        setTotalSample(String(resolveTotalSampleValue(sample)));
+        setExaminationPurpose(String((sample as any).examination_purpose ?? ""));
+        setAdditionalNotes(String((sample as any).additional_notes ?? ""));
 
-        const ids = Array.isArray((s as any).requested_parameters)
-            ? (s as any).requested_parameters
+        const ids = Array.isArray((sample as any).requested_parameters)
+            ? (sample as any).requested_parameters
                 .map((p: any) => Number(p.parameter_id))
                 .filter((x: any) => Number.isFinite(x))
             : [];
@@ -291,6 +315,7 @@ export default function ClientRequestDetailPage() {
         try {
             setError(null);
             setInfo(null);
+
             if (!silent) setLoading(true);
             if (silent) setRefreshing(true);
 
@@ -298,16 +323,18 @@ export default function ClientRequestDetailPage() {
                 params: { include_batch: 1 },
             });
 
-            const s = extractSingleRow<Sample>(res);
+            const sample = extractSingleRow<Sample>(res);
 
-            if (!s) {
+            if (!sample) {
                 throw new Error(t("portalRequestDetail.errors.loadFailed", "Failed to load request detail."));
             }
 
-            setData(s);
-            hydrateForm(s);
+            setData(sample);
+            hydrateForm(sample);
 
-            if (!silent) await loadParams("");
+            if (!silent) {
+                await loadParams("");
+            }
         } catch (e: any) {
             setError(getValidationMessage(e, t("portalRequestDetail.errors.loadFailed", "Failed to load request detail.")));
             setData(null);
@@ -348,7 +375,8 @@ export default function ClientRequestDetailPage() {
     const buildPayload = () => {
         return {
             sample_type: sampleType.trim(),
-            scheduled_delivery_at: scheduledDeliveryAt ? scheduledDeliveryAt : null,
+            total_sample: totalSampleNumber,
+            scheduled_delivery_at: scheduledDeliveryAt || null,
             examination_purpose: examinationPurpose.trim() || null,
             additional_notes: additionalNotes.trim() || null,
             parameter_ids: selectedParamId ? [selectedParamId] : [],
@@ -356,23 +384,40 @@ export default function ClientRequestDetailPage() {
     };
 
     const canSubmit = useMemo(() => {
-        return canEdit && !!sampleType.trim() && !!scheduledDeliveryAt.trim() && !!selectedParamId && !submitting;
-    }, [canEdit, sampleType, scheduledDeliveryAt, selectedParamId, submitting]);
+        return (
+            canEdit &&
+            !!sampleType.trim() &&
+            totalSampleNumber > 0 &&
+            !!scheduledDeliveryAt.trim() &&
+            !!selectedParamId &&
+            !submitting
+        );
+    }, [canEdit, sampleType, totalSampleNumber, scheduledDeliveryAt, selectedParamId, submitting]);
+
+    const validateEditableFields = () => {
+        if (!sampleType.trim()) {
+            setError(t("portalRequestDetail.errors.sampleTypeRequired", "Sample type is required."));
+            return false;
+        }
+
+        if (!Number.isFinite(Number(totalSample)) || Number(totalSample) <= 0) {
+            setError(t("portalRequestDetail.errors.totalSampleRequired", "Total sample must be greater than 0."));
+            return false;
+        }
+
+        return true;
+    };
 
     const saveChanges = async () => {
         if (!Number.isFinite(numericId)) return;
-
-        if (!sampleType.trim()) {
-            setError(t("portalRequestDetail.errors.sampleTypeRequired", "Sample type is required."));
-            return;
-        }
+        if (!validateEditableFields()) return;
 
         try {
             setInfo(null);
             setError(null);
             setSaving(true);
 
-            const updated = await clientSampleRequestService.updateDraft(numericId, buildPayload());
+            const updated = await clientSampleRequestService.updateDraft(numericId, buildPayload() as any);
             setData(updated);
             hydrateForm(updated);
 
@@ -386,11 +431,7 @@ export default function ClientRequestDetailPage() {
 
     const submit = async () => {
         if (!Number.isFinite(numericId)) return;
-
-        if (!sampleType.trim()) {
-            setError(t("portalRequestDetail.errors.sampleTypeRequired", "Sample type is required."));
-            return;
-        }
+        if (!validateEditableFields()) return;
 
         if (!scheduledDeliveryAt.trim()) {
             setError(t("portalRequestDetail.errors.scheduledDeliveryRequired", "Scheduled delivery time is required."));
@@ -454,7 +495,7 @@ export default function ClientRequestDetailPage() {
                     </button>
                 </div>
 
-                <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                <div className="mt-2 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
                     <div className="text-sm text-rose-700">
                         {error ?? t("portal.requestDetail.states.notFound", "Request not found.")}
                     </div>
@@ -472,26 +513,11 @@ export default function ClientRequestDetailPage() {
     const coaNote = String((data as any)?.coa_release_note ?? "").trim() || null;
     const canDownloadCoa = !!coaReleasedAt;
 
-    const batchItems = Array.isArray((data as any)?.batch_items) ? (data as any).batch_items : [];
-    const activeBatchCount = batchItems.filter((it: any) => !it?.batch_excluded_at).length;
-
-    const totalSample = (() => {
-        const candidates = [
-            Number((data as any)?.request_batch_total),
-            Number((data as any)?.batch_summary?.batch_total),
-            Number((data as any)?.batch_summary?.batch_active_total),
-            activeBatchCount,
-        ];
-
-        const found = candidates.find((n) => Number.isFinite(n) && n > 0);
-        return found ?? 1;
-    })();
-
     const showHelpSubmitted = !canEdit && statusView === "submitted";
 
     return (
         <div className="min-h-[60vh] pb-20">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between px-0 py-2 mb-2">
+            <div className="mb-2 flex flex-col gap-4 px-0 py-2 md:flex-row md:items-start md:justify-between">
                 <div className="flex items-start gap-3">
                     <button
                         type="button"
@@ -503,14 +529,14 @@ export default function ClientRequestDetailPage() {
                     </button>
 
                     <div>
-                        <div className="mt-1 flex items-center gap-3 flex-wrap">
-                            <h1 className="text-xl md:text-2xl font-bold text-gray-900">
+                        <div className="mt-1 flex flex-wrap items-center gap-3">
+                            <h1 className="text-xl font-bold text-gray-900 md:text-2xl">
                                 {t("portalRequestDetail.title", "Request #{{id}}", { id: requestIdLabel })}
                             </h1>
 
                             <span
                                 className={cx(
-                                    "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border",
+                                    "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold",
                                     statusToneByView(statusView)
                                 )}
                             >
@@ -520,8 +546,8 @@ export default function ClientRequestDetailPage() {
                             <button
                                 type="button"
                                 className={cx(
-                                    "lims-icon-button bg-transparent border-transparent hover:bg-gray-100",
-                                    refreshing && "opacity-60 cursor-not-allowed"
+                                    "lims-icon-button border-transparent bg-transparent hover:bg-gray-100",
+                                    refreshing && "cursor-not-allowed opacity-60"
                                 )}
                                 onClick={() => load({ silent: true })}
                                 disabled={refreshing || submitting || saving}
@@ -532,7 +558,7 @@ export default function ClientRequestDetailPage() {
                             </button>
                         </div>
 
-                        <div className="text-xs text-gray-500 mt-1.5 flex items-center gap-1">
+                        <div className="mt-1.5 flex items-center gap-1 text-xs text-gray-500">
                             {t("portal.requestDetail.lastUpdated", "Last updated {{at}}", {
                                 at: formatDateTimeLocal(updatedAt),
                             })}
@@ -540,15 +566,15 @@ export default function ClientRequestDetailPage() {
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex flex-wrap items-center gap-3">
                     {canEdit ? (
                         <button
                             type="button"
                             onClick={saveChanges}
                             disabled={saving}
                             className={cx(
-                                "btn-outline inline-flex items-center gap-2 min-w-[140px]",
-                                saving && "opacity-60 cursor-not-allowed"
+                                "btn-outline inline-flex min-w-[140px] items-center gap-2",
+                                saving && "cursor-not-allowed opacity-60"
                             )}
                         >
                             {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
@@ -561,8 +587,8 @@ export default function ClientRequestDetailPage() {
                         onClick={submit}
                         disabled={!canSubmit}
                         className={cx(
-                            "lims-btn-primary inline-flex items-center gap-2 min-w-[120px] shadow-sm",
-                            (!canSubmit || submitting) && "opacity-60 cursor-not-allowed bg-gray-400 border-gray-400 text-white"
+                            "lims-btn-primary inline-flex min-w-[120px] items-center gap-2 shadow-sm",
+                            (!canSubmit || submitting) && "cursor-not-allowed border-gray-400 bg-gray-400 text-white opacity-60"
                         )}
                         aria-disabled={!canSubmit || submitting}
                     >
@@ -573,15 +599,15 @@ export default function ClientRequestDetailPage() {
             </div>
 
             {error ? (
-                <div className="mb-4 text-sm text-rose-900 bg-rose-50 border border-rose-200 px-4 py-3 rounded-2xl flex items-start gap-2">
-                    <Info size={18} className="shrink-0 mt-0.5" />
+                <div className="mb-4 flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                    <Info size={18} className="mt-0.5 shrink-0" />
                     {error}
                 </div>
             ) : null}
 
             {info ? (
-                <div className="mb-4 text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl flex items-start gap-2">
-                    <Check size={18} className="shrink-0 mt-0.5" />
+                <div className="mb-4 flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                    <Check size={18} className="mt-0.5 shrink-0" />
                     {info}
                 </div>
             ) : null}
@@ -595,7 +621,7 @@ export default function ClientRequestDetailPage() {
                 >
                     <div
                         className={cx(
-                            "flex items-center gap-2 font-semibold mb-1",
+                            "mb-1 flex items-center gap-2 font-semibold",
                             statusView === "rejected" ? "text-rose-900" : "text-amber-900"
                         )}
                     >
@@ -607,7 +633,12 @@ export default function ClientRequestDetailPage() {
                                 : t("portal.requestDetail.alerts.revisionTitle", { defaultValue: "Revision requested" })}
                     </div>
 
-                    <div className={cx("text-sm pl-7 whitespace-pre-wrap", statusView === "rejected" ? "text-rose-800" : "text-amber-800")}>
+                    <div
+                        className={cx(
+                            "whitespace-pre-wrap pl-7 text-sm",
+                            statusView === "rejected" ? "text-rose-800" : "text-amber-800"
+                        )}
+                    >
                         {requestReturnNote}
                     </div>
                 </div>
@@ -615,14 +646,14 @@ export default function ClientRequestDetailPage() {
 
             {isFailedIntakePickupFlow ? (
                 <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 shadow-sm">
-                    <div className="flex items-center gap-2 font-semibold text-rose-900 mb-1">
+                    <div className="mb-1 flex items-center gap-2 font-semibold text-rose-900">
                         <Info size={18} />
                         {t("portalRequestDetail.failedIntake.title", {
                             defaultValue: "Sample pickup required",
                         })}
                     </div>
 
-                    <div className="text-sm text-rose-800 pl-7">
+                    <div className="pl-7 text-sm text-rose-800">
                         {t("portalRequestDetail.failedIntake.body", {
                             defaultValue:
                                 "This request became read-only because Sample Collector failed the intake and admin has asked you to pick the sample up.",
@@ -631,7 +662,7 @@ export default function ClientRequestDetailPage() {
 
                     {failedChecklistItems.length ? (
                         <div className="mt-4 pl-7">
-                            <div className="text-xs font-semibold text-rose-900 mb-2">
+                            <div className="mb-2 text-xs font-semibold text-rose-900">
                                 {t("portalRequestDetail.failedIntake.listTitle", {
                                     defaultValue: "Failed intake reasons",
                                 })}
@@ -639,11 +670,14 @@ export default function ClientRequestDetailPage() {
 
                             <ul className="space-y-2">
                                 {failedChecklistItems.map((it: any, idx: number) => (
-                                    <li key={`${it?.key ?? idx}`} className="rounded-xl border border-rose-200 bg-white/70 px-3 py-2">
+                                    <li
+                                        key={`${it?.key ?? idx}`}
+                                        className="rounded-xl border border-rose-200 bg-white/70 px-3 py-2"
+                                    >
                                         <div className="text-sm font-semibold text-rose-900">
                                             {String(it?.key ?? `item_${idx + 1}`)}
                                         </div>
-                                        <div className="text-sm text-rose-800 mt-1 whitespace-pre-wrap">
+                                        <div className="mt-1 whitespace-pre-wrap text-sm text-rose-800">
                                             {String(it?.note ?? "—")}
                                         </div>
                                     </li>
@@ -654,12 +688,12 @@ export default function ClientRequestDetailPage() {
 
                     {intakeGeneralNote ? (
                         <div className="mt-4 pl-7">
-                            <div className="text-xs font-semibold text-rose-900 mb-1">
+                            <div className="mb-1 text-xs font-semibold text-rose-900">
                                 {t("portalRequestDetail.failedIntake.generalNote", {
                                     defaultValue: "Additional note",
                                 })}
                             </div>
-                            <div className="text-sm text-rose-800 whitespace-pre-wrap">{intakeGeneralNote}</div>
+                            <div className="whitespace-pre-wrap text-sm text-rose-800">{intakeGeneralNote}</div>
                         </div>
                     ) : null}
 
@@ -675,8 +709,8 @@ export default function ClientRequestDetailPage() {
             ) : null}
 
             {showHelpSubmitted ? (
-                <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4 text-sm text-blue-900 flex items-start gap-3">
-                    <Info size={18} className="shrink-0 mt-0.5" />
+                <div className="mb-6 flex items-start gap-3 rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4 text-sm text-blue-900">
+                    <Info size={18} className="mt-0.5 shrink-0" />
                     <div>
                         {t(
                             "portalRequestDetail.helpers.submittedBody",
@@ -686,7 +720,7 @@ export default function ClientRequestDetailPage() {
                 </div>
             ) : null}
 
-            {(coaReleasedAt || coaCheckedAt) ? (
+            {coaReleasedAt || coaCheckedAt ? (
                 <div
                     className={cx(
                         "mb-6 rounded-2xl border px-5 py-4 shadow-sm",
@@ -699,20 +733,27 @@ export default function ClientRequestDetailPage() {
                                 {t("portal.coa.title", "Certificate of Analysis (COA)")}
                             </div>
 
-                            <div className={cx("text-sm mt-1", canDownloadCoa ? "text-emerald-800" : "text-indigo-800")}>
+                            <div className={cx("mt-1 text-sm", canDownloadCoa ? "text-emerald-800" : "text-indigo-800")}>
                                 {canDownloadCoa
                                     ? t("portal.coa.available", "COA sudah tersedia dan bisa diunduh.")
                                     : t("portal.coa.checkedPending", "COA sudah dicek, menunggu rilis admin.")}
                             </div>
 
                             {coaReleasedAt ? (
-                                <div className={cx("text-xs mt-2", canDownloadCoa ? "text-emerald-700" : "text-indigo-700")}>
-                                    {t("portal.coa.releasedAt", "Dirilis: {{at}}", { at: formatDateTimeLocal(coaReleasedAt) })}
+                                <div className={cx("mt-2 text-xs", canDownloadCoa ? "text-emerald-700" : "text-indigo-700")}>
+                                    {t("portal.coa.releasedAt", "Dirilis: {{at}}", {
+                                        at: formatDateTimeLocal(coaReleasedAt),
+                                    })}
                                 </div>
                             ) : null}
 
                             {coaNote ? (
-                                <div className={cx("text-xs mt-2 whitespace-pre-wrap", canDownloadCoa ? "text-emerald-700" : "text-indigo-700")}>
+                                <div
+                                    className={cx(
+                                        "mt-2 whitespace-pre-wrap text-xs",
+                                        canDownloadCoa ? "text-emerald-700" : "text-indigo-700"
+                                    )}
+                                >
                                     {t("portal.coa.note", "Catatan:")} {coaNote}
                                 </div>
                             ) : null}
@@ -721,7 +762,7 @@ export default function ClientRequestDetailPage() {
                         {canDownloadCoa ? (
                             <button
                                 type="button"
-                                className="lims-btn-primary inline-flex items-center gap-2 shrink-0"
+                                className="lims-btn-primary inline-flex shrink-0 items-center gap-2"
                                 onClick={() => Number.isFinite(coaSampleId) && openCoaPreview(coaSampleId as number)}
                             >
                                 <Download size={16} />
@@ -733,23 +774,23 @@ export default function ClientRequestDetailPage() {
             ) : null}
 
             <div className="lims-detail-shell">
-                <div className="border-b border-gray-100 pb-4 mb-6">
+                <div className="mb-6 border-b border-gray-100 pb-4">
                     <h2 className="text-base font-semibold text-gray-900">
                         {t("portal.requestDetail.sections.detailsTitle", "Request details")}
                     </h2>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="mt-1 text-xs text-gray-500">
                         {t("portal.requestDetail.sections.detailsSub", "Editable when returned / revision / rejected.")}
                     </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                     <div className="space-y-6">
                         <div>
-                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                            <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-gray-500">
                                 {t("portal.requestDetail.fields.sampleType", "Sample type")} <span className="text-rose-600">*</span>
                             </label>
                             <div className="relative">
-                                <span className="absolute inset-y-0 left-3 flex items-center text-gray-400 pointer-events-none">
+                                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-400">
                                     <TestTube size={16} />
                                 </span>
                                 <input
@@ -757,17 +798,17 @@ export default function ClientRequestDetailPage() {
                                     onChange={(e) => setSampleType(e.target.value)}
                                     disabled={!canEdit}
                                     placeholder={t("portalRequestForm.placeholders.sampleType", "e.g., Swab, Blood, Tissue…")}
-                                    className="w-full rounded-xl border border-gray-300 pl-10 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 transition-all"
+                                    className="w-full rounded-xl border border-gray-300 py-2.5 pl-10 pr-3 text-sm transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-soft disabled:bg-gray-50 disabled:text-gray-500"
                                 />
                             </div>
                         </div>
 
                         <div>
-                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                            <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-gray-500">
                                 {t("portal.requestDetail.fields.scheduledDelivery", "Scheduled delivery")} <span className="text-rose-600">*</span>
                             </label>
                             <div className="relative">
-                                <span className="absolute inset-y-0 left-3 flex items-center text-gray-400 pointer-events-none">
+                                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-400">
                                     <Calendar size={16} />
                                 </span>
                                 <input
@@ -775,7 +816,7 @@ export default function ClientRequestDetailPage() {
                                     value={scheduledDeliveryAt}
                                     onChange={(e) => setScheduledDeliveryAt(e.target.value)}
                                     disabled={!canEdit}
-                                    className="w-full rounded-xl border border-gray-300 pl-10 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 transition-all"
+                                    className="w-full rounded-xl border border-gray-300 py-2.5 pl-10 pr-3 text-sm transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-soft disabled:bg-gray-50 disabled:text-gray-500"
                                 />
                             </div>
                             <p className="mt-1.5 text-[11px] text-gray-500">
@@ -784,30 +825,33 @@ export default function ClientRequestDetailPage() {
                         </div>
 
                         <div>
-                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                                {t("portal.requestDetail.fields.totalSample", "Total sample")}
+                            <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-gray-500">
+                                {t("portal.requestDetail.fields.totalSample", "Total sample")} <span className="text-rose-600">*</span>
                             </label>
                             <input
-                                value={String(totalSample)}
-                                readOnly
-                                disabled
-                                className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm bg-gray-50 text-gray-700"
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={totalSample}
+                                onChange={(e) => setTotalSample(sanitizePositiveIntegerInput(e.target.value))}
+                                disabled={!canEdit}
+                                className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-soft disabled:bg-gray-50 disabled:text-gray-500"
                             />
                             <p className="mt-1.5 text-[11px] text-gray-500">
                                 {t(
                                     "portal.requestDetail.helpers.totalSample",
                                     "This request contains {{count}} sample(s) in the same submission.",
-                                    { count: totalSample }
+                                    { count: totalSampleNumber }
                                 )}
                             </p>
                         </div>
 
                         <div>
-                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                            <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-gray-500">
                                 {t("portal.requestDetail.fields.additionalNotes", "Additional notes")}
                             </label>
                             <div className="relative">
-                                <span className="absolute top-3 left-3 flex items-start text-gray-400 pointer-events-none">
+                                <span className="pointer-events-none absolute left-3 top-3 flex items-start text-gray-400">
                                     <FileText size={16} />
                                 </span>
                                 <textarea
@@ -816,7 +860,7 @@ export default function ClientRequestDetailPage() {
                                     disabled={!canEdit}
                                     rows={3}
                                     placeholder={t("portalRequestForm.placeholders.additionalNotes", "Optional...")}
-                                    className="w-full rounded-xl border border-gray-300 pl-10 pr-3 py-2.5 text-sm min-h-[100px] focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 transition-all"
+                                    className="min-h-[100px] w-full rounded-xl border border-gray-300 py-2.5 pl-10 pr-3 text-sm transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-soft disabled:bg-gray-50 disabled:text-gray-500"
                                 />
                             </div>
                         </div>
@@ -824,22 +868,22 @@ export default function ClientRequestDetailPage() {
 
                     <div className="space-y-6">
                         <div>
-                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                            <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-gray-500">
                                 {t("portal.requestDetail.fields.parameter", "Parameter")} <span className="text-rose-600">*</span>
                             </label>
 
                             {selectedParamLabel ? (
                                 <div className="mb-3 animate-in fade-in slide-in-from-top-1 duration-200">
-                                    <div className="inline-flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 text-primary-dark px-3 py-2 text-sm font-medium w-full">
+                                    <div className="inline-flex w-full items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-sm font-medium text-primary-dark">
                                         <Check size={16} className="text-primary" />
-                                        <span className="truncate flex-1">{selectedParamLabel}</span>
+                                        <span className="flex-1 truncate">{selectedParamLabel}</span>
                                     </div>
                                 </div>
                             ) : null}
 
-                            <div className="bg-gray-50 rounded-2xl p-3 border border-gray-200">
-                                <div className="flex gap-2 mb-3">
-                                    <div className="flex-1 relative">
+                            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
+                                <div className="mb-3 flex gap-2">
+                                    <div className="relative flex-1">
                                         <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-400">
                                             <Search size={16} />
                                         </span>
@@ -855,28 +899,32 @@ export default function ClientRequestDetailPage() {
                                             }}
                                             placeholder={t("portal.requestDetail.fields.parameterSearchPlaceholder", "Search parameter...")}
                                             disabled={!canEdit}
-                                            className="w-full rounded-xl border border-gray-200 pl-9 pr-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-100 bg-white"
+                                            className="w-full rounded-xl border border-gray-200 bg-white py-2 pl-9 pr-3 text-xs focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-soft disabled:bg-gray-100"
                                         />
                                     </div>
+
                                     <button
                                         type="button"
-                                        className="lims-icon-button bg-white border border-gray-200 h-9 w-9"
+                                        className="lims-icon-button h-9 w-9 border border-gray-200 bg-white"
                                         onClick={() => setParamPickerOpen((v) => !v)}
                                         disabled={!canEdit}
                                     >
-                                        <ChevronDown size={16} className={cx(paramPickerOpen && "rotate-180 transition-transform")} />
+                                        <ChevronDown
+                                            size={16}
+                                            className={cx(paramPickerOpen && "rotate-180 transition-transform")}
+                                        />
                                     </button>
                                 </div>
 
-                                {paramPickerOpen && (
-                                    <div className="max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                                {paramPickerOpen ? (
+                                    <div className="custom-scrollbar max-h-48 overflow-y-auto pr-1">
                                         {paramLoading ? (
-                                            <div className="py-4 text-xs text-gray-500 flex items-center justify-center gap-2">
+                                            <div className="flex items-center justify-center gap-2 py-4 text-xs text-gray-500">
                                                 <Loader2 size={14} className="animate-spin" />
                                                 {t("loading", "Loading...")}
                                             </div>
                                         ) : paramItems.length === 0 ? (
-                                            <div className="py-4 text-xs text-gray-500 text-center italic">
+                                            <div className="py-4 text-center text-xs italic text-gray-500">
                                                 {t("portal.requestDetail.parameterPicker.empty", "No parameters found.")}
                                             </div>
                                         ) : (
@@ -892,22 +940,26 @@ export default function ClientRequestDetailPage() {
                                                                 onClick={() => setSelectedParamId(pid)}
                                                                 disabled={!canEdit}
                                                                 className={cx(
-                                                                    "w-full text-left px-3 py-2 rounded-lg text-xs transition-colors flex items-center justify-between group",
+                                                                    "group flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors",
                                                                     checked
-                                                                        ? "bg-white border border-primary/30 shadow-sm ring-1 ring-primary/10"
-                                                                        : "hover:bg-white border border-transparent hover:border-gray-200 text-gray-600 hover:text-gray-900"
+                                                                        ? "border border-primary/30 bg-white shadow-sm ring-1 ring-primary/10"
+                                                                        : "border border-transparent text-gray-600 hover:border-gray-200 hover:bg-white hover:text-gray-900"
                                                                 )}
                                                             >
                                                                 <div className="min-w-0 flex-1">
-                                                                    <div className={cx("font-medium truncate", checked ? "text-primary-dark" : "")}>
+                                                                    <div className={cx("truncate font-medium", checked && "text-primary-dark")}>
                                                                         {parameterLabel(p)}
                                                                     </div>
-                                                                    <div className="text-[10px] text-gray-400 truncate">
-                                                                        {p.unit ? t("portal.requestDetail.parameterPicker.unit", "Unit: {{unit}}", { unit: p.unit }) : "—"}
+                                                                    <div className="truncate text-[10px] text-gray-400">
+                                                                        {p.unit
+                                                                            ? t("portal.requestDetail.parameterPicker.unit", "Unit: {{unit}}", {
+                                                                                unit: p.unit,
+                                                                            })
+                                                                            : "—"}
                                                                     </div>
                                                                 </div>
 
-                                                                {checked && <Check size={14} className="text-primary shrink-0" />}
+                                                                {checked ? <Check size={14} className="shrink-0 text-primary" /> : null}
                                                             </button>
                                                         </li>
                                                     );
@@ -915,12 +967,12 @@ export default function ClientRequestDetailPage() {
                                             </ul>
                                         )}
                                     </div>
-                                )}
+                                ) : null}
                             </div>
                         </div>
 
                         <div>
-                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                            <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-gray-500">
                                 {t("portal.requestDetail.fields.examinationPurpose", "Examination purpose")}
                             </label>
                             <textarea
@@ -929,7 +981,7 @@ export default function ClientRequestDetailPage() {
                                 disabled={!canEdit}
                                 rows={2}
                                 placeholder={t("portalRequestForm.placeholders.examinationPurpose", "Optional: what is this test for?")}
-                                className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 transition-all"
+                                className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-soft disabled:bg-gray-50 disabled:text-gray-500"
                             />
                         </div>
                     </div>
