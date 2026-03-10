@@ -4,7 +4,7 @@ import { Download, Eye, FilePlus2, RefreshCw, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 
-import type { ClientRequestStatusView, Sample } from "../../services/samples";
+import type { ClientRequestStatusView, PaginatedResponse, Sample } from "../../services/samples";
 import { getClientRequestStatusView } from "../../services/samples";
 import { apiGet } from "../../services/api";
 import { ClientRequestFormModal } from "../../components/portal/ClientRequestFormModal";
@@ -21,7 +21,25 @@ type ClientRequestItem = Sample & {
     client_picked_up_at?: string | null;
 };
 
-type FlashPayload = { type: "success" | "warning" | "error"; message: string };
+type FlashPayload = {
+    type: "success" | "warning" | "error";
+    message: string;
+};
+
+type StatusFilter = "all" | Exclude<ClientRequestStatusView, "unknown">;
+
+const STATUS_FILTERS: StatusFilter[] = [
+    "all",
+    "submitted",
+    "returned",
+    "needs_revision",
+    "ready_for_delivery",
+    "received_by_admin",
+    "intake_inspection",
+    "testing",
+    "reported",
+    "rejected",
+];
 
 function fmtDate(iso?: string | null) {
     if (!iso) return "-";
@@ -40,17 +58,21 @@ function stableKey(it: any, idx: number) {
     return String(it?.sample_id ?? it?.id ?? it?.lab_sample_code ?? idx);
 }
 
-function buildClientRequestNumberMap(items: any[]) {
+function buildClientRequestNumberMap(items: ClientRequestItem[]) {
     const rows = items
         .map((it) => ({
             id: getSampleId(it),
-            createdAt: it?.created_at ?? it?.createdAt ?? null,
+            createdAt: (it as any)?.created_at ?? (it as any)?.createdAt ?? null,
         }))
-        .filter((x) => Number.isFinite(Number(x.id)) && Number(x.id) > 0) as Array<{ id: number; createdAt: string | null }>;
+        .filter(
+            (x): x is { id: number; createdAt: string | null } =>
+                Number.isFinite(Number(x.id)) && Number(x.id) > 0
+        );
 
     rows.sort((a, b) => {
         const ta = a.createdAt ? new Date(a.createdAt).getTime() : Number.NaN;
         const tb = b.createdAt ? new Date(b.createdAt).getTime() : Number.NaN;
+
         if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
         return a.id - b.id;
     });
@@ -94,9 +116,9 @@ function unwrapClientRequests(res: any): PaginatedResponse<ClientRequestItem> {
     };
 }
 
-type StatusFilter = "all" | Exclude<ClientRequestStatusView, "unknown">;
-
-function statusChipClass(kind: "gray" | "primary" | "amber" | "indigo" | "emerald" | "rose" | "sky" | "violet") {
+function statusChipClass(
+    kind: "gray" | "primary" | "amber" | "indigo" | "emerald" | "rose" | "sky" | "violet"
+) {
     switch (kind) {
         case "primary":
             return "bg-primary-soft/10 text-primary-soft";
@@ -148,31 +170,53 @@ function statusLabel(t: TFunction, bucket: ClientRequestStatusView): string {
 }
 
 function statusFilterLabel(t: TFunction, filter: StatusFilter): string {
-    if (filter === "all") return t("portalRequestsPage.filters.allStatus", { defaultValue: "All statuses" });
+    if (filter === "all") {
+        return t("portalRequestsPage.filters.allStatus", { defaultValue: "All statuses" });
+    }
+
     return statusLabel(t, filter);
 }
 
-function requestStatusChip(item: any, t: TFunction) {
+function requestStatusChip(item: ClientRequestItem, t: TFunction) {
     const bucket = getClientRequestStatusView(item);
 
-    if (bucket === "submitted") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("primary") };
-    if (bucket === "ready_for_delivery") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("indigo") };
-    if (bucket === "received_by_admin") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("emerald") };
+    if (bucket === "submitted") {
+        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("primary") };
+    }
 
-    if (bucket === "returned" || bucket === "needs_revision")
+    if (bucket === "ready_for_delivery") {
+        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("indigo") };
+    }
+
+    if (bucket === "received_by_admin") {
+        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("emerald") };
+    }
+
+    if (bucket === "returned" || bucket === "needs_revision") {
         return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("amber") };
+    }
 
-    if (bucket === "intake_inspection") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("sky") };
-    if (bucket === "testing") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("violet") };
-    if (bucket === "reported") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("emerald") };
-    if (bucket === "rejected") return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("rose") };
+    if (bucket === "intake_inspection") {
+        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("sky") };
+    }
+
+    if (bucket === "testing") {
+        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("violet") };
+    }
+
+    if (bucket === "reported") {
+        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("emerald") };
+    }
+
+    if (bucket === "rejected") {
+        return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("rose") };
+    }
 
     return { label: statusLabel(t, bucket).toLowerCase(), cls: statusChipClass("gray") };
 }
 
 export default function ClientRequestsPage() {
     const { t } = useTranslation();
-
     const navigate = useNavigate();
     const location = useLocation();
     const { loading: authLoading, isClientAuthenticated } = useClientAuth() as any;
@@ -184,43 +228,31 @@ export default function ClientRequestsPage() {
     const [searchTerm, setSearchTerm] = useState("");
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
-    const STATUS_FILTERS: StatusFilter[] = [
-        "all",
-        "submitted",
-        "returned",
-        "needs_revision",
-        "ready_for_delivery",
-        "received_by_admin",
-        "intake_inspection",
-        "testing",
-        "reported",
-        "rejected",
-    ];
-
     const [createOpen, setCreateOpen] = useState(false);
     const [flash, setFlash] = useState<FlashPayload | null>(null);
 
     const [coaPreviewOpen, setCoaPreviewOpen] = useState(false);
     const [coaPreviewSampleId, setCoaPreviewSampleId] = useState<number | null>(null);
 
-    const openCoaPreview = (sampleId: number) => {
+    const openCoaPreview = useCallback((sampleId: number) => {
         setCoaPreviewSampleId(sampleId);
         setCoaPreviewOpen(true);
-    };
+    }, []);
 
     useEffect(() => {
         const st = (location.state as any) ?? {};
+
         if (st?.openCreate) setCreateOpen(true);
         if (st?.flash?.message) setFlash(st.flash as FlashPayload);
 
         if (st?.openCreate || st?.flash) {
             navigate(location.pathname + location.search, { replace: true, state: {} });
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [location.pathname, location.search, location.state, navigate]);
 
     useEffect(() => {
         if (!flash) return;
+
         const timer = window.setTimeout(() => setFlash(null), 8000);
         return () => window.clearTimeout(timer);
     }, [flash]);
@@ -262,7 +294,6 @@ export default function ClientRequestsPage() {
         }
 
         void load();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [authLoading, isClientAuthenticated, navigate, load]);
 
     const requestNoBySampleId = useMemo(() => buildClientRequestNumberMap(items), [items]);
@@ -271,7 +302,7 @@ export default function ClientRequestsPage() {
         let list = items;
 
         if (statusFilter !== "all") {
-            list = list.filter((it) => getClientRequestStatusView(it as any) === statusFilter);
+            list = list.filter((it) => getClientRequestStatusView(it) === statusFilter);
         }
 
         const term = searchTerm.trim().toLowerCase();
@@ -280,8 +311,7 @@ export default function ClientRequestsPage() {
         return list.filter((it) => {
             const sid = getSampleId(it);
             const requestNo = sid ? requestNoBySampleId.get(sid) : null;
-
-            const st = requestStatusChip(it as any, t);
+            const st = requestStatusChip(it, t);
 
             const hay = [
                 String(requestNo ?? ""),
@@ -289,8 +319,8 @@ export default function ClientRequestsPage() {
                 (it as any).lab_sample_code,
                 (it as any).request_status,
                 st.label,
-                (it as any).sample_type,
-                (it as any).additional_notes,
+                it.sample_type,
+                it.additional_notes,
             ]
                 .filter(Boolean)
                 .join(" ")
@@ -298,23 +328,29 @@ export default function ClientRequestsPage() {
 
             return hay.includes(term);
         });
-    }, [items, searchTerm, statusFilter, requestNoBySampleId, t]);
+    }, [items, requestNoBySampleId, searchTerm, statusFilter, t]);
 
-    const clearFilters = () => {
+    const clearFilters = useCallback(() => {
         setSearchTerm("");
         setStatusFilter("all");
-    };
+    }, []);
 
-    const resultMeta = useMemo(() => ({ total: items.length, shown: filtered.length }), [items.length, filtered.length]);
+    const resultMeta = useMemo(
+        () => ({
+            total: items.length,
+            shown: filtered.length,
+        }),
+        [items.length, filtered.length]
+    );
 
     return (
         <div className="min-h-[60vh]">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
+            <div className="flex flex-col gap-3 px-0 py-2 md:flex-row md:items-center md:justify-between">
                 <div>
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                    <h1 className="text-lg font-bold text-gray-900 md:text-xl">
                         {t("portalRequestsPage.title", "Sample Requests")}
                     </h1>
-                    <p className="text-sm text-gray-600 mt-1">
+                    <p className="mt-1 text-sm text-gray-600">
                         {t("portalRequestsPage.subtitle", "Create, submit, and track your requests.")}
                     </p>
                 </div>
@@ -322,7 +358,7 @@ export default function ClientRequestsPage() {
                 <button
                     type="button"
                     onClick={() => setCreateOpen(true)}
-                    className="lims-btn-primary self-start md:self-auto inline-flex items-center gap-2"
+                    className="lims-btn-primary inline-flex items-center gap-2 self-start md:self-auto"
                 >
                     <FilePlus2 size={16} />
                     {t("portalRequestsPage.newRequest", "New request")}
@@ -332,7 +368,7 @@ export default function ClientRequestsPage() {
             {flash ? (
                 <div
                     className={cx(
-                        "mt-2 rounded-2xl border px-4 py-3 text-sm flex items-start justify-between gap-3",
+                        "mt-2 flex items-start justify-between gap-3 rounded-2xl border px-4 py-3 text-sm",
                         flash.type === "success" && "border-emerald-200 bg-emerald-50 text-emerald-900",
                         flash.type === "warning" && "border-amber-200 bg-amber-50 text-amber-900",
                         flash.type === "error" && "border-rose-200 bg-rose-50 text-rose-900"
@@ -351,15 +387,18 @@ export default function ClientRequestsPage() {
                 </div>
             ) : null}
 
-            <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="px-4 md:px-6 py-4 border-b border-gray-100 bg-white flex flex-col md:flex-row gap-3 md:items-center">
+            <div className="mt-2 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+                <div className="flex flex-col gap-3 border-b border-gray-100 bg-white px-4 py-4 md:flex-row md:items-center md:px-6">
                     <div className="flex-1">
                         <label className="sr-only" htmlFor="request-search">
                             {t("portalRequestsPage.filters.searchLabel", "Search")}
                         </label>
 
                         <div className="relative">
-                            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500" aria-hidden="true">
+                            <span
+                                className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500"
+                                aria-hidden="true"
+                            >
                                 <Search className="h-4 w-4" />
                             </span>
 
@@ -368,8 +407,11 @@ export default function ClientRequestsPage() {
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                placeholder={t("portalRequestsPage.filters.searchPlaceholder", "Search by request ID, status, sample type…")}
-                                className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                placeholder={t(
+                                    "portalRequestsPage.filters.searchPlaceholder",
+                                    "Search by request ID, status, sample type…"
+                                )}
+                                className="w-full rounded-xl border border-gray-300 py-2 pl-9 pr-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-soft"
                             />
                         </div>
                     </div>
@@ -383,7 +425,7 @@ export default function ClientRequestsPage() {
                             id="request-status-filter"
                             value={statusFilter}
                             onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-soft"
                         >
                             {STATUS_FILTERS.map((v) => (
                                 <option key={v} value={v}>
@@ -393,7 +435,7 @@ export default function ClientRequestsPage() {
                         </select>
                     </div>
 
-                    <div className="w-full md:w-auto flex items-center justify-start md:justify-end gap-2">
+                    <div className="flex w-full items-center justify-start gap-2 md:w-auto md:justify-end">
                         <button
                             type="button"
                             className="lims-icon-button"
@@ -418,18 +460,20 @@ export default function ClientRequestsPage() {
                     </div>
                 </div>
 
-                <div className="px-4 md:px-6 py-4">
-                    {loading ? <div className="text-sm text-gray-600">{t("portalRequestsPage.loading", "Loading…")}</div> : null}
+                <div className="px-4 py-4 md:px-6">
+                    {loading ? (
+                        <div className="text-sm text-gray-600">{t("portalRequestsPage.loading", "Loading…")}</div>
+                    ) : null}
 
                     {error && !loading ? (
-                        <div className="text-sm text-rose-900 bg-rose-50 border border-rose-200 px-4 py-3 rounded-2xl mb-4">
+                        <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
                             {error}
                         </div>
                     ) : null}
 
                     {!loading && !error ? (
                         <>
-                            <div className="text-xs text-gray-600 mb-3">
+                            <div className="mb-3 text-xs text-gray-600">
                                 {t("portalRequestsPage.meta.showing", "Showing {{shown}} of {{total}}", {
                                     shown: resultMeta.shown,
                                     total: resultMeta.total,
@@ -441,7 +485,7 @@ export default function ClientRequestsPage() {
                                     <div className="font-semibold text-gray-900">
                                         {t("portalRequestsPage.empty.title", "No requests")}
                                     </div>
-                                    <div className="text-sm text-gray-600 mt-1">
+                                    <div className="mt-1 text-sm text-gray-600">
                                         {t("portalRequestsPage.empty.body", "Create a request to start.")}
                                     </div>
 
@@ -457,26 +501,36 @@ export default function ClientRequestsPage() {
                             ) : (
                                 <div className="overflow-x-auto">
                                     <table className="min-w-full text-sm">
-                                        <thead className="bg-white text-gray-700 border-b border-gray-100">
+                                        <thead className="border-b border-gray-100 bg-white text-gray-700">
                                             <tr>
-                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.request", "Request")}</th>
-                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.sampleType", "Sample type")}</th>
-                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.scheduledDelivery", "Scheduled delivery")}</th>
-                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.status", "Status")}</th>
-                                                <th className="text-left font-semibold px-4 py-3">{t("portalRequestsPage.table.updated", "Updated")}</th>
-                                                <th className="text-right font-semibold px-4 py-3">{t("actions", "Actions")}</th>
+                                                <th className="px-4 py-3 text-left font-semibold">
+                                                    {t("portalRequestsPage.table.request", "Request")}
+                                                </th>
+                                                <th className="px-4 py-3 text-left font-semibold">
+                                                    {t("portalRequestsPage.table.sampleType", "Sample type")}
+                                                </th>
+                                                <th className="px-4 py-3 text-left font-semibold">
+                                                    {t("portalRequestsPage.table.scheduledDelivery", "Scheduled delivery")}
+                                                </th>
+                                                <th className="px-4 py-3 text-left font-semibold">
+                                                    {t("portalRequestsPage.table.status", "Status")}
+                                                </th>
+                                                <th className="px-4 py-3 text-left font-semibold">
+                                                    {t("portalRequestsPage.table.updated", "Updated")}
+                                                </th>
+                                                <th className="px-4 py-3 text-right font-semibold">
+                                                    {t("actions", "Actions")}
+                                                </th>
                                             </tr>
                                         </thead>
 
                                         <tbody className="divide-y divide-gray-100">
-                                            {filtered.map((it: any, idx: number) => {
+                                            {filtered.map((it, idx) => {
                                                 const sid = getSampleId(it);
                                                 const requestNo = sid ? requestNoBySampleId.get(sid) : null;
-
-                                                const updated = fmtDate(it.updated_at ?? it.created_at);
+                                                const updated = fmtDate((it as any).updated_at ?? (it as any).created_at);
                                                 const sched = fmtDate(it.scheduled_delivery_at);
-                                                const st = requestStatusChip(it as any, t);
-
+                                                const st = requestStatusChip(it, t);
                                                 const coaSampleId = Number((it as any).sample_id ?? sid);
 
                                                 return (
@@ -491,7 +545,12 @@ export default function ClientRequestsPage() {
                                                         <td className="px-4 py-3 text-gray-700">{sched}</td>
 
                                                         <td className="px-4 py-3">
-                                                            <span className={cx("inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold", st.cls)}>
+                                                            <span
+                                                                className={cx(
+                                                                    "inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold",
+                                                                    st.cls
+                                                                )}
+                                                            >
                                                                 {st.label}
                                                             </span>
                                                         </td>
@@ -500,13 +559,20 @@ export default function ClientRequestsPage() {
 
                                                         <td className="px-4 py-3">
                                                             <div className="flex items-center justify-end gap-2">
-                                                                {(it as any)?.coa_released_to_client_at && Number.isFinite(coaSampleId) ? (
+                                                                {(it as any)?.coa_released_to_client_at &&
+                                                                    Number.isFinite(coaSampleId) ? (
                                                                     <button
                                                                         type="button"
                                                                         className="lims-icon-button"
                                                                         onClick={() => openCoaPreview(coaSampleId)}
-                                                                        aria-label={t("portal.actions.downloadCoa", "Download COA")}
-                                                                        title={t("portal.actions.downloadCoa", "Download COA")}
+                                                                        aria-label={t(
+                                                                            "portal.actions.downloadCoa",
+                                                                            "Download COA"
+                                                                        )}
+                                                                        title={t(
+                                                                            "portal.actions.downloadCoa",
+                                                                            "Download COA"
+                                                                        )}
                                                                     >
                                                                         <Download size={16} />
                                                                     </button>
@@ -514,7 +580,10 @@ export default function ClientRequestsPage() {
 
                                                                 <button
                                                                     type="button"
-                                                                    className={cx("lims-icon-button", !sid && "opacity-40 cursor-not-allowed")}
+                                                                    className={cx(
+                                                                        "lims-icon-button",
+                                                                        !sid && "cursor-not-allowed opacity-40"
+                                                                    )}
                                                                     aria-label={t("portalRequestsPage.actions.open", "Open")}
                                                                     title={t("portalRequestsPage.actions.open", "Open")}
                                                                     disabled={!sid}
@@ -541,7 +610,10 @@ export default function ClientRequestsPage() {
                 onClose={() => setCreateOpen(false)}
                 onCreated={async () => {
                     setCreateOpen(false);
-                    setFlash({ type: "success", message: t("portalRequestsPage.flash.submitted", "Request submitted.") });
+                    setFlash({
+                        type: "success",
+                        message: t("portalRequestsPage.flash.submitted", "Request submitted."),
+                    });
                     await load();
                 }}
             />
