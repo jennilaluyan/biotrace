@@ -444,20 +444,14 @@ export default function ClientRequestDetailPage() {
         return (
             <div className="min-h-[60vh]">
                 <div className="px-0 py-2">
-                    <nav className="lims-breadcrumb">
-                        <button
-                            type="button"
-                            className="lims-breadcrumb-link inline-flex items-center gap-2"
-                            onClick={() => navigate("/portal/requests")}
-                        >
-                            <ArrowLeft size={16} />
-                            {t("portal.requestDetail.breadcrumbRequests", "Sample Requests")}
-                        </button>
-                        <span className="lims-breadcrumb-separator">›</span>
-                        <span className="lims-breadcrumb-current">
-                            {t("portal.requestDetail.breadcrumbCurrent", "Request detail")}
-                        </span>
-                    </nav>
+                    <button
+                        type="button"
+                        onClick={() => navigate("/portal/requests")}
+                        className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50"
+                    >
+                        <ArrowLeft size={16} />
+                        {t("back", "Back")}
+                    </button>
                 </div>
 
                 <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
@@ -497,58 +491,52 @@ export default function ClientRequestDetailPage() {
 
     return (
         <div className="min-h-[60vh] pb-20">
-            <div className="px-0 py-2">
-                <nav className="lims-breadcrumb">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between px-0 py-2 mb-2">
+                <div className="flex items-start gap-3">
                     <button
                         type="button"
-                        className="lims-breadcrumb-link inline-flex items-center gap-2"
                         onClick={() => navigate("/portal/requests")}
+                        className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50"
                     >
                         <ArrowLeft size={16} />
-                        {t("portal.requestDetail.breadcrumbRequests", "Sample Requests")}
+                        {t("back", "Back")}
                     </button>
-                    <span className="lims-breadcrumb-separator">›</span>
-                    <span className="lims-breadcrumb-current">
-                        {t("portal.requestDetail.breadcrumbCurrent", "Request detail")}
-                    </span>
-                </nav>
-            </div>
 
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between px-0 py-2 mb-2">
-                <div>
-                    <div className="mt-1 flex items-center gap-3 flex-wrap">
-                        <h1 className="text-xl md:text-2xl font-bold text-gray-900">
-                            {t("portalRequestDetail.title", "Request #{{id}}", { id: requestIdLabel })}
-                        </h1>
+                    <div>
+                        <div className="mt-1 flex items-center gap-3 flex-wrap">
+                            <h1 className="text-xl md:text-2xl font-bold text-gray-900">
+                                {t("portalRequestDetail.title", "Request #{{id}}", { id: requestIdLabel })}
+                            </h1>
 
-                        <span
-                            className={cx(
-                                "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border",
-                                statusToneByView(statusView)
-                            )}
-                        >
-                            {statusText}
-                        </span>
+                            <span
+                                className={cx(
+                                    "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border",
+                                    statusToneByView(statusView)
+                                )}
+                            >
+                                {statusText}
+                            </span>
 
-                        <button
-                            type="button"
-                            className={cx(
-                                "lims-icon-button bg-transparent border-transparent hover:bg-gray-100",
-                                refreshing && "opacity-60 cursor-not-allowed"
-                            )}
-                            onClick={() => load({ silent: true })}
-                            disabled={refreshing || submitting || saving}
-                            aria-label={t("refresh", "Refresh")}
-                            title={t("refresh", "Refresh")}
-                        >
-                            <RefreshCw size={16} className={cx(refreshing && "animate-spin text-primary")} />
-                        </button>
-                    </div>
+                            <button
+                                type="button"
+                                className={cx(
+                                    "lims-icon-button bg-transparent border-transparent hover:bg-gray-100",
+                                    refreshing && "opacity-60 cursor-not-allowed"
+                                )}
+                                onClick={() => load({ silent: true })}
+                                disabled={refreshing || submitting || saving}
+                                aria-label={t("refresh", "Refresh")}
+                                title={t("refresh", "Refresh")}
+                            >
+                                <RefreshCw size={16} className={cx(refreshing && "animate-spin text-primary")} />
+                            </button>
+                        </div>
 
-                    <div className="text-xs text-gray-500 mt-1.5 flex items-center gap-1">
-                        {t("portal.requestDetail.lastUpdated", "Last updated {{at}}", {
-                            at: formatDateTimeLocal(updatedAt),
-                        })}
+                        <div className="text-xs text-gray-500 mt-1.5 flex items-center gap-1">
+                            {t("portal.requestDetail.lastUpdated", "Last updated {{at}}", {
+                                at: formatDateTimeLocal(updatedAt),
+                            })}
+                        </div>
                     </div>
                 </div>
 
