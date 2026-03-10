@@ -8,8 +8,10 @@ use App\Http\Requests\ClientSampleSubmitRequest;
 use App\Models\Client;
 use App\Models\Sample;
 use App\Services\WorkflowGroupResolver;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -62,7 +64,10 @@ class ClientSampleRequestController extends Controller
         return max(1, min($quantity, 200));
     }
 
-    private function batchScopeForOwnedSample(Client $client, Sample $sample)
+    /**
+     * @return Builder<Sample>
+     */
+    private function batchScopeForOwnedSample(Client $client, Sample $sample): Builder
     {
         $clientId = (int) ($client->client_id ?? $client->getKey());
         $batchId = Schema::hasColumn('samples', 'request_batch_id')
@@ -76,6 +81,19 @@ class ClientSampleRequestController extends Controller
         }
 
         return $query->whereKey($sample->getKey());
+    }
+
+    private function assertEditableClientRequestStatus(Sample $sample): void
+    {
+        if (!empty($sample->client_picked_up_at)) {
+            abort(409, 'This request is closed after client pickup and can no longer be edited.');
+        }
+
+        $status = (string) ($sample->request_status ?? 'draft');
+
+        if (!in_array($status, ['draft', 'returned', 'needs_revision', 'rejected'], true)) {
+            abort(403, 'Only draft/returned/rejected requests can be updated.');
+        }
     }
 
     private function fillClientDraftFields(Sample $sample, array $data, int $systemStaffId): void
@@ -190,6 +208,152 @@ class ClientSampleRequestController extends Controller
         DB::table('audit_logs')->insert(array_intersect_key($payload, $cols));
     }
 
+    /**
+     * @return Collection<int, Sample>
+     */
+    private function syncBatchRowsForEditableRequest(
+        Client $client,
+        Sample $sample,
+        Request $request,
+        array $data,
+        int $systemStaffId
+    ): Collection {
+        $clientId = (int) ($client->client_id ?? $client->getKey());
+        $desiredQuantity = $this->normalizeRequestedQuantity($client, $request, $data);
+
+        /** @var Collection<int, Sample> $targets */
+        $targets = $this->batchScopeForOwnedSample($client, $sample)
+            ->lockForUpdate()
+            ->orderBy('request_batch_item_no')
+            ->orderBy('sample_id')
+            ->get();
+
+        if ($targets->isEmpty()) {
+            abort(404, 'Request not found.');
+        }
+
+        foreach ($targets as $target) {
+            $this->assertEditableClientRequestStatus($target);
+        }
+
+        /** @var Sample|null $primary */
+        $primary = $targets
+            ->sortBy(fn(Sample $row) => (int) ($row->request_batch_item_no ?? 1))
+            ->first();
+
+        if (!$primary instanceof Sample) {
+            abort(404, 'Request not found.');
+        }
+
+        $hasBatchId = Schema::hasColumn('samples', 'request_batch_id');
+        $hasBatchTotal = Schema::hasColumn('samples', 'request_batch_total');
+        $hasBatchItemNo = Schema::hasColumn('samples', 'request_batch_item_no');
+        $hasBatchPrimary = Schema::hasColumn('samples', 'is_batch_primary');
+        $hasBatchExcludedAt = Schema::hasColumn('samples', 'batch_excluded_at');
+        $hasBatchExclusionReason = Schema::hasColumn('samples', 'batch_exclusion_reason');
+
+        $batchId = ($desiredQuantity > 1 && $hasBatchId)
+            ? (trim((string) ($primary->request_batch_id ?? '')) ?: (string) Str::uuid())
+            : null;
+
+        /** @var Collection<int, Sample> $ordered */
+        $ordered = $targets
+            ->sortBy(fn(Sample $row) => (int) ($row->request_batch_item_no ?? 1))
+            ->values();
+
+        /** @var Collection<int, Sample> $keepers */
+        $keepers = $ordered->take($desiredQuantity)->values();
+
+        /** @var Collection<int, Sample> $extras */
+        $extras = $ordered->slice($desiredQuantity)->values();
+
+        foreach ($extras as $extra) {
+            if (Schema::hasTable('sample_requested_parameters') && method_exists($extra, 'requestedParameters')) {
+                $extra->requestedParameters()->detach();
+            }
+
+            $extra->delete();
+        }
+
+        $keepIds = $keepers
+            ->pluck('sample_id')
+            ->map(fn($id) => (int) $id)
+            ->values()
+            ->all();
+
+        if ($ordered->count() < $desiredQuantity) {
+            $baseStatus = (string) ($primary->request_status ?? 'draft');
+
+            for ($i = $ordered->count() + 1; $i <= $desiredQuantity; $i++) {
+                $new = new Sample();
+                $new->client_id = $clientId;
+
+                if (Schema::hasColumn('samples', 'request_status')) {
+                    $new->request_status = $baseStatus;
+                }
+
+                if ($hasBatchId) {
+                    $new->request_batch_id = $batchId;
+                }
+
+                if ($hasBatchTotal) {
+                    $new->request_batch_total = $desiredQuantity;
+                }
+
+                if ($hasBatchItemNo) {
+                    $new->request_batch_item_no = $i;
+                }
+
+                if ($hasBatchPrimary) {
+                    $new->is_batch_primary = false;
+                }
+
+                $this->fillClientDraftFields($new, $data, $systemStaffId);
+                $new->save();
+
+                $keepIds[] = (int) $new->sample_id;
+            }
+        }
+
+        /** @var Collection<int, Sample> $reloaded */
+        $reloaded = Sample::query()
+            ->whereIn('sample_id', $keepIds)
+            ->orderBy('request_batch_item_no')
+            ->orderBy('sample_id')
+            ->get()
+            ->values();
+
+        foreach ($reloaded as $index => $target) {
+            if ($hasBatchId) {
+                $target->request_batch_id = $desiredQuantity > 1 ? $batchId : null;
+            }
+
+            if ($hasBatchTotal) {
+                $target->request_batch_total = $desiredQuantity;
+            }
+
+            if ($hasBatchItemNo) {
+                $target->request_batch_item_no = $index + 1;
+            }
+
+            if ($hasBatchPrimary) {
+                $target->is_batch_primary = $index === 0;
+            }
+
+            if ($hasBatchExcludedAt) {
+                $target->batch_excluded_at = null;
+            }
+
+            if ($hasBatchExclusionReason) {
+                $target->batch_exclusion_reason = null;
+            }
+
+            $target->save();
+        }
+
+        return $reloaded;
+    }
+
     private function attachBatchContext(Sample $sample, bool $includeBatchItems = true): array
     {
         $sample->loadMissing(['requestedParameters', 'intakeChecklist.checker']);
@@ -202,6 +366,7 @@ class ClientSampleRequestController extends Controller
             ? (int) ($sample->request_batch_total ?? 0)
             : 0;
 
+        /** @var Collection<int, Sample> $batchItems */
         $batchItems = collect();
 
         if ($requestBatchId !== '') {
@@ -216,6 +381,7 @@ class ClientSampleRequestController extends Controller
             $batchItems = collect([$sample]);
         }
 
+        /** @var Collection<int, Sample> $activeItems */
         $activeItems = $batchItems->isNotEmpty()
             ? (
                 Schema::hasColumn('samples', 'batch_excluded_at')
@@ -249,6 +415,41 @@ class ClientSampleRequestController extends Controller
                     : [(int) $sample->sample_id],
             ],
         ];
+    }
+
+    /**
+     * @param array<int, int> $ids
+     * @return Collection<int, Sample>
+     */
+    private function loadSamplesByIds(array $ids): Collection
+    {
+        return Sample::query()
+            ->whereIn('sample_id', $ids)
+            ->with(['requestedParameters', 'intakeChecklist.checker'])
+            ->get();
+    }
+
+    /**
+     * @param Collection<int, Sample> $samples
+     */
+    private function primarySampleFromCollection(Collection $samples): ?Sample
+    {
+        $primary = $samples
+            ->sortBy(fn(Sample $row) => (int) ($row->request_batch_item_no ?? 1))
+            ->first();
+
+        return $primary instanceof Sample ? $primary : null;
+    }
+
+    private function preparePrimaryResponseSample(?Sample $sample): ?Sample
+    {
+        if (!$sample instanceof Sample) {
+            return null;
+        }
+
+        $items = $this->attachCoaInfo([$sample]);
+
+        return $items[0] instanceof Sample ? $items[0] : null;
     }
 
     public function index(Request $request): JsonResponse
@@ -331,10 +532,15 @@ class ClientSampleRequestController extends Controller
         $this->assertOwnedByClient($client, $sample);
 
         $fresh = $sample->fresh(['requestedParameters', 'intakeChecklist.checker']);
-        $fresh = $this->attachCoaInfo([$fresh])[0];
+
+        if (!$fresh instanceof Sample) {
+            $fresh = $sample->load(['requestedParameters', 'intakeChecklist.checker']);
+        }
+
+        $responseSample = $this->preparePrimaryResponseSample($fresh);
 
         return response()->json([
-            'data' => $this->attachBatchContext($fresh, true),
+            'data' => $responseSample ? $this->attachBatchContext($responseSample, true) : null,
         ], 200);
     }
 
@@ -389,23 +595,13 @@ class ClientSampleRequestController extends Controller
             return $ids;
         });
 
-        $samples = Sample::query()
-            ->whereIn('sample_id', $createdIds)
-            ->with(['requestedParameters', 'intakeChecklist.checker'])
-            ->get();
-
-        $primary = $samples
-            ->sortBy(fn(Sample $row) => (int) ($row->request_batch_item_no ?? 1))
-            ->first();
-
-        if ($primary) {
-            $primary = $this->attachCoaInfo([$primary])[0];
-        }
+        $samples = $this->loadSamplesByIds($createdIds);
+        $primary = $this->preparePrimaryResponseSample($this->primarySampleFromCollection($samples));
 
         return response()->json([
             'data' => $primary ? $this->attachBatchContext($primary, true) : null,
             'meta' => [
-                'request_batch_id' => $primary['request_batch_id'] ?? null,
+                'request_batch_id' => $primary?->request_batch_id,
                 'batch_total' => count($createdIds),
                 'affected_sample_ids' => $createdIds,
             ],
@@ -420,24 +616,12 @@ class ClientSampleRequestController extends Controller
         $data = $request->validated();
         $systemStaffId = $this->ensureSystemStaffId();
 
-        $updatedIds = DB::transaction(function () use ($client, $sample, $data, $systemStaffId) {
-            $targets = $this->batchScopeForOwnedSample($client, $sample)
-                ->lockForUpdate()
-                ->get();
+        $updatedIds = DB::transaction(function () use ($client, $sample, $request, $data, $systemStaffId) {
+            $targets = $this->syncBatchRowsForEditableRequest($client, $sample, $request, $data, $systemStaffId);
 
             foreach ($targets as $target) {
-                if (!empty($target->client_picked_up_at)) {
-                    abort(409, 'This request is closed after client pickup and can no longer be edited.');
-                }
-
-                $status = (string) ($target->request_status ?? 'draft');
-
-                if (!in_array($status, ['draft', 'returned', 'needs_revision', 'rejected'], true)) {
-                    abort(403, 'Only draft/returned/rejected requests can be updated.');
-                }
-
                 foreach ($data as $key => $value) {
-                    if ($key === 'parameter_ids' || $key === 'quantity') {
+                    if (in_array($key, ['parameter_ids', 'quantity', 'total_sample'], true)) {
                         continue;
                     }
 
@@ -453,26 +637,16 @@ class ClientSampleRequestController extends Controller
                 $this->syncWorkflowGroupFromParameterIds($target, $data['parameter_ids'] ?? null, false);
             }
 
-            return $targets->pluck('sample_id')->map(fn($id) => (int) $id)->all();
+            return $targets->pluck('sample_id')->map(fn($id) => (int) $id)->values()->all();
         });
 
-        $samples = Sample::query()
-            ->whereIn('sample_id', $updatedIds)
-            ->with(['requestedParameters', 'intakeChecklist.checker'])
-            ->get();
-
-        $primary = $samples
-            ->sortBy(fn(Sample $row) => (int) ($row->request_batch_item_no ?? 1))
-            ->first();
-
-        if ($primary) {
-            $primary = $this->attachCoaInfo([$primary])[0];
-        }
+        $samples = $this->loadSamplesByIds($updatedIds);
+        $primary = $this->preparePrimaryResponseSample($this->primarySampleFromCollection($samples));
 
         return response()->json([
             'data' => $primary ? $this->attachBatchContext($primary, true) : null,
             'meta' => [
-                'request_batch_id' => $primary['request_batch_id'] ?? null,
+                'request_batch_id' => $primary?->request_batch_id,
                 'batch_total' => count($updatedIds),
                 'affected_sample_ids' => $updatedIds,
             ],
@@ -487,23 +661,13 @@ class ClientSampleRequestController extends Controller
         $data = $request->validated();
         $systemStaffId = $this->ensureSystemStaffId();
 
-        $submittedIds = DB::transaction(function () use ($client, $sample, $data, $systemStaffId) {
-            $targets = $this->batchScopeForOwnedSample($client, $sample)
-                ->lockForUpdate()
-                ->get();
+        $submittedIds = DB::transaction(function () use ($client, $sample, $request, $data, $systemStaffId) {
+            $targets = $this->syncBatchRowsForEditableRequest($client, $sample, $request, $data, $systemStaffId);
 
             $affectedIds = [];
 
             foreach ($targets as $target) {
-                if (!empty($target->client_picked_up_at)) {
-                    abort(409, 'This request is closed after client pickup and cannot be submitted again.');
-                }
-
                 $from = (string) ($target->request_status ?? 'draft');
-
-                if (!in_array($from, ['draft', 'returned', 'needs_revision', 'rejected'], true)) {
-                    abort(403, 'This request cannot be submitted from current status.');
-                }
 
                 $this->fillClientDraftFields($target, $data, $systemStaffId);
 
@@ -552,23 +716,13 @@ class ClientSampleRequestController extends Controller
             return $affectedIds;
         });
 
-        $samples = Sample::query()
-            ->whereIn('sample_id', $submittedIds)
-            ->with(['requestedParameters', 'intakeChecklist.checker'])
-            ->get();
-
-        $primary = $samples
-            ->sortBy(fn(Sample $row) => (int) ($row->request_batch_item_no ?? 1))
-            ->first();
-
-        if ($primary) {
-            $primary = $this->attachCoaInfo([$primary])[0];
-        }
+        $samples = $this->loadSamplesByIds($submittedIds);
+        $primary = $this->preparePrimaryResponseSample($this->primarySampleFromCollection($samples));
 
         return response()->json([
             'data' => $primary ? $this->attachBatchContext($primary, true) : null,
             'meta' => [
-                'request_batch_id' => $primary['request_batch_id'] ?? null,
+                'request_batch_id' => $primary?->request_batch_id,
                 'batch_total' => count($submittedIds),
                 'affected_sample_ids' => $submittedIds,
             ],
@@ -623,14 +777,14 @@ class ClientSampleRequestController extends Controller
                     function () use ($file) {
                         try {
                             @rewind($file->bytes);
-                        } catch (\Throwable $e) {
+                        } catch (\Throwable) {
                         }
 
                         fpassthru($file->bytes);
 
                         try {
                             @fclose($file->bytes);
-                        } catch (\Throwable $e) {
+                        } catch (\Throwable) {
                         }
                     },
                     $filename,
@@ -643,7 +797,7 @@ class ClientSampleRequestController extends Controller
 
         $pdfUrl = (string) ($report->pdf_url ?? '');
 
-        if (!$pdfUrl) {
+        if ($pdfUrl === '') {
             return response()->json(['message' => 'COA PDF unavailable.'], 404);
         }
 
@@ -660,13 +814,17 @@ class ClientSampleRequestController extends Controller
                     $path = Storage::disk($d)->path($pdfUrl);
                     return response()->download($path);
                 }
-            } catch (\Throwable $e) {
+            } catch (\Throwable) {
             }
         }
 
         return response()->json(['message' => 'COA file not found on disk.'], 404);
     }
 
+    /**
+     * @param array<int, Sample> $samples
+     * @return array<int, Sample>
+     */
     private function attachCoaInfo(array $samples): array
     {
         if (!Schema::hasTable('reports')) {
@@ -685,7 +843,7 @@ class ClientSampleRequestController extends Controller
 
         $ids = array_values(array_unique($ids));
 
-        if (empty($ids)) {
+        if ($ids === []) {
             return $samples;
         }
 
@@ -764,7 +922,7 @@ class ClientSampleRequestController extends Controller
                         ['name' => $roleName],
                         array_diff_key($roleInsert, ['name' => true])
                     );
-                } catch (\Throwable $e) {
+                } catch (\Throwable) {
                     $exists = (int) (
                         DB::table('roles')
                         ->whereRaw('LOWER(name) = ?', [strtolower($roleName)])
