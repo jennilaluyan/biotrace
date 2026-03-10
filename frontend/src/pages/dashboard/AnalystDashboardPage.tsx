@@ -1,98 +1,58 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+    AlertTriangle,
+    ArrowRight,
+    ClipboardCheck,
+    FlaskConical,
+    TestTube2,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ArrowRight, ClipboardCheck, FlaskConical, Loader2, RefreshCw, TestTube2 } from "lucide-react";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getUserRoleId } from "../../utils/roles";
-import { formatDateTimeLocal } from "../../utils/date";
 import { getErrorMessage } from "../../utils/errors";
 import { sampleService, type Sample } from "../../services/samples";
+import {
+    DashboardEmptyState,
+    DashboardErrorBanner,
+    DashboardHeader,
+    DashboardHero,
+    DashboardPanel,
+    DashboardQuickLinks,
+    DashboardStatGrid,
+    formatDashboardDateTime,
+    getDashboardHeading,
+    localizedValue,
+    type DashboardAction,
+    type DashboardQuickLinkItem,
+    type DashboardStatItem,
+    cx,
+} from "./DashboardPage";
 
-function cx(...arr: Array<string | false | null | undefined>) {
-    return arr.filter(Boolean).join(" ");
-}
-
-// Same idea as SamplesPage: archived/completed should not pollute dashboard
-function isArchivedSample(s: any) {
+function isArchivedSample(sample: any) {
     return Boolean(
-        s?.archived_at ||
-        s?.is_archived ||
-        s?.coa_generated_at ||
-        s?.coa_file_url ||
-        s?.coa_report_id ||
-        s?.report_generated_at ||
-        s?.report_pdf_url ||
-        s?.report?.pdf_url
+        sample?.archived_at ||
+        sample?.is_archived ||
+        sample?.coa_generated_at ||
+        sample?.coa_file_url ||
+        sample?.coa_report_id ||
+        sample?.report_generated_at ||
+        sample?.report_pdf_url ||
+        sample?.report?.pdf_url
     );
 }
 
-// robust reagent status extractor (same spirit as SamplesPage / SampleDetailPage)
-function getReagentRequestStatus(s: any): string | null {
-    const direct = s?.reagent_request_status ?? s?.reagentRequestStatus ?? null;
+function getReagentRequestStatus(sample: any): string | null {
+    const direct = sample?.reagent_request_status ?? sample?.reagentRequestStatus ?? null;
     if (direct) return String(direct).toLowerCase();
 
-    const rr = s?.reagent_request ?? s?.reagentRequest ?? s?.reagentRequestLatest ?? null;
-    const nested = rr?.status ?? rr?.request_status ?? null;
+    const request = sample?.reagent_request ?? sample?.reagentRequest ?? sample?.reagentRequestLatest ?? null;
+    const nested = request?.status ?? request?.request_status ?? null;
     if (nested) return String(nested).toLowerCase();
 
     return null;
 }
-
-function fmtDate(iso: string | null | undefined, locale: string) {
-    if (!iso) return "—";
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return String(iso);
-    try {
-        return new Intl.DateTimeFormat(locale, {
-            year: "numeric",
-            month: "short",
-            day: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit",
-        }).format(d);
-    } catch {
-        return d.toLocaleString();
-    }
-}
-
-const StatCard = ({
-    title,
-    value,
-    subtitle,
-    icon,
-    loading,
-}: {
-    title: string;
-    value: string | number;
-    subtitle?: string;
-    icon?: React.ReactNode;
-    loading?: boolean;
-}) => (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-        <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-                <div className="text-xs text-gray-500">{title}</div>
-                <div className="text-2xl font-semibold text-gray-900 mt-1">{loading ? <span className="text-gray-400">—</span> : value}</div>
-                {subtitle ? <div className="text-xs text-gray-500 mt-2">{subtitle}</div> : null}
-            </div>
-
-            {icon ? (
-                <div className="shrink-0 rounded-2xl border border-gray-200 bg-gray-50 p-2 text-gray-700">{icon}</div>
-            ) : null}
-        </div>
-    </div>
-);
-
-type QueueCard = {
-    key: string;
-    title: string;
-    subtitle: string;
-    count: number;
-    icon: React.ReactNode;
-    href: string;
-    tone?: "neutral" | "warn";
-};
 
 export default function AnalystDashboardPage() {
     const navigate = useNavigate();
@@ -101,37 +61,43 @@ export default function AnalystDashboardPage() {
 
     const roleId = getUserRoleId(user);
     const isAnalyst = roleId === ROLE_ID.ANALYST;
+    const locale = i18n.language || "en";
 
     const [rows, setRows] = useState<Sample[]>([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [errorMessage, setErrorMessage] = useState("");
 
     const load = useCallback(async () => {
         try {
             setLoading(true);
-            setError(null);
+            setErrorMessage("");
 
-            // Try to fetch a larger slice (backend may ignore per_page; harmless)
-            const res: any = await sampleService.getAll({
+            const response: any = await sampleService.getAll({
                 page: 1,
                 per_page: 250,
             } as any);
 
-            const items = Array.isArray(res?.data) ? (res.data as Sample[]) : [];
-
-            // Analyst dashboard focuses on active lab samples
+            const items = Array.isArray(response?.data) ? (response.data as Sample[]) : [];
             const filtered = items
-                .filter((s: any) => !!String(s?.lab_sample_code ?? "").trim())
-                .filter((s: any) => !isArchivedSample(s));
+                .filter((sample: any) => !!String(sample?.lab_sample_code ?? "").trim())
+                .filter((sample: any) => !isArchivedSample(sample));
 
             setRows(filtered);
-        } catch (e: any) {
+        } catch (error: any) {
             setRows([]);
-            setError(getErrorMessage(e) || t("dashboard.analyst.errors.loadFailed", { defaultValue: "Failed to load dashboard data. Please try again." }));
+            setErrorMessage(
+                getErrorMessage(error) ||
+                t("dashboard.analyst.errors.loadFailed", {
+                    defaultValue: localizedValue(locale, {
+                        en: "Failed to load dashboard data. Please try again.",
+                        id: "Gagal memuat data dashboard. Silakan coba lagi.",
+                    }),
+                })
+            );
         } finally {
             setLoading(false);
         }
-    }, [t]);
+    }, [locale, t]);
 
     useEffect(() => {
         if (authLoading) return;
@@ -150,31 +116,43 @@ export default function AnalystDashboardPage() {
     }, [authLoading, isAuthenticated, isAnalyst, navigate, load]);
 
     const counts = useMemo(() => {
-        const awaitingReceive = rows.filter((s: any) => !!s?.sc_delivered_to_analyst_at && !s?.analyst_received_at).length;
+        const awaitingReceive = rows.filter(
+            (sample: any) => !!sample?.sc_delivered_to_analyst_at && !sample?.analyst_received_at
+        ).length;
 
-        const crosscheckPending = rows.filter((s: any) => {
-            const received = !!s?.analyst_received_at;
-            if (!received) return false;
-            const cs = String(s?.crosscheck_status ?? "pending").toLowerCase();
-            return cs !== "passed";
+        const crosscheckPending = rows.filter((sample: any) => {
+            if (!sample?.analyst_received_at) return false;
+            const status = String(sample?.crosscheck_status ?? "pending").toLowerCase();
+            return status !== "passed";
         }).length;
 
-        const readyForReagent = rows.filter((s: any) => {
-            const cs = String(s?.crosscheck_status ?? "pending").toLowerCase();
-            if (cs !== "passed") return false;
-            const rr = getReagentRequestStatus(s);
-            return !rr || (rr !== "submitted" && rr !== "approved");
+        const readyForReagent = rows.filter((sample: any) => {
+            const crosscheckStatus = String(sample?.crosscheck_status ?? "pending").toLowerCase();
+            if (crosscheckStatus !== "passed") return false;
+
+            const reagentStatus = getReagentRequestStatus(sample);
+            return !reagentStatus || (reagentStatus !== "submitted" && reagentStatus !== "approved");
         }).length;
 
-        const inTesting = rows.filter((s: any) => {
-            const rr = getReagentRequestStatus(s);
-            if (rr !== "approved") return false;
+        const inTesting = rows.filter((sample: any) => {
+            const reagentStatus = getReagentRequestStatus(sample);
+            if (reagentStatus !== "approved") return false;
 
-            const doneFlags = [s?.testing_completed_at, (s as any)?.testing_done_at, (s as any)?.tests_completed_at].filter(Boolean);
+            const doneFlags = [
+                sample?.testing_completed_at,
+                sample?.testing_done_at,
+                sample?.tests_completed_at,
+            ].filter(Boolean);
             if (doneFlags.length > 0) return false;
 
-            const cur = String((s as any)?.current_status ?? "").toLowerCase();
-            if (cur.includes("reported") || cur.includes("validated") || cur.includes("verified")) return false;
+            const currentStatus = String(sample?.current_status ?? "").toLowerCase();
+            if (
+                currentStatus.includes("reported") ||
+                currentStatus.includes("validated") ||
+                currentStatus.includes("verified")
+            ) {
+                return false;
+            }
 
             return true;
         }).length;
@@ -183,262 +161,357 @@ export default function AnalystDashboardPage() {
     }, [rows]);
 
     const recent = useMemo(() => {
-        const arr = [...rows];
-        arr.sort((a: any, b: any) => {
-            const da = new Date((a as any)?.updated_at ?? (a as any)?.received_at ?? (a as any)?.created_at ?? 0).getTime();
-            const db = new Date((b as any)?.updated_at ?? (b as any)?.received_at ?? (b as any)?.created_at ?? 0).getTime();
-            return db - da;
-        });
-        return arr.slice(0, 8);
+        return [...rows]
+            .sort((a: any, b: any) => {
+                const aTime = new Date(a.updated_at ?? a.received_at ?? a.created_at ?? 0).getTime();
+                const bTime = new Date(b.updated_at ?? b.received_at ?? b.created_at ?? 0).getTime();
+                return bTime - aTime;
+            })
+            .slice(0, 8);
     }, [rows]);
 
-    const greetingName = user?.name ? `, ${user.name}` : "";
+    const stats: DashboardStatItem[] = [
+        {
+            key: "awaitingReceive",
+            title: t("dashboard.analyst.stats.awaitingReceive.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "Awaiting receive",
+                    id: "Menunggu diterima",
+                }),
+            }),
+            value: counts.awaitingReceive,
+            subtitle: t("dashboard.analyst.stats.awaitingReceive.sub", {
+                defaultValue: localizedValue(locale, {
+                    en: "Samples delivered by collector but not received by analyst yet.",
+                    id: "Sampel sudah diantar collector tetapi belum diterima analis.",
+                }),
+            }),
+            icon: <TestTube2 size={18} />,
+            loading,
+        },
+        {
+            key: "crosscheckPending",
+            title: t("dashboard.analyst.stats.crosscheckPending.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "Crosscheck pending",
+                    id: "Crosscheck belum selesai",
+                }),
+            }),
+            value: counts.crosscheckPending,
+            subtitle: t("dashboard.analyst.stats.crosscheckPending.sub", {
+                defaultValue: localizedValue(locale, {
+                    en: "Received samples that still require crosscheck.",
+                    id: "Sampel yang sudah diterima dan masih perlu crosscheck.",
+                }),
+            }),
+            icon: <ClipboardCheck size={18} />,
+            loading,
+        },
+        {
+            key: "readyForReagent",
+            title: t("dashboard.analyst.stats.readyForReagent.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "Ready for reagent request",
+                    id: "Siap buat permintaan reagen",
+                }),
+            }),
+            value: counts.readyForReagent,
+            subtitle: t("dashboard.analyst.stats.readyForReagent.sub", {
+                defaultValue: localizedValue(locale, {
+                    en: "Crosscheck passed and ready to prepare reagent request.",
+                    id: "Crosscheck lulus dan siap buat permintaan reagen.",
+                }),
+            }),
+            icon: <FlaskConical size={18} />,
+            loading,
+        },
+        {
+            key: "inTesting",
+            title: t("dashboard.analyst.stats.inTesting.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "In testing",
+                    id: "Sedang diuji",
+                }),
+            }),
+            value: counts.inTesting,
+            subtitle: t("dashboard.analyst.stats.inTesting.sub", {
+                defaultValue: localizedValue(locale, {
+                    en: "Reagent approved and testing is currently in progress.",
+                    id: "Reagen disetujui dan pengujian sedang berjalan.",
+                }),
+            }),
+            icon: <TestTube2 size={18} />,
+            loading,
+        },
+    ];
 
-    const queueCards: QueueCard[] = useMemo(
-        () => [
-            {
-                key: "awaitingReceive",
-                title: t("dashboard.analyst.queue.awaitingReceive.title"),
-                subtitle: t("dashboard.analyst.queue.awaitingReceive.subtitle"),
-                count: counts.awaitingReceive,
-                icon: <TestTube2 size={18} />,
-                href: "/samples",
-                tone: counts.awaitingReceive > 0 ? "warn" : "neutral",
-            },
-            {
-                key: "crosscheckPending",
-                title: t("dashboard.analyst.queue.crosscheckPending.title"),
-                subtitle: t("dashboard.analyst.queue.crosscheckPending.subtitle"),
-                count: counts.crosscheckPending,
-                icon: <ClipboardCheck size={18} />,
-                href: "/samples",
-                tone: counts.crosscheckPending > 0 ? "warn" : "neutral",
-            },
-            {
-                key: "readyForReagent",
-                title: t("dashboard.analyst.queue.readyForReagent.title"),
-                subtitle: t("dashboard.analyst.queue.readyForReagent.subtitle"),
-                count: counts.readyForReagent,
-                icon: <FlaskConical size={18} />,
-                href: "/samples",
-            },
-            {
-                key: "inTesting",
-                title: t("dashboard.analyst.queue.inTesting.title"),
-                subtitle: t("dashboard.analyst.queue.inTesting.subtitle"),
-                count: counts.inTesting,
-                icon: <TestTube2 size={18} />,
-                href: "/samples",
-            },
-        ],
-        [t, counts]
-    );
+    const quickLinks: DashboardQuickLinkItem[] = [
+        {
+            key: "awaitingReceive",
+            title: t("dashboard.analyst.queue.awaitingReceive.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "Awaiting receive",
+                    id: "Menunggu diterima",
+                }),
+            }),
+            subtitle: t("dashboard.analyst.queue.awaitingReceive.subtitle", {
+                defaultValue: localizedValue(locale, {
+                    en: "Confirm you have received the physical sample.",
+                    id: "Konfirmasi penerimaan sampel fisik.",
+                }),
+            }),
+            count: counts.awaitingReceive,
+            icon: <TestTube2 size={18} />,
+            onClick: () => navigate("/samples"),
+            tone: counts.awaitingReceive > 0 ? "warn" : "neutral",
+        },
+        {
+            key: "crosscheckPending",
+            title: t("dashboard.analyst.queue.crosscheckPending.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "Crosscheck pending",
+                    id: "Crosscheck",
+                }),
+            }),
+            subtitle: t("dashboard.analyst.queue.crosscheckPending.subtitle", {
+                defaultValue: localizedValue(locale, {
+                    en: "Verify physical label versus lab code and submit result.",
+                    id: "Cocokkan label fisik versus kode lab lalu submit hasil.",
+                }),
+            }),
+            count: counts.crosscheckPending,
+            icon: <ClipboardCheck size={18} />,
+            onClick: () => navigate("/samples"),
+            tone: counts.crosscheckPending > 0 ? "warn" : "neutral",
+        },
+        {
+            key: "readyForReagent",
+            title: t("dashboard.analyst.queue.readyForReagent.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "Ready for reagent",
+                    id: "Siap reagen",
+                }),
+            }),
+            subtitle: t("dashboard.analyst.queue.readyForReagent.subtitle", {
+                defaultValue: localizedValue(locale, {
+                    en: "Prepare reagent request after crosscheck passes.",
+                    id: "Siapkan permintaan reagen setelah crosscheck lulus.",
+                }),
+            }),
+            count: counts.readyForReagent,
+            icon: <FlaskConical size={18} />,
+            onClick: () => navigate("/samples"),
+        },
+        {
+            key: "inTesting",
+            title: t("dashboard.analyst.queue.inTesting.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "In testing",
+                    id: "Pengujian",
+                }),
+            }),
+            subtitle: t("dashboard.analyst.queue.inTesting.subtitle", {
+                defaultValue: localizedValue(locale, {
+                    en: "Continue testing workflow until completed.",
+                    id: "Lanjutkan workflow uji sampai selesai.",
+                }),
+            }),
+            count: counts.inTesting,
+            icon: <TestTube2 size={18} />,
+            onClick: () => navigate("/samples"),
+        },
+    ];
+
+    const actions: DashboardAction[] = [
+        {
+            key: "openSamples",
+            label: t("dashboard.analyst.actions.openSamples", {
+                defaultValue: localizedValue(locale, {
+                    en: "Open samples",
+                    id: "Buka sampel",
+                }),
+            }),
+            icon: <TestTube2 size={16} />,
+            onClick: () => navigate("/samples"),
+            variant: "outline",
+        },
+        {
+            key: "openReports",
+            label: t("dashboard.analyst.actions.openReports", {
+                defaultValue: localizedValue(locale, {
+                    en: "Open reports",
+                    id: "Buka laporan",
+                }),
+            }),
+            icon: <FlaskConical size={16} />,
+            onClick: () => navigate("/reports"),
+            variant: "primary",
+        },
+    ];
+
+    const header = getDashboardHeading(t, locale, "analyst", user?.name);
 
     return (
         <div className="min-h-[60vh]">
-            {/* Header */}
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
-                <div className="min-w-0">
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("dashboard.analyst.title")}</h1>
-                    <p className="text-sm text-gray-600 mt-1">
-                        {t("dashboard.analyst.subtitle", { name: greetingName })}
-                    </p>
-                </div>
+            <DashboardHeader
+                title={header.title}
+                subtitle={header.subtitle}
+                loading={loading}
+                onRefresh={() => void load()}
+                refreshLabel={t("refresh", {
+                    defaultValue: localizedValue(locale, {
+                        en: "Refresh",
+                        id: "Segarkan",
+                    }),
+                })}
+                actions={actions}
+            />
 
-                <div className="flex items-center gap-2 flex-wrap md:flex-nowrap md:justify-end">
-                    <button
-                        type="button"
-                        className={cx("lims-icon-button", loading && "opacity-60 cursor-not-allowed")}
-                        onClick={load}
-                        disabled={loading}
-                        aria-label={t("refresh")}
-                        title={t("refresh")}
-                    >
-                        {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                    </button>
+            <DashboardHero
+                icon={<FlaskConical size={18} />}
+                title={t("dashboard.analyst.hero.title", {
+                    defaultValue: localizedValue(locale, {
+                        en: "Analyst workflow overview",
+                        id: "Ringkasan alur analis",
+                    }),
+                })}
+                body={t("dashboard.analyst.hero.body", {
+                    defaultValue: localizedValue(locale, {
+                        en: "Use Work Queue to jump to the next actionable step: receive, crosscheck, prepare reagents, and continue testing.",
+                        id: "Pakai Work Queue untuk lompat ke langkah yang bisa dikerjakan sekarang: terima, crosscheck, siapkan reagen, lalu lanjut uji.",
+                    }),
+                })}
+            />
 
-                    <button
-                        type="button"
-                        className="btn-outline h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap"
-                        onClick={() => navigate("/samples")}
-                    >
-                        <TestTube2 size={16} />
-                        {t("dashboard.analyst.actions.openSamples")}
-                    </button>
+            <DashboardStatGrid items={stats} />
 
-                    <button
-                        type="button"
-                        className="lims-btn-primary h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap"
-                        onClick={() => navigate("/reports")}
-                    >
-                        <FlaskConical size={16} />
-                        {t("dashboard.analyst.actions.openReports")}
-                    </button>
-                </div>
-            </div>
+            <DashboardErrorBanner
+                message={errorMessage}
+                onRetry={errorMessage ? () => void load() : undefined}
+                retryLabel={t("retry", {
+                    defaultValue: localizedValue(locale, {
+                        en: "Retry",
+                        id: "Coba lagi",
+                    }),
+                })}
+            />
 
-            {/* Hero */}
-            <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="px-4 md:px-6 py-4">
-                    <div className="flex items-start gap-3">
-                        <div className="mt-0.5 shrink-0 rounded-2xl border border-gray-200 bg-gray-50 p-2 text-gray-700">
-                            <FlaskConical size={18} />
-                        </div>
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <DashboardPanel
+                    title={t("dashboard.analyst.workQueue.title", {
+                        defaultValue: localizedValue(locale, {
+                            en: "Work queue",
+                            id: "Work queue",
+                        }),
+                    })}
+                    subtitle={t("dashboard.analyst.workQueue.subtitle", {
+                        defaultValue: localizedValue(locale, {
+                            en: "Actionable shortcuts based on current stage.",
+                            id: "Shortcut berdasarkan tahap yang sedang berjalan.",
+                        }),
+                    })}
+                >
+                    <DashboardQuickLinks items={quickLinks} loading={loading} />
+                </DashboardPanel>
 
-                        <div className="min-w-0">
-                            <div className="text-xs font-semibold tracking-wide text-gray-500 uppercase">
-                                {t("dashboard.analyst.hero.title")}
-                            </div>
-                            <div className="text-sm text-gray-700 mt-1">{t("dashboard.analyst.hero.body")}</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Stats */}
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                <StatCard
-                    title={t("dashboard.analyst.stats.awaitingReceive.title")}
-                    value={counts.awaitingReceive}
-                    subtitle={t("dashboard.analyst.stats.awaitingReceive.sub")}
-                    icon={<TestTube2 size={18} />}
-                    loading={loading}
-                />
-                <StatCard
-                    title={t("dashboard.analyst.stats.crosscheckPending.title")}
-                    value={counts.crosscheckPending}
-                    subtitle={t("dashboard.analyst.stats.crosscheckPending.sub")}
-                    icon={<ClipboardCheck size={18} />}
-                    loading={loading}
-                />
-                <StatCard
-                    title={t("dashboard.analyst.stats.readyForReagent.title")}
-                    value={counts.readyForReagent}
-                    subtitle={t("dashboard.analyst.stats.readyForReagent.sub")}
-                    icon={<FlaskConical size={18} />}
-                    loading={loading}
-                />
-                <StatCard
-                    title={t("dashboard.analyst.stats.inTesting.title")}
-                    value={counts.inTesting}
-                    subtitle={t("dashboard.analyst.stats.inTesting.sub")}
-                    icon={<TestTube2 size={18} />}
-                    loading={loading}
-                />
-            </div>
-
-            {/* Error */}
-            {error ? (
-                <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-                    <div className="flex items-start gap-3">
-                        <AlertTriangle size={18} className="mt-0.5" />
-                        <div className="min-w-0">
-                            <div className="font-semibold">{error}</div>
-                            <div className="mt-2">
-                                <button type="button" className="btn-outline inline-flex items-center gap-2" onClick={load}>
-                                    <RefreshCw size={16} />
-                                    {t("retry")}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            ) : null}
-
-            {/* Work queue + Recent */}
-            <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {/* Work queue */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                    <div className="px-4 md:px-6 py-4 border-b border-gray-100">
-                        <div className="text-sm font-semibold text-gray-900">{t("dashboard.analyst.workQueue.title")}</div>
-                        <div className="text-xs text-gray-500 mt-1">{t("dashboard.analyst.workQueue.subtitle")}</div>
-                    </div>
-
-                    <div className="px-4 md:px-6 py-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {queueCards.map((c) => {
-                                const toneCls = c.tone === "warn" ? "border-amber-200 bg-amber-50" : "border-gray-200 bg-gray-50";
-
-                                return (
-                                    <button
-                                        key={c.key}
-                                        type="button"
-                                        onClick={() => navigate(c.href)}
-                                        className={cx("text-left rounded-2xl border p-4 transition hover:shadow-sm", toneCls, loading && "opacity-60 cursor-not-allowed")}
-                                        disabled={loading}
-                                    >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <div className="text-xs text-gray-600">{c.title}</div>
-                                                <div className="text-2xl font-semibold text-gray-900 mt-1">{loading ? "—" : c.count}</div>
-                                                <div className="text-xs text-gray-600 mt-2">{c.subtitle}</div>
-                                            </div>
-
-                                            <div className="shrink-0 rounded-2xl border border-black/5 bg-white/60 p-2 text-gray-700">
-                                                {c.icon}
-                                            </div>
-                                        </div>
-                                    </button>
-                                );
+                <DashboardPanel
+                    title={t("dashboard.analyst.recent.title", {
+                        defaultValue: localizedValue(locale, {
+                            en: "Recent samples",
+                            id: "Sampel terbaru",
+                        }),
+                    })}
+                    subtitle={t("dashboard.analyst.recent.subtitle", {
+                        defaultValue: localizedValue(locale, {
+                            en: "Most recently updated samples.",
+                            id: "Sampel yang paling baru diupdate.",
+                        }),
+                    })}
+                >
+                    {loading ? (
+                        <div className="text-sm text-gray-600">
+                            {t("loading", {
+                                defaultValue: localizedValue(locale, {
+                                    en: "Loading…",
+                                    id: "Memuat…",
+                                }),
                             })}
                         </div>
-                    </div>
-                </div>
+                    ) : recent.length === 0 ? (
+                        <DashboardEmptyState
+                            title={t("dashboard.analyst.recent.emptyTitle", {
+                                defaultValue: localizedValue(locale, {
+                                    en: "No samples yet",
+                                    id: "Belum ada sampel",
+                                }),
+                            })}
+                            body={t("dashboard.analyst.recent.emptyBody", {
+                                defaultValue: localizedValue(locale, {
+                                    en: "Samples will appear here once they enter the lab workflow.",
+                                    id: "Sampel akan muncul setelah masuk ke workflow lab.",
+                                }),
+                            })}
+                        />
+                    ) : (
+                        <ul className="divide-y divide-gray-100">
+                            {recent.map((sample: any, index) => {
+                                const sampleId = Number(sample?.sample_id ?? sample?.id ?? 0) || null;
+                                const code = String(sample?.lab_sample_code ?? "—");
+                                const type = String(sample?.sample_type ?? "—");
+                                const when = formatDashboardDateTime(
+                                    sample?.updated_at ?? sample?.received_at ?? sample?.created_at ?? null,
+                                    locale
+                                );
 
-                {/* Recent */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                    <div className="px-4 md:px-6 py-4 border-b border-gray-100">
-                        <div className="text-sm font-semibold text-gray-900">{t("dashboard.analyst.recent.title")}</div>
-                        <div className="text-xs text-gray-500 mt-1">{t("dashboard.analyst.recent.subtitle")}</div>
-                    </div>
-
-                    <div className="px-4 md:px-6 py-4">
-                        {loading ? (
-                            <div className="text-sm text-gray-600">{t("loading")}</div>
-                        ) : recent.length === 0 ? (
-                            <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-5 text-sm text-gray-700">
-                                <div className="font-semibold text-gray-900">{t("dashboard.analyst.recent.emptyTitle")}</div>
-                                <div className="text-sm text-gray-600 mt-1">{t("dashboard.analyst.recent.emptyBody")}</div>
-                            </div>
-                        ) : (
-                            <ul className="divide-y divide-gray-100">
-                                {recent.map((s: any, idx) => {
-                                    const sid = Number(s?.sample_id ?? s?.id ?? 0) || null;
-                                    const code = String(s?.lab_sample_code ?? "—");
-                                    const type = String(s?.sample_type ?? "—");
-                                    const when = fmtDate(s?.updated_at ?? s?.received_at ?? s?.created_at ?? null, i18n.language || "en");
-
-                                    return (
-                                        <li key={String(sid ?? idx)} className="py-3 flex items-center justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                    <div className="font-mono text-xs bg-white border border-gray-200 rounded-full px-3 py-1 text-gray-900">
-                                                        {code}
-                                                    </div>
-                                                    <div className="text-sm font-medium text-gray-900 truncate">{type}</div>
+                                return (
+                                    <li
+                                        key={String(sampleId ?? index)}
+                                        className="flex items-center justify-between gap-3 py-3"
+                                    >
+                                        <div className="min-w-0">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <div className="rounded-full border border-gray-200 bg-white px-3 py-1 font-mono text-xs text-gray-900">
+                                                    {code}
                                                 </div>
-                                                <div className="text-xs text-gray-500 mt-1 truncate">
-                                                    {t("dashboard.analyst.recent.updatedAt")}: {when}
-                                                </div>
+                                                <div className="truncate text-sm font-medium text-gray-900">{type}</div>
                                             </div>
+                                            <div className="mt-1 truncate text-xs text-gray-500">
+                                                {t("dashboard.analyst.recent.updatedAt", {
+                                                    defaultValue: localizedValue(locale, {
+                                                        en: "Updated",
+                                                        id: "Diperbarui",
+                                                    }),
+                                                })}
+                                                : {when}
+                                            </div>
+                                        </div>
 
-                                            <button
-                                                type="button"
-                                                className={cx("lims-icon-button", !sid && "opacity-50 cursor-not-allowed")}
-                                                onClick={() => sid && navigate(`/samples/${sid}`)}
-                                                disabled={!sid}
-                                                aria-label={t("open")}
-                                                title={t("open")}
-                                            >
-                                                <ArrowRight size={16} />
-                                            </button>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        )}
-                    </div>
-                </div>
+                                        <button
+                                            type="button"
+                                            className={cx("lims-icon-button", !sampleId && "cursor-not-allowed opacity-50")}
+                                            onClick={() => sampleId && navigate(`/samples/${sampleId}`)}
+                                            disabled={!sampleId}
+                                            aria-label={t("open", {
+                                                defaultValue: localizedValue(locale, {
+                                                    en: "Open",
+                                                    id: "Buka",
+                                                }),
+                                            })}
+                                            title={t("open", {
+                                                defaultValue: localizedValue(locale, {
+                                                    en: "Open",
+                                                    id: "Buka",
+                                                }),
+                                            })}
+                                        >
+                                            <ArrowRight size={16} />
+                                        </button>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
+                </DashboardPanel>
             </div>
         </div>
     );

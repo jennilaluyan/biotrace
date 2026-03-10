@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
     AlertTriangle,
@@ -7,8 +7,6 @@ import {
     Beaker,
     FileText,
     Inbox,
-    Loader2,
-    RefreshCw,
     Shield,
     ShieldCheck,
     UserCheck,
@@ -18,65 +16,62 @@ import { useTranslation } from "react-i18next";
 
 import { useAuth } from "../../hooks/useAuth";
 import { ROLE_ID, getRoleLabelById, getUserRoleId } from "../../utils/roles";
-
 import { staffApprovalsService, type PendingStaff } from "../../services/staffApprovals";
 import { fetchSampleRequestsQueue, type SampleRequestQueueRow } from "../../services/sampleRequestQueue";
 import { getReagentApproverInbox, type ApproverInboxRow } from "../../services/reagentRequests";
 import { listLhInbox, type QualityCoverInboxItem } from "../../services/qualityCovers";
 import { listReportDocuments, type ReportDocumentRow } from "../../services/reportDocuments";
 import { apiGet } from "../../services/api";
+import {
+    DashboardEmptyState,
+    DashboardErrorBanner,
+    DashboardHeader,
+    DashboardHero,
+    DashboardPanel,
+    DashboardQuickLinks,
+    DashboardStatGrid,
+    formatDashboardDateTime,
+    getDashboardHeading,
+    localizedValue,
+    withinLastDays,
+    type DashboardAction,
+    type DashboardQuickLinkItem,
+    type DashboardStatItem,
+    cx,
+} from "./DashboardPage";
 
-function cx(...arr: Array<string | false | null | undefined>) {
-    return arr.filter(Boolean).join(" ");
-}
-
-/**
- * Safely unwrap common API response wrappers:
- * - axios: { data: ... }
- * - pagination: { data: { data: [...] } }
- * - custom: nested { data } chains
- */
 function unwrapApi(res: any) {
-    let x = res?.data ?? res;
-    for (let i = 0; i < 6; i++) {
-        if (x && typeof x === "object" && "data" in x && (x as any).data != null) {
-            x = (x as any).data;
+    let value = res?.data ?? res;
+    for (let i = 0; i < 6; i += 1) {
+        if (value && typeof value === "object" && "data" in value && (value as any).data != null) {
+            value = (value as any).data;
             continue;
         }
         break;
     }
-    return x;
+    return value;
 }
 
-/**
- * Extract an array from various possible shapes:
- * - [...]
- * - { data: [...] }
- * - { data: { data: [...] } }
- * - { items: [...] } / { rows: [...] } / { results: [...] }
- * - { pendingStaffs: [...] } (common naming for staff approvals)
- */
 function extractArray<T>(input: any): T[] {
-    const x = unwrapApi(input);
+    const value = unwrapApi(input);
 
-    if (Array.isArray(x)) return x;
+    if (Array.isArray(value)) return value;
 
-    if (x && typeof x === "object") {
+    if (value && typeof value === "object") {
         const candidates = [
-            (x as any).data,
-            (x as any).items,
-            (x as any).rows,
-            (x as any).results,
-            (x as any).pendingStaffs,
-            (x as any).pending_staffs,
-            (x as any).pending,
+            (value as any).data,
+            (value as any).items,
+            (value as any).rows,
+            (value as any).results,
+            (value as any).pendingStaffs,
+            (value as any).pending_staffs,
+            (value as any).pending,
         ];
 
-        for (const c of candidates) {
-            if (Array.isArray(c)) return c;
-            if (c && typeof c === "object") {
-                const inner = (c as any).data;
-                if (Array.isArray(inner)) return inner;
+        for (const candidate of candidates) {
+            if (Array.isArray(candidate)) return candidate;
+            if (candidate && typeof candidate === "object" && Array.isArray((candidate as any).data)) {
+                return (candidate as any).data;
             }
         }
     }
@@ -84,80 +79,21 @@ function extractArray<T>(input: any): T[] {
     return [];
 }
 
-function fmtDate(iso: string | null | undefined, locale: string) {
-    if (!iso) return "—";
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return String(iso);
-
-    try {
-        return new Intl.DateTimeFormat(locale, {
-            year: "numeric",
-            month: "short",
-            day: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit",
-        }).format(d);
-    } catch {
-        return d.toLocaleString();
-    }
-}
-
-function withinLastDays(iso: string | null | undefined, days: number) {
-    if (!iso) return false;
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return false;
-    const ms = days * 24 * 60 * 60 * 1000;
-    return Date.now() - d.getTime() <= ms;
-}
-
-// Keep consistent with SampleRequestsQueuePage: queue = no lab code + not draft
 function normalizeQueueRows(rows: SampleRequestQueueRow[]) {
-    return (rows ?? []).filter((r: any) => {
-        const st = String(r?.request_status ?? "").toLowerCase();
-        if (st === "draft") return false;
-        return !r?.lab_sample_code;
+    return (rows ?? []).filter((row: any) => {
+        const status = String(row?.request_status ?? "").toLowerCase();
+        if (status === "draft") return false;
+        return !row?.lab_sample_code;
     });
 }
-
-const StatCard = ({
-    title,
-    value,
-    subtitle,
-    icon,
-    loading,
-}: {
-    title: string;
-    value: string | number;
-    subtitle?: string;
-    icon?: ReactNode;
-    loading?: boolean;
-}) => (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-        <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-                <div className="text-xs text-gray-500">{title}</div>
-                <div className="text-2xl font-semibold text-gray-900 mt-1">
-                    {loading ? <span className="text-gray-400">—</span> : value}
-                </div>
-                {subtitle ? <div className="text-xs text-gray-500 mt-2">{subtitle}</div> : null}
-            </div>
-
-            {icon ? (
-                <div className="shrink-0 rounded-2xl border border-gray-200 bg-gray-50 p-2 text-gray-700">
-                    {icon}
-                </div>
-            ) : null}
-        </div>
-    </div>
-);
 
 type QueueCard = {
     key: string;
     title: string;
     subtitle: string;
     count: number;
-    icon: ReactNode;
-    onOpen: () => void;
+    icon: React.ReactNode;
+    onClick: () => void;
     tone?: "neutral" | "warn" | "ok";
 };
 
@@ -179,6 +115,7 @@ export default function LaboratoryHeadDashboardPage() {
 
     const roleId = getUserRoleId(user);
     const isLH = roleId === ROLE_ID.LAB_HEAD;
+    const locale = i18n.language || "en";
 
     const [pendingStaffs, setPendingStaffs] = useState<PendingStaff[]>([]);
     const [queueRows, setQueueRows] = useState<SampleRequestQueueRow[]>([]);
@@ -186,7 +123,6 @@ export default function LaboratoryHeadDashboardPage() {
     const [qcRows, setQcRows] = useState<QualityCoverInboxItem[]>([]);
     const [docs, setDocs] = useState<ReportDocumentRow[]>([]);
     const [looCandidates, setLooCandidates] = useState<LooCandidate[]>([]);
-
     const [loading, setLoading] = useState(true);
     const [errorKey, setErrorKey] = useState<string | null>(null);
 
@@ -198,22 +134,13 @@ export default function LaboratoryHeadDashboardPage() {
             const [staffsRes, queue, reagents, qc, allDocs, looRes] = await Promise.all([
                 staffApprovalsService.fetchPendingStaffs(),
                 fetchSampleRequestsQueue({ page: 1, per_page: 250, date: "30d" }),
-
-                // focus: pending approvals
                 getReagentApproverInbox({ status: "submitted", page: 1, per_page: 200 }),
-
-                // QC inbox for LH (waiting validate)
                 listLhInbox({ page: 1, per_page: 200 }),
-
                 listReportDocuments(),
-
-                // LOO candidates (count only; readiness in LOO workspace)
                 apiGet<any>("/v1/samples/requests", { params: { mode: "loo_candidates" } }),
             ]);
 
-            // ✅ FIX: robustly parse pending staff list (array or wrapped response)
             setPendingStaffs(extractArray<PendingStaff>(staffsRes));
-
             setQueueRows(normalizeQueueRows(queue?.data ?? []));
 
             const reagentPayload = unwrapApi(reagents);
@@ -258,66 +185,58 @@ export default function LaboratoryHeadDashboardPage() {
         void load();
     }, [authLoading, isAuthenticated, isLH, navigate, load]);
 
-    const greetingName = user?.name ? `, ${user.name}` : "";
-
     const queueCounts = useMemo(() => {
-        const by = queueRows.reduce<Record<string, number>>((acc, r: any) => {
-            const k = String(r?.request_status ?? "unknown").trim().toLowerCase();
-            acc[k] = (acc[k] ?? 0) + 1;
+        const by = queueRows.reduce<Record<string, number>>((acc, row: any) => {
+            const key = String(row?.request_status ?? "unknown").trim().toLowerCase();
+            acc[key] = (acc[key] ?? 0) + 1;
             return acc;
         }, {});
 
-        const submitted = by["submitted"] ?? 0;
-        const awaitingVerification = by["awaiting_verification"] ?? 0;
-
-        const needsAttention =
-            (by["returned"] ?? 0) +
-            (by["needs_revision"] ?? 0) +
-            (by["inspection_failed"] ?? 0) +
-            (by["returned_to_admin"] ?? 0);
-
-        return { by, submitted, awaitingVerification, needsAttention };
+        return {
+            submitted: by["submitted"] ?? 0,
+            awaitingVerification: by["awaiting_verification"] ?? 0,
+            needsAttention:
+                (by["returned"] ?? 0) +
+                (by["needs_revision"] ?? 0) +
+                (by["inspection_failed"] ?? 0) +
+                (by["returned_to_admin"] ?? 0),
+        };
     }, [queueRows]);
 
-    const docStats = useMemo(() => {
-        const generated7d = docs.filter((d) => withinLastDays(d.generated_at ?? d.created_at ?? null, 7)).length;
-        return { generated7d };
-    }, [docs]);
-
     const recentStaffs = useMemo(() => {
-        const arr = [...pendingStaffs];
-        arr.sort((a: any, b: any) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime());
-        return arr.slice(0, 6);
+        return [...pendingStaffs]
+            .sort((a: any, b: any) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
+            .slice(0, 6);
     }, [pendingStaffs]);
 
     const recentQc = useMemo(() => {
-        const arr = [...qcRows];
-        arr.sort((a: any, b: any) => {
-            const da = new Date(a.verified_at ?? a.updated_at ?? a.created_at ?? 0).getTime();
-            const db = new Date(b.verified_at ?? b.updated_at ?? b.created_at ?? 0).getTime();
-            return db - da;
-        });
-        return arr.slice(0, 6);
+        return [...qcRows]
+            .sort((a: any, b: any) => {
+                const aTime = new Date(a.verified_at ?? a.updated_at ?? a.created_at ?? 0).getTime();
+                const bTime = new Date(b.verified_at ?? b.updated_at ?? b.created_at ?? 0).getTime();
+                return bTime - aTime;
+            })
+            .slice(0, 6);
     }, [qcRows]);
 
     const recentReagent = useMemo(() => {
-        const arr = [...reagentRows];
-        arr.sort((a: any, b: any) => {
-            const da = new Date(a.submitted_at ?? a.updated_at ?? a.created_at ?? 0).getTime();
-            const db = new Date(b.submitted_at ?? b.updated_at ?? b.created_at ?? 0).getTime();
-            return db - da;
-        });
-        return arr.slice(0, 6);
+        return [...reagentRows]
+            .sort((a: any, b: any) => {
+                const aTime = new Date(a.submitted_at ?? a.updated_at ?? a.created_at ?? 0).getTime();
+                const bTime = new Date(b.submitted_at ?? b.updated_at ?? b.created_at ?? 0).getTime();
+                return bTime - aTime;
+            })
+            .slice(0, 6);
     }, [reagentRows]);
 
     const recentDocs = useMemo(() => {
-        const arr = [...docs];
-        arr.sort((a: any, b: any) => {
-            const da = new Date(a.generated_at ?? a.created_at ?? 0).getTime();
-            const db = new Date(b.generated_at ?? b.created_at ?? 0).getTime();
-            return db - da;
-        });
-        return arr.slice(0, 6);
+        return [...docs]
+            .sort((a: any, b: any) => {
+                const aTime = new Date(a.generated_at ?? a.created_at ?? 0).getTime();
+                const bTime = new Date(b.generated_at ?? b.created_at ?? 0).getTime();
+                return bTime - aTime;
+            })
+            .slice(0, 6);
     }, [docs]);
 
     const looCount = looCandidates.length;
@@ -325,498 +244,743 @@ export default function LaboratoryHeadDashboardPage() {
     const reagentPendingCount = reagentRows.length;
     const qcToValidateCount = qcRows.length;
 
-    const queueCards: QueueCard[] = useMemo(
-        () => [
-            {
-                key: "staffApprovals",
-                title: t("dashboard.laboratoryHead.queue.staffApprovals.title"),
-                subtitle: t("dashboard.laboratoryHead.queue.staffApprovals.subtitle"),
-                count: staffPendingCount,
-                icon: <Users size={18} />,
-                onOpen: () => navigate("/staff/approvals"),
-                tone: staffPendingCount > 0 ? "warn" : "neutral",
-            },
-            {
-                key: "qualityCovers",
-                title: t("dashboard.laboratoryHead.queue.qualityCovers.title"),
-                subtitle: t("dashboard.laboratoryHead.queue.qualityCovers.subtitle"),
-                count: qcToValidateCount,
-                icon: <ShieldCheck size={18} />,
-                onOpen: () => navigate("/quality-covers/inbox/lh"),
-                tone: qcToValidateCount > 0 ? "warn" : "neutral",
-            },
-            {
-                key: "reagentApprovals",
-                title: t("dashboard.laboratoryHead.queue.reagentApprovals.title"),
-                subtitle: t("dashboard.laboratoryHead.queue.reagentApprovals.subtitle"),
-                count: reagentPendingCount,
-                icon: <Beaker size={18} />,
-                onOpen: () => navigate("/reagents/approvals"),
-                tone: reagentPendingCount > 0 ? "warn" : "neutral",
-            },
-            {
-                key: "looWorkspace",
-                title: t("dashboard.laboratoryHead.queue.looWorkspace.title"),
-                subtitle: t("dashboard.laboratoryHead.queue.looWorkspace.subtitle"),
-                count: looCount,
-                icon: <FileText size={18} />,
-                onOpen: () => navigate("/loo"),
-                tone: looCount > 0 ? "warn" : "neutral",
-            },
-            {
-                key: "awaitingVerification",
-                title: t("dashboard.laboratoryHead.queue.awaitingVerification.title"),
-                subtitle: t("dashboard.laboratoryHead.queue.awaitingVerification.subtitle"),
-                count: queueCounts.awaitingVerification,
-                icon: <Inbox size={18} />,
-                onOpen: () => navigate("/samples/requests?request_status=awaiting_verification"),
-                tone: queueCounts.awaitingVerification > 0 ? "warn" : "neutral",
-            },
-            {
-                key: "needsAttention",
-                title: t("dashboard.laboratoryHead.queue.needsAttention.title"),
-                subtitle: t("dashboard.laboratoryHead.queue.needsAttention.subtitle"),
-                count: queueCounts.needsAttention,
-                icon: <AlertTriangle size={18} />,
-                onOpen: () => navigate("/samples/requests?request_status=returned"),
-                tone: queueCounts.needsAttention > 0 ? "warn" : "neutral",
-            },
-            {
-                key: "reports",
-                title: t("dashboard.laboratoryHead.queue.reports.title"),
-                subtitle: t("dashboard.laboratoryHead.queue.reports.subtitle"),
-                count: docs.length,
-                icon: <BarChart3 size={18} />,
-                onOpen: () => navigate("/reports"),
-            },
-        ],
-        [t, navigate, staffPendingCount, qcToValidateCount, reagentPendingCount, looCount, queueCounts, docs.length]
-    );
+    const stats: DashboardStatItem[] = [
+        {
+            key: "pendingStaff",
+            title: t("dashboard.laboratoryHead.stats.pendingStaff.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "Pending staff approvals",
+                    id: "Persetujuan staf tertunda",
+                }),
+            }),
+            value: staffPendingCount,
+            subtitle: t("dashboard.laboratoryHead.stats.pendingStaff.sub", {
+                defaultValue: localizedValue(locale, {
+                    en: "Waiting for your decision.",
+                    id: "Menunggu keputusan Anda.",
+                }),
+            }),
+            icon: <Users size={18} />,
+            loading,
+        },
+        {
+            key: "qcToValidate",
+            title: t("dashboard.laboratoryHead.stats.qcToValidate.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "QC to validate",
+                    id: "QC untuk divalidasi",
+                }),
+            }),
+            value: qcToValidateCount,
+            subtitle: t("dashboard.laboratoryHead.stats.qcToValidate.sub", {
+                defaultValue: localizedValue(locale, {
+                    en: "Verified by OM, waiting for LH validation.",
+                    id: "Sudah diverifikasi OM, menunggu validasi LH.",
+                }),
+            }),
+            icon: <ShieldCheck size={18} />,
+            loading,
+        },
+        {
+            key: "reagentPending",
+            title: t("dashboard.laboratoryHead.stats.reagentPending.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "Reagent approvals",
+                    id: "Persetujuan reagen",
+                }),
+            }),
+            value: reagentPendingCount,
+            subtitle: t("dashboard.laboratoryHead.stats.reagentPending.sub", {
+                defaultValue: localizedValue(locale, {
+                    en: "Submitted requests waiting approval.",
+                    id: "Pengajuan menunggu approval.",
+                }),
+            }),
+            icon: <Beaker size={18} />,
+            loading,
+        },
+        {
+            key: "docs7d",
+            title: t("dashboard.laboratoryHead.stats.docs7d.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "Documents (7d)",
+                    id: "Dokumen (7h)",
+                }),
+            }),
+            value: docs.filter((doc) => withinLastDays(doc.generated_at ?? doc.created_at ?? null, 7)).length,
+            subtitle: t("dashboard.laboratoryHead.stats.docs7d.sub", {
+                defaultValue: localizedValue(locale, {
+                    en: "Generated in the last 7 days.",
+                    id: "Terbit dalam 7 hari terakhir.",
+                }),
+            }),
+            icon: <BarChart3 size={18} />,
+            loading,
+        },
+    ];
+
+    const quickLinks: DashboardQuickLinkItem[] = [
+        {
+            key: "staffApprovals",
+            title: t("dashboard.laboratoryHead.queue.staffApprovals.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "Staff approvals",
+                    id: "Persetujuan staf",
+                }),
+            }),
+            subtitle: t("dashboard.laboratoryHead.queue.staffApprovals.subtitle", {
+                defaultValue: localizedValue(locale, {
+                    en: "Pending registrations.",
+                    id: "Pendaftaran menunggu persetujuan.",
+                }),
+            }),
+            count: staffPendingCount,
+            icon: <Users size={18} />,
+            onClick: () => navigate("/staff/approvals"),
+            tone: staffPendingCount > 0 ? "warn" : "neutral",
+        },
+        {
+            key: "qualityCovers",
+            title: t("dashboard.laboratoryHead.queue.qualityCovers.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "Quality Cover validation",
+                    id: "Validasi Quality Cover",
+                }),
+            }),
+            subtitle: t("dashboard.laboratoryHead.queue.qualityCovers.subtitle", {
+                defaultValue: localizedValue(locale, {
+                    en: "Validate verified QC.",
+                    id: "Validasi QC yang sudah diverifikasi.",
+                }),
+            }),
+            count: qcToValidateCount,
+            icon: <ShieldCheck size={18} />,
+            onClick: () => navigate("/quality-covers/inbox/lh"),
+            tone: qcToValidateCount > 0 ? "warn" : "neutral",
+        },
+        {
+            key: "reagentApprovals",
+            title: t("dashboard.laboratoryHead.queue.reagentApprovals.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "Reagent approvals",
+                    id: "Persetujuan reagen",
+                }),
+            }),
+            subtitle: t("dashboard.laboratoryHead.queue.reagentApprovals.subtitle", {
+                defaultValue: localizedValue(locale, {
+                    en: "Approve or reject requests.",
+                    id: "Approve atau reject pengajuan.",
+                }),
+            }),
+            count: reagentPendingCount,
+            icon: <Beaker size={18} />,
+            onClick: () => navigate("/reagents/approvals"),
+            tone: reagentPendingCount > 0 ? "warn" : "neutral",
+        },
+        {
+            key: "looWorkspace",
+            title: t("dashboard.laboratoryHead.queue.looWorkspace.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "LOO workspace",
+                    id: "Ruang LOO",
+                }),
+            }),
+            subtitle: t("dashboard.laboratoryHead.queue.looWorkspace.subtitle", {
+                defaultValue: localizedValue(locale, {
+                    en: "Review approvals and generate LOO.",
+                    id: "Review approval dan generate LOO.",
+                }),
+            }),
+            count: looCount,
+            icon: <FileText size={18} />,
+            onClick: () => navigate("/loo"),
+            tone: looCount > 0 ? "warn" : "neutral",
+        },
+        {
+            key: "awaitingVerification",
+            title: t("dashboard.laboratoryHead.queue.awaitingVerification.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "Requests awaiting verification",
+                    id: "Permintaan menunggu verifikasi",
+                }),
+            }),
+            subtitle: t("dashboard.laboratoryHead.queue.awaitingVerification.subtitle", {
+                defaultValue: localizedValue(locale, {
+                    en: "Monitor the request queue.",
+                    id: "Pantau antrian permintaan.",
+                }),
+            }),
+            count: queueCounts.awaitingVerification,
+            icon: <Inbox size={18} />,
+            onClick: () => navigate("/samples/requests?request_status=awaiting_verification"),
+            tone: queueCounts.awaitingVerification > 0 ? "warn" : "neutral",
+        },
+        {
+            key: "needsAttention",
+            title: t("dashboard.laboratoryHead.queue.needsAttention.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "Needs attention",
+                    id: "Perlu perhatian",
+                }),
+            }),
+            subtitle: t("dashboard.laboratoryHead.queue.needsAttention.subtitle", {
+                defaultValue: localizedValue(locale, {
+                    en: "Returned, revision, or failed inspection items.",
+                    id: "Returned, revisi, atau gagal inspeksi.",
+                }),
+            }),
+            count: queueCounts.needsAttention,
+            icon: <AlertTriangle size={18} />,
+            onClick: () => navigate("/samples/requests?request_status=returned"),
+            tone: queueCounts.needsAttention > 0 ? "warn" : "neutral",
+        },
+        {
+            key: "reports",
+            title: t("dashboard.laboratoryHead.queue.reports.title", {
+                defaultValue: localizedValue(locale, {
+                    en: "Reports",
+                    id: "Laporan",
+                }),
+            }),
+            subtitle: t("dashboard.laboratoryHead.queue.reports.subtitle", {
+                defaultValue: localizedValue(locale, {
+                    en: "All generated documents.",
+                    id: "Semua dokumen yang dihasilkan.",
+                }),
+            }),
+            count: docs.length,
+            icon: <BarChart3 size={18} />,
+            onClick: () => navigate("/reports"),
+        },
+    ];
+
+    const actions: DashboardAction[] = [
+        {
+            key: "openStaffApprovals",
+            label: t("dashboard.laboratoryHead.actions.openStaffApprovals", {
+                defaultValue: localizedValue(locale, {
+                    en: "Staff approvals",
+                    id: "Persetujuan staf",
+                }),
+            }),
+            icon: <Users size={16} />,
+            onClick: () => navigate("/staff/approvals"),
+            variant: "outline",
+        },
+        {
+            key: "openQualityCovers",
+            label: t("dashboard.laboratoryHead.actions.openQualityCovers", {
+                defaultValue: localizedValue(locale, {
+                    en: "Quality Covers",
+                    id: "Quality Cover",
+                }),
+            }),
+            icon: <ShieldCheck size={16} />,
+            onClick: () => navigate("/quality-covers/inbox/lh"),
+            variant: "outline",
+        },
+        {
+            key: "openLoo",
+            label: t("dashboard.laboratoryHead.actions.openLoo", {
+                defaultValue: localizedValue(locale, {
+                    en: "LOO workspace",
+                    id: "Ruang LOO",
+                }),
+            }),
+            icon: <FileText size={16} />,
+            onClick: () => navigate("/loo"),
+            variant: "primary",
+        },
+    ];
+
+    const header = getDashboardHeading(t, locale, "laboratoryHead", user?.name);
+    const errorMessage = errorKey
+        ? t(errorKey, {
+            defaultValue: localizedValue(locale, {
+                en: "Failed to load dashboard data. Please try again.",
+                id: "Gagal memuat data dashboard. Silakan coba lagi.",
+            }),
+        })
+        : "";
 
     return (
         <div className="min-h-[60vh]">
-            {/* Header */}
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
-                <div className="min-w-0">
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">{t("dashboard.laboratoryHead.title")}</h1>
-                    <p className="text-sm text-gray-600 mt-1">{t("dashboard.laboratoryHead.subtitle", { name: greetingName })}</p>
-                </div>
+            <DashboardHeader
+                title={header.title}
+                subtitle={header.subtitle}
+                loading={loading}
+                onRefresh={() => void load()}
+                refreshLabel={t("refresh", {
+                    defaultValue: localizedValue(locale, {
+                        en: "Refresh",
+                        id: "Segarkan",
+                    }),
+                })}
+                actions={actions}
+            />
 
-                <div className="flex items-center gap-2 flex-wrap md:flex-nowrap md:justify-end">
-                    <button
-                        type="button"
-                        className={cx("lims-icon-button", loading && "opacity-60 cursor-not-allowed")}
-                        onClick={load}
-                        disabled={loading}
-                        aria-label={t("refresh")}
-                        title={t("refresh")}
-                    >
-                        {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                    </button>
+            <DashboardHero
+                icon={<Shield size={18} />}
+                title={t("dashboard.laboratoryHead.hero.title", {
+                    defaultValue: localizedValue(locale, {
+                        en: "Quality and approvals",
+                        id: "Mutu dan persetujuan",
+                    }),
+                })}
+                body={t("dashboard.laboratoryHead.hero.body", {
+                    defaultValue: localizedValue(locale, {
+                        en: "Monitor pending approvals and validate Quality Covers efficiently.",
+                        id: "Pantau persetujuan yang tertunda dan lakukan validasi Quality Cover dengan cepat.",
+                    }),
+                })}
+            />
 
-                    <div className="flex items-center gap-2 flex-wrap md:flex-nowrap">
-                        <button
-                            type="button"
-                            className="btn-outline h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap w-auto"
-                            onClick={() => navigate("/staff/approvals")}
-                        >
-                            <Users size={16} />
-                            {t("dashboard.laboratoryHead.actions.openStaffApprovals")}
-                        </button>
+            <DashboardStatGrid items={stats} />
 
-                        <button
-                            type="button"
-                            className="btn-outline h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap w-auto"
-                            onClick={() => navigate("/quality-covers/inbox/lh")}
-                        >
-                            <ShieldCheck size={16} />
-                            {t("dashboard.laboratoryHead.actions.openQualityCovers")}
-                        </button>
+            <DashboardErrorBanner
+                message={errorMessage}
+                onRetry={errorKey ? () => void load() : undefined}
+                retryLabel={t("retry", {
+                    defaultValue: localizedValue(locale, {
+                        en: "Retry",
+                        id: "Coba lagi",
+                    }),
+                })}
+            />
 
-                        <button
-                            type="button"
-                            className="lims-btn-primary h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap w-auto"
-                            onClick={() => navigate("/loo")}
-                        >
-                            <FileText size={16} />
-                            {t("dashboard.laboratoryHead.actions.openLoo")}
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <DashboardPanel
+                    title={t("dashboard.laboratoryHead.workQueue.title", {
+                        defaultValue: localizedValue(locale, {
+                            en: "Work queue",
+                            id: "Antrian kerja",
+                        }),
+                    })}
+                    subtitle={t("dashboard.laboratoryHead.workQueue.subtitle", {
+                        defaultValue: localizedValue(locale, {
+                            en: "Jump to the most important work items.",
+                            id: "Akses cepat ke tugas terpenting.",
+                        }),
+                    })}
+                >
+                    <DashboardQuickLinks items={quickLinks} loading={loading} />
+                </DashboardPanel>
 
-            {/* Hero */}
-            <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="px-4 md:px-6 py-4">
-                    <div className="flex items-start gap-3">
-                        <div className="mt-0.5 shrink-0 rounded-2xl border border-gray-200 bg-gray-50 p-2 text-gray-700">
-                            <Shield size={18} />
-                        </div>
-
-                        <div className="min-w-0">
-                            <div className="text-xs font-semibold tracking-wide text-gray-500 uppercase">
-                                {t("dashboard.laboratoryHead.hero.title")}
-                            </div>
-                            <div className="text-sm text-gray-700 mt-1">{t("dashboard.laboratoryHead.hero.body")}</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Stats */}
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                <StatCard
-                    title={t("dashboard.laboratoryHead.stats.pendingStaff.title")}
-                    value={staffPendingCount}
-                    subtitle={t("dashboard.laboratoryHead.stats.pendingStaff.sub")}
-                    icon={<Users size={18} />}
-                    loading={loading}
-                />
-                <StatCard
-                    title={t("dashboard.laboratoryHead.stats.qcToValidate.title")}
-                    value={qcToValidateCount}
-                    subtitle={t("dashboard.laboratoryHead.stats.qcToValidate.sub")}
-                    icon={<ShieldCheck size={18} />}
-                    loading={loading}
-                />
-                <StatCard
-                    title={t("dashboard.laboratoryHead.stats.reagentPending.title")}
-                    value={reagentPendingCount}
-                    subtitle={t("dashboard.laboratoryHead.stats.reagentPending.sub")}
-                    icon={<Beaker size={18} />}
-                    loading={loading}
-                />
-                <StatCard
-                    title={t("dashboard.laboratoryHead.stats.docs7d.title")}
-                    value={docStats.generated7d}
-                    subtitle={t("dashboard.laboratoryHead.stats.docs7d.sub")}
-                    icon={<BarChart3 size={18} />}
-                    loading={loading}
-                />
-            </div>
-
-            {/* Error */}
-            {errorKey ? (
-                <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-                    <div className="flex items-start gap-3">
-                        <AlertTriangle size={18} className="mt-0.5" />
-                        <div className="min-w-0">
-                            <div className="font-semibold">{t(errorKey)}</div>
-                            <div className="mt-2">
-                                <button type="button" className="btn-outline inline-flex items-center gap-2" onClick={load}>
-                                    <RefreshCw size={16} />
-                                    {t("retry")}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            ) : null}
-
-            {/* Work queue + Recent staff approvals */}
-            <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {/* Work queue */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                    <div className="px-4 md:px-6 py-4 border-b border-gray-100">
-                        <div className="text-sm font-semibold text-gray-900">{t("dashboard.laboratoryHead.workQueue.title")}</div>
-                        <div className="text-xs text-gray-500 mt-1">{t("dashboard.laboratoryHead.workQueue.subtitle")}</div>
-                    </div>
-
-                    <div className="px-4 md:px-6 py-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {queueCards.map((c) => {
-                                const toneCls =
-                                    c.tone === "warn"
-                                        ? "border-amber-200 bg-amber-50"
-                                        : c.tone === "ok"
-                                            ? "border-emerald-200 bg-emerald-50"
-                                            : "border-gray-200 bg-gray-50";
-
-                                return (
-                                    <button
-                                        key={c.key}
-                                        type="button"
-                                        onClick={c.onOpen}
-                                        className={cx(
-                                            "text-left rounded-2xl border p-4 transition hover:shadow-sm",
-                                            toneCls,
-                                            loading && "opacity-60 cursor-not-allowed"
-                                        )}
-                                        disabled={loading}
-                                    >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <div className="text-xs text-gray-600">{c.title}</div>
-                                                <div className="text-2xl font-semibold text-gray-900 mt-1">{loading ? "—" : c.count}</div>
-                                                <div className="text-xs text-gray-600 mt-2">{c.subtitle}</div>
-                                            </div>
-
-                                            <div className="shrink-0 rounded-2xl border border-black/5 bg-white/60 p-2 text-gray-700">
-                                                {c.icon}
-                                            </div>
-                                        </div>
-                                    </button>
-                                );
+                <DashboardPanel
+                    title={t("dashboard.laboratoryHead.recentStaff.title", {
+                        defaultValue: localizedValue(locale, {
+                            en: "Recent staff requests",
+                            id: "Permintaan staf terbaru",
+                        }),
+                    })}
+                    subtitle={t("dashboard.laboratoryHead.recentStaff.subtitle", {
+                        defaultValue: localizedValue(locale, {
+                            en: "Latest pending staff registrations.",
+                            id: "Pendaftaran staf terbaru yang masih pending.",
+                        }),
+                    })}
+                >
+                    {loading ? (
+                        <div className="text-sm text-gray-600">
+                            {t("loading", {
+                                defaultValue: localizedValue(locale, {
+                                    en: "Loading…",
+                                    id: "Memuat…",
+                                }),
                             })}
                         </div>
-                    </div>
-                </div>
-
-                {/* Recent staff approvals */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                    <div className="px-4 md:px-6 py-4 border-b border-gray-100">
-                        <div className="text-sm font-semibold text-gray-900">{t("dashboard.laboratoryHead.recentStaff.title")}</div>
-                        <div className="text-xs text-gray-500 mt-1">{t("dashboard.laboratoryHead.recentStaff.subtitle")}</div>
-                    </div>
-
-                    <div className="px-4 md:px-6 py-4">
-                        {loading ? (
-                            <div className="text-sm text-gray-600">{t("loading")}</div>
-                        ) : recentStaffs.length === 0 ? (
-                            <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-5 text-sm text-gray-700">
-                                <div className="font-semibold text-gray-900">{t("dashboard.laboratoryHead.recentStaff.emptyTitle")}</div>
-                                <div className="text-sm text-gray-600 mt-1">{t("dashboard.laboratoryHead.recentStaff.emptyBody")}</div>
-
-                                <button
-                                    type="button"
-                                    className="btn-outline mt-4 inline-flex items-center gap-2"
-                                    onClick={() => navigate("/staff/approvals")}
-                                >
-                                    <UserCheck size={16} />
-                                    {t("dashboard.laboratoryHead.actions.openStaffApprovals")}
-                                </button>
-                            </div>
-                        ) : (
-                            <ul className="divide-y divide-gray-100">
-                                {recentStaffs.map((s: any, idx: number) => {
-                                    const when = fmtDate(s.created_at ?? null, i18n.language || "en");
-                                    const roleName = s.role?.name || getRoleLabelById(s.role_id) || String(s.role_id ?? "—");
-
-                                    return (
-                                        <li key={`${s.staff_id}-${idx}`} className="py-3 flex items-center justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <div className="font-medium text-gray-900 truncate">{s.name ?? "—"}</div>
-                                                <div className="text-xs text-gray-500 mt-1 truncate">
-                                                    {roleName} • {when}
-                                                </div>
-                                            </div>
-
-                                            <button
-                                                type="button"
-                                                className="lims-icon-button"
-                                                onClick={() => navigate("/staff/approvals")}
-                                                aria-label={t("open")}
-                                                title={t("open")}
-                                            >
-                                                <ArrowRight size={16} />
-                                            </button>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            {/* Recent QC + Recent reagent approvals */}
-            <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {/* Recent QC */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                    <div className="px-4 md:px-6 py-4 border-b border-gray-100">
-                        <div className="text-sm font-semibold text-gray-900">{t("dashboard.laboratoryHead.recentQc.title")}</div>
-                        <div className="text-xs text-gray-500 mt-1">{t("dashboard.laboratoryHead.recentQc.subtitle")}</div>
-                    </div>
-
-                    <div className="px-4 md:px-6 py-4">
-                        {loading ? (
-                            <div className="text-sm text-gray-600">{t("loading")}</div>
-                        ) : recentQc.length === 0 ? (
-                            <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-5 text-sm text-gray-700">
-                                <div className="font-semibold text-gray-900">{t("dashboard.laboratoryHead.recentQc.emptyTitle")}</div>
-                                <div className="text-sm text-gray-600 mt-1">{t("dashboard.laboratoryHead.recentQc.emptyBody")}</div>
-
-                                <button
-                                    type="button"
-                                    className="btn-outline mt-4 inline-flex items-center gap-2"
-                                    onClick={() => navigate("/quality-covers/inbox/lh")}
-                                >
-                                    <ShieldCheck size={16} />
-                                    {t("dashboard.laboratoryHead.actions.openQualityCovers")}
-                                </button>
-                            </div>
-                        ) : (
-                            <ul className="divide-y divide-gray-100">
-                                {recentQc.map((qc: any, idx: number) => {
-                                    const qcId = Number(qc.quality_cover_id ?? 0);
-                                    const sampleCode = qc.sample?.lab_sample_code ?? `#${qc.sample_id ?? "—"}`;
-                                    const when = fmtDate(qc.verified_at ?? qc.updated_at ?? qc.created_at ?? null, i18n.language || "en");
-
-                                    return (
-                                        <li key={`${qcId}-${idx}`} className="py-3 flex items-center justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <div className="font-medium text-gray-900 truncate">{sampleCode}</div>
-                                                <div className="text-xs text-gray-500 mt-1 truncate">
-                                                    QC #{qcId} • {when}
-                                                </div>
-                                            </div>
-
-                                            <button
-                                                type="button"
-                                                className={cx("lims-icon-button", !(qcId > 0) && "opacity-50 cursor-not-allowed")}
-                                                onClick={() =>
-                                                    qcId > 0 &&
-                                                    navigate("/quality-covers/inbox/lh", {
-                                                        state: { preselectId: qcId },
-                                                    })
-                                                }
-                                                disabled={!(qcId > 0)}
-                                                aria-label={t("open")}
-                                                title={t("open")}
-                                            >
-                                                <ArrowRight size={16} />
-                                            </button>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        )}
-                    </div>
-                </div>
-
-                {/* Recent reagent approvals */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                    <div className="px-4 md:px-6 py-4 border-b border-gray-100">
-                        <div className="text-sm font-semibold text-gray-900">{t("dashboard.laboratoryHead.recentReagent.title")}</div>
-                        <div className="text-xs text-gray-500 mt-1">{t("dashboard.laboratoryHead.recentReagent.subtitle")}</div>
-                    </div>
-
-                    <div className="px-4 md:px-6 py-4">
-                        {loading ? (
-                            <div className="text-sm text-gray-600">{t("loading")}</div>
-                        ) : recentReagent.length === 0 ? (
-                            <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-5 text-sm text-gray-700">
-                                <div className="font-semibold text-gray-900">{t("dashboard.laboratoryHead.recentReagent.emptyTitle")}</div>
-                                <div className="text-sm text-gray-600 mt-1">{t("dashboard.laboratoryHead.recentReagent.emptyBody")}</div>
-
-                                <button
-                                    type="button"
-                                    className="btn-outline mt-4 inline-flex items-center gap-2"
-                                    onClick={() => navigate("/reagents/approvals")}
-                                >
-                                    <Beaker size={16} />
-                                    {t("dashboard.laboratoryHead.actions.openReagentApprovals")}
-                                </button>
-                            </div>
-                        ) : (
-                            <ul className="divide-y divide-gray-100">
-                                {recentReagent.map((r: any, idx: number) => {
-                                    const loId = Number(r.lo_id ?? 0);
-                                    const when = fmtDate(r.submitted_at ?? r.updated_at ?? r.created_at ?? null, i18n.language || "en");
-                                    const loo = r.loo_number ?? (loId > 0 ? `LOO #${loId}` : "LOO");
-                                    const client = r.client_name ?? "—";
-
-                                    return (
-                                        <li key={`${r.reagent_request_id}-${idx}`} className="py-3 flex items-center justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <div className="font-medium text-gray-900 truncate">{loo}</div>
-                                                <div className="text-xs text-gray-500 mt-1 truncate">
-                                                    {client} • {when}
-                                                </div>
-                                            </div>
-
-                                            <button
-                                                type="button"
-                                                className={cx("lims-icon-button", !(loId > 0) && "opacity-50 cursor-not-allowed")}
-                                                onClick={() => loId > 0 && navigate(`/reagents/approvals/loo/${loId}`)}
-                                                disabled={!(loId > 0)}
-                                                aria-label={t("open")}
-                                                title={t("open")}
-                                            >
-                                                <ArrowRight size={16} />
-                                            </button>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            {/* Recent docs */}
-            <div className="mt-4 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="px-4 md:px-6 py-4 border-b border-gray-100">
-                    <div className="text-sm font-semibold text-gray-900">{t("dashboard.laboratoryHead.recentDocs.title")}</div>
-                    <div className="text-xs text-gray-500 mt-1">{t("dashboard.laboratoryHead.recentDocs.subtitle")}</div>
-                </div>
-
-                <div className="px-4 md:px-6 py-4">
-                    {loading ? (
-                        <div className="text-sm text-gray-600">{t("loading")}</div>
-                    ) : recentDocs.length === 0 ? (
-                        <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-5 text-sm text-gray-700">
-                            <div className="font-semibold text-gray-900">{t("dashboard.laboratoryHead.recentDocs.emptyTitle")}</div>
-                            <div className="text-sm text-gray-600 mt-1">{t("dashboard.laboratoryHead.recentDocs.emptyBody")}</div>
-
-                            <button
-                                type="button"
-                                className="btn-outline mt-4 inline-flex items-center gap-2"
-                                onClick={() => navigate("/reports")}
-                            >
-                                <BarChart3 size={16} />
-                                {t("dashboard.laboratoryHead.actions.openReports")}
-                            </button>
-                        </div>
+                    ) : recentStaffs.length === 0 ? (
+                        <DashboardEmptyState
+                            title={t("dashboard.laboratoryHead.recentStaff.emptyTitle", {
+                                defaultValue: localizedValue(locale, {
+                                    en: "No pending staff approvals",
+                                    id: "Tidak ada persetujuan staf",
+                                }),
+                            })}
+                            body={t("dashboard.laboratoryHead.recentStaff.emptyBody", {
+                                defaultValue: localizedValue(locale, {
+                                    en: "You are all caught up.",
+                                    id: "Sudah aman, tidak ada yang tertunda.",
+                                }),
+                            })}
+                            action={{
+                                label: t("dashboard.laboratoryHead.actions.openStaffApprovals", {
+                                    defaultValue: localizedValue(locale, {
+                                        en: "Staff approvals",
+                                        id: "Persetujuan staf",
+                                    }),
+                                }),
+                                icon: <UserCheck size={16} />,
+                                onClick: () => navigate("/staff/approvals"),
+                                variant: "outline",
+                            }}
+                        />
                     ) : (
                         <ul className="divide-y divide-gray-100">
-                            {recentDocs.map((d, idx) => {
-                                const when = fmtDate(d.generated_at ?? d.created_at ?? null, i18n.language || "en");
-                                const name =
-                                    d.document_name ||
-                                    d.document_code ||
-                                    (d.type ? String(d.type) : t(["document", "common.document"], "Document"));
-                                const codeNum = d.number || d.document_code || "—";
-                                const href = d.download_url || d.file_url || null;
+                            {recentStaffs.map((staff: any, index: number) => {
+                                const when = formatDashboardDateTime(staff.created_at ?? null, locale);
+                                const roleName = staff.role?.name || getRoleLabelById(staff.role_id) || String(staff.role_id ?? "—");
 
                                 return (
-                                    <li key={`${d.type}-${d.id}-${idx}`} className="py-3 flex items-center justify-between gap-3">
+                                    <li key={`${staff.staff_id}-${index}`} className="flex items-center justify-between gap-3 py-3">
                                         <div className="min-w-0">
-                                            <div className="font-medium text-gray-900 truncate">{name}</div>
-                                            <div className="text-xs text-gray-500 mt-1">
-                                                {codeNum} • {when}
+                                            <div className="truncate font-medium text-gray-900">{staff.name ?? "—"}</div>
+                                            <div className="mt-1 truncate text-xs text-gray-500">
+                                                {roleName} • {when}
                                             </div>
                                         </div>
 
-                                        {href ? (
-                                            <a
-                                                className="lims-icon-button"
-                                                href={href}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                aria-label={t("open")}
-                                                title={t("open")}
-                                            >
-                                                <ArrowRight size={16} />
-                                            </a>
-                                        ) : (
-                                            <button
-                                                type="button"
-                                                className="lims-icon-button opacity-50 cursor-not-allowed"
-                                                disabled
-                                                aria-label={t("open")}
-                                                title={t("open")}
-                                            >
-                                                <ArrowRight size={16} />
-                                            </button>
-                                        )}
+                                        <button
+                                            type="button"
+                                            className="lims-icon-button"
+                                            onClick={() => navigate("/staff/approvals")}
+                                            aria-label={t("open", {
+                                                defaultValue: localizedValue(locale, {
+                                                    en: "Open",
+                                                    id: "Buka",
+                                                }),
+                                            })}
+                                            title={t("open", {
+                                                defaultValue: localizedValue(locale, {
+                                                    en: "Open",
+                                                    id: "Buka",
+                                                }),
+                                            })}
+                                        >
+                                            <ArrowRight size={16} />
+                                        </button>
                                     </li>
                                 );
                             })}
                         </ul>
                     )}
-                </div>
+                </DashboardPanel>
             </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <DashboardPanel
+                    title={t("dashboard.laboratoryHead.recentQc.title", {
+                        defaultValue: localizedValue(locale, {
+                            en: "Recent Quality Covers",
+                            id: "Quality Cover terbaru",
+                        }),
+                    })}
+                    subtitle={t("dashboard.laboratoryHead.recentQc.subtitle", {
+                        defaultValue: localizedValue(locale, {
+                            en: "Latest items waiting validation.",
+                            id: "Item terbaru yang menunggu validasi.",
+                        }),
+                    })}
+                >
+                    {loading ? (
+                        <div className="text-sm text-gray-600">
+                            {t("loading", {
+                                defaultValue: localizedValue(locale, {
+                                    en: "Loading…",
+                                    id: "Memuat…",
+                                }),
+                            })}
+                        </div>
+                    ) : recentQc.length === 0 ? (
+                        <DashboardEmptyState
+                            title={t("dashboard.laboratoryHead.recentQc.emptyTitle", {
+                                defaultValue: localizedValue(locale, {
+                                    en: "No Quality Covers to validate",
+                                    id: "Tidak ada QC untuk divalidasi",
+                                }),
+                            })}
+                            body={t("dashboard.laboratoryHead.recentQc.emptyBody", {
+                                defaultValue: localizedValue(locale, {
+                                    en: "Nothing is waiting for LH validation.",
+                                    id: "Tidak ada item yang menunggu validasi LH.",
+                                }),
+                            })}
+                            action={{
+                                label: t("dashboard.laboratoryHead.actions.openQualityCovers", {
+                                    defaultValue: localizedValue(locale, {
+                                        en: "Quality Covers",
+                                        id: "Quality Cover",
+                                    }),
+                                }),
+                                icon: <ShieldCheck size={16} />,
+                                onClick: () => navigate("/quality-covers/inbox/lh"),
+                                variant: "outline",
+                            }}
+                        />
+                    ) : (
+                        <ul className="divide-y divide-gray-100">
+                            {recentQc.map((qc: any, index: number) => {
+                                const qcId = Number(qc.quality_cover_id ?? 0);
+                                const sampleCode = qc.sample?.lab_sample_code ?? `#${qc.sample_id ?? "—"}`;
+                                const when = formatDashboardDateTime(
+                                    qc.verified_at ?? qc.updated_at ?? qc.created_at ?? null,
+                                    locale
+                                );
+
+                                return (
+                                    <li key={`${qcId}-${index}`} className="flex items-center justify-between gap-3 py-3">
+                                        <div className="min-w-0">
+                                            <div className="truncate font-medium text-gray-900">{sampleCode}</div>
+                                            <div className="mt-1 truncate text-xs text-gray-500">
+                                                QC #{qcId} • {when}
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            className={cx("lims-icon-button", !(qcId > 0) && "cursor-not-allowed opacity-50")}
+                                            onClick={() =>
+                                                qcId > 0 &&
+                                                navigate("/quality-covers/inbox/lh", {
+                                                    state: { preselectId: qcId },
+                                                })
+                                            }
+                                            disabled={!(qcId > 0)}
+                                            aria-label={t("open", {
+                                                defaultValue: localizedValue(locale, {
+                                                    en: "Open",
+                                                    id: "Buka",
+                                                }),
+                                            })}
+                                            title={t("open", {
+                                                defaultValue: localizedValue(locale, {
+                                                    en: "Open",
+                                                    id: "Buka",
+                                                }),
+                                            })}
+                                        >
+                                            <ArrowRight size={16} />
+                                        </button>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
+                </DashboardPanel>
+
+                <DashboardPanel
+                    title={t("dashboard.laboratoryHead.recentReagent.title", {
+                        defaultValue: localizedValue(locale, {
+                            en: "Recent reagent approvals",
+                            id: "Persetujuan reagen terbaru",
+                        }),
+                    })}
+                    subtitle={t("dashboard.laboratoryHead.recentReagent.subtitle", {
+                        defaultValue: localizedValue(locale, {
+                            en: "Latest submitted requests.",
+                            id: "Pengajuan terbaru berstatus submitted.",
+                        }),
+                    })}
+                >
+                    {loading ? (
+                        <div className="text-sm text-gray-600">
+                            {t("loading", {
+                                defaultValue: localizedValue(locale, {
+                                    en: "Loading…",
+                                    id: "Memuat…",
+                                }),
+                            })}
+                        </div>
+                    ) : recentReagent.length === 0 ? (
+                        <DashboardEmptyState
+                            title={t("dashboard.laboratoryHead.recentReagent.emptyTitle", {
+                                defaultValue: localizedValue(locale, {
+                                    en: "No submitted reagent requests",
+                                    id: "Tidak ada pengajuan reagen submitted",
+                                }),
+                            })}
+                            body={t("dashboard.laboratoryHead.recentReagent.emptyBody", {
+                                defaultValue: localizedValue(locale, {
+                                    en: "No pending approvals found.",
+                                    id: "Tidak ada approval yang tertunda.",
+                                }),
+                            })}
+                            action={{
+                                label: t("dashboard.laboratoryHead.actions.openReagentApprovals", {
+                                    defaultValue: localizedValue(locale, {
+                                        en: "Reagent approvals",
+                                        id: "Persetujuan reagen",
+                                    }),
+                                }),
+                                icon: <Beaker size={16} />,
+                                onClick: () => navigate("/reagents/approvals"),
+                                variant: "outline",
+                            }}
+                        />
+                    ) : (
+                        <ul className="divide-y divide-gray-100">
+                            {recentReagent.map((row: any, index: number) => {
+                                const loId = Number(row.lo_id ?? 0);
+                                const when = formatDashboardDateTime(
+                                    row.submitted_at ?? row.updated_at ?? row.created_at ?? null,
+                                    locale
+                                );
+                                const loo = row.loo_number ?? (loId > 0 ? `LOO #${loId}` : "LOO");
+                                const client = row.client_name ?? "—";
+
+                                return (
+                                    <li key={`${row.reagent_request_id}-${index}`} className="flex items-center justify-between gap-3 py-3">
+                                        <div className="min-w-0">
+                                            <div className="truncate font-medium text-gray-900">{loo}</div>
+                                            <div className="mt-1 truncate text-xs text-gray-500">
+                                                {client} • {when}
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            className={cx("lims-icon-button", !(loId > 0) && "cursor-not-allowed opacity-50")}
+                                            onClick={() => loId > 0 && navigate(`/reagents/approvals/loo/${loId}`)}
+                                            disabled={!(loId > 0)}
+                                            aria-label={t("open", {
+                                                defaultValue: localizedValue(locale, {
+                                                    en: "Open",
+                                                    id: "Buka",
+                                                }),
+                                            })}
+                                            title={t("open", {
+                                                defaultValue: localizedValue(locale, {
+                                                    en: "Open",
+                                                    id: "Buka",
+                                                }),
+                                            })}
+                                        >
+                                            <ArrowRight size={16} />
+                                        </button>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
+                </DashboardPanel>
+            </div>
+
+            <DashboardPanel
+                className="mt-4"
+                title={t("dashboard.laboratoryHead.recentDocs.title", {
+                    defaultValue: localizedValue(locale, {
+                        en: "Recent documents",
+                        id: "Dokumen terbaru",
+                    }),
+                })}
+                subtitle={t("dashboard.laboratoryHead.recentDocs.subtitle", {
+                    defaultValue: localizedValue(locale, {
+                        en: "Latest generated PDFs.",
+                        id: "PDF yang paling baru dihasilkan.",
+                    }),
+                })}
+            >
+                {loading ? (
+                    <div className="text-sm text-gray-600">
+                        {t("loading", {
+                            defaultValue: localizedValue(locale, {
+                                en: "Loading…",
+                                id: "Memuat…",
+                            }),
+                        })}
+                    </div>
+                ) : recentDocs.length === 0 ? (
+                    <DashboardEmptyState
+                        title={t("dashboard.laboratoryHead.recentDocs.emptyTitle", {
+                            defaultValue: localizedValue(locale, {
+                                en: "No documents yet",
+                                id: "Belum ada dokumen",
+                            }),
+                        })}
+                        body={t("dashboard.laboratoryHead.recentDocs.emptyBody", {
+                            defaultValue: localizedValue(locale, {
+                                en: "Generated documents will appear here.",
+                                id: "Dokumen yang dihasilkan akan muncul di sini.",
+                            }),
+                        })}
+                        action={{
+                            label: t("dashboard.laboratoryHead.actions.openReports", {
+                                defaultValue: localizedValue(locale, {
+                                    en: "Reports",
+                                    id: "Laporan",
+                                }),
+                            }),
+                            icon: <BarChart3 size={16} />,
+                            onClick: () => navigate("/reports"),
+                            variant: "outline",
+                        }}
+                    />
+                ) : (
+                    <ul className="divide-y divide-gray-100">
+                        {recentDocs.map((doc, index) => {
+                            const when = formatDashboardDateTime(
+                                doc.generated_at ?? doc.created_at ?? null,
+                                locale
+                            );
+                            const name =
+                                doc.document_name ||
+                                doc.document_code ||
+                                (doc.type
+                                    ? String(doc.type)
+                                    : localizedValue(locale, {
+                                        en: "Document",
+                                        id: "Dokumen",
+                                    }));
+                            const code = doc.number || doc.document_code || "—";
+                            const href = doc.download_url || doc.file_url || null;
+
+                            return (
+                                <li key={`${doc.type}-${doc.id}-${index}`} className="flex items-center justify-between gap-3 py-3">
+                                    <div className="min-w-0">
+                                        <div className="truncate font-medium text-gray-900">{name}</div>
+                                        <div className="mt-1 text-xs text-gray-500">
+                                            {code} • {when}
+                                        </div>
+                                    </div>
+
+                                    {href ? (
+                                        <a
+                                            className="lims-icon-button"
+                                            href={href}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            aria-label={t("open", {
+                                                defaultValue: localizedValue(locale, {
+                                                    en: "Open",
+                                                    id: "Buka",
+                                                }),
+                                            })}
+                                            title={t("open", {
+                                                defaultValue: localizedValue(locale, {
+                                                    en: "Open",
+                                                    id: "Buka",
+                                                }),
+                                            })}
+                                        >
+                                            <ArrowRight size={16} />
+                                        </a>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            className="lims-icon-button cursor-not-allowed opacity-50"
+                                            disabled
+                                            aria-label={t("open", {
+                                                defaultValue: localizedValue(locale, {
+                                                    en: "Open",
+                                                    id: "Buka",
+                                                }),
+                                            })}
+                                            title={t("open", {
+                                                defaultValue: localizedValue(locale, {
+                                                    en: "Open",
+                                                    id: "Buka",
+                                                }),
+                                            })}
+                                        >
+                                            <ArrowRight size={16} />
+                                        </button>
+                                    )}
+                                </li>
+                            );
+                        })}
+                    </ul>
+                )}
+            </DashboardPanel>
         </div>
     );
 }

@@ -28,7 +28,7 @@ import ClientDashboardPage from "../pages/portal/ClientDashboardPage";
 import ClientRequestDetailPage from "../pages/portal/ClientRequestDetailPage";
 import ClientRequestsPage from "../pages/portal/ClientRequestsPage";
 
-import StaffDashboardPage from "../pages/dashboard/StaffDashboardPage";
+import DashboardPage from "../pages/dashboard/DashboardPage";
 
 import ReagentApprovalDetailPage from "../pages/reagents/ReagentApprovalDetailPage";
 import ReagentApprovalInboxPage from "../pages/reagents/ReagentApprovalInboxPage";
@@ -146,7 +146,7 @@ export const AppRouter = () => {
                                         ROLE_ID.LAB_HEAD,
                                     ]}
                                 >
-                                    <StaffDashboardPage />
+                                    <DashboardPage />
                                 </RoleGuard>
                             }
                         />
