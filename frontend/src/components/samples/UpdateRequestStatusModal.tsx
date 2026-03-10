@@ -228,18 +228,18 @@ export const UpdateRequestStatusModal = ({
     const noteLabel = useMemo(() => {
         if (isReject) {
             return t("samples.requestStatusModal.note.labelRequiredReject", {
-                defaultValue: "Rejection reason (required)",
+                defaultValue: "Rejection reason",
             });
         }
 
         if (isReturn) {
             return t("samples.requestStatusModal.note.labelRequiredReturn", {
-                defaultValue: "Return note (required)",
+                defaultValue: "Return note",
             });
         }
 
         return t("samples.requestStatusModal.note.labelOptional", {
-            defaultValue: "Note (optional)",
+            defaultValue: "Note",
         });
     }, [isReject, isReturn, t]);
 
@@ -391,8 +391,9 @@ export const UpdateRequestStatusModal = ({
                         <div className="mt-4">
                             <label className="block text-sm font-semibold text-gray-900">
                                 {t("samples.requestStatusModal.method.labelRequired", {
-                                    defaultValue: "Test method (required)",
-                                })}
+                                    defaultValue: "Test method",
+                                })}{" "}
+                                <span className="text-rose-500">*</span>
                             </label>
 
                             <input
@@ -411,7 +412,10 @@ export const UpdateRequestStatusModal = ({
                     {(isReject || isReturn || isReceived) ? (
                         <div className="mt-4">
                             <div className="flex items-baseline justify-between gap-3">
-                                <label className="block text-sm font-semibold text-gray-900">{noteLabel}</label>
+                                <label className="block text-sm font-semibold text-gray-900">
+                                    {noteLabel}
+                                    {requiresNote ? <span className="ml-1 text-rose-500">*</span> : null}
+                                </label>
                                 <div className="tabular-nums text-[11px] text-gray-500">{note.trim().length}/500</div>
                             </div>
 
