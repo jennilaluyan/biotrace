@@ -377,6 +377,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
 
     const isIndividualClient = regClientType === "individual";
     const isInstitutionClient = regClientType === "institution";
+    const effectiveRegisterEmail = isPortal && isInstitutionClient ? regContactPersonEmail.trim() : regEmail.trim();
 
     const failRegister = (message: string) => {
         setRegError(message);
@@ -386,7 +387,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     };
 
     const validateRegisterCommon = () => {
-        if (!isValidEmailFormat(regEmail)) {
+        if (!isValidEmailFormat(effectiveRegisterEmail)) {
             return failRegister(t("auth.invalidEmailFormat", { defaultValue: "Format email salah." }));
         }
 
@@ -483,7 +484,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
     const buildPortalRegisterPayload = () => {
         const payload: any = {
             type: regClientType,
-            email: regEmail.trim(),
+            email: effectiveRegisterEmail,
             password: regPassword,
             password_confirmation: regPasswordConfirmation,
         };
@@ -561,7 +562,7 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
         setRegSuccess(null);
         scrollRegisterToTop();
 
-        if (!regEmail || !regPassword || !regPasswordConfirmation) {
+        if (!effectiveRegisterEmail || !regPassword || !regPasswordConfirmation) {
             setRegError(t("auth.requiredEmailPassword"));
             clearRegisterPasswordsOnly();
             return;
@@ -993,17 +994,19 @@ export const AuthPage = ({ initialMode = "login", tenant }: AuthPageProps) => {
                     <>
                         {portalClientFields}
 
-                        <div>
-                            <Label text={t("auth.email")} required />
-                            <input
-                                type="email"
-                                value={regEmail}
-                                onChange={(e) => setRegEmail(e.target.value)}
-                                className={inputClass}
-                                placeholder={t("auth.enterEmail")}
-                                required
-                            />
-                        </div>
+                        {!isInstitutionClient ? (
+                            <div>
+                                <Label text={t("auth.email")} required />
+                                <input
+                                    type="email"
+                                    value={regEmail}
+                                    onChange={(e) => setRegEmail(e.target.value)}
+                                    className={inputClass}
+                                    placeholder={t("auth.enterEmail")}
+                                    required
+                                />
+                            </div>
+                        ) : null}
                     </>
                 ) : (
                     <>

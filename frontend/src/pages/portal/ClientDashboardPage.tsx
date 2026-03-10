@@ -14,8 +14,8 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { clientSampleRequestService } from "../../services/sampleRequests";
-import type { Sample } from "../../services/samples";
+import { apiGet } from "../../services/api";
+import type { PaginatedResponse, Sample } from "../../services/samples";
 import { useClientAuth } from "../../hooks/useClientAuth";
 import ClientCoaPreviewModal from "../../components/portal/ClientCoaPreviewModal";
 
@@ -29,27 +29,52 @@ function getSampleId(it: any): number | null {
     return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/**
- * ✅ Fix #1:
- * Build a per-client "Request ID" shown in UI (1..n),
- * while still using backend `sample_id` for navigation/API.
- */
-function buildClientRequestNumberMap(items: any[]) {
+function unwrapClientSamples(res: any): PaginatedResponse<Sample> {
+    if (res && typeof res === "object" && "data" in res && "meta" in res) {
+        return res as PaginatedResponse<Sample>;
+    }
+
+    const inner = res?.data ?? res;
+
+    if (inner && typeof inner === "object" && "data" in inner && "meta" in inner) {
+        return inner as PaginatedResponse<Sample>;
+    }
+
+    if (Array.isArray(inner)) {
+        return {
+            data: inner as Sample[],
+            meta: {
+                current_page: 1,
+                last_page: 1,
+                per_page: inner.length,
+                total: inner.length,
+            },
+        };
+    }
+
+    return {
+        data: [],
+        meta: {
+            current_page: 1,
+            last_page: 1,
+            per_page: 10,
+            total: 0,
+        },
+    };
+}
+
+function buildClientRequestNumberMap(items: Sample[]) {
     const rows = items
         .map((it) => ({
             id: getSampleId(it),
-            createdAt: it?.created_at ?? null,
+            createdAt: (it as any)?.created_at ?? null,
         }))
-        .filter((x) => Number.isFinite(Number(x.id)) && Number(x.id) > 0) as Array<{
-            id: number;
-            createdAt: string | null;
-        }>;
+        .filter((x): x is { id: number; createdAt: string | null } => Number.isFinite(Number(x.id)) && Number(x.id) > 0);
 
     rows.sort((a, b) => {
         const ta = a.createdAt ? new Date(a.createdAt).getTime() : Number.NaN;
         const tb = b.createdAt ? new Date(b.createdAt).getTime() : Number.NaN;
 
-        // earliest-first so numbering is stable
         if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
         return a.id - b.id;
     });
@@ -59,16 +84,9 @@ function buildClientRequestNumberMap(items: any[]) {
     return map;
 }
 
-/**
- * ✅ Fix #3:
- * Human label for request status:
- * - lower-case
- * - spaces (not underscore)
- * - prefer 1 word where possible
- */
 function shortRequestStatusLabel(raw?: string | null, locale = "en") {
     const k = String(raw ?? "").trim().toLowerCase().replace(/\s+/g, "_");
-    const isId = String(locale || "").toLowerCase().startsWith("id");
+    const isId = String(locale).toLowerCase().startsWith("id");
 
     const map: Record<string, { en: string; id: string }> = {
         draft: { en: "draft", id: "draf" },
@@ -85,6 +103,7 @@ function shortRequestStatusLabel(raw?: string | null, locale = "en") {
 
 function fmtDate(iso: string | null | undefined, locale: string) {
     if (!iso) return "—";
+
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return String(iso);
 
@@ -101,20 +120,49 @@ function fmtDate(iso: string | null | undefined, locale: string) {
     }
 }
 
-type StatusChip = { label: string; cls: string };
+type StatusChip = {
+    label: string;
+    cls: string;
+};
 
 function getStatusChip(raw: string | null | undefined, locale: string): StatusChip {
     const s = String(raw ?? "").trim().toLowerCase();
     const base = "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold";
 
-    if (s === "draft") return { label: shortRequestStatusLabel("draft", locale), cls: `${base} bg-slate-100 text-slate-700` };
-    if (s === "submitted") return { label: shortRequestStatusLabel("submitted", locale), cls: `${base} bg-primary-soft/10 text-primary` };
-    if (s === "needs_revision" || s === "returned")
-        return { label: shortRequestStatusLabel("needs_revision", locale), cls: `${base} bg-amber-50 text-amber-800` };
-    if (s === "ready_for_delivery")
-        return { label: shortRequestStatusLabel("ready_for_delivery", locale), cls: `${base} bg-indigo-50 text-indigo-700` };
-    if (s === "physically_received")
-        return { label: shortRequestStatusLabel("physically_received", locale), cls: `${base} bg-emerald-50 text-emerald-700` };
+    if (s === "draft") {
+        return {
+            label: shortRequestStatusLabel("draft", locale),
+            cls: `${base} bg-slate-100 text-slate-700`,
+        };
+    }
+
+    if (s === "submitted") {
+        return {
+            label: shortRequestStatusLabel("submitted", locale),
+            cls: `${base} bg-primary-soft/10 text-primary`,
+        };
+    }
+
+    if (s === "needs_revision" || s === "returned") {
+        return {
+            label: shortRequestStatusLabel("needs_revision", locale),
+            cls: `${base} bg-amber-50 text-amber-800`,
+        };
+    }
+
+    if (s === "ready_for_delivery") {
+        return {
+            label: shortRequestStatusLabel("ready_for_delivery", locale),
+            cls: `${base} bg-indigo-50 text-indigo-700`,
+        };
+    }
+
+    if (s === "physically_received") {
+        return {
+            label: shortRequestStatusLabel("physically_received", locale),
+            cls: `${base} bg-emerald-50 text-emerald-700`,
+        };
+    }
 
     return {
         label: shortRequestStatusLabel(raw ?? "unknown", locale),
@@ -132,14 +180,14 @@ function StatCard(props: {
     const { title, value, subtitle, icon, loading } = props;
 
     return (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+        <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <div className="text-xs text-gray-500">{title}</div>
-                    <div className="text-2xl font-semibold text-gray-900 mt-1">
+                    <div className="mt-1 text-2xl font-semibold text-gray-900">
                         {loading ? <span className="text-gray-400">—</span> : value}
                     </div>
-                    {subtitle ? <div className="text-xs text-gray-500 mt-2">{subtitle}</div> : null}
+                    {subtitle ? <div className="mt-2 text-xs text-gray-500">{subtitle}</div> : null}
                 </div>
 
                 {icon ? (
@@ -161,7 +209,6 @@ export default function ClientDashboardPage() {
     const [loading, setLoading] = useState(true);
     const [errorKey, setErrorKey] = useState<string | null>(null);
 
-    // ✅ COA preview modal (client)
     const [coaPreviewOpen, setCoaPreviewOpen] = useState(false);
     const [coaPreviewSampleId, setCoaPreviewSampleId] = useState<number | null>(null);
 
@@ -175,9 +222,12 @@ export default function ClientDashboardPage() {
             setErrorKey(null);
             setLoading(true);
 
-            // keep it high so numbering stays correct for clients with many requests
-            const res = await clientSampleRequestService.list({ page: 1, per_page: 200 });
-            setItems(res.data ?? []);
+            const res = await apiGet<any>("/v1/client/samples", {
+                params: { page: 1, per_page: 200 },
+            });
+
+            const paginated = unwrapClientSamples(res);
+            setItems(paginated.data ?? []);
         } catch {
             setItems([]);
             setErrorKey("portal.dashboardPage.errors.loadFailed");
@@ -211,8 +261,6 @@ export default function ClientDashboardPage() {
         const drafts = byStatus["draft"] ?? 0;
         const submitted = byStatus["submitted"] ?? 0;
         const needsAction = (byStatus["returned"] ?? 0) + (byStatus["needs_revision"] ?? 0);
-
-        // COA released count (if backend attaches this field)
         const coaAvailable = items.filter((it: any) => !!it?.coa_released_to_client_at).length;
 
         return { total, drafts, submitted, needsAction, coaAvailable };
@@ -232,21 +280,21 @@ export default function ClientDashboardPage() {
 
     return (
         <div className="min-h-[60vh]">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-0 py-2">
+            <div className="flex flex-col gap-3 px-0 py-2 md:flex-row md:items-center md:justify-between">
                 <div className="min-w-0">
-                    <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                    <h1 className="text-lg font-bold text-gray-900 md:text-xl">
                         {t("portal.dashboardPage.title", "Dashboard")}
                     </h1>
-                    <p className="text-sm text-gray-600 mt-1">
+                    <p className="mt-1 text-sm text-gray-600">
                         {t("portal.dashboardPage.subtitle", { name: greetingName })}
                     </p>
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex flex-wrap items-center gap-2">
                     <button
                         type="button"
-                        className={cx("lims-icon-button", loading && "opacity-60 cursor-not-allowed")}
-                        onClick={load}
+                        className={cx("lims-icon-button", loading && "cursor-not-allowed opacity-60")}
+                        onClick={() => void load()}
                         disabled={loading}
                         aria-label={t("refresh", "Refresh")}
                         title={t("refresh", "Refresh")}
@@ -265,25 +313,28 @@ export default function ClientDashboardPage() {
                 </div>
             </div>
 
-            <div className="mt-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="px-4 md:px-6 py-4">
+            <div className="mt-2 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+                <div className="px-4 py-4 md:px-6">
                     <div className="flex items-start gap-3">
                         <div className="mt-0.5 shrink-0 rounded-2xl border border-gray-200 bg-gray-50 p-2 text-gray-700">
                             <Clock size={18} />
                         </div>
                         <div className="min-w-0">
-                            <div className="text-xs font-semibold tracking-wide text-gray-500 uppercase">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                                 {t("portal.dashboardPage.flowTitle", "Workflow at a glance")}
                             </div>
-                            <div className="text-sm text-gray-700 mt-1">
-                                {t("portal.dashboardPage.flowHint", "Draft → Submitted → Admin review → Delivery → Physically received.")}
+                            <div className="mt-1 text-sm text-gray-700">
+                                {t(
+                                    "portal.dashboardPage.flowHint",
+                                    "Draft → Submitted → Admin review → Delivery → Physically received."
+                                )}
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
                 <StatCard
                     title={t("portal.dashboardPage.stats.totalTitle", "Total requests")}
                     value={stats.total}
@@ -328,7 +379,11 @@ export default function ClientDashboardPage() {
                         <div className="min-w-0">
                             <div className="font-semibold">{t(errorKey)}</div>
                             <div className="mt-2">
-                                <button type="button" className="btn-outline inline-flex items-center gap-2" onClick={load}>
+                                <button
+                                    type="button"
+                                    className="btn-outline inline-flex items-center gap-2"
+                                    onClick={() => void load()}
+                                >
                                     <RefreshCw size={16} />
                                     {t("retry", "Retry")}
                                 </button>
@@ -338,18 +393,18 @@ export default function ClientDashboardPage() {
                 </div>
             ) : null}
 
-            <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                    <div className="px-4 md:px-6 py-4 border-b border-gray-100">
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+                    <div className="border-b border-gray-100 px-4 py-4 md:px-6">
                         <div className="text-sm font-semibold text-gray-900">
                             {t("portal.dashboardPage.recent.title", "Recent requests")}
                         </div>
-                        <div className="text-xs text-gray-500 mt-1">
+                        <div className="mt-1 text-xs text-gray-500">
                             {t("portal.dashboardPage.recent.subtitle", "Jump back into what you worked on recently.")}
                         </div>
                     </div>
 
-                    <div className="px-4 md:px-6 py-4">
+                    <div className="px-4 py-4 md:px-6">
                         {loading ? (
                             <div className="text-sm text-gray-600">{t("loading", "Loading…")}</div>
                         ) : recent.length === 0 ? (
@@ -357,8 +412,11 @@ export default function ClientDashboardPage() {
                                 <div className="font-semibold text-gray-900">
                                     {t("portal.dashboardPage.recent.emptyTitle", "No requests yet")}
                                 </div>
-                                <div className="text-sm text-gray-600 mt-1">
-                                    {t("portal.dashboardPage.recent.emptyBody", "Create your first request to start the workflow.")}
+                                <div className="mt-1 text-sm text-gray-600">
+                                    {t(
+                                        "portal.dashboardPage.recent.emptyBody",
+                                        "Create your first request to start the workflow."
+                                    )}
                                 </div>
 
                                 <button
@@ -375,28 +433,29 @@ export default function ClientDashboardPage() {
                                 {recent.map((it: any, idx: number) => {
                                     const sampleId = getSampleId(it);
                                     const requestNo = sampleId ? requestNoBySampleId.get(sampleId) : null;
-
                                     const chip = getStatusChip(it.request_status ?? null, locale);
                                     const updated = fmtDate(it.updated_at ?? it.created_at, locale);
-
-                                    const coaSampleId = Number((it as any).sample_id ?? sampleId);
+                                    const coaSampleId = Number(it?.sample_id ?? sampleId);
 
                                     return (
-                                        <li key={String(sampleId ?? idx)} className="py-3 flex items-center justify-between gap-3">
+                                        <li
+                                            key={String(sampleId ?? idx)}
+                                            className="flex items-center justify-between gap-3 py-3"
+                                        >
                                             <div className="min-w-0">
-                                                <div className="flex items-center gap-2 flex-wrap">
+                                                <div className="flex flex-wrap items-center gap-2">
                                                     <div className="font-medium text-gray-900">
                                                         {t("portal.requestDetail.title", { id: requestNo ?? "—" })}
                                                     </div>
                                                     <span className={chip.cls}>{chip.label}</span>
                                                 </div>
-                                                <div className="text-xs text-gray-500 mt-1">
+                                                <div className="mt-1 text-xs text-gray-500">
                                                     {t("portal.dashboardPage.recent.updated", "Updated")}: {updated}
                                                 </div>
                                             </div>
 
                                             <div className="flex items-center gap-2">
-                                                {(it as any)?.coa_released_to_client_at && Number.isFinite(coaSampleId) ? (
+                                                {it?.coa_released_to_client_at && Number.isFinite(coaSampleId) ? (
                                                     <button
                                                         type="button"
                                                         className="lims-icon-button"
@@ -410,7 +469,10 @@ export default function ClientDashboardPage() {
 
                                                 <button
                                                     type="button"
-                                                    className={cx("lims-icon-button", !sampleId && "opacity-50 cursor-not-allowed")}
+                                                    className={cx(
+                                                        "lims-icon-button",
+                                                        !sampleId && "cursor-not-allowed opacity-50"
+                                                    )}
                                                     onClick={() => sampleId && navigate(`/portal/requests/${sampleId}`)}
                                                     disabled={!sampleId}
                                                     aria-label={t("portal.dashboardPage.recent.openAria", "Open request")}
@@ -427,17 +489,17 @@ export default function ClientDashboardPage() {
                     </div>
                 </div>
 
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                    <div className="px-4 md:px-6 py-4 border-b border-gray-100">
+                <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+                    <div className="border-b border-gray-100 px-4 py-4 md:px-6">
                         <div className="text-sm font-semibold text-gray-900">
                             {t("portal.dashboardPage.tips.title", "Tips to avoid delays")}
                         </div>
-                        <div className="text-xs text-gray-500 mt-1">
+                        <div className="mt-1 text-xs text-gray-500">
                             {t("portal.dashboardPage.tips.subtitle", "Small habits that keep your request moving.")}
                         </div>
                     </div>
 
-                    <div className="px-4 md:px-6 py-4 space-y-3 text-sm text-gray-700">
+                    <div className="space-y-3 px-4 py-4 text-sm text-gray-700 md:px-6">
                         <div className="flex gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
                             <CheckCircle2 size={18} className="mt-0.5 text-gray-700" />
                             <div className="min-w-0">
