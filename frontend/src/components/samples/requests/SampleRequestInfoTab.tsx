@@ -97,34 +97,26 @@ export function SampleRequestInfoTab(props: { sample: Sample }) {
                         </div>
 
                         {isBatchRequest ? (
-                            <>
-                                {s?.request_batch_id ? (
-                                    <div className="text-xs text-sky-700 mt-1">
-                                        {t("samples.requestInfo.batchId", { defaultValue: "Batch" })}: {String(s.request_batch_id)}
-                                    </div>
-                                ) : null}
-
-                                <div className="text-xs text-sky-700 mt-1">
-                                    {batchActiveTotal}{" "}
-                                    {t("samples.requestInfo.activeSamples", {
-                                        defaultValue: "active samples in this batch",
+                            <div className="rounded-xl border border-sky-100 bg-sky-50 px-3 py-2">
+                                <div className="text-xs text-sky-700">
+                                    {t("samples.requestInfo.batchRequest", {
+                                        defaultValue: "Institutional batch",
                                     })}
                                 </div>
-                            </>
-                        ) : (
-                            <div className="text-xs text-gray-500 mt-1">
-                                {t("samples.requestInfo.singleRequest", {
-                                    defaultValue: "Single-sample request",
-                                })}
-                            </div>
-                        )}
-
-                        {batchExcludedTotal > 0 ? (
-                            <div className={cx("text-xs mt-1", isBatchRequest ? "text-sky-700" : "text-gray-500")}>
-                                {batchExcludedTotal}{" "}
-                                {t("samples.requestInfo.excludedCount", {
-                                    defaultValue: "excluded from active batch",
-                                })}
+                                <div className="font-semibold text-sky-900 mt-0.5">
+                                    {batchActiveTotal}{" "}
+                                    {t("samples.requestInfo.samplesCount", {
+                                        defaultValue: "active samples",
+                                    })}
+                                </div>
+                                {batchExcludedTotal > 0 ? (
+                                    <div className="text-xs text-sky-700 mt-1">
+                                        {batchExcludedTotal}{" "}
+                                        {t("samples.requestInfo.excludedCount", {
+                                            defaultValue: "excluded from active batch",
+                                        })}
+                                    </div>
+                                ) : null}
                             </div>
                         ) : null}
                     </div>
