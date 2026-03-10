@@ -19,7 +19,17 @@ class SampleStatusTransitions
     public const ROLE_TRANSITIONS = [
         // Administrator / front office / sample receiving
         'Administrator' => [
-            'received' => ['in_progress'],
+            'submitted' => ['ready_for_delivery', 'rejected'],
+            'returned' => ['submitted'],
+
+            'inspection_failed' => ['returned', 'rejected'],
+            'returned_to_admin' => ['returned', 'rejected'],
+
+            'ready_for_delivery' => ['physically_received'],
+            'physically_received' => ['in_transit_to_collector'],
+
+            'waiting_sample_id_assignment' => ['intake_validated', 'sample_id_pending_verification'],
+            'sample_id_approved_for_assignment' => ['intake_validated'],
         ],
 
         // Petugas penerima sampel

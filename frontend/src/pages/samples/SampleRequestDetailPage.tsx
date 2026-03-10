@@ -63,8 +63,8 @@ function compactRequestStatusToken(token: string, locale: string) {
         ready_for_delivery: { en: "ready", id: "siap" },
         physically_received: { en: "received", id: "diterima" },
         rejected: { en: "rejected", id: "ditolak" },
-        needs_revision: { en: "revision", id: "revisi" },
-        returned: { en: "revision", id: "revisi" },
+        needs_revision: { en: "needs revision", id: "perlu revisi" },
+        returned: { en: "returned", id: "dikembalikan" },
 
         awaiting_verification: { en: "verify", id: "verifikasi" },
         waiting_sample_id_assignment: { en: "waiting", id: "menunggu" },
@@ -74,7 +74,7 @@ function compactRequestStatusToken(token: string, locale: string) {
 
         in_transit_to_collector: { en: "transit", id: "transit" },
         under_inspection: { en: "inspect", id: "inspeksi" },
-        returned_to_admin: { en: "returned", id: "kembali" },
+        returned_to_admin: { en: "returned to admin", id: "dikembalikan ke admin" },
 
         intake_checklist_passed: { en: "intake", id: "intake" },
         intake_validated: { en: "validated", id: "validasi" },
@@ -90,6 +90,7 @@ function requestStatusLabel(t: TFunction, raw?: string | null, locale = "en") {
     const map: Record<string, string> = {
         draft: "requestStatus.draft",
         submitted: "requestStatus.submitted",
+        rejected: "requestStatus.rejected",
         returned: "requestStatus.returned",
         needs_revision: "requestStatus.needsRevision",
 
@@ -125,13 +126,14 @@ function StatusPill({ value, t, locale }: { value?: string | null; t: TFunction;
     const tones: Record<string, string> = {
         draft: "bg-slate-50 text-slate-700 border-slate-200",
         submitted: "bg-blue-50 text-blue-700 border-blue-200",
-        returned: "bg-red-50 text-red-700 border-red-200",
-        needs_revision: "bg-red-50 text-red-700 border-red-200",
+        rejected: "bg-rose-50 text-rose-700 border-rose-200",
+        returned: "bg-amber-50 text-amber-800 border-amber-200",
+        needs_revision: "bg-rose-50 text-rose-700 border-rose-200",
         ready_for_delivery: "bg-indigo-50 text-indigo-700 border-indigo-200",
         physically_received: "bg-emerald-50 text-emerald-700 border-emerald-200",
         in_transit_to_collector: "bg-amber-50 text-amber-800 border-amber-200",
         under_inspection: "bg-amber-50 text-amber-800 border-amber-200",
-        inspection_failed: "bg-red-50 text-red-700 border-red-200",
+        inspection_failed: "bg-rose-50 text-rose-700 border-rose-200",
         returned_to_admin: "bg-slate-50 text-slate-700 border-slate-200",
         intake_checklist_passed: "bg-emerald-50 text-emerald-700 border-emerald-200",
         awaiting_verification: "bg-violet-50 text-violet-700 border-violet-200",
@@ -367,6 +369,10 @@ export default function SampleRequestDetailPage() {
         const items = (sample as any)?.batch_items;
         return Array.isArray(items) && items.length > 0 ? items : sample ? [sample] : [];
     }, [sample]);
+
+    const requestStatusKey = normalizeStatusToken((sample as any)?.request_status ?? "");
+    const canUseReturnAction =
+        requestStatusKey === "inspection_failed" || requestStatusKey === "returned_to_admin";
 
     const sidRaw =
         sidFetchedRaw ??
@@ -698,8 +704,24 @@ export default function SampleRequestDetailPage() {
                                             assignFlash={assignFlash}
                                             workflowLogs={workflowLogs}
                                             onApprove={openAcceptModal}
-                                            onOpenReturn={() => setReturnModalOpen(true)}
-                                            onOpenReject={() => setRejectModalOpen(true)}
+                                            onOpenReturn={() => {
+                                                if (!canUseReturnAction) {
+                                                    setWfError(
+                                                        t("samples.pages.requestDetail.errors.returnOnlyForFailedIntake", {
+                                                            defaultValue:
+                                                                "Use Reject request during admin review. Return is reserved for failed intake or returned-to-admin handling.",
+                                                        })
+                                                    );
+                                                    return;
+                                                }
+
+                                                setWfError(null);
+                                                setReturnModalOpen(true);
+                                            }}
+                                            onOpenReject={() => {
+                                                setWfError(null);
+                                                setRejectModalOpen(true);
+                                            }}
                                             onMarkPhysicallyReceived={doMarkPhysicallyReceived}
                                             onDoPhysicalWorkflow={doPhysicalWorkflow}
                                             onOpenIntakeChecklist={() => setIntakeOpen(true)}

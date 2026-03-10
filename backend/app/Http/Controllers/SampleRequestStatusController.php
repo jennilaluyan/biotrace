@@ -95,6 +95,15 @@ class SampleRequestStatusController extends Controller
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            $current = (string) ($base->request_status ?? '');
+
+            if ($target === 'returned' && $current === 'submitted') {
+                return $this->jsonError(
+                    422,
+                    'Use reject for admin request review. Return is reserved for failed intake / returned-to-admin handling.'
+                );
+            }
+
             $targets = $this->resolveTargetsForRequestStatusUpdate($base, $applyToBatch);
 
             foreach ($targets as $row) {

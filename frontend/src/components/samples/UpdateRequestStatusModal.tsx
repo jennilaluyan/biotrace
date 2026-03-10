@@ -72,15 +72,15 @@ function compactRequestStatusToken(token: string, locale: string) {
         ready_for_delivery: { en: "ready", id: "siap" },
         physically_received: { en: "received", id: "diterima" },
         rejected: { en: "rejected", id: "ditolak" },
-        needs_revision: { en: "revision", id: "revisi" },
-        returned: { en: "revision", id: "revisi" },
+        needs_revision: { en: "needs revision", id: "perlu revisi" },
+        returned: { en: "returned", id: "dikembalikan" },
         awaiting_verification: { en: "verify", id: "verifikasi" },
         waiting_sample_id_assignment: { en: "waiting", id: "menunggu" },
         sample_id_pending_verification: { en: "verify", id: "verifikasi" },
         sample_id_approved_for_assignment: { en: "approved", id: "disetujui" },
         in_transit_to_collector: { en: "transit", id: "transit" },
         under_inspection: { en: "inspect", id: "inspeksi" },
-        returned_to_admin: { en: "returned", id: "kembali" },
+        returned_to_admin: { en: "returned to admin", id: "dikembalikan ke admin" },
         intake_checklist_passed: { en: "intake", id: "intake" },
         intake_validated: { en: "validated", id: "validasi" },
     };
@@ -95,7 +95,18 @@ function formatStatusLabel(raw?: string | null, locale = "en") {
     return compactRequestStatusToken(token, locale);
 }
 
-function getModalCopy(t: (key: string, options?: any) => string, action: Action): ModalCopy {
+function getModalCopy(
+    t: (key: string, options?: any) => string,
+    action: Action,
+    currentStatus?: string | null
+): ModalCopy {
+    const statusToken = String(currentStatus ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, "_");
+
+    const isRequestReviewStage = statusToken === "submitted";
+
     switch (action) {
         case "accept":
             return {
@@ -112,29 +123,42 @@ function getModalCopy(t: (key: string, options?: any) => string, action: Action)
             };
 
         case "reject":
-            return {
-                title: t("samples.requestStatusModal.title.reject", {
-                    defaultValue: "Reject request",
-                }),
-                subtitle: t("samples.requestStatusModal.subtitle.reject", {
-                    defaultValue: "Reject this request. A reason is required.",
-                }),
-                confirm: t("samples.requestStatusModal.buttons.confirmReject", {
-                    defaultValue: "Reject request",
-                }),
-                nextLabel: "rejected",
-            };
+            return isRequestReviewStage
+                ? {
+                    title: t("samples.requestStatusModal.title.reject", {
+                        defaultValue: "Reject request",
+                    }),
+                    subtitle: t("samples.requestStatusModal.subtitle.reject", {
+                        defaultValue: "Send this request back to the client for correction. A note is required.",
+                    }),
+                    confirm: t("samples.requestStatusModal.buttons.confirmReject", {
+                        defaultValue: "Reject request",
+                    }),
+                    nextLabel: "rejected",
+                }
+                : {
+                    title: t("samples.requestStatusModal.title.reject", {
+                        defaultValue: "Reject sample",
+                    }),
+                    subtitle: t("samples.requestStatusModal.subtitle.reject", {
+                        defaultValue: "Reject this item at the current workflow step. A note is required.",
+                    }),
+                    confirm: t("samples.requestStatusModal.buttons.confirmReject", {
+                        defaultValue: "Reject sample",
+                    }),
+                    nextLabel: "rejected",
+                };
 
         case "return":
             return {
                 title: t("samples.requestStatusModal.title.return", {
-                    defaultValue: "Return request",
+                    defaultValue: "Return sample",
                 }),
                 subtitle: t("samples.requestStatusModal.subtitle.return", {
-                    defaultValue: "Send this request back to the client for revision. A note is required.",
+                    defaultValue: "Use this only after intake failure or returned-to-admin handling. A note is required.",
                 }),
                 confirm: t("samples.requestStatusModal.buttons.confirmReturn", {
-                    defaultValue: "Return request",
+                    defaultValue: "Return sample",
                 }),
                 nextLabel: "returned",
             };
@@ -184,7 +208,36 @@ export const UpdateRequestStatusModal = ({
     const requiresMethod = isAccept;
     const requiresNote = isReject || isReturn;
 
-    const copy = useMemo(() => getModalCopy(t, action), [t, action]);
+    const currentStatusToken = useMemo(
+        () =>
+            String(currentStatus ?? "")
+                .trim()
+                .toLowerCase()
+                .replace(/\s+/g, "_"),
+        [currentStatus]
+    );
+
+    const isRequestReviewStage = currentStatusToken === "submitted";
+    const returnLockedForRequestReview = isReturn && isRequestReviewStage;
+
+    const copy = useMemo(() => getModalCopy(t, action, currentStatus), [t, action, currentStatus]);
+
+    const canConfirm = useMemo(() => {
+        if (!open || busy || !requestId) return false;
+        if (returnLockedForRequestReview) return false;
+        if (requiresMethod) return testMethodName.trim().length > 0;
+        if (requiresNote) return note.trim().length > 0;
+        return true;
+    }, [
+        open,
+        busy,
+        requestId,
+        returnLockedForRequestReview,
+        requiresMethod,
+        requiresNote,
+        testMethodName,
+        note,
+    ]);
 
     const activeBatchCount = Number(batchActiveTotal ?? batchTotal ?? 0);
     const hasBatch = Boolean(batchId) && activeBatchCount > 1;
@@ -210,13 +263,6 @@ export const UpdateRequestStatusModal = ({
         return () => window.removeEventListener("keydown", onKeyDown);
     }, [open, busy, onClose]);
 
-    const canConfirm = useMemo(() => {
-        if (!open || busy || !requestId) return false;
-        if (requiresMethod) return testMethodName.trim().length > 0;
-        if (requiresNote) return note.trim().length > 0;
-        return true;
-    }, [open, busy, requestId, requiresMethod, requiresNote, testMethodName, note]);
-
     const Icon = isReject || isReturn ? AlertTriangle : isReceived ? ClipboardCheck : Check;
 
     const iconTone = isReject
@@ -226,6 +272,12 @@ export const UpdateRequestStatusModal = ({
             : "bg-emerald-50 text-emerald-700";
 
     const noteLabel = useMemo(() => {
+        if (isReject && isRequestReviewStage) {
+            return t("samples.requestStatusModal.note.labelRequiredReject", {
+                defaultValue: "Revision note",
+            });
+        }
+
         if (isReject) {
             return t("samples.requestStatusModal.note.labelRequiredReject", {
                 defaultValue: "Rejection reason",
@@ -241,9 +293,15 @@ export const UpdateRequestStatusModal = ({
         return t("samples.requestStatusModal.note.labelOptional", {
             defaultValue: "Note",
         });
-    }, [isReject, isReturn, t]);
+    }, [isReject, isReturn, isRequestReviewStage, t]);
 
     const notePlaceholder = useMemo(() => {
+        if (isReject && isRequestReviewStage) {
+            return t("samples.requestStatusModal.note.placeholderReject", {
+                defaultValue: "Explain what the client must revise before resubmitting…",
+            });
+        }
+
         if (isReject) {
             return t("samples.requestStatusModal.note.placeholderReject", {
                 defaultValue: "Write the reason for rejection…",
@@ -252,14 +310,14 @@ export const UpdateRequestStatusModal = ({
 
         if (isReturn) {
             return t("samples.requestStatusModal.note.placeholderReturn", {
-                defaultValue: "Explain what the client should revise…",
+                defaultValue: "Explain why this sample is being returned in the workflow…",
             });
         }
 
         return t("samples.requestStatusModal.note.placeholderReceived", {
             defaultValue: "Optional note…",
         });
-    }, [isReject, isReturn, t]);
+    }, [isReject, isReturn, isRequestReviewStage, t]);
 
     const submit = async () => {
         if (!canConfirm || !requestId) return;
@@ -324,6 +382,15 @@ export const UpdateRequestStatusModal = ({
                     {error ? (
                         <div className="mb-4 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-900">
                             {error}
+                        </div>
+                    ) : null}
+
+                    {returnLockedForRequestReview ? (
+                        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                            {t("samples.requestStatusModal.returnBlockedAtRequestReview", {
+                                defaultValue:
+                                    "Use Reject request during admin review. Return is reserved for failed intake or returned-to-admin handling.",
+                            })}
                         </div>
                     ) : null}
 
