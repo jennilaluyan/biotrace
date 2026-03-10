@@ -2003,17 +2003,30 @@
             "title": {
                 "return": "Return request",
                 "approve": "Approve request",
-                "received": "Mark physically received"
+                "received": "Mark physically received",
+                "reject": "Reject request"
             },
             "subtitle": {
                 "return": "Send this request back to the client for revision. A note is required.",
                 "approve": "Approve this request and move it to the next step.",
-                "received": "Confirm the sample has been physically received by the lab (admin desk)."
+                "received": "Confirm the sample has been physically received by the lab (admin desk).",
+                "reject": "Reject this request. A reason is required."
+            },
+            "buttons": {
+                "confirmReturn": "Return request",
+                "confirmApprove": "Approve request",
+                "confirmReceived": "Mark received",
+                "confirmReject": "Reject request"
             },
             "summary": {
                 "sampleId": "Sample ID",
                 "current": "Current",
-                "next": "Next"
+                "next": "Next",
+                "requestId": "Request ID"
+            },
+            "method": {
+                "labelRequired": "Test method (required)",
+                "placeholderInput": "Type test method…"
             },
             "note": {
                 "labelRequired": "Return reason / note *",
@@ -2021,12 +2034,15 @@
                 "placeholderReturn": "Explain what needs to be revised (required)…",
                 "placeholderApprove": "Optional note for internal record…",
                 "placeholderReceived": "Optional note (e.g. received condition)…",
-                "helpReturn": "A note is required so the client knows what to fix."
+                "helpReturn": "A note is required so the client knows what to fix.",
+                "labelRequiredReject": "Rejection reason (required)",
+                "labelRequiredReturn": "Return note (required)",
+                "placeholderReject": "Write the reason for rejection…",
+                "helpRequired": "This note will be saved for audit and shown to relevant users."
             },
-            "buttons": {
-                "confirmReturn": "Return request",
-                "confirmApprove": "Approve request",
-                "confirmReceived": "Mark received"
+            "applyToBatch": {
+                "title": "Apply to institutional batch",
+                "subtitle": "Apply this action to all active samples in the same request batch."
             },
             "errors": {
                 "updateFailed": "Failed to update request status."

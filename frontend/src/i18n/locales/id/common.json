@@ -2018,6 +2018,10 @@
                 "placeholderReject": "Tulis alasan penolakan…",
                 "helpRequired": "Catatan ini disimpan untuk audit dan ditampilkan ke pengguna terkait."
             },
+            "applyToBatch": {
+                "title": "Terapkan ke batch institusi",
+                "subtitle": "Terapkan aksi ini ke semua sampel aktif dalam batch permintaan yang sama."
+            },
             "errors": {
                 "updateFailed": "Gagal memperbarui status permintaan."
             }

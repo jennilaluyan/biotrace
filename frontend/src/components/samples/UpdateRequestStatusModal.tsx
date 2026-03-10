@@ -29,24 +29,31 @@ type ApiErrorLike = {
     message?: string;
 };
 
+type ModalCopy = {
+    title: string;
+    subtitle: string;
+    confirm: string;
+    nextLabel: string;
+};
+
 function getErrMsg(err: unknown, fallback: string) {
     const e = err as ApiErrorLike;
     const data = e?.response?.data ?? e?.data;
 
     const details = data?.details ?? data?.errors;
     if (details && typeof details === "object") {
-        const k = Object.keys(details)[0];
-        const v = k ? (details as any)[k] : undefined;
-        if (Array.isArray(v) && v[0]) return String(v[0]);
-        if (typeof v === "string" && v) return v;
+        const firstKey = Object.keys(details)[0];
+        const firstValue = firstKey ? (details as any)[firstKey] : undefined;
+
+        if (Array.isArray(firstValue) && firstValue[0]) return String(firstValue[0]);
+        if (typeof firstValue === "string" && firstValue) return firstValue;
     }
 
-    return (
-        data?.message ??
-        data?.error ??
-        (typeof (e as any)?.message === "string" ? (e as any).message : null) ??
-        fallback
-    );
+    if (typeof data?.message === "string" && data.message) return data.message;
+    if (typeof data?.error === "string" && data.error) return data.error;
+    if (typeof e?.message === "string" && e.message) return e.message;
+
+    return fallback;
 }
 
 function normalizeStatusWords(input?: string | null) {
@@ -58,9 +65,9 @@ function normalizeStatusWords(input?: string | null) {
 }
 
 function compactRequestStatusToken(token: string, locale: string) {
-    const isId = String(locale || "").toLowerCase().startsWith("id");
+    const isIndonesian = String(locale || "").toLowerCase().startsWith("id");
 
-    const map: Record<string, { en: string; id: string }> = {
+    const labelMap: Record<string, { en: string; id: string }> = {
         submitted: { en: "submitted", id: "terkirim" },
         ready_for_delivery: { en: "ready", id: "siap" },
         physically_received: { en: "received", id: "diterima" },
@@ -78,8 +85,8 @@ function compactRequestStatusToken(token: string, locale: string) {
         intake_validated: { en: "validated", id: "validasi" },
     };
 
-    const chosen = map[token]?.[isId ? "id" : "en"];
-    return normalizeStatusWords(chosen ?? token);
+    const label = labelMap[token]?.[isIndonesian ? "id" : "en"];
+    return normalizeStatusWords(label ?? token);
 }
 
 function formatStatusLabel(raw?: string | null, locale = "en") {
@@ -88,90 +95,99 @@ function formatStatusLabel(raw?: string | null, locale = "en") {
     return compactRequestStatusToken(token, locale);
 }
 
-type ModalCopy = {
-    title: string;
-    subtitle: string;
-    confirm: string;
-    nextLabel: string;
-};
+function getModalCopy(t: (key: string, options?: any) => string, action: Action): ModalCopy {
+    switch (action) {
+        case "accept":
+            return {
+                title: t("samples.requestStatusModal.title.approve", {
+                    defaultValue: "Approve request",
+                }),
+                subtitle: t("samples.requestStatusModal.subtitle.approve", {
+                    defaultValue: "Approve this request and move it to the next step.",
+                }),
+                confirm: t("samples.requestStatusModal.buttons.confirmApprove", {
+                    defaultValue: "Approve request",
+                }),
+                nextLabel: "ready_for_delivery",
+            };
 
-function getModalCopy(t: (k: string, opt?: any) => string, action: Action): ModalCopy {
-    if (action === "accept") {
-        return {
-            title: t("samples.requestStatusModal.title.approve", { defaultValue: "Approve request" }),
-            subtitle: t("samples.requestStatusModal.subtitle.approve", {
-                defaultValue: "Approve this request so the client can proceed with delivery.",
-            }),
-            confirm: t("samples.requestStatusModal.buttons.confirmApprove", { defaultValue: "Approve" }),
-            nextLabel: "ready_for_delivery",
-        };
+        case "reject":
+            return {
+                title: t("samples.requestStatusModal.title.reject", {
+                    defaultValue: "Reject request",
+                }),
+                subtitle: t("samples.requestStatusModal.subtitle.reject", {
+                    defaultValue: "Reject this request. A reason is required.",
+                }),
+                confirm: t("samples.requestStatusModal.buttons.confirmReject", {
+                    defaultValue: "Reject request",
+                }),
+                nextLabel: "rejected",
+            };
+
+        case "return":
+            return {
+                title: t("samples.requestStatusModal.title.return", {
+                    defaultValue: "Return request",
+                }),
+                subtitle: t("samples.requestStatusModal.subtitle.return", {
+                    defaultValue: "Send this request back to the client for revision. A note is required.",
+                }),
+                confirm: t("samples.requestStatusModal.buttons.confirmReturn", {
+                    defaultValue: "Return request",
+                }),
+                nextLabel: "returned",
+            };
+
+        default:
+            return {
+                title: t("samples.requestStatusModal.title.received", {
+                    defaultValue: "Mark physically received",
+                }),
+                subtitle: t("samples.requestStatusModal.subtitle.received", {
+                    defaultValue: "Confirm the sample has been physically received by the lab (admin desk).",
+                }),
+                confirm: t("samples.requestStatusModal.buttons.confirmReceived", {
+                    defaultValue: "Mark received",
+                }),
+                nextLabel: "physically_received",
+            };
     }
-
-    if (action === "reject") {
-        return {
-            title: t("samples.requestStatusModal.title.reject", { defaultValue: "Reject request" }),
-            subtitle: t("samples.requestStatusModal.subtitle.reject", {
-                defaultValue: "Reject this request. A reason is required.",
-            }),
-            confirm: t("samples.requestStatusModal.buttons.confirmReject", { defaultValue: "Reject" }),
-            nextLabel: "rejected",
-        };
-    }
-
-    if (action === "return") {
-        return {
-            title: t("samples.requestStatusModal.title.return", { defaultValue: "Return request" }),
-            subtitle: t("samples.requestStatusModal.subtitle.return", {
-                defaultValue: "Return this request to the client for revision. A note is required.",
-            }),
-            confirm: t("samples.requestStatusModal.buttons.confirmReturn", { defaultValue: "Return" }),
-            nextLabel: "returned",
-        };
-    }
-
-    return {
-        title: t("samples.requestStatusModal.title.received", { defaultValue: "Mark physically received" }),
-        subtitle: t("samples.requestStatusModal.subtitle.received", {
-            defaultValue: "Confirm the sample has been physically received at the lab.",
-        }),
-        confirm: t("samples.requestStatusModal.buttons.confirmReceived", { defaultValue: "Mark received" }),
-        nextLabel: "physically_received",
-    };
 }
 
-export const UpdateRequestStatusModal = (props: Props) => {
+export const UpdateRequestStatusModal = ({
+    open,
+    sampleId,
+    action,
+    currentStatus,
+    batchId,
+    batchTotal,
+    batchActiveTotal,
+    defaultApplyToBatch,
+    onClose,
+    onUpdated,
+}: Props) => {
     const { t, i18n } = useTranslation();
     const locale = i18n.language || "en";
-
-    const {
-        open,
-        sampleId,
-        action,
-        currentStatus,
-        batchId,
-        batchTotal,
-        batchActiveTotal,
-        defaultApplyToBatch,
-        onClose,
-        onUpdated,
-    } = props;
-
     const requestId = sampleId;
 
     const [note, setNote] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [testMethodName, setTestMethodName] = useState("");
-    const [applyToBatch, setApplyToBatch] = useState(!!defaultApplyToBatch);
+    const [applyToBatch, setApplyToBatch] = useState(Boolean(defaultApplyToBatch));
 
     const isAccept = action === "accept";
     const isReject = action === "reject";
     const isReturn = action === "return";
     const isReceived = action === "received";
+    const requiresMethod = isAccept;
+    const requiresNote = isReject || isReturn;
 
     const copy = useMemo(() => getModalCopy(t, action), [t, action]);
 
-    const hasBatch = !!batchId && Number(batchActiveTotal ?? batchTotal ?? 0) > 1;
+    const activeBatchCount = Number(batchActiveTotal ?? batchTotal ?? 0);
+    const hasBatch = Boolean(batchId) && activeBatchCount > 1;
 
     useEffect(() => {
         if (!open) return;
@@ -180,7 +196,7 @@ export const UpdateRequestStatusModal = (props: Props) => {
         setError(null);
         setBusy(false);
         setTestMethodName("");
-        setApplyToBatch(!!defaultApplyToBatch);
+        setApplyToBatch(Boolean(defaultApplyToBatch));
     }, [open, action, requestId, defaultApplyToBatch]);
 
     useEffect(() => {
@@ -195,24 +211,19 @@ export const UpdateRequestStatusModal = (props: Props) => {
     }, [open, busy, onClose]);
 
     const canConfirm = useMemo(() => {
-        if (!open) return false;
-        if (busy) return false;
-        if (!requestId) return false;
-
-        if (isAccept) return testMethodName.trim().length >= 1;
-        if (isReject || isReturn) return note.trim().length >= 1;
-
+        if (!open || busy || !requestId) return false;
+        if (requiresMethod) return testMethodName.trim().length > 0;
+        if (requiresNote) return note.trim().length > 0;
         return true;
-    }, [open, busy, requestId, isAccept, testMethodName, isReject, isReturn, note]);
+    }, [open, busy, requestId, requiresMethod, requiresNote, testMethodName, note]);
 
     const Icon = isReject || isReturn ? AlertTriangle : isReceived ? ClipboardCheck : Check;
 
-    const iconTone =
-        isReject
-            ? "bg-rose-50 text-rose-700"
-            : isReturn
-                ? "bg-amber-50 text-amber-800"
-                : "bg-emerald-50 text-emerald-700";
+    const iconTone = isReject
+        ? "bg-rose-50 text-rose-700"
+        : isReturn
+            ? "bg-amber-50 text-amber-800"
+            : "bg-emerald-50 text-emerald-700";
 
     const noteLabel = useMemo(() => {
         if (isReject) {
@@ -220,11 +231,13 @@ export const UpdateRequestStatusModal = (props: Props) => {
                 defaultValue: "Rejection reason (required)",
             });
         }
+
         if (isReturn) {
             return t("samples.requestStatusModal.note.labelRequiredReturn", {
                 defaultValue: "Return note (required)",
             });
         }
+
         return t("samples.requestStatusModal.note.labelOptional", {
             defaultValue: "Note (optional)",
         });
@@ -236,11 +249,13 @@ export const UpdateRequestStatusModal = (props: Props) => {
                 defaultValue: "Write the reason for rejection…",
             });
         }
+
         if (isReturn) {
             return t("samples.requestStatusModal.note.placeholderReturn", {
-                defaultValue: "Write what the client should revise…",
+                defaultValue: "Explain what the client should revise…",
             });
         }
+
         return t("samples.requestStatusModal.note.placeholderReceived", {
             defaultValue: "Optional note…",
         });
@@ -254,16 +269,10 @@ export const UpdateRequestStatusModal = (props: Props) => {
             setError(null);
 
             const trimmedNote = note.trim();
-            const noteToSend = isReject || isReturn ? trimmedNote : trimmedNote.length ? trimmedNote : null;
-            const methodToSend = isAccept ? testMethodName.trim() : null;
+            const noteToSend = requiresNote ? trimmedNote : trimmedNote || null;
+            const methodToSend = requiresMethod ? testMethodName.trim() : null;
 
-            await updateRequestStatus(
-                requestId,
-                action,
-                noteToSend,
-                methodToSend,
-                applyToBatch
-            );
+            await updateRequestStatus(requestId, action, noteToSend, methodToSend, applyToBatch);
 
             onClose();
             onUpdated();
@@ -287,18 +296,21 @@ export const UpdateRequestStatusModal = (props: Props) => {
         <div className="lims-modal-backdrop p-4" role="dialog" aria-modal="true" aria-label={copy.title}>
             <div className="lims-modal-panel max-w-xl">
                 <div className="lims-modal-header">
-                    <div className={cx("h-9 w-9 rounded-full flex items-center justify-center", iconTone)} aria-hidden="true">
+                    <div
+                        className={cx("flex h-9 w-9 items-center justify-center rounded-full", iconTone)}
+                        aria-hidden="true"
+                    >
                         <Icon size={18} />
                     </div>
 
                     <div className="min-w-0">
                         <div className="text-base font-semibold text-gray-900">{copy.title}</div>
-                        <div className="text-xs text-gray-500 mt-0.5 truncate">{copy.subtitle}</div>
+                        <div className="mt-0.5 truncate text-xs text-gray-500">{copy.subtitle}</div>
                     </div>
 
                     <button
                         type="button"
-                        className="ml-auto lims-icon-button"
+                        className="lims-icon-button ml-auto"
                         aria-label={t("close", { defaultValue: "Close" })}
                         title={t("close", { defaultValue: "Close" })}
                         onClick={onClose}
@@ -323,18 +335,28 @@ export const UpdateRequestStatusModal = (props: Props) => {
 
                         <div className="mt-2 text-sm text-gray-900">
                             <span className="text-gray-600">
-                                {t("samples.requestStatusModal.summary.current", { defaultValue: "Current" })}:
+                                {t("samples.requestStatusModal.summary.current", {
+                                    defaultValue: "Current",
+                                })}
+                                :
                             </span>{" "}
                             <span className="font-semibold">{formatStatusLabel(currentStatus, locale)}</span>
                             <span className="text-gray-600">
                                 {" "}
-                                • {t("samples.requestStatusModal.summary.next", { defaultValue: "Next" })}:
+                                •{" "}
+                                {t("samples.requestStatusModal.summary.next", {
+                                    defaultValue: "Next",
+                                })}
+                                :
                             </span>{" "}
                             <span className="font-semibold">{formatStatusLabel(copy.nextLabel, locale)}</span>
                         </div>
 
                         <div className="mt-1 text-xs text-gray-500">
-                            {t("samples.requestStatusModal.summary.requestId", { defaultValue: "Request ID" })}: {requestId ?? "-"}
+                            {t("samples.requestStatusModal.summary.requestId", {
+                                defaultValue: "Request ID",
+                            })}
+                            : {requestId ?? "-"}
                         </div>
                     </div>
 
@@ -354,11 +376,11 @@ export const UpdateRequestStatusModal = (props: Props) => {
                                             defaultValue: "Apply to institutional batch",
                                         })}
                                     </div>
-                                    <div className="text-xs text-sky-700 mt-1">
+                                    <div className="mt-1 text-xs text-sky-700">
                                         {t("samples.requestStatusModal.applyToBatch.subtitle", {
                                             defaultValue: "Apply this action to all active samples in the same request batch.",
                                         })}{" "}
-                                        ({batchActiveTotal ?? batchTotal ?? 1})
+                                        ({activeBatchCount})
                                     </div>
                                 </div>
                             </label>
@@ -368,33 +390,33 @@ export const UpdateRequestStatusModal = (props: Props) => {
                     {isAccept ? (
                         <div className="mt-4">
                             <label className="block text-sm font-semibold text-gray-900">
-                                {t("samples.requestStatusModal.method.labelRequired", { defaultValue: "Test method (required)" })}
+                                {t("samples.requestStatusModal.method.labelRequired", {
+                                    defaultValue: "Test method (required)",
+                                })}
                             </label>
 
-                            <div className="mt-2 grid gap-2">
-                                <input
-                                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
-                                    value={testMethodName}
-                                    onChange={(e) => setTestMethodName(e.target.value)}
-                                    placeholder={t("samples.requestStatusModal.method.placeholderInput", {
-                                        defaultValue: "Type test method…",
-                                    })}
-                                    disabled={busy}
-                                    maxLength={255}
-                                />
-                            </div>
+                            <input
+                                className="mt-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-soft"
+                                value={testMethodName}
+                                onChange={(e) => setTestMethodName(e.target.value)}
+                                placeholder={t("samples.requestStatusModal.method.placeholderInput", {
+                                    defaultValue: "Type test method…",
+                                })}
+                                disabled={busy}
+                                maxLength={255}
+                            />
                         </div>
                     ) : null}
 
-                    {isReject || isReturn || isReceived ? (
+                    {(isReject || isReturn || isReceived) ? (
                         <div className="mt-4">
                             <div className="flex items-baseline justify-between gap-3">
                                 <label className="block text-sm font-semibold text-gray-900">{noteLabel}</label>
-                                <div className="text-[11px] text-gray-500 tabular-nums">{note.trim().length}/500</div>
+                                <div className="tabular-nums text-[11px] text-gray-500">{note.trim().length}/500</div>
                             </div>
 
                             <textarea
-                                className="mt-2 w-full min-h-[120px] rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-soft focus:border-transparent"
+                                className="mt-2 min-h-[120px] w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-soft"
                                 placeholder={notePlaceholder}
                                 value={note}
                                 onChange={(e) => setNote(e.target.value)}
@@ -402,7 +424,7 @@ export const UpdateRequestStatusModal = (props: Props) => {
                                 maxLength={500}
                             />
 
-                            {isReject || isReturn ? (
+                            {requiresNote ? (
                                 <div className="mt-2 text-[11px] text-gray-500">
                                     {t("samples.requestStatusModal.note.helpRequired", {
                                         defaultValue: "This note will be saved for audit and shown to relevant users.",
@@ -413,7 +435,12 @@ export const UpdateRequestStatusModal = (props: Props) => {
                     ) : null}
 
                     <div className="mt-5 flex items-center justify-end gap-2">
-                        <button type="button" onClick={onClose} disabled={busy} className="btn-outline disabled:opacity-50">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            disabled={busy}
+                            className="btn-outline disabled:cursor-not-allowed disabled:opacity-50"
+                        >
                             {t("cancel", { defaultValue: "Cancel" })}
                         </button>
 
@@ -423,7 +450,7 @@ export const UpdateRequestStatusModal = (props: Props) => {
                             onClick={submit}
                             className={cx(
                                 isReject || isReturn ? "lims-btn-danger" : "lims-btn-primary",
-                                "disabled:opacity-50 disabled:cursor-not-allowed"
+                                "disabled:cursor-not-allowed disabled:opacity-50"
                             )}
                             title={copy.confirm}
                         >
