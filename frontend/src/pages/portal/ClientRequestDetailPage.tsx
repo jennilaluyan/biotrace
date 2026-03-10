@@ -17,6 +17,7 @@ import {
     TestTube,
 } from "lucide-react";
 
+import { apiGet } from "../../services/api";
 import type { ClientRequestStatusView, Sample } from "../../services/samples";
 import { getClientRequestStatusView } from "../../services/samples";
 import { clientSampleRequestService } from "../../services/sampleRequests";
@@ -99,6 +100,13 @@ function extractPaginatedRows<T>(res: any): T[] {
     if (Array.isArray(d2)) return d2 as T[];
     if (Array.isArray(d2?.data)) return d2.data as T[];
     return [];
+}
+
+function extractSingleRow<T>(res: any): T | null {
+    const root = res?.data ?? res;
+    const row = root?.data ?? root;
+    if (!row || Array.isArray(row)) return null;
+    return row as T;
 }
 
 function parameterLabel(p: any) {
@@ -209,8 +217,11 @@ export default function ClientRequestDetailPage() {
             if (!Number.isFinite(numericId)) return;
 
             try {
-                const res = await clientSampleRequestService.list({ page: 1, per_page: 200 });
-                const rows = (res.data ?? [])
+                const res = await apiGet<any>("/v1/client/samples", {
+                    params: { page: 1, per_page: 200 },
+                });
+
+                const rows = extractPaginatedRows<any>(res)
                     .map((it: any) => ({
                         id: Number(it?.sample_id ?? it?.id),
                         createdAt: it?.created_at ?? null,
@@ -283,7 +294,16 @@ export default function ClientRequestDetailPage() {
             if (!silent) setLoading(true);
             if (silent) setRefreshing(true);
 
-            const s = await clientSampleRequestService.getById(numericId);
+            const res = await apiGet<any>(`/v1/client/samples/${numericId}`, {
+                params: { include_batch: 1 },
+            });
+
+            const s = extractSingleRow<Sample>(res);
+
+            if (!s) {
+                throw new Error(t("portalRequestDetail.errors.loadFailed", "Failed to load request detail."));
+            }
+
             setData(s);
             hydrateForm(s);
 
@@ -457,6 +477,21 @@ export default function ClientRequestDetailPage() {
     const coaCheckedAt = (data as any)?.coa_checked_at ?? null;
     const coaNote = String((data as any)?.coa_release_note ?? "").trim() || null;
     const canDownloadCoa = !!coaReleasedAt;
+
+    const batchItems = Array.isArray((data as any)?.batch_items) ? (data as any).batch_items : [];
+    const activeBatchCount = batchItems.filter((it: any) => !it?.batch_excluded_at).length;
+
+    const totalSample = (() => {
+        const candidates = [
+            Number((data as any)?.request_batch_total),
+            Number((data as any)?.batch_summary?.batch_total),
+            Number((data as any)?.batch_summary?.batch_active_total),
+            activeBatchCount,
+        ];
+
+        const found = candidates.find((n) => Number.isFinite(n) && n > 0);
+        return found ?? 1;
+    })();
 
     const showHelpSubmitted = !canEdit && statusView === "submitted";
 
@@ -757,6 +792,25 @@ export default function ClientRequestDetailPage() {
                             </div>
                             <p className="mt-1.5 text-[11px] text-gray-500">
                                 {t("portalRequestDetail.helpers.deliveryHint", "Use a realistic time you can deliver the sample.")}
+                            </p>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                                {t("portal.requestDetail.fields.totalSample", "Total sample")}
+                            </label>
+                            <input
+                                value={String(totalSample)}
+                                readOnly
+                                disabled
+                                className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm bg-gray-50 text-gray-700"
+                            />
+                            <p className="mt-1.5 text-[11px] text-gray-500">
+                                {t(
+                                    "portal.requestDetail.helpers.totalSample",
+                                    "This request contains {{count}} sample(s) in the same submission.",
+                                    { count: totalSample }
+                                )}
                             </p>
                         </div>
 

@@ -740,7 +740,8 @@
             "scheduledDelivery": "Scheduled delivery to lab",
             "parameter": "Test parameter",
             "examinationPurpose": "Examination purpose",
-            "additionalNotes": "Additional notes"
+            "additionalNotes": "Additional notes",
+            "quantity": "Total Sample"
         },
         "placeholders": {
             "sampleType": "e.g. Swab, Blood, Water…",
