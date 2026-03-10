@@ -308,7 +308,6 @@ export const ClientRequestFormModal = ({ open, onClose, onCreated }: Props) => {
                 <div className="shrink-0 flex items-start justify-between px-6 py-5 border-b border-gray-100 bg-gray-50">
                     <div className="min-w-0">
                         <h2 className="text-sm font-bold text-gray-900">{t("portalRequestForm.title")}</h2>
-                        <p className="text-xs text-gray-600 mt-1">{t("portalRequestForm.subtitle")}</p>
                     </div>
 
                     <button

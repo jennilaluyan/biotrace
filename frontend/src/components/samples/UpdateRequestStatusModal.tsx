@@ -246,10 +246,6 @@ export const UpdateRequestStatusModal = (props: Props) => {
         });
     }, [isReject, isReturn, t]);
 
-    const methodHelp = t("samples.requestStatusModal.method.help", {
-        defaultValue: "This method will be saved to the sample record and used for the Letter of Order (LoO).",
-    });
-
     const submit = async () => {
         if (!canConfirm || !requestId) return;
 
@@ -386,8 +382,6 @@ export const UpdateRequestStatusModal = (props: Props) => {
                                     disabled={busy}
                                     maxLength={255}
                                 />
-
-                                <div className="text-[11px] text-gray-500">{methodHelp}</div>
                             </div>
                         </div>
                     ) : null}

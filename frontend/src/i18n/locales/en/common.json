@@ -735,7 +735,6 @@
     },
     "portalRequestForm": {
         "title": "Create Sample Request",
-        "subtitle": "Fill required fields → save as draft. Admin will review before processing.",
         "fields": {
             "sampleType": "Sample type",
             "scheduledDelivery": "Scheduled delivery to lab",

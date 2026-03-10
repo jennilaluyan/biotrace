@@ -725,7 +725,6 @@
     },
     "portalRequestForm": {
         "title": "Buat Sample Request",
-        "subtitle": "Isi data wajib → simpan sebagai draft. Admin akan review sebelum diproses.",
         "fields": {
             "sampleType": "Jenis sampel",
             "scheduledDelivery": "Jadwal pengantaran ke lab",
@@ -2005,8 +2004,7 @@
             },
             "method": {
                 "labelRequired": "Metode uji (wajib)",
-                "placeholderInput": "Tulis metode uji…",
-                "help": "Metode ini akan disimpan ke data sampel dan dipakai di Letter of Order (LoO)."
+                "placeholderInput": "Tulis metode uji…"
             },
             "note": {
                 "labelRequired": "Alasan / catatan pengembalian *",
