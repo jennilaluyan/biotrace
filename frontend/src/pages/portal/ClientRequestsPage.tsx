@@ -6,7 +6,7 @@ import type { TFunction } from "i18next";
 
 import type { ClientRequestStatusView, Sample } from "../../services/samples";
 import { getClientRequestStatusView } from "../../services/samples";
-import { clientSampleRequestService } from "../../services/sampleRequests";
+import { apiGet } from "../../services/api";
 import { ClientRequestFormModal } from "../../components/portal/ClientRequestFormModal";
 import { useClientAuth } from "../../hooks/useClientAuth";
 import ClientCoaPreviewModal from "../../components/portal/ClientCoaPreviewModal";
@@ -58,6 +58,40 @@ function buildClientRequestNumberMap(items: any[]) {
     const map = new Map<number, number>();
     rows.forEach((r, idx) => map.set(r.id, idx + 1));
     return map;
+}
+
+function unwrapClientRequests(res: any): PaginatedResponse<ClientRequestItem> {
+    if (res && typeof res === "object" && "data" in res && "meta" in res) {
+        return res as PaginatedResponse<ClientRequestItem>;
+    }
+
+    const inner = res?.data ?? res;
+
+    if (inner && typeof inner === "object" && "data" in inner && "meta" in inner) {
+        return inner as PaginatedResponse<ClientRequestItem>;
+    }
+
+    if (Array.isArray(inner)) {
+        return {
+            data: inner as ClientRequestItem[],
+            meta: {
+                current_page: 1,
+                last_page: 1,
+                per_page: inner.length,
+                total: inner.length,
+            },
+        };
+    }
+
+    return {
+        data: [],
+        meta: {
+            current_page: 1,
+            last_page: 1,
+            per_page: 10,
+            total: 0,
+        },
+    };
 }
 
 type StatusFilter = "all" | Exclude<ClientRequestStatusView, "unknown">;
@@ -205,8 +239,12 @@ export default function ClientRequestsPage() {
             setError(null);
             setLoading(true);
 
-            const res = await clientSampleRequestService.list({ page: 1, per_page: 200 });
-            setItems((res.data ?? []) as ClientRequestItem[]);
+            const res = await apiGet<any>("/v1/client/samples", {
+                params: { page: 1, per_page: 200 },
+            });
+
+            const paginated = unwrapClientRequests(res);
+            setItems(paginated.data ?? []);
         } catch (e: any) {
             setError(getErrMsg(e));
             setItems([]);
@@ -359,7 +397,7 @@ export default function ClientRequestsPage() {
                         <button
                             type="button"
                             className="lims-icon-button"
-                            onClick={load}
+                            onClick={() => void load()}
                             aria-label={t("refresh", "Refresh")}
                             title={t("refresh", "Refresh")}
                             disabled={loading}
